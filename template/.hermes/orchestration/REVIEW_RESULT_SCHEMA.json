@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["review_result"],
+  "additionalProperties": false,
+  "properties": {
+    "review_result": {
+      "type": "object",
+      "required": ["schema_version", "status", "reviewed_paths", "findings", "baseline", "ownership", "e2e", "forbidden_actions", "gate_status", "next_step"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {"type": "integer", "const": 2},
+        "status": {"type": "string", "enum": ["APPROVED", "CHANGES_REQUIRED", "BLOCKED"]},
+        "reviewed_paths": {"type": "array", "items": {"type": "object", "required": ["path"], "additionalProperties": false, "properties": {"path": {"type": "string", "minLength": 1}}}},
+        "findings": {"type": "array", "items": {"type": "object", "required": ["severity", "path", "description", "evidence"], "additionalProperties": false, "properties": {"severity": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1}, "description": {"type": "string", "minLength": 1}, "evidence": {"type": "string", "minLength": 1}}}},
+        "baseline": {"type": "object", "required": ["preserved", "violations"], "additionalProperties": false, "properties": {"preserved": {"type": "boolean"}, "violations": {"type": "array", "items": {"type": "object", "required": ["path"], "additionalProperties": false, "properties": {"path": {"type": "string", "minLength": 1}}}}}},
+        "ownership": {"type": "object", "required": ["valid", "violations"], "additionalProperties": false, "properties": {"valid": {"type": "boolean"}, "violations": {"type": "array", "items": {"type": "object", "required": ["path"], "additionalProperties": false, "properties": {"path": {"type": "string", "minLength": 1}}}}}},
+        "e2e": {"type": "object", "required": ["files_modified", "execution_performed", "violation"], "additionalProperties": false, "properties": {"files_modified": {"type": "boolean"}, "execution_performed": {"type": "boolean"}, "violation": {"type": "boolean"}}},
+        "forbidden_actions": {"type": "object", "required": ["violations"], "additionalProperties": false, "properties": {"violations": {"type": "array", "items": {"type": "object", "required": ["action"], "additionalProperties": false, "properties": {"action": {"type": "string", "minLength": 1}}}}}},
+        "gate_status": {"type": "object", "required": ["focused_tests", "format", "analyze", "ci"], "additionalProperties": false, "properties": {"focused_tests": {"type": "string", "enum": ["PASS", "FAIL", "TIMEOUT", "BLOCKED", "PENDING"]}, "format": {"type": "string", "enum": ["PASS", "FAIL", "TIMEOUT", "BLOCKED", "PENDING"]}, "analyze": {"type": "string", "enum": ["PASS", "FAIL", "TIMEOUT", "BLOCKED", "PENDING"]}, "ci": {"type": "string", "enum": ["PASS", "FAIL", "TIMEOUT", "BLOCKED", "PENDING", "NOT_APPLICABLE", "DISABLED_BY_PROJECT_POLICY"]}}},
+        "next_step": {"type": "object", "required": ["action"], "additionalProperties": false, "properties": {"action": {"type": "string", "minLength": 1}}}
+      }
+    }
+  }
+}

@@ -1,0 +1,145 @@
+"""Synthetic protocol fixtures only; these are not product-execution evidence."""
+from __future__ import annotations
+
+import copy
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from validate_protocol import validate_json_text, validate_payload  # noqa: E402
+
+
+def executor_fixture(stage: str, status: str = "SUCCESS") -> dict:
+    return {
+        "executor_result": {
+            "schema_version": 2,
+            "stage": {"value": stage, "status": status},
+            "executor": {"name": "CODEX", "invocation_type": "EXTERNAL_CLI"},
+            "consulted_paths": [{"path": "lib/example.dart"}],
+            "modified_paths": [],
+            "created_paths": [],
+            "validated_symbols": [{"symbol": "example", "path": "lib/example.dart", "exists": True}],
+            "commands": [],
+            "blockers": [],
+            "stage_payload": {"summary": "synthetic test fixture", "tasks": [], "impact_files": [], "decisions": []},
+            "tdd_slices": [],
+            "next_step": {"stage": "PLAN", "action": "synthetic next action"},
+        }
+    }
+
+
+def successful_implementation() -> dict:
+    fixture = executor_fixture("IMPLEMENT")
+    fixture["executor_result"]["tdd_slices"] = [{
+        "id": "synthetic-slice-1",
+        "objective": "validate synthetic protocol behavior",
+        "test_file": "test/synthetic_protocol_test.dart",
+        "red_command": "synthetic red command",
+        "red_exit_code": 1,
+        "expected_failure": "expected functional assertion failure",
+        "red_failure_kind": "EXPECTED_FUNCTIONAL",
+        "minimal_implementation": "synthetic minimal implementation",
+        "green_command": "synthetic green command",
+        "green_exit_code": 0,
+        "green_result": "synthetic green result",
+    }]
+    return fixture
+
+
+def review_fixture(status: str = "APPROVED") -> dict:
+    return {
+        "review_result": {
+            "schema_version": 2,
+            "status": status,
+            "reviewed_paths": [{"path": "lib/example.dart"}],
+            "findings": [] if status == "APPROVED" else [{"severity": "medium", "path": "lib/example.dart", "description": "synthetic finding", "evidence": "synthetic evidence"}],
+            "baseline": {"preserved": True, "violations": []},
+            "ownership": {"valid": True, "violations": []},
+            "e2e": {"files_modified": False, "execution_performed": False, "violation": False},
+            "forbidden_actions": {"violations": []},
+            "gate_status": {"focused_tests": "PASS", "format": "PASS", "analyze": "PASS", "ci": "DISABLED_BY_PROJECT_POLICY"},
+            "next_step": {"action": "EVALUATE_DONE_WITH_CI_DISABLED"},
+        }
+    }
+
+
+class ProtocolValidationTests(unittest.TestCase):
+    def assertAccepted(self, action: str, payload: dict) -> None:
+        self.assertEqual([], validate_payload(action, payload), msg=validate_payload(action, payload))
+
+    def assertRejected(self, action: str, payload: object) -> None:
+        self.assertTrue(validate_payload(action, payload), msg="fixture unexpectedly accepted")
+
+    def test_accepts_specify_clarify_plan_tasks_and_test(self) -> None:
+        for action in ("SPECIFY", "CLARIFY", "PLAN", "TASKS", "TEST"):
+            with self.subTest(action=action):
+                fixture = executor_fixture(action)
+                fixture["executor_result"]["next_step"]["stage"] = "REVIEW" if action == "TEST" else "PLAN"
+                self.assertAccepted(action, fixture)
+
+    def test_accepts_implement_success_with_consistent_tdd(self) -> None:
+        self.assertAccepted("IMPLEMENT", successful_implementation())
+
+    def test_accepts_implement_blocked_with_partial_evidence(self) -> None:
+        fixture = successful_implementation()
+        fixture["executor_result"]["stage"]["status"] = "BLOCKED"
+        fixture["executor_result"]["blockers"] = [{"type": "SYNTHETIC", "description": "synthetic blocked state"}]
+        fixture["executor_result"]["tdd_slices"][0]["green_command"] = None
+        fixture["executor_result"]["tdd_slices"][0]["green_exit_code"] = None
+        fixture["executor_result"]["tdd_slices"][0]["green_result"] = None
+        self.assertAccepted("IMPLEMENT", fixture)
+
+    def test_accepts_review_approved_with_ci_disabled(self) -> None:
+        self.assertAccepted("REVIEW", review_fixture())
+
+    def test_accepts_review_changes_required(self) -> None:
+        self.assertAccepted("REVIEW", review_fixture("CHANGES_REQUIRED"))
+
+    def test_rejects_successful_executor_result_with_blockers(self) -> None:
+        fixture = executor_fixture("SPECIFY")
+        fixture["executor_result"]["blockers"] = [{"type": "SYNTHETIC", "description": "synthetic contradiction"}]
+
+        self.assertRejected("SPECIFY", fixture)
+
+    def test_rejects_approved_review_with_e2e_violation(self) -> None:
+        fixture = review_fixture()
+        fixture["review_result"]["e2e"]["violation"] = True
+
+        self.assertRejected("REVIEW", fixture)
+
+    def test_rejects_implement_success_without_tdd_slices(self) -> None:
+        self.assertRejected("IMPLEMENT", executor_fixture("IMPLEMENT"))
+
+    def test_rejects_green_nonzero_and_red_zero(self) -> None:
+        for field, value in (("green_exit_code", 1), ("red_exit_code", 0)):
+            with self.subTest(field=field):
+                fixture = successful_implementation()
+                fixture["executor_result"]["tdd_slices"][0][field] = value
+                self.assertRejected("IMPLEMENT", fixture)
+
+    def test_rejects_path_strings_stage_payload_absence_and_done(self) -> None:
+        for mutator in (
+            lambda f: f["executor_result"].update({"modified_paths": ["lib/example.dart"]}),
+            lambda f: f["executor_result"].update({"created_paths": ["lib/example.dart"]}),
+            lambda f: f["executor_result"].pop("stage_payload"),
+            lambda f: f["executor_result"]["next_step"].update({"stage": "DONE"}),
+        ):
+            fixture = executor_fixture("SPECIFY")
+            mutator(fixture)
+            self.assertRejected("SPECIFY", fixture)
+
+    def test_rejects_wrong_envelope_unknown_property_yaml_and_v1(self) -> None:
+        self.assertRejected("REVIEW", executor_fixture("TEST"))
+        self.assertRejected("IMPLEMENT", review_fixture())
+        unknown = executor_fixture("SPECIFY")
+        unknown["executor_result"]["unknown"] = True
+        self.assertRejected("SPECIFY", unknown)
+        self.assertTrue(validate_json_text("SPECIFY", "executor_result:\n  schema_version: 2"))
+        version_one = executor_fixture("SPECIFY")
+        version_one["executor_result"]["schema_version"] = 1
+        self.assertRejected("SPECIFY", version_one)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

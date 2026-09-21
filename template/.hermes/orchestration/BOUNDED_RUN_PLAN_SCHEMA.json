@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Bounded Run Plan v1/v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["plan_version", "plan_id", "created_at", "input", "authorization", "budgets", "recovery", "implementation_baseline", "gate_baseline", "actions", "termination", "warnings"],
+  "properties": {
+    "plan_version": {"enum": [1, 2]},
+    "plan_id": {"type": "string", "pattern": "^brp-[a-f0-9]{16}$"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "input": {"$ref": "#/$defs/input"},
+    "authorization": {"$ref": "#/$defs/authorization"},
+    "budgets": {"$ref": "#/$defs/budgets"},
+    "recovery": {"$ref": "#/$defs/recovery"},
+    "implementation_baseline": {"$ref": "#/$defs/implementationBaseline"},
+    "gate_baseline": {"$ref": "#/$defs/gates"},
+    "actions": {"type": "array", "items": {"$ref": "#/$defs/action"}},
+    "termination": {"$ref": "#/$defs/termination"},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "local_delivery": {"$ref": "#/$defs/localDelivery"}
+  },
+  "allOf": [
+    {"if": {"properties": {"plan_version": {"const": 2}}}, "then": {"required": ["local_delivery"]}},
+    {"if": {"properties": {"plan_version": {"const": 1}}}, "then": {"not": {"required": ["local_delivery"]}}}
+  ],
+  "$defs": {
+    "fsmStage": {"enum": ["SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST", "REVIEW", "DONE"]},
+    "input": {"type": "object", "additionalProperties": false, "required": ["state_sha256", "workspace_path", "git_common_dir", "branch", "head", "ticket", "start_stage", "start_status", "start_mode", "target_checkpoint"], "properties": {"state_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "workspace_path": {"type": "string", "minLength": 1}, "git_common_dir": {"type": "string", "minLength": 1}, "branch": {"type": "string", "minLength": 1}, "head": {"type": "string", "pattern": "^[a-f0-9]{40,64}$"}, "ticket": {"type": "string", "minLength": 1}, "start_stage": {"$ref": "#/$defs/fsmStage"}, "start_status": {"type": "string", "minLength": 1}, "start_mode": {"enum": ["MANUAL", "PAUSED", "BOUNDED_AUTO"]}, "target_checkpoint": {"const": "NEXT_HUMAN_CHECKPOINT"}}},
+    "authorization": {"type": "object", "additionalProperties": false, "required": ["required", "plan_sha256", "expires_on_state_change"], "properties": {"required": {"const": true}, "plan_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "expires_on_state_change": {"const": true}}},
+    "budgetValues": {"type": "object", "additionalProperties": false, "required": ["stage_transitions", "executor_calls", "corrective_retries", "tdd_slices", "investigation_expansions", "review_cycles", "ci_runs", "external_mutations"], "properties": {"stage_transitions": {"type": "integer", "minimum": 0}, "executor_calls": {"type": "integer", "minimum": 0}, "corrective_retries": {"type": "integer", "minimum": 0}, "tdd_slices": {"type": "integer", "minimum": 0}, "investigation_expansions": {"type": "integer", "minimum": 0}, "review_cycles": {"type": "integer", "minimum": 0}, "ci_runs": {"type": "integer", "minimum": 0}, "external_mutations": {"type": "integer", "minimum": 0}}},
+    "budgets": {"type": "object", "additionalProperties": false, "required": ["limits", "currently_used", "projected_use", "remaining_after_plan"], "properties": {"limits": {"$ref": "#/$defs/budgetValues"}, "currently_used": {"$ref": "#/$defs/budgetValues"}, "projected_use": {"$ref": "#/$defs/budgetValues"}, "remaining_after_plan": {"$ref": "#/$defs/budgetValues"}}},
+    "recovery": {"type": "object", "additionalProperties": false, "required": ["decision", "first_action"], "properties": {"decision": {"type": "string", "minLength": 1}, "first_action": {"type": ["string", "null"]}}},
+    "implementationBaseline": {"type": "object", "additionalProperties": false, "required": ["planned_slices", "completed_slices"], "properties": {"planned_slices": {"type": "array", "items": {"type": "string"}}, "completed_slices": {"type": "array", "items": {"type": "string"}}}},
+    "gates": {"type": "object", "additionalProperties": false, "required": ["focused_tests", "format", "analyze", "review", "ci", "project_ci_enabled"], "properties": {"focused_tests": {"type": "string"}, "format": {"type": "string"}, "analyze": {"type": "string"}, "review": {"type": "string"}, "ci": {"type": "string"}, "project_ci_enabled": {"type": "boolean"}}},
+    "action": {"type": "object", "additionalProperties": false, "required": ["sequence", "id", "stage", "action", "classification", "executor", "budget_cost", "preconditions", "success_transition", "stop_conditions", "conditional_on_previous_success", "external_mutation", "human_approval_required"], "properties": {"sequence": {"type": "integer", "minimum": 1}, "id": {"type": "string", "pattern": "^action-[0-9]+$"}, "stage": {"$ref": "#/$defs/fsmStage"}, "action": {"type": "string", "minLength": 1}, "classification": {"enum": ["AUTO_SAFE", "AUTO_WITH_BUDGET", "HUMAN_REQUIRED"]}, "executor": {"enum": ["HOST", "CODEX", "CLAUDE", "NONE"]}, "budget_cost": {"$ref": "#/$defs/budgetValues"}, "preconditions": {"type": "array", "items": {"type": "string"}}, "success_transition": {"$ref": "#/$defs/fsmStage"}, "stop_conditions": {"type": "array", "items": {"type": "string"}}, "conditional_on_previous_success": {"type": "boolean"}, "external_mutation": {"type": "boolean"}, "human_approval_required": {"type": "boolean"}}},
+    "termination": {"type": "object", "additionalProperties": false, "required": ["expected_reason", "expected_stage", "expected_status", "next_human_checkpoint", "planned_action_count"], "properties": {"expected_reason": {"type": "string", "minLength": 1}, "expected_stage": {"$ref": "#/$defs/fsmStage"}, "expected_status": {"type": "string", "minLength": 1}, "next_human_checkpoint": {"type": "string", "minLength": 1}, "planned_action_count": {"type": "integer", "minimum": 0}}},
+    "localAuthorization": {"type": "object", "additionalProperties": false, "required": ["id", "request_evidence", "ticket", "canonical_scope", "scope_sha256", "workspace", "total_limits"], "properties": {"id": {"type": "string", "minLength": 1}, "request_evidence": {"type": "string", "minLength": 1}, "ticket": {"type": "string", "minLength": 1}, "canonical_scope": {"type": "string", "minLength": 1}, "scope_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "workspace": {"type": "object", "additionalProperties": false, "required": ["path", "branch", "head", "git_common_dir"], "properties": {"path": {"type": "string", "minLength": 1}, "branch": {"type": "string", "minLength": 1}, "head": {"type": "string", "pattern": "^[a-f0-9]{40,64}$"}, "git_common_dir": {"type": "string", "minLength": 1}}}, "total_limits": {"$ref": "#/$defs/budgetValues"}}},
+    "localDelivery": {"description": "LOCAL_DELIVERY opt-in is plan_version 2 with local_delivery.authorization. It binds the local authorization and cumulative usage; input.start_mode remains BOUNDED_AUTO rather than using a separate mode enum.", "type": "object", "additionalProperties": false, "required": ["authorization", "authorization_sha256", "usage_floor", "reserved_use"], "properties": {"authorization": {"$ref": "#/$defs/localAuthorization"}, "authorization_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "usage_floor": {"$ref": "#/$defs/budgetValues"}, "reserved_use": {"$ref": "#/$defs/budgetValues"}}}
+  }
+}
