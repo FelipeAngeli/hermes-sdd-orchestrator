@@ -143,6 +143,16 @@ class BoundedRunDriverTests(unittest.TestCase):
                 approved_plan_sha256=legacy_plan["authorization"]["plan_sha256"],
             )
 
+    def test_runtime_sequence_type_is_rejected_before_plan_slicing(self) -> None:
+        for invalid in ("0", True):
+            with self.subTest(invalid=invalid):
+                value, plan = self.approved()
+                value["runtime"]["current_sequence"] = invalid
+                value["runtime"]["actions_executed"] = invalid
+
+                with self.assertRaisesRegex(driver.DriverError, "sequence counters must be integers"):
+                    driver.evaluate_next(value, plan)
+
     def test_cli_bind_creates_a_complete_runtime_for_a_valid_persisted_plan(self) -> None:
         """Protocol simulation, not product E2E or an actual Codex execution."""
         value = local_delivery_snapshot()
@@ -344,7 +354,7 @@ class BoundedRunDriverTests(unittest.TestCase):
         value, plan = self.local_approved(value)
         progressed = copy.deepcopy(value)
         progressed["runtime"].update({"current_sequence": 1, "actions_executed": 1})
-        with self.assertRaisesRegex(driver.DriverError, "usage regressed"):
+        with self.assertRaisesRegex(driver.DriverError, "ledger length does not match accepted actions"):
             driver.evaluate_next(progressed, plan)
 
         for field, replacement in (("id", "other"), ("scope_sha256", "0" * 64)):
@@ -462,6 +472,39 @@ class BoundedRunDriverTests(unittest.TestCase):
 
         with self.assertRaisesRegex(driver.DriverError, "INVALID_PLAN"):
             driver.evaluate_next(value, plan)
+
+    def test_local_delivery_rejects_gate_baseline_substitution_and_live_regression(self) -> None:
+        pending = local_delivery_snapshot(stage="TEST")
+        pending["state"]["next_action"] = "TEST"
+        substituted = planner.create_plan(copy.deepcopy(pending))
+        substituted["gate_baseline"].update({"focused_tests": "PASS", "format": "PASS"})
+        substituted["actions"] = [
+            entry for entry in substituted["actions"]
+            if entry["action"] not in {"TEST_FOCUSED", "FORMAT_DART_CHANGED_FILES"}
+        ]
+        for sequence, entry in enumerate(substituted["actions"], start=1):
+            entry.update({"sequence": sequence, "id": f"action-{sequence}"})
+        substituted["authorization"]["plan_sha256"] = planner.hash_plan(substituted)
+        pending["runtime"] = runtime(pending, substituted)
+
+        with self.assertRaisesRegex(driver.DriverError, "gate baseline"):
+            driver.evaluate_next(pending, substituted)
+
+        approved = local_delivery_snapshot(stage="REVIEW")
+        approved["state"].update({"status": "APPROVED", "next_action": "REVIEW"})
+        approved["gates"].update({
+            "focused_tests": "PASS",
+            "format": "PASS",
+            "analyze": "PASS",
+            "review": "APPROVED",
+            "ci": "DISABLED_BY_PROJECT_POLICY",
+        })
+        plan = planner.create_plan(copy.deepcopy(approved))
+        approved["runtime"] = runtime(approved, plan)
+        approved["gates"]["focused_tests"] = "PENDING"
+
+        with self.assertRaisesRegex(driver.DriverError, "gate progress"):
+            driver.evaluate_next(approved, plan)
 
     def test_test_gate_progress_does_not_stale_the_immutable_plan_baseline(self) -> None:
         value = snapshot(stage="TEST")

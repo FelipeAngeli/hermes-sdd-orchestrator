@@ -4,6 +4,7 @@ This directory separates controller concerns while keeping mutable local state a
 
 ```text
 orchestration/
+├── agents/      # stage-specific leaf-worker briefs
 ├── contracts/   # executor and reviewer interfaces
 ├── policies/    # FSM, gates, recovery and bounded automation
 ├── runtime/     # deterministic Python tools
@@ -32,3 +33,5 @@ python3 .hermes/orchestration/runtime/bounded_run_driver.py --help
 ```
 
 Configure project-specific validation in `policies/GATES.md` before starting a demand. The mutable state files are controller-owned and must not be moved into a source layer.
+
+Before dispatching a worker, load the matching brief from `agents/` together with only the applicable contract, policy excerpt and scoped project evidence. The brief never grants STATE or transition authority.

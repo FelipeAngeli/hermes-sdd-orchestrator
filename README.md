@@ -23,9 +23,10 @@ Hermes profile (once)                         Target Git project (per project)
 ─────────────────────                         ──────────────────────────────
 ~/.hermes/skills/sdd-orchestrator/            .hermes.md
 ├── SKILL.md                                  .hermes/orchestration/
-├── scripts/install_project.py                ├── contracts/   # worker/review interfaces
-└── templates/                                ├── policies/    # FSM, gates, recovery
-    └── .hermes/                              ├── runtime/     # executable controller tools
+├── scripts/install_project.py                ├── agents/      # stage-specific worker briefs
+└── templates/                                ├── contracts/   # worker/review interfaces
+    └── .hermes/                              ├── policies/    # FSM, gates, recovery
+                                               ├── runtime/     # executable controller tools
                                                ├── schemas/     # JSON validation contracts
                                                ├── tests/       # installed protocol tests
                                                ├── STATE.md (fresh local state)
@@ -51,6 +52,7 @@ skills/
         ├── scripts/install_project.py
         └── templates/.hermes/       # project-local controller payload
             └── orchestration/
+                ├── agents/
                 ├── contracts/
                 ├── policies/
                 ├── runtime/

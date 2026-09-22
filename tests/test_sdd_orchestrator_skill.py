@@ -15,11 +15,44 @@ class SddOrchestratorSkillTests(unittest.TestCase):
     def test_project_payload_has_layered_architecture(self) -> None:
         orchestration = SKILL_ROOT / "templates" / ".hermes" / "orchestration"
 
-        for layer in ("contracts", "policies", "runtime", "schemas", "tests"):
+        for layer in ("agents", "contracts", "policies", "runtime", "schemas", "tests"):
             self.assertTrue((orchestration / layer).is_dir(), layer)
 
         self.assertEqual([], list(orchestration.glob("*.py")))
         self.assertEqual([], list(orchestration.glob("*.json")))
+
+    def test_stage_agents_are_complete_and_controller_safe(self) -> None:
+        agents = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "agents"
+        expected = {
+            "specify.md": "SPECIFY",
+            "clarify.md": "CLARIFY",
+            "plan.md": "PLAN",
+            "tasks.md": "TASKS",
+            "implement.md": "IMPLEMENT",
+            "test.md": "TEST",
+            "review.md": "REVIEW",
+        }
+
+        self.assertEqual(set(expected), {path.name for path in agents.glob("*.md")})
+        for filename, stage in expected.items():
+            content = (agents / filename).read_text(encoding="utf-8")
+            schema = "REVIEW_RESULT_SCHEMA.json" if stage == "REVIEW" else "EXECUTOR_RESULT_SCHEMA.json"
+            with self.subTest(filename=filename):
+                self.assertIn(f"stage: {stage}", content)
+                self.assertIn("executor_policy: CONTROLLER_SELECTED", content)
+                self.assertIn(f"result_schema: ../schemas/{schema}", content)
+                self.assertTrue((agents / ".." / "schemas" / schema).resolve().is_file())
+                self.assertIn("Never write `STATE.md`", content)
+                self.assertIn("Never spawn another worker", content)
+                self.assertIn("The controller alone decides transitions", content)
+                self.assertIn(
+                    "Never commit, push, open a PR, mutate a backend, update an external system, or run unapproved E2E.",
+                    content,
+                )
+                if stage == "IMPLEMENT":
+                    self.assertIn("Write only to paths explicitly assigned by the controller", content)
+                else:
+                    self.assertIn("The workspace is read-only for this stage", content)
 
     def test_documentation_has_no_legacy_flat_orchestration_paths(self) -> None:
         orchestration = SKILL_ROOT / "templates" / ".hermes" / "orchestration"
@@ -69,6 +102,15 @@ class SddOrchestratorSkillTests(unittest.TestCase):
 
     def test_loop_modes_distinguish_schema1_preview_from_schema2_authorization(self) -> None:
         content = (SKILL_ROOT / "templates" / ".hermes.md").read_text(encoding="utf-8")
+        skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        loop_policy = (
+            SKILL_ROOT
+            / "templates"
+            / ".hermes"
+            / "orchestration"
+            / "policies"
+            / "LOOP_POLICY.md"
+        ).read_text(encoding="utf-8")
 
         self.assertIn(
             "Schema 1 BOUNDED_AUTO requires a fresh deterministic preview and per-run confirmation.",
@@ -85,6 +127,11 @@ class SddOrchestratorSkillTests(unittest.TestCase):
         self.assertIn("one leaf worker at a time", content)
         self.assertIn("total executor budget", content)
         self.assertIn("never recursively spawn workers", content)
+        self.assertIn("BOUNDED_AUTO plans use Codex as their canonical executor", content)
+        self.assertIn("Schema 1 BOUNDED_AUTO requires a fresh deterministic preview", skill)
+        self.assertIn("Schema 2 LOCAL_DELIVERY uses its existing explicit authorization", skill)
+        self.assertNotIn("`BOUNDED_AUTO` never starts without an approved fresh plan", skill)
+        self.assertIn("Este fallback aplica-se somente a ações MANUAL", loop_policy)
 
     def test_installs_project_local_configuration_from_skill_bundle(self) -> None:
         self.assertTrue((SKILL_ROOT / "SKILL.md").is_file())
@@ -106,6 +153,7 @@ class SddOrchestratorSkillTests(unittest.TestCase):
             applied = self.execute("python3", str(INSTALLER), "--target", str(target), "--apply", "--json")
             self.assertTrue(json.loads(applied.stdout)["applied"])
             self.assertTrue((target / ".hermes" / "orchestration" / "STATE.md").is_file())
+            self.assertTrue((target / ".hermes" / "orchestration" / "agents" / "implement.md").is_file())
             self.assertLessEqual(len((target / ".hermes.md").read_text(encoding="utf-8")), 8000)
 
             installed_protocol = target / ".hermes" / "orchestration" / "tests" / "test_protocol.py"

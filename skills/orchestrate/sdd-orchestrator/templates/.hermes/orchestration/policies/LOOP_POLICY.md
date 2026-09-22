@@ -500,7 +500,9 @@ Before every executor dispatch, run the diagnostic recovery probe from `ACTION_R
 
 ## 11. Fallback de executor
 
-Claude → Codex continua permitido conforme .hermes.md.
+Este fallback aplica-se somente a ações MANUAL. Planos BOUNDED_AUTO usam o executor CODEX declarado pelo planner e não trocam de executor durante a rodada.
+
+Em MANUAL, Claude → Codex continua permitido conforme `.hermes.md`.
 
 Fallback:
 

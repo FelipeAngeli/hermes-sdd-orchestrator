@@ -105,10 +105,14 @@ def _validate(snapshot: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
         raise DriverError("PLAN_STALE: runtime approval does not bind this exact plan")
     if runtime["planned_action_count"] != len(plan["actions"]):
         raise DriverError("PLAN_STALE: planned_action_count differs from approved plan")
-    if not isinstance(runtime["current_sequence"], int) or not isinstance(runtime["actions_executed"], int):
+    if type(runtime["current_sequence"]) is not int or type(runtime["actions_executed"]) is not int:
         raise DriverError("INVALID_RUNTIME: sequence counters must be integers")
     if runtime["current_sequence"] != runtime["actions_executed"] or not 0 <= runtime["current_sequence"] <= len(plan["actions"]):
         raise DriverError("SEQUENCE_SKIPPED: runtime sequence is not a valid accepted-action cursor")
+    completed_actions = [entry["action"] for entry in plan["actions"][:runtime["current_sequence"]]]
+    gate_error = planner.gate_progress_error(plan["gate_baseline"], snapshot["gates"], completed_actions)
+    if gate_error:
+        raise DriverError(f"INVALID_PLAN: gate progress invalid: {gate_error}")
     predecessor = runtime["expected_predecessor_state_sha256"]
     if not isinstance(predecessor, str) or predecessor != snapshot["state"]["sha256"]:
         raise DriverError("PLAN_STALE: persisted STATE does not match the expected predecessor hash")
@@ -137,15 +141,12 @@ def _validate_local_delivery_progress(
         raise DriverError("INVALID_PLAN: LOCAL_DELIVERY limits drift from authorization")
     if local_plan["reserved_use"] != plan["budgets"]["projected_use"]:
         raise DriverError("INVALID_PLAN: LOCAL_DELIVERY reservation drift")
+    accepted_actions = plan["actions"][:runtime["current_sequence"]]
+    ledger_error = planner.validate_local_delivery_ledger_progress(snapshot, plan, accepted_actions)
+    if ledger_error:
+        raise DriverError(ledger_error)
     used = planner.local_delivery_usage(snapshot)
-    accepted = planner.zero_budgets()
-    for entry in plan["actions"][:runtime["current_sequence"]]:
-        for key in planner.BUDGET_KEYS:
-            accepted[key] += entry["budget_cost"][key]
     for key in planner.BUDGET_KEYS:
-        minimum = local_plan["usage_floor"][key] + accepted[key]
-        if used[key] < minimum:
-            raise DriverError("INVALID_PLAN: LOCAL_DELIVERY usage regressed below accepted actions")
         if used[key] > authorization["total_limits"][key]:
             raise DriverError("INVALID_PLAN: LOCAL_DELIVERY usage exceeds authorization")
 
@@ -211,18 +212,7 @@ def _action_precondition_failure(
         and not implementation["all_slices_green"]
     ):
         return "IMPLEMENTATION_SLICES_NOT_GREEN"
-    if action == "FORMAT_DART_CHANGED_FILES" and gates["focused_tests"] != "PASS":
-        return "FOCUSED_TESTS_REQUIRED"
-    if action == "ANALYZE" and (gates["focused_tests"] != "PASS" or gates["format"] != "PASS"):
-        return "TEST_AND_FORMAT_REQUIRED"
-    if action == "REVIEW" and gates["analyze"] != "PASS":
-        return "ANALYZE_REQUIRED"
-    if action in {"CI", "EVALUATE_DONE", "EVALUATE_DONE_WITH_CI_DISABLED", "CLOSE_BOUNDED_RUN"}:
-        if gates["review"] != "APPROVED":
-            return "REVIEW_APPROVAL_REQUIRED"
-        if action == "EVALUATE_DONE_WITH_CI_DISABLED" and gates["project_ci_enabled"]:
-            return "CI_REQUIRED"
-    return None
+    return planner.gate_precondition_error(action, gates)
 
 
 def _replan(snapshot: dict[str, Any], runtime: dict[str, Any]) -> dict[str, Any]:

@@ -144,6 +144,38 @@ def local_delivery_usage(snapshot: dict[str, Any]) -> dict[str, int]:
     return used
 
 
+def ledger_usage(entries: list[dict[str, Any]]) -> dict[str, int]:
+    used = zero_budgets()
+    for entry in entries:
+        for key in BUDGET_KEYS:
+            used[key] += entry["cost"][key]
+    return used
+
+
+def validate_local_delivery_ledger_progress(
+    snapshot: dict[str, Any], plan: dict[str, Any], accepted_actions: list[dict[str, Any]],
+) -> str | None:
+    """Bind the plan floor to an immutable ledger prefix and charge each accepted action."""
+    local = plan["local_delivery"]
+    ledger = snapshot["local_delivery"]["usage_ledger"]
+    baseline_size = local["usage_ledger_size"]
+    if baseline_size > len(ledger):
+        return "INVALID_PLAN: LOCAL_DELIVERY ledger regressed below plan baseline"
+    baseline = ledger[:baseline_size]
+    if local["usage_ledger_sha256"] != sha256_json(baseline):
+        return "INVALID_PLAN: LOCAL_DELIVERY ledger baseline hash drift"
+    if local["usage_floor"] != ledger_usage(baseline):
+        return "INVALID_PLAN: LOCAL_DELIVERY usage floor does not match ledger baseline"
+    if len(ledger) != baseline_size + len(accepted_actions):
+        return "INVALID_PLAN: LOCAL_DELIVERY ledger length does not match accepted actions"
+    for ledger_entry, action in zip(ledger[baseline_size:], accepted_actions):
+        if ledger_entry["action_id"] != f'{plan["plan_id"]}:{action["id"]}':
+            return "INVALID_PLAN: LOCAL_DELIVERY ledger action id drift"
+        if ledger_entry["cost"] != action["budget_cost"]:
+            return "INVALID_PLAN: LOCAL_DELIVERY ledger action cost drift"
+    return None
+
+
 def validate_local_delivery_snapshot(snapshot: dict[str, Any]) -> None:
     local_delivery = snapshot["local_delivery"]
     authorization = local_delivery["authorization"]
@@ -311,12 +343,17 @@ def create_plan(snapshot: dict[str, Any], target: str = TARGET) -> dict[str, Any
             plan_normal_path(snapshot, stage, status, append)
 
     remaining = {key: limits[key] - used[key] - projected[key] for key in BUDGET_KEYS}
+    is_local_delivery = snapshot["schema_version"] == 2
     payload = {
-        "plan_version": PLAN_VERSION,
+        "plan_version": LOCAL_DELIVERY_PLAN_VERSION if is_local_delivery else PLAN_VERSION,
         "plan_id": "brp-" + sha256_json({"snapshot": snapshot, "target": target})[:16],
         "created_at": CREATED_AT,
         "input": {"state_sha256": snapshot["state"]["sha256"], "workspace_path": snapshot["workspace"]["path"], "git_common_dir": snapshot["workspace"]["git_common_dir"], "branch": snapshot["workspace"]["branch"], "head": snapshot["workspace"]["head"], "ticket": snapshot["state"]["ticket"], "start_stage": stage, "start_status": status, "start_mode": snapshot["loop"]["mode"], "target_checkpoint": target},
-        "authorization": {"required": True, "plan_sha256": "0" * 64, "expires_on_state_change": True},
+        "authorization": {
+            "required": not is_local_delivery,
+            "plan_sha256": "0" * 64,
+            "expires_on_state_change": not is_local_delivery,
+        },
         "budgets": {"limits": limits, "currently_used": used, "projected_use": projected, "remaining_after_plan": remaining},
         "recovery": {"decision": snapshot["recovery"]["decision"], "first_action": entries[0]["action"] if entries else None},
         "implementation_baseline": {
@@ -325,16 +362,17 @@ def create_plan(snapshot: dict[str, Any], target: str = TARGET) -> dict[str, Any
         },
         "gate_baseline": copy.deepcopy(snapshot["gates"]),
         "actions": entries,
-        "termination": {"expected_reason": termination, "expected_stage": entries[-1]["success_transition"] if entries else stage, "expected_status": "PAUSED" if termination != "BLOCKED" else "BLOCKED", "next_human_checkpoint": "PLAN_APPROVAL_OR_STOP", "planned_action_count": len(entries)},
+        "termination": {"expected_reason": termination, "expected_stage": entries[-1]["success_transition"] if entries else stage, "expected_status": "PAUSED" if termination != "BLOCKED" else "BLOCKED", "next_human_checkpoint": "LOCAL_DELIVERY_AUTHORIZATION_REMAINS_ACTIVE" if is_local_delivery else "PLAN_APPROVAL_OR_STOP", "planned_action_count": len(entries)},
         "warnings": warnings,
     }
-    if snapshot["schema_version"] == 2:
+    if is_local_delivery:
         authorization = copy.deepcopy(snapshot["local_delivery"]["authorization"])
-        payload["plan_version"] = LOCAL_DELIVERY_PLAN_VERSION
         payload["local_delivery"] = {
             "authorization": authorization,
             "authorization_sha256": sha256_json(authorization),
             "usage_floor": copy.deepcopy(used),
+            "usage_ledger_size": len(snapshot["local_delivery"]["usage_ledger"]),
+            "usage_ledger_sha256": sha256_json(snapshot["local_delivery"]["usage_ledger"]),
             "reserved_use": copy.deepcopy(projected),
         }
     payload["authorization"]["plan_sha256"] = hash_plan(payload)
@@ -354,6 +392,61 @@ def completion_gates_are_compatible(gates: dict[str, Any]) -> bool:
         if gates["project_ci_enabled"]
         else gates["ci"] == "DISABLED_BY_PROJECT_POLICY"
     )
+
+
+def gate_progress_error(
+    baseline: dict[str, Any], current: dict[str, Any], completed_actions: list[str],
+) -> str | None:
+    """Reject substituted baselines and regressions after accepted gate actions."""
+    if baseline["project_ci_enabled"] != current["project_ci_enabled"]:
+        return "project CI policy drifted from the plan baseline"
+    for gate, baseline_value in baseline.items():
+        if gate == "project_ci_enabled" or baseline_value == "PENDING":
+            continue
+        if current[gate] != baseline_value:
+            return f"gate baseline {gate}={baseline_value} contradicts current {current[gate]}"
+    accepted_results = {
+        "TEST_FOCUSED": ("focused_tests", "PASS"),
+        "FORMAT_DART_CHANGED_FILES": ("format", "PASS"),
+        "ANALYZE": ("analyze", "PASS"),
+        "REVIEW": ("review", "APPROVED"),
+        "CI": ("ci", "PASS"),
+    }
+    for action in completed_actions:
+        expected = accepted_results.get(action)
+        if expected is not None and current[expected[0]] != expected[1]:
+            return f"gate progress for {action} regressed from {expected[1]} to {current[expected[0]]}"
+    return None
+
+
+def gate_precondition_error(action: str, gates: dict[str, Any]) -> str | None:
+    """Return the unmet live gate precondition for a planned action."""
+    if action == "FORMAT_DART_CHANGED_FILES" and gates["focused_tests"] != "PASS":
+        return "FOCUSED_TESTS_REQUIRED"
+    if action == "ANALYZE" and (gates["focused_tests"] != "PASS" or gates["format"] != "PASS"):
+        return "TEST_AND_FORMAT_REQUIRED"
+    if action == "REVIEW" and any(gates[name] != "PASS" for name in ("focused_tests", "format", "analyze")):
+        return "TEST_FORMAT_AND_ANALYZE_REQUIRED"
+    if action == "CI":
+        if any(gates[name] != "PASS" for name in ("focused_tests", "format", "analyze")) or gates["review"] != "APPROVED":
+            return "REVIEW_PREREQUISITES_REQUIRED"
+        if not gates["project_ci_enabled"]:
+            return "CI_DISABLED_BY_PROJECT_POLICY"
+    if action in {"EVALUATE_DONE", "EVALUATE_DONE_WITH_CI_DISABLED", "CLOSE_BOUNDED_RUN"}:
+        completion_passes = (
+            gates["focused_tests"] == "PASS"
+            and gates["format"] == "PASS"
+            and gates["analyze"] == "PASS"
+            and gates["review"] == "APPROVED"
+            and (
+                gates["ci"] == "PASS"
+                if gates["project_ci_enabled"]
+                else gates["ci"] == "DISABLED_BY_PROJECT_POLICY"
+            )
+        )
+        if not completion_passes:
+            return "DONE_GATES_NOT_PASSED"
+    return None
 
 
 def test_gate_sequence(gates: dict[str, Any]) -> list[str]:
@@ -527,6 +620,8 @@ def validate_plan(plan: Any, snapshot: Any) -> list[str]:
     errors = sorted(jsonschema.Draft202012Validator(plan_schema()).iter_errors(plan), key=lambda error: list(error.path))
     if errors:
         return ["INVALID_PLAN: " + "; ".join(error.message for error in errors[:3])]
+    if (snapshot["schema_version"] == 2) != (plan["plan_version"] == LOCAL_DELIVERY_PLAN_VERSION):
+        return ["INVALID_PLAN: snapshot schema version and plan version must match"]
     if plan["authorization"]["plan_sha256"] != hash_plan(plan):
         return ["INVALID_PLAN: plan_sha256 does not match canonical plan content"]
     if snapshot["schema_version"] == 2:
@@ -569,6 +664,9 @@ def validate_local_delivery_plan(plan: dict[str, Any], snapshot: dict[str, Any])
     _, used = budget_values(snapshot)
     if local["usage_floor"] != used:
         return "INVALID_PLAN: LOCAL_DELIVERY usage floor regressed or drifted"
+    ledger_error = validate_local_delivery_ledger_progress(snapshot, plan, [])
+    if ledger_error:
+        return ledger_error
     if local["reserved_use"] != plan["budgets"]["projected_use"]:
         return "INVALID_PLAN: LOCAL_DELIVERY reservation drift"
     limits = authorization["total_limits"]

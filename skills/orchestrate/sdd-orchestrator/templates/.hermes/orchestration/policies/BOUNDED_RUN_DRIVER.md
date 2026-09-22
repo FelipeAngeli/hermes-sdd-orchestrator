@@ -2,12 +2,12 @@
 
 ## Scope
 
-`bounded_run_driver.py` is the pure, local runtime decision engine for an already approved `BOUNDED_AUTO` plan. It does not activate a run, execute an executor, write `STATE.md`, mutate Git, or bypass recovery, budgets, or authorization.
+`bounded_run_driver.py` is the pure, local runtime decision engine for an authorized `BOUNDED_AUTO` plan: an exactly approved plan in schema 1, or a schema 2 projection bound to the persisted LOCAL_DELIVERY authorization. It does not activate a run, execute an executor, write `STATE.md`, mutate Git, or bypass recovery, budgets, or authorization.
 
 The controller owns all effects. For each isolated action it must:
 
 1. read and normalize STATE plus the recovery result;
-2. call `next` with the approved plan;
+2. call `next` with the validated, authorization-bound plan;
 3. when `EXECUTE_NEXT`, prepare the journal and execute exactly that action;
 4. validate its result, persist STATE, verify `STATE_COMMITTED`, and release;
 5. when another plan action remains, call `next` again; `ROLLOVER_REQUIRED` must be resolved by rollover before the next dispatch;

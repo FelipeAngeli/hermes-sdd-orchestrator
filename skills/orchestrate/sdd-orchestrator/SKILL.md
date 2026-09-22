@@ -1,7 +1,7 @@
 ---
 name: sdd-orchestrator
 description: Install and run safe project-local SDD orchestration.
-version: 3.0.0
+version: 3.1.0
 author: Felipe Angeli (FelipeAngeli), Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -51,17 +51,17 @@ The dry run must return `READY` before `--apply`. Installation must return `appl
 ## Procedure
 
 1. Read the target project's instructions and capture the Git baseline. Completion: protected pre-existing files are recorded before any edit.
-2. Read the installed local controller documents: `.hermes.md`, `.hermes/orchestration/STATE.md`, `.hermes/orchestration/policies/LOOP_POLICY.md`, `.hermes/orchestration/policies/GATES.md`, `.hermes/orchestration/policies/ACTION_RECOVERY.md`, and the applicable file under `.hermes/orchestration/contracts/`. Completion: the current FSM state and allowed next action are known.
+2. Read the installed local controller documents: `.hermes.md`, `.hermes/orchestration/STATE.md`, `.hermes/orchestration/policies/LOOP_POLICY.md`, `.hermes/orchestration/policies/GATES.md`, `.hermes/orchestration/policies/ACTION_RECOVERY.md`, the matching stage brief under `.hermes/orchestration/agents/`, and the applicable contract. Completion: the current FSM state and allowed next action are known.
 3. Configure the target-specific commands in `.hermes/orchestration/policies/GATES.md`. Completion: formatter, focused test, analysis, and CI policy are explicit; no generic placeholder is used for DONE.
-4. In `MANUAL`, perform only an explicitly requested action. For `BOUNDED_AUTO`, generate a fresh deterministic preview and obtain explicit approval linked to it. Completion: mode, budgets, and authorization are persisted in STATE.
-5. Before every worker call, run action recovery; issue a stage-specific structured result contract; validate artifact schema, paths, symbols, ownership, and required evidence. Completion: STATE is committed and verified before the next action.
+4. In `MANUAL`, perform only an explicitly requested action. Schema 1 BOUNDED_AUTO requires a fresh deterministic preview and approval linked to that exact plan. Schema 2 LOCAL_DELIVERY uses its existing explicit authorization bound to ticket, scope, workspace and cumulative limits; replanning does not request a new approval. Completion: mode, budgets, and authorization are persisted in STATE.
+5. Before every worker call, run action recovery; load the matching `agents/<stage>.md` brief; issue a stage-specific structured result contract; validate artifact schema, paths, symbols, ownership, and required evidence. Completion: STATE is committed and verified before the next action.
 6. Run each implementation slice RED → minimal implementation → GREEN. Completion: every slice has expected failure and passing evidence.
 7. Run final gates in `.hermes/orchestration/policies/GATES.md` order and perform structured REVIEW. Completion: all required gate states allow DONE.
 
 ## Pitfalls
 
 - This is a global **skill**, but it installs the actual orchestration policy and state **inside the target project**. Do not write SDD state under the Hermes home directory.
-- `MANUAL` never advances automatically. `BOUNDED_AUTO` never starts without an approved fresh plan.
+- `MANUAL` never advances automatically. Schema 1 BOUNDED_AUTO never starts without an approved fresh plan; schema 2 LOCAL_DELIVERY requires its persisted request authorization and does not seek fresh approval for replans.
 - A valid worker envelope is not proof of execution. Validate independent evidence before transitions.
 - Do not use polling, background waits, force flags, overwrites, or Git reset/checkout to resolve conflicts.
 

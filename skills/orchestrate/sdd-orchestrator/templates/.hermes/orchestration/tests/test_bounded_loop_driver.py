@@ -17,7 +17,7 @@ RUNTIME = Path(__file__).resolve().parents[1] / "runtime"
 sys.path.insert(0, str(RUNTIME))
 
 import bounded_run_planner as planner
-from test_bounded_run_planner import snapshot
+from test_bounded_run_planner import local_delivery_snapshot, snapshot
 
 import bounded_loop_driver as driver
 
@@ -113,6 +113,98 @@ class BoundedLoopDriverTests(unittest.TestCase):
         plan["authorization"]["plan_sha256"] = planner.hash_plan(plan)
 
         with self.assertRaisesRegex(driver.DriverError, "INVALID_PLAN"):
+            driver.evaluate_next(value, plan)
+
+    def test_local_delivery_authorization_drift_is_rejected_before_dispatch(self) -> None:
+        value = local_delivery_snapshot()
+        plan = planner.create_plan(value)
+        plan["local_delivery"]["authorization"]["id"] = "forged-authorization"
+        plan["local_delivery"]["authorization_sha256"] = planner.sha256_json(
+            plan["local_delivery"]["authorization"]
+        )
+        plan["authorization"]["plan_sha256"] = planner.hash_plan(plan)
+
+        with self.assertRaisesRegex(driver.DriverError, "authorization drift"):
+            driver.evaluate_next(value, plan)
+
+    def test_local_delivery_rejects_gate_baseline_substitution_and_live_regression(self) -> None:
+        pending = local_delivery_snapshot()
+        pending["state"].update({"stage": "TEST", "next_action": "TEST"})
+        substituted = planner.create_plan(copy.deepcopy(pending))
+        substituted["gate_baseline"].update({"focused_tests": "PASS", "format": "PASS"})
+        substituted["actions"] = [
+            entry for entry in substituted["actions"]
+            if entry["action"] not in {"TEST_FOCUSED", "FORMAT_DART_CHANGED_FILES"}
+        ]
+        for sequence, entry in enumerate(substituted["actions"], start=1):
+            entry.update({"sequence": sequence, "id": f"action-{sequence}"})
+        substituted["authorization"]["plan_sha256"] = planner.hash_plan(substituted)
+
+        with self.assertRaisesRegex(driver.DriverError, "gate baseline"):
+            driver.evaluate_next(pending, substituted)
+
+        approved = local_delivery_snapshot()
+        approved["state"].update({
+            "stage": "REVIEW",
+            "status": "APPROVED",
+            "next_action": "REVIEW",
+        })
+        approved["gates"].update({
+            "focused_tests": "PASS",
+            "format": "PASS",
+            "analyze": "PASS",
+            "review": "APPROVED",
+            "ci": "DISABLED_BY_PROJECT_POLICY",
+        })
+        plan = planner.create_plan(copy.deepcopy(approved))
+        approved["gates"]["focused_tests"] = "PENDING"
+
+        with self.assertRaisesRegex(driver.DriverError, "gate progress"):
+            driver.evaluate_next(approved, plan)
+
+    def test_local_delivery_rejects_completed_actions_without_cumulative_budget_charge(self) -> None:
+        executor_progress = local_delivery_snapshot()
+        executor_plan = planner.create_plan(copy.deepcopy(executor_progress))
+        executor_progress["state"].update({
+            "stage": "CLARIFY",
+            "completed": ["SPECIFY"],
+            "next_action": "CLARIFY",
+        })
+
+        with self.assertRaisesRegex(driver.DriverError, "ledger length does not match accepted actions"):
+            driver.evaluate_next(executor_progress, executor_plan)
+
+        slice_progress = local_delivery_snapshot()
+        slice_progress["state"].update({"stage": "IMPLEMENT", "next_action": "IMPLEMENT_SLICE"})
+        slice_plan = planner.create_plan(copy.deepcopy(slice_progress))
+        slice_progress["implementation"].update({
+            "completed_slices": ["slice-1"],
+            "next_slice": "slice-2",
+        })
+
+        with self.assertRaisesRegex(driver.DriverError, "ledger length does not match accepted actions"):
+            driver.evaluate_next(slice_progress, slice_plan)
+
+    def test_local_delivery_rejects_reused_historical_ledger_charge(self) -> None:
+        value = local_delivery_snapshot()
+        historical_cost = planner.zero_budgets()
+        historical_cost["executor_calls"] = 1
+        value["local_delivery"]["usage_ledger"] = [
+            {"action_id": "prior-plan:action-1", "cost": historical_cost}
+        ]
+        value["loop"]["budgets"]["executor_calls"]["used"] = 1
+        plan = planner.create_plan(copy.deepcopy(value))
+        plan["local_delivery"]["usage_floor"] = planner.zero_budgets()
+        plan["local_delivery"]["usage_ledger_size"] = 0
+        plan["local_delivery"]["usage_ledger_sha256"] = planner.sha256_json([])
+        plan["authorization"]["plan_sha256"] = planner.hash_plan(plan)
+        value["state"].update({
+            "stage": "CLARIFY",
+            "completed": ["SPECIFY"],
+            "next_action": "CLARIFY",
+        })
+
+        with self.assertRaisesRegex(driver.DriverError, "ledger action id drift"):
             driver.evaluate_next(value, plan)
 
     def test_runtime_loop_dispatches_remaining_actions_without_human_continue(self) -> None:

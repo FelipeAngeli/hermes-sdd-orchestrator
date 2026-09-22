@@ -136,6 +136,7 @@ class BoundedRunPlannerTests(unittest.TestCase):
         plan = self.plan(snapshot())
         self.assertTrue(plan["authorization"]["required"])
         self.assertTrue(plan["authorization"]["expires_on_state_change"])
+        self.assertEqual("PLAN_APPROVAL_OR_STOP", plan["termination"]["next_human_checkpoint"])
         self.assertEqual("MANUAL", plan["input"]["start_mode"])
         self.assertNotEqual("BOUNDED_AUTO", plan["input"]["start_mode"])
 
@@ -145,10 +146,30 @@ class BoundedRunPlannerTests(unittest.TestCase):
 
         local = plan["local_delivery"]
         self.assertEqual(2, plan["plan_version"])
+        self.assertFalse(plan["authorization"]["required"])
+        self.assertFalse(plan["authorization"]["expires_on_state_change"])
+        self.assertEqual(
+            "LOCAL_DELIVERY_AUTHORIZATION_REMAINS_ACTIVE",
+            plan["termination"]["next_human_checkpoint"],
+        )
         self.assertEqual("local-request-001", local["authorization"]["id"])
         self.assertEqual(planner.sha256_json(local["authorization"]), local["authorization_sha256"])
         self.assertEqual(planner.zero_budgets(), local["usage_floor"])
+        self.assertEqual(0, local["usage_ledger_size"])
+        self.assertEqual(planner.sha256_json([]), local["usage_ledger_sha256"])
         self.assertEqual(plan["budgets"]["projected_use"], local["reserved_use"])
+
+        for field in ("required", "expires_on_state_change"):
+            with self.subTest(field=field):
+                tampered = copy.deepcopy(plan)
+                tampered["authorization"][field] = True
+                tampered["authorization"]["plan_sha256"] = planner.hash_plan(tampered)
+                self.assertTrue(planner.validate_plan(tampered, value)[0].startswith("INVALID_PLAN"))
+
+        tampered = copy.deepcopy(plan)
+        tampered["termination"]["next_human_checkpoint"] = "PLAN_APPROVAL_OR_STOP"
+        tampered["authorization"]["plan_sha256"] = planner.hash_plan(tampered)
+        self.assertTrue(planner.validate_plan(tampered, value)[0].startswith("INVALID_PLAN"))
 
     def test_local_delivery_requires_bounded_auto_active_and_zero_external_mutations(self) -> None:
         valid = local_delivery_snapshot()
@@ -174,6 +195,16 @@ class BoundedRunPlannerTests(unittest.TestCase):
         external_mutations["loop"]["budgets"]["external_mutations"]["max"] = 1
         with self.assertRaisesRegex(planner.PlannerError, "LOCAL_DELIVERY requires zero external_mutations"):
             planner.create_plan(external_mutations)
+
+    def test_plan_version_must_match_snapshot_schema_version(self) -> None:
+        legacy_snapshot = snapshot()
+        local_snapshot = local_delivery_snapshot()
+
+        local_plan = planner.create_plan(local_snapshot)
+        self.assertIn("version", planner.validate_plan(local_plan, legacy_snapshot)[0])
+
+        legacy_plan = planner.create_plan(legacy_snapshot)
+        self.assertIn("version", planner.validate_plan(legacy_plan, local_snapshot)[0])
 
     def test_local_delivery_ledger_is_cumulative_and_rejects_duplicates_overuse_and_drift(self) -> None:
         value = local_delivery_snapshot()

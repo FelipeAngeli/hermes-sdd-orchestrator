@@ -63,6 +63,32 @@ def remaining_actions(snapshot: dict[str, Any], plan: dict[str, Any]) -> list[di
     return remaining
 
 
+def accepted_action_prefix(snapshot: dict[str, Any], plan: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return the contiguous plan prefix proven complete by STATE and slice evidence."""
+    completed = set(snapshot["state"]["completed"]) | set(snapshot["state"]["skipped"])
+    baseline_completed = plan["implementation_baseline"]["completed_slices"]
+    current_completed = snapshot["implementation"]["completed_slices"]
+    if current_completed[: len(baseline_completed)] != baseline_completed:
+        raise DriverError("PLAN_CURSOR_MISMATCH: implementation completion regressed")
+    completed_slices = len(current_completed) - len(baseline_completed)
+    slice_index = 0
+    prefix: list[dict[str, Any]] = []
+    gap_seen = False
+    for entry in plan["actions"]:
+        if entry["action"] == "IMPLEMENT_SLICE":
+            slice_index += 1
+            accepted = slice_index <= completed_slices
+        else:
+            accepted = entry["action"] in completed
+        if accepted and gap_seen:
+            raise DriverError("PLAN_CURSOR_MISMATCH: completed actions are not a plan prefix")
+        if accepted:
+            prefix.append(entry)
+        else:
+            gap_seen = True
+    return prefix
+
+
 def _stop(reason: str, *, loop_active: bool = False) -> dict[str, Any]:
     payload = {
         "decision": STOP,
@@ -95,11 +121,43 @@ def _validate(snapshot: dict[str, Any], plan: dict[str, Any]) -> None:
     errors = sorted(jsonschema.Draft202012Validator(planner.plan_schema()).iter_errors(plan), key=lambda error: list(error.path))
     if errors:
         raise DriverError("INVALID_PLAN: " + "; ".join(error.message for error in errors[:3]))
+    if (snapshot["schema_version"] == 2) != (plan["plan_version"] == planner.LOCAL_DELIVERY_PLAN_VERSION):
+        raise DriverError("INVALID_PLAN: snapshot schema version and plan version must match")
     if plan["authorization"]["plan_sha256"] != planner.hash_plan(plan):
         raise DriverError("INVALID_PLAN: plan_sha256 does not match canonical plan content")
     semantic_error = planner.validate_plan_actions(plan)
     if semantic_error:
         raise DriverError(semantic_error)
+    accepted_actions = accepted_action_prefix(snapshot, plan)
+    gate_error = planner.gate_progress_error(
+        plan["gate_baseline"], snapshot["gates"], [entry["action"] for entry in accepted_actions],
+    )
+    if gate_error:
+        raise DriverError(f"INVALID_PLAN: gate progress invalid: {gate_error}")
+    if snapshot["schema_version"] == 2:
+        _validate_local_delivery_binding(snapshot, plan, accepted_actions)
+
+
+def _validate_local_delivery_binding(
+    snapshot: dict[str, Any], plan: dict[str, Any], accepted_actions: list[dict[str, Any]],
+) -> None:
+    local = plan["local_delivery"]
+    authorization = snapshot["local_delivery"]["authorization"]
+    if local["authorization"] != authorization:
+        raise DriverError("INVALID_PLAN: LOCAL_DELIVERY authorization drift")
+    if local["authorization_sha256"] != planner.sha256_json(authorization):
+        raise DriverError("INVALID_PLAN: LOCAL_DELIVERY authorization hash drift")
+    if plan["budgets"]["limits"] != authorization["total_limits"]:
+        raise DriverError("INVALID_PLAN: LOCAL_DELIVERY limits drift")
+    if local["reserved_use"] != plan["budgets"]["projected_use"]:
+        raise DriverError("INVALID_PLAN: LOCAL_DELIVERY reservation drift")
+    ledger_error = planner.validate_local_delivery_ledger_progress(snapshot, plan, accepted_actions)
+    if ledger_error:
+        raise DriverError(ledger_error)
+    used = planner.local_delivery_usage(snapshot)
+    for key in planner.BUDGET_KEYS:
+        if used[key] > authorization["total_limits"][key]:
+            raise DriverError("INVALID_PLAN: LOCAL_DELIVERY usage exceeds authorization")
 
 
 def identity_stale(snapshot: dict[str, Any], plan: dict[str, Any]) -> bool:
@@ -162,6 +220,9 @@ def evaluate_next(snapshot: dict[str, Any], plan: dict[str, Any]) -> dict[str, A
         return _stop("PLAN_CURSOR_MISMATCH")
     if entry["human_approval_required"] or entry["classification"] == "HUMAN_REQUIRED":
         return _stop("HUMAN_REQUIRED")
+    gate_precondition = planner.gate_precondition_error(entry["action"], snapshot["gates"])
+    if gate_precondition:
+        return _stop(gate_precondition)
     limits, used = planner.budget_values(snapshot)
     exhausted = next((key for key in planner.BUDGET_KEYS if used[key] + entry["budget_cost"][key] > limits[key]), None)
     if exhausted:

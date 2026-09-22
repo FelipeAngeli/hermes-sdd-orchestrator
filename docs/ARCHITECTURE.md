@@ -14,6 +14,7 @@ skills/orchestrate/sdd-orchestrator/
 └── templates/
     ├── .hermes.md            # compact controller entry point
     └── .hermes/orchestration/
+        ├── agents/           # stage-specific leaf-worker briefs
         ├── contracts/        # worker and reviewer result contracts
         ├── policies/         # FSM, gates, recovery and bounded automation
         ├── runtime/          # deterministic executable controller tools
@@ -30,6 +31,10 @@ tests/
 ### Skill boundary
 
 `SKILL.md` explains when and how Hermes should install and operate the controller. `scripts/install_project.py` owns installation preflight, conflict prevention, initial local state and Git exclusion. It copies the template without changing tracked files in the target repository.
+
+### Agents
+
+`agents/` contains one leaf-worker brief per executable FSM stage: SPECIFY, CLARIFY, PLAN, TASKS, IMPLEMENT, TEST and REVIEW. Each brief narrows the mission, method, result schema and safety boundaries. Agents never own STATE, transitions or recursive dispatch.
 
 ### Contracts
 
@@ -57,10 +62,13 @@ The installed `tests/` suite validates protocol behavior against the exact runti
 .hermes.md / SKILL.md
         │
         ▼
-     policies ─────► contracts
-        │               │
-        ▼               ▼
-      runtime ─────────► schemas
+      agents ─────────► contracts
+        │                  │
+        ▼                  │
+     policies              │
+        │                  │
+        ▼                  ▼
+      runtime ───────────► schemas
         ▲
         │
       tests
@@ -70,6 +78,7 @@ State files (`STATE.md`, `ACTION_JOURNAL.json`, `INCIDENTS.md` and journal histo
 
 ## Change rules
 
+- Put stage-specific worker instructions in `agents/`; keep controller authority out of them.
 - Put executable controller behavior in `runtime/` and cover it in installed `tests/`.
 - Put JSON validation shapes in `schemas/`; do not embed duplicate schemas in Python.
 - Put governance prose in `policies/` and external worker interfaces in `contracts/`.
