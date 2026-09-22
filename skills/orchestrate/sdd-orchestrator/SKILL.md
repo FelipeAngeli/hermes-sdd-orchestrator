@@ -1,7 +1,7 @@
 ---
 name: sdd-orchestrator
 description: Install and run safe project-local SDD orchestration.
-version: 2.0.0
+version: 3.0.0
 author: Felipe Angeli (FelipeAngeli), Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -51,12 +51,12 @@ The dry run must return `READY` before `--apply`. Installation must return `appl
 ## Procedure
 
 1. Read the target project's instructions and capture the Git baseline. Completion: protected pre-existing files are recorded before any edit.
-2. Read the installed local controller documents: `.hermes.md`, `STATE.md`, `LOOP_POLICY.md`, `GATES.md`, `ACTION_RECOVERY.md`, and the stage contract. Completion: the current FSM state and allowed next action are known.
-3. Configure the target-specific commands in `GATES.md`. Completion: formatter, focused test, analysis, and CI policy are explicit; no generic placeholder is used for DONE.
+2. Read the installed local controller documents: `.hermes.md`, `.hermes/orchestration/STATE.md`, `.hermes/orchestration/policies/LOOP_POLICY.md`, `.hermes/orchestration/policies/GATES.md`, `.hermes/orchestration/policies/ACTION_RECOVERY.md`, and the applicable file under `.hermes/orchestration/contracts/`. Completion: the current FSM state and allowed next action are known.
+3. Configure the target-specific commands in `.hermes/orchestration/policies/GATES.md`. Completion: formatter, focused test, analysis, and CI policy are explicit; no generic placeholder is used for DONE.
 4. In `MANUAL`, perform only an explicitly requested action. For `BOUNDED_AUTO`, generate a fresh deterministic preview and obtain explicit approval linked to it. Completion: mode, budgets, and authorization are persisted in STATE.
 5. Before every worker call, run action recovery; issue a stage-specific structured result contract; validate artifact schema, paths, symbols, ownership, and required evidence. Completion: STATE is committed and verified before the next action.
 6. Run each implementation slice RED → minimal implementation → GREEN. Completion: every slice has expected failure and passing evidence.
-7. Run final gates in `GATES.md` order and perform structured REVIEW. Completion: all required gate states allow DONE.
+7. Run final gates in `.hermes/orchestration/policies/GATES.md` order and perform structured REVIEW. Completion: all required gate states allow DONE.
 
 ## Pitfalls
 
@@ -70,7 +70,7 @@ The dry run must return `READY` before `--apply`. Installation must return `appl
 After project-local installation, run with `terminal`:
 
 ```text
-python3 -m unittest discover -s .hermes/orchestration -p 'test_*.py'
+python3 -m unittest discover -s .hermes/orchestration/tests -p 'test_*.py'
 ```
 
 The suite must pass. Confirm `git status --short` shows no newly tracked configuration paths and that target-specific gates are configured before starting a demand.

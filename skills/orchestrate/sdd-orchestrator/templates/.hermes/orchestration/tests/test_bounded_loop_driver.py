@@ -13,14 +13,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
+RUNTIME = Path(__file__).resolve().parents[1] / "runtime"
+sys.path.insert(0, str(RUNTIME))
+
 import bounded_run_planner as planner
 from test_bounded_run_planner import snapshot
 
 import bounded_loop_driver as driver
 
 
-ROOT = Path(__file__).resolve().parent
-SCRIPT = ROOT / "bounded_loop_driver.py"
+SCRIPT = RUNTIME / "bounded_loop_driver.py"
 
 
 def authorized_plan(value: dict | None = None) -> dict:

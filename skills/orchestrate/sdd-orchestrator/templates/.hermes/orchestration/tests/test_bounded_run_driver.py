@@ -10,13 +10,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+RUNTIME = Path(__file__).resolve().parents[1] / "runtime"
+sys.path.insert(0, str(RUNTIME))
 import action_journal as journal  # noqa: E402
 import bounded_run_driver as driver  # noqa: E402
 import bounded_run_planner as planner  # noqa: E402
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = RUNTIME
 
 
 def snapshot(*, stage: str = "SPECIFY") -> dict:

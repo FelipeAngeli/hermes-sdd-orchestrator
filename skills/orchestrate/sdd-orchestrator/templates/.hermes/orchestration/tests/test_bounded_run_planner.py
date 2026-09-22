@@ -10,12 +10,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+RUNTIME = Path(__file__).resolve().parents[1] / "runtime"
+sys.path.insert(0, str(RUNTIME))
 import bounded_run_planner as planner  # noqa: E402
 
 
-ROOT = Path(__file__).resolve().parent
-SCRIPT = ROOT / "bounded_run_planner.py"
+SCRIPT = RUNTIME / "bounded_run_planner.py"
 
 
 def snapshot(*, stage: str = "SPECIFY", status: str = "IN_PROGRESS", mode: str = "MANUAL") -> dict:

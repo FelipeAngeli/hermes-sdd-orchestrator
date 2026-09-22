@@ -10,9 +10,12 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+RUNTIME = Path(__file__).resolve().parents[1] / "runtime"
+sys.path.insert(0, str(RUNTIME))
+
 import action_journal as journal
 
-SCRIPT = Path(__file__).resolve().with_name("action_journal.py")
+SCRIPT = RUNTIME / "action_journal.py"
 
 
 def sha256_text(value: str) -> str:
@@ -26,7 +29,7 @@ def payload(root: Path, *, status: str = "PREPARED") -> dict:
         "workspace": {"path": str(root), "branch": "dev", "head": "a" * 40, "git_common_dir": str(root / ".git")},
         "action": {
             "id": "APP-439-20260916T000000Z-01", "ticket": "APP-439", "stage": "PLAN", "name": "plan", "status": status,
-            "executor": "CODEX", "schema_path": ".hermes/orchestration/EXECUTOR_RESULT_SCHEMA.json", "protocol_version": 2,
+            "executor": "CODEX", "schema_path": ".hermes/orchestration/schemas/EXECUTOR_RESULT_SCHEMA.json", "protocol_version": 2,
             "prompt_hash": sha256_text("prompt"), "final_message_path": str(artifact), "attempt": 1,
             "retry_mode": "FULL_REPLACEMENT", "parent_action_id": None, "parent_artifact_path": None,
             "parent_artifact_sha256": None, "invalid_fields": [], "allowed_corrections": [],

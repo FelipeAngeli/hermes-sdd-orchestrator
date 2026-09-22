@@ -177,7 +177,8 @@ def validate_local_delivery_snapshot(snapshot: dict[str, Any]) -> None:
 
 
 def plan_schema() -> dict[str, Any]:
-    return json.loads(Path(__file__).with_name("BOUNDED_RUN_PLAN_SCHEMA.json").read_text(encoding="utf-8"))
+    schema_path = Path(__file__).resolve().parents[1] / "schemas" / "BOUNDED_RUN_PLAN_SCHEMA.json"
+    return json.loads(schema_path.read_text(encoding="utf-8"))
 
 
 def classify_action(action: str) -> dict[str, Any]:

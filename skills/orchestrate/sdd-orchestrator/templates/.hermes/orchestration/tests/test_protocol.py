@@ -11,7 +11,8 @@ from unittest.mock import patch
 
 from jsonschema.exceptions import SchemaError
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+RUNTIME = Path(__file__).resolve().parents[1] / "runtime"
+sys.path.insert(0, str(RUNTIME))
 import validate_protocol  # noqa: E402
 from validate_protocol import validate_json_text, validate_payload  # noqa: E402
 

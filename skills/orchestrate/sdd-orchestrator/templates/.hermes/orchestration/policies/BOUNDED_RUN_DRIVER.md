@@ -37,9 +37,9 @@ The controller increments `current_sequence`, `actions_executed`, budget counter
 ## Commands
 
 ```text
-python3 .hermes/orchestration/bounded_run_driver.py inspect --snapshot snapshot.json --plan plan.json --json
-python3 .hermes/orchestration/bounded_run_driver.py validate --snapshot snapshot.json --plan plan.json --json
-python3 .hermes/orchestration/bounded_run_driver.py next --snapshot snapshot.json --plan plan.json --json
+python3 .hermes/orchestration/runtime/bounded_run_driver.py inspect --snapshot snapshot.json --plan plan.json --json
+python3 .hermes/orchestration/runtime/bounded_run_driver.py validate --snapshot snapshot.json --plan plan.json --json
+python3 .hermes/orchestration/runtime/bounded_run_driver.py next --snapshot snapshot.json --plan plan.json --json
 ```
 
 The possible continuation decisions are `EXECUTE_NEXT`, `ROLLOVER_REQUIRED`, `STOP_BUDGET`, `STOP_HUMAN_REQUIRED`, `STOP_BLOCKED`, `STOP_PLAN_STALE`, `STOP_RECOVERY`, and `COMPLETE`. `COMPLETE` also records a manual or already-inactive loop pause without authorizing a new action. There are no force, ignore, execute, apply, or unbounded options.

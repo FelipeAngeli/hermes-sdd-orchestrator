@@ -12,6 +12,42 @@ INSTALLER = SKILL_ROOT / "scripts" / "install_project.py"
 
 
 class SddOrchestratorSkillTests(unittest.TestCase):
+    def test_project_payload_has_layered_architecture(self) -> None:
+        orchestration = SKILL_ROOT / "templates" / ".hermes" / "orchestration"
+
+        for layer in ("contracts", "policies", "runtime", "schemas", "tests"):
+            self.assertTrue((orchestration / layer).is_dir(), layer)
+
+        self.assertEqual([], list(orchestration.glob("*.py")))
+        self.assertEqual([], list(orchestration.glob("*.json")))
+
+    def test_documentation_has_no_legacy_flat_orchestration_paths(self) -> None:
+        orchestration = SKILL_ROOT / "templates" / ".hermes" / "orchestration"
+        documents = [
+            ROOT / "README.md",
+            ROOT / "docs" / "ARCHITECTURE.md",
+            SKILL_ROOT / "SKILL.md",
+            SKILL_ROOT / "templates" / ".hermes.md",
+            *orchestration.rglob("*.md"),
+        ]
+        legacy_paths = (
+            ".hermes/orchestration/GATES.md",
+            ".hermes/orchestration/LOOP_POLICY.md",
+            ".hermes/orchestration/ACTION_RECOVERY.md",
+            ".hermes/orchestration/BOUNDED_AUTOMATION.md",
+            ".hermes/orchestration/EXECUTOR_RESULT_SCHEMA.json",
+            ".hermes/orchestration/REVIEW_RESULT_SCHEMA.json",
+            ".hermes/orchestration/action_journal.py",
+            ".hermes/orchestration/bounded_run_driver.py",
+            ".hermes/orchestration/bounded_run_planner.py",
+        )
+
+        for document in documents:
+            content = document.read_text(encoding="utf-8")
+            for legacy_path in legacy_paths:
+                with self.subTest(document=document, legacy_path=legacy_path):
+                    self.assertNotIn(legacy_path, content)
+
     def test_entrypoint_is_compact_portable_and_has_dispatch_context(self) -> None:
         entrypoint = SKILL_ROOT / "templates" / ".hermes.md"
         content = entrypoint.read_text(encoding="utf-8")
@@ -72,7 +108,7 @@ class SddOrchestratorSkillTests(unittest.TestCase):
             self.assertTrue((target / ".hermes" / "orchestration" / "STATE.md").is_file())
             self.assertLessEqual(len((target / ".hermes.md").read_text(encoding="utf-8")), 8000)
 
-            installed_protocol = target / ".hermes" / "orchestration" / "test_protocol.py"
+            installed_protocol = target / ".hermes" / "orchestration" / "tests" / "test_protocol.py"
             validator_run = self.execute("python3", str(installed_protocol))
             self.assertIn("Ran", validator_run.stderr)
             self.assertIn("OK", validator_run.stderr)

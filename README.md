@@ -23,9 +23,12 @@ Hermes profile (once)                         Target Git project (per project)
 ─────────────────────                         ──────────────────────────────
 ~/.hermes/skills/sdd-orchestrator/            .hermes.md
 ├── SKILL.md                                  .hermes/orchestration/
-├── scripts/install_project.py                ├── contracts + schemas
-└── templates/                                ├── bounded-run tooling
-    └── .hermes/                              ├── STATE.md (fresh local state)
+├── scripts/install_project.py                ├── contracts/   # worker/review interfaces
+└── templates/                                ├── policies/    # FSM, gates, recovery
+    └── .hermes/                              ├── runtime/     # executable controller tools
+                                               ├── schemas/     # JSON validation contracts
+                                               ├── tests/       # installed protocol tests
+                                               ├── STATE.md (fresh local state)
                                                ├── ACTION_JOURNAL.json
                                                └── INCIDENTS.md
 ```
@@ -38,6 +41,8 @@ The installed entrypoint keeps worker context small and stage-specific, with one
 
 ## Architecture
 
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for layer responsibilities, dependency direction, and change rules.
+
 ```text
 skills/
 └── orchestrate/
@@ -46,6 +51,11 @@ skills/
         ├── scripts/install_project.py
         └── templates/.hermes/       # project-local controller payload
             └── orchestration/
+                ├── contracts/
+                ├── policies/
+                ├── runtime/
+                ├── schemas/
+                └── tests/
 
 tests/
 └── test_sdd_orchestrator_skill.py   # installs the bundled skill into a fixture repo
@@ -65,13 +75,13 @@ python3 <installed-skill>/scripts/install_project.py \
 
 First run is a dry run. Apply only when it returns `READY`. Re-running a complete installation returns `ALREADY_INITIALIZED`; partial, tracked, symlinked, or conflicting configuration is blocked.
 
-Before the first demand, configure the target's `.hermes/orchestration/GATES.md` with its real format, test, analysis, and CI commands.
+Before the first demand, configure the target's `.hermes/orchestration/policies/GATES.md` with its real format, test, analysis, and CI commands.
 
 ## Development and verification
 
 ```bash
 python3 -m unittest discover -s tests -p 'test_*.py'
-python3 -m unittest discover -s skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration -p 'test_*.py'
+python3 -m unittest discover -s skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/tests -p 'test_*.py'
 ```
 
 ## License

@@ -46,7 +46,7 @@ Expected progress after a completed action — STATE hash, budgets used, stage, 
 ## Runtime driver
 
 ```text
-python3 .hermes/orchestration/bounded_run_driver.py next --snapshot snapshot.json --plan plan.json --json
+python3 .hermes/orchestration/runtime/bounded_run_driver.py next --snapshot snapshot.json --plan plan.json --json
 ```
 
 The driver never invokes an executor, writes STATE, mutates Git, or activates `BOUNDED_AUTO`. There is no `--execute`, `--apply`, `--force`, `--run`, or auto-approval option.
@@ -54,16 +54,16 @@ The driver never invokes an executor, writes STATE, mutates Git, or activates `B
 `bind` accepts a normalized snapshot without `runtime` plus a persisted plan which passes `planner.validate_plan`. It returns the complete snapshot with exact `RUNTIME_KEYS`, plan/hash binding, zero cursor/count and predecessor STATE hash; it does not read or write STATE. `--started-at` is explicit so bind does not invent a clock value. Schema 1 additionally requires the exact `--approved-plan-sha256`; schema 2 relies on its already-validated LOCAL_DELIVERY authorization and does not project a new approval. The controller, not this CLI, confirms human evidence, identity and real STATE.
 
 ```text
-python .hermes/orchestration/bounded_run_driver.py bind --snapshot snapshot.json --plan plan.json --started-at 2026-09-17T00:00:00Z --json
+python .hermes/orchestration/runtime/bounded_run_driver.py bind --snapshot snapshot.json --plan plan.json --started-at 2026-09-17T00:00:00Z --json
 ```
 
 ## Planner interface
 
 ```text
-python3 .hermes/orchestration/bounded_run_planner.py --help
-python3 .hermes/orchestration/bounded_run_planner.py plan --snapshot snapshot.json --target NEXT_HUMAN_CHECKPOINT --json
-python3 .hermes/orchestration/bounded_run_planner.py validate --plan plan.json --snapshot snapshot.json --json
-python3 .hermes/orchestration/bounded_run_planner.py classify --action SPECIFY --json
+python3 .hermes/orchestration/runtime/bounded_run_planner.py --help
+python3 .hermes/orchestration/runtime/bounded_run_planner.py plan --snapshot snapshot.json --target NEXT_HUMAN_CHECKPOINT --json
+python3 .hermes/orchestration/runtime/bounded_run_planner.py validate --plan plan.json --snapshot snapshot.json --json
+python3 .hermes/orchestration/runtime/bounded_run_planner.py classify --action SPECIFY --json
 ```
 
 There is deliberately no `execute`, `apply`, `force`, budget/recovery bypass, or auto-approval option.

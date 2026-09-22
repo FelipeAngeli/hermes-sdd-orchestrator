@@ -4,7 +4,7 @@ REVIEW is read-only. The reviewer cannot edit files, correct code, execute E2E, 
 
 ## Controller routing and transport
 
-For the requested action `REVIEW`, the controller selects `REVIEW_RESULT_SCHEMA.json` before dispatch. The only accepted final-message document is JSON with root `review_result` and `schema_version: 2`. The controller rejects `executor_result` for REVIEW and never attempts to validate `review_result` with `EXECUTOR_RESULT_SCHEMA.json`.
+For the requested action `REVIEW`, the controller selects `../schemas/REVIEW_RESULT_SCHEMA.json` before dispatch. The only accepted final-message document is JSON with root `review_result` and `schema_version: 2`. The controller rejects `executor_result` for REVIEW and never attempts to validate `review_result` with `../schemas/EXECUTOR_RESULT_SCHEMA.json`.
 
 The final-message file is the only validator input. A transcript, JSONL event stream, Markdown response, or YAML document does not substitute for JSON. Process exit status and diagnostic output remain distinct from the review result.
 
@@ -41,6 +41,6 @@ Gate values preserve `PASS`, `FAIL`, `TIMEOUT`, `BLOCKED`, and `PENDING`; CI als
 
 ## Approval policy and history
 
-`APPROVED` requires preserved baseline, valid ownership, no unresolved findings or forbidden-action violations, and `focused_tests`, `format`, and `analyze` equal to `PASS`. After approval, the controller consults GATES.md: it may recommend `RUN_CI` when CI is enabled or `EVALUATE_DONE_WITH_CI_DISABLED` when the explicit project policy disables CI. The controller alone evaluates DONE.
+`APPROVED` requires preserved baseline, valid ownership, no unresolved findings or forbidden-action violations, and `focused_tests`, `format`, and `analyze` equal to `PASS`. After approval, the controller consults `../policies/GATES.md`: it may recommend `RUN_CI` when CI is enabled or `EVALUATE_DONE_WITH_CI_DISABLED` when the explicit project policy disables CI. The controller alone evaluates DONE.
 
 Historical PRE_V2 review records remain valid history and are not rewritten or evaluated as version 2 payloads.

@@ -101,7 +101,7 @@ stage:
 stage_provenance: {{}}
 loop:
   policy_version: "2.5"
-  policy_path: ".hermes/orchestration/LOOP_POLICY.md"
+  policy_path: ".hermes/orchestration/policies/LOOP_POLICY.md"
   mode: MANUAL
   run: {{id: null, started_at: null, finished_at: null}}
   budgets:
@@ -142,7 +142,7 @@ evidence: {{tdd_slices: [], historical_validation: [], historical_review: null, 
 
 
 def empty_journal(target: Path, workspace: dict[str, str]) -> str:
-    module_path = target / CONFIG_ROOT / "action_journal.py"
+    module_path = target / CONFIG_ROOT / "runtime" / "action_journal.py"
     spec = importlib.util.spec_from_file_location("sdd_action_journal", module_path)
     if spec is None or spec.loader is None:
         raise InstallError("ACTION_JOURNAL_MODULE_UNAVAILABLE")

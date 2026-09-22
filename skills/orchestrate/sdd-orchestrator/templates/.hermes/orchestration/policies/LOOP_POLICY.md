@@ -54,9 +54,9 @@ Pode continuar automaticamente enquanto:
 - budgets estiverem disponíveis;
 - a próxima transição estiver autorizada.
 
-Após cada ação concluída, consultar `.hermes/orchestration/bounded_run_driver.py next`. Não encerrar o turno enquanto o driver retornar `end_turn: false`. `EXECUTE_NEXT` com recovery `DISPATCH_ALLOWED`, próxima ação no plano, budget disponível e sem blocker/human-required exige despachar essa ação na mesma rodada. `ROLLOVER_REQUIRED` exige rollover, journal pristine IDLE e novo recovery `DISPATCH_ALLOWED` antes de consultar o driver novamente; nunca faça `RELEASED → prepare` direto.
+Após cada ação concluída, consultar `.hermes/orchestration/runtime/bounded_run_driver.py next`. Não encerrar o turno enquanto o driver retornar `end_turn: false`. `EXECUTE_NEXT` com recovery `DISPATCH_ALLOWED`, próxima ação no plano, budget disponível e sem blocker/human-required exige despachar essa ação na mesma rodada. `ROLLOVER_REQUIRED` exige rollover, journal pristine IDLE e novo recovery `DISPATCH_ALLOWED` antes de consultar o driver novamente; nunca faça `RELEASED → prepare` direto.
 
-Antes de ativar BOUNDED_AUTO, Hermes deve criar e apresentar um `BOUNDED RUN PREVIEW` para `NEXT_HUMAN_CHECKPOINT`, conforme `.hermes/orchestration/BOUNDED_AUTOMATION.md`. O preview é um plano determinístico, hashado e imutável; não executa ação, não chama modelo, não roda gate, não altera STATE e não ativa o modo. Uma resposta afirmativa inequívoca imediatamente após o preview — por exemplo `sim`, `autorizo`, `pode iniciar` ou `continue` — autoriza exclusivamente o `plan_sha256` do preview mais recente na conversa atual, sem exigir que o usuário copie o hash. A confirmação não é reutilizável para planos futuros. Se STATE, worktree, budgets ou decisão de recovery mudarem *antes da ativação*, o preview é `PLAN_STALE` e precisa de novo preview e nova aprovação. O progresso esperado *durante* a rodada autorizada não invalida o plano; o driver decide CONTINUE ou STOP.
+Antes de ativar BOUNDED_AUTO, Hermes deve criar e apresentar um `BOUNDED RUN PREVIEW` para `NEXT_HUMAN_CHECKPOINT`, conforme `.hermes/orchestration/policies/BOUNDED_AUTOMATION.md`. O preview é um plano determinístico, hashado e imutável; não executa ação, não chama modelo, não roda gate, não altera STATE e não ativa o modo. Uma resposta afirmativa inequívoca imediatamente após o preview — por exemplo `sim`, `autorizo`, `pode iniciar` ou `continue` — autoriza exclusivamente o `plan_sha256` do preview mais recente na conversa atual, sem exigir que o usuário copie o hash. A confirmação não é reutilizável para planos futuros. Se STATE, worktree, budgets ou decisão de recovery mudarem *antes da ativação*, o preview é `PLAN_STALE` e precisa de novo preview e nova aprovação. O progresso esperado *durante* a rodada autorizada não invalida o plano; o driver decide CONTINUE ou STOP.
 
 ### PAUSED
 
@@ -240,7 +240,7 @@ TDD_SLICE_BUDGET_REACHED
 
 ### TEST → REVIEW
 
-Somente conforme GATES.md.
+Somente conforme `GATES.md` nesta pasta de políticas.
 
 No mínimo:
 
@@ -494,7 +494,7 @@ Não fazer retry automático para:
 
 ### Action recovery precondition
 
-Before every executor dispatch, run the diagnostic recovery probe from `ACTION_RECOVERY.md`, inspect the journal, and reread/hash STATE when a prepared state commit exists. `DISPATCH_ALLOWED` permits prepare normally. `RELEASED` with a valid next STATE action requires explicit `rollover`, a reread of the new active journal, and a second recovery probe that returns `DISPATCH_ALLOWED` before prepare; `RELEASED → prepare` directly is prohibited. An existing unclassified final-message artifact must be reconciled into STATE before any redispatch. `VALIDATED` with STATE equal to `expected_after_hash` is `ALREADY_COMMITTED`; with STATE equal to `expected_before_hash` it is `STATE_COMMIT_REQUIRED`; neither permits redispatch. A divergent STATE is `STATE_DESYNC` and BLOCKED. `DISPATCHED` or `PROCESS_FINISHED` without an artifact and with an unknown process result uses `ACTION_RECOVERY_REQUIRED`, never automatic redispatch. `PROCESS_FINISHED` with a recorded process result and no valid artifact is not `RELEASED` and must not be rolled over; after human recovery, `archive-interrupted` preserves the original action as `INTERRUPTED` history and opens a pristine `IDLE` journal so a later retry can prepare a new `action_id` with `parent_action_id`. `RECONCILE_ARTIFACT` requires reconciliation; `WAIT_OR_MANUAL_REVIEW` and `BLOCKED` stop the loop.
+Before every executor dispatch, run the diagnostic recovery probe from `ACTION_RECOVERY.md` in this policy folder, inspect the journal, and reread/hash STATE when a prepared state commit exists. `DISPATCH_ALLOWED` permits prepare normally. `RELEASED` with a valid next STATE action requires explicit `rollover`, a reread of the new active journal, and a second recovery probe that returns `DISPATCH_ALLOWED` before prepare; `RELEASED → prepare` directly is prohibited. An existing unclassified final-message artifact must be reconciled into STATE before any redispatch. `VALIDATED` with STATE equal to `expected_after_hash` is `ALREADY_COMMITTED`; with STATE equal to `expected_before_hash` it is `STATE_COMMIT_REQUIRED`; neither permits redispatch. A divergent STATE is `STATE_DESYNC` and BLOCKED. `DISPATCHED` or `PROCESS_FINISHED` without an artifact and with an unknown process result uses `ACTION_RECOVERY_REQUIRED`, never automatic redispatch. `PROCESS_FINISHED` with a recorded process result and no valid artifact is not `RELEASED` and must not be rolled over; after human recovery, `archive-interrupted` preserves the original action as `INTERRUPTED` history and opens a pristine `IDLE` journal so a later retry can prepare a new `action_id` with `parent_action_id`. `RECONCILE_ARTIFACT` requires reconciliation; `WAIT_OR_MANUAL_REVIEW` and `BLOCKED` stop the loop.
 
 ---
 

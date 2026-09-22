@@ -66,6 +66,6 @@ There is at most one corrective retry. It has a new action id and distinct final
 
 ## Tool
 
-`action_journal.py --help` documents the local interface. It provides `init`, `prepare`, `record-process`, `record-artifact`, `mark-validated`, `prepare-state-commit`, `mark-state-committed`, `release`, `rollover`, `archive-interrupted`, `block`, `inspect`, and diagnostic `recover`, all with `--journal`; `rollover` and `archive-interrupted` additionally require `--history-dir`; `--json` emits structured output. It has no force, overwrite, history-reset, or validation-bypass option.
+`python3 .hermes/orchestration/runtime/action_journal.py --help` documents the local interface. It provides `init`, `prepare`, `record-process`, `record-artifact`, `mark-validated`, `prepare-state-commit`, `mark-state-committed`, `release`, `rollover`, `archive-interrupted`, `block`, `inspect`, and diagnostic `recover`, all with `--journal`; `rollover` and `archive-interrupted` additionally require `--history-dir`; `--json` emits structured output. It has no force, overwrite, history-reset, or validation-bypass option.
 
 Writes create a same-directory temporary file, write and flush full JSON, `fsync`, atomically `os.replace`, and attempt directory `fsync`. A write failure leaves the preceding valid journal in place and returns nonzero.

@@ -2,11 +2,11 @@
 
 ## Scope and transport
 
-This contract applies only to external execution actions: `SPECIFY`, `CLARIFY`, `PLAN`, `TASKS`, `IMPLEMENT`, and `TEST`. `REVIEW` is exclusively governed by `REVIEW_CONTRACT.md` and `REVIEW_RESULT_SCHEMA.json`.
+This contract applies only to external execution actions: `SPECIFY`, `CLARIFY`, `PLAN`, `TASKS`, `IMPLEMENT`, and `TEST`. `REVIEW` is exclusively governed by `REVIEW_CONTRACT.md` and `../schemas/REVIEW_RESULT_SCHEMA.json`.
 
 The final executor message is one JSON document with root `executor_result` and `schema_version: 2`. Markdown, literal YAML, JSONL events, transcripts, tool logs, and free text are not substitutes for that JSON document.
 
-For Codex, the controller selects `EXECUTOR_RESULT_SCHEMA.json` before dispatch and uses both `--output-schema` and `--output-last-message`. Only the unique final-message file is supplied to the validator. Process exit code and optional transcript diagnostics remain separate from the result document.
+For Codex, the controller selects `../schemas/EXECUTOR_RESULT_SCHEMA.json` before dispatch and uses both `--output-schema` and `--output-last-message`. Only the unique final-message file is supplied to the validator. Process exit code and optional transcript diagnostics remain separate from the result document.
 
 The controller supplies the stage-specific contract in the prompt, validates schema, semantics, paths, symbols, and ownership, then decides the state transition. `next_step` is only a recommendation; it never starts work automatically and cannot be `DONE`.
 
@@ -41,7 +41,7 @@ For new or revised TASKS, use the existing `stage_payload.tasks` strings to refe
 
 ## TDD slices
 
-`tdd_slices` is always present. Each item declares `id`, `objective`, `test_file`, `red_command`, `red_exit_code`, `expected_failure`, `red_failure_kind`, `minimal_implementation`, `green_command`, `green_exit_code`, and `green_result` with the exact names and types in `EXECUTOR_RESULT_SCHEMA.json`.
+`tdd_slices` is always present. Each item declares `id`, `objective`, `test_file`, `red_command`, `red_exit_code`, `expected_failure`, `red_failure_kind`, `minimal_implementation`, `green_command`, `green_exit_code`, and `green_result` with the exact names and types in `../schemas/EXECUTOR_RESULT_SCHEMA.json`.
 
 Use `null` only for unavailable execution data in `BLOCKED` or `TIMEOUT` results. Outside `IMPLEMENT`, `tdd_slices` may be `[]`. `IMPLEMENT` with `SUCCESS` requires at least one slice with a non-zero RED exit code, a non-empty expected failure, `red_failure_kind: EXPECTED_FUNCTIONAL`, GREEN exit code `0`, and a non-empty GREEN result. `INFRASTRUCTURE` is not valid RED evidence. A blocked implementation may retain partial slice evidence but cannot be reported as successful.
 

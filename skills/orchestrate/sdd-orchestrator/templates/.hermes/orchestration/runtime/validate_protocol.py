@@ -12,7 +12,8 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
-ROOT = Path(__file__).resolve().parent
+ORCHESTRATION_ROOT = Path(__file__).resolve().parents[1]
+SCHEMAS_ROOT = ORCHESTRATION_ROOT / "schemas"
 EXECUTOR_ACTIONS = {"SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST"}
 REVIEW_ACTION = "REVIEW"
 _VALIDATOR_CACHE_MAXSIZE = 32
@@ -25,9 +26,9 @@ def _error(path: str, reason: str) -> dict[str, str]:
 
 def _schema_for(action: str) -> tuple[Path, str]:
     if action in EXECUTOR_ACTIONS:
-        return ROOT / "EXECUTOR_RESULT_SCHEMA.json", "executor_result"
+        return SCHEMAS_ROOT / "EXECUTOR_RESULT_SCHEMA.json", "executor_result"
     if action == REVIEW_ACTION:
-        return ROOT / "REVIEW_RESULT_SCHEMA.json", "review_result"
+        return SCHEMAS_ROOT / "REVIEW_RESULT_SCHEMA.json", "review_result"
     raise ValueError(f"unsupported action: {action}")
 
 
