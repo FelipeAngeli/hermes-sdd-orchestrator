@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-TEMPLATE = ROOT / "template"
+TEMPLATE = ROOT.parent / "templates"
 CONFIG_ROOT = ".hermes/orchestration"
 LOCAL_PATHS = (
     ".hermes.md",

@@ -1,59 +1,74 @@
 # Hermes SDD Orchestrator
 
-Project-local **Specification-Driven Development** controller for Hermes Agent. It keeps the controller/worker boundary explicit and supplies the V2.5 state machine, bounded execution policy, action journal/recovery protocol, strict worker-result schemas, review contract, and deterministic planner/driver tooling.
+A reusable, Hermes-native **SDD Orchestrator skill**. Install it through the Hermes skills registry; when needed, the skill installs a safety-first controller inside the current project.
 
-It does **not** install a global Hermes skill, alter `~/.hermes`, create a ticket, start an agent, commit, push, or change a product repository's tracked files.
+The architecture follows the skill-collection pattern used by [Ow1onp/hermes-agent-skills](https://github.com/Ow1onp/hermes-agent-skills): a discoverable `skills/` tree, a self-contained `SKILL.md` entry point, supporting scripts/templates co-located with the skill, and registry-based installation. The target project's orchestration state remains local and untracked.
 
-## Install into another project
-
-Prerequisites: Git, Python 3.10+, and [Hermes Agent](https://hermes-agent.nousresearch.com/docs). `jsonschema` is required only to run the included protocol tests.
+## Quick start
 
 ```bash
-git clone git@github.com:FelipeAngeli/hermes-sdd-orchestrator.git ~/src/hermes-sdd-orchestrator
-cd ~/src/hermes-sdd-orchestrator
+# Register this GitHub repository as a Hermes skill source.
+hermes skills tap add FelipeAngeli/hermes-sdd-orchestrator
 
-# Inspect what would be installed; no writes.
-python3 install.py --target /absolute/path/to/your-project --json
-
-# Install after reviewing the dry run.
-python3 install.py --target /absolute/path/to/your-project --apply --json
+# Install the SDD Orchestrator skill in the active Hermes profile.
+hermes skills install FelipeAngeli/hermes-sdd-orchestrator/skills/orchestrate/sdd-orchestrator --yes
 ```
 
-The target must be an existing Git worktree root with an attached branch. Installation refuses symlinked, tracked, or non-empty SDD state/configuration paths. It writes the configuration under the target's `.hermes/`, initializes fresh `STATE.md`, `INCIDENTS.md`, and `ACTION_JOURNAL.json`, and adds only these local paths to Git's `info/exclude`. Nothing is overwritten.
+Then load `/skill sdd-orchestrator` in Hermes. It guides safe installation of the project-local controller.
 
-## First use
+## What gets installed where
 
-1. Edit the target project's `.hermes/orchestration/GATES.md` with real formatter, test, analyzer, and CI commands. The distributed generic policy has CI explicitly disabled until the target owner configures it.
-2. Start Hermes in the target project.
-3. Request one explicit SDD action in `MANUAL` mode, or ask for a bounded-run preview before authorizing `BOUNDED_AUTO`.
-4. Keep product-specific conventions in the target project's `AGENTS.md` / `CLAUDE.md`; this package does not replace them.
+```text
+Hermes profile (once)                         Target Git project (per project)
+─────────────────────                         ──────────────────────────────
+~/.hermes/skills/sdd-orchestrator/            .hermes.md
+├── SKILL.md                                  .hermes/orchestration/
+├── scripts/install_project.py                ├── contracts + schemas
+└── templates/                                ├── bounded-run tooling
+    └── .hermes/                              ├── STATE.md (fresh local state)
+                                               ├── ACTION_JOURNAL.json
+                                               └── INCIDENTS.md
+```
 
-## Guardrails
+The skill is reusable. The controller configuration, state, incident log, and journal are project-local and added only to the target repository's Git `info/exclude`. The installer never overwrites existing configuration or modifies tracked files.
 
-- Fixed FSM: `SPECIFY → CLARIFY → PLAN → TASKS → IMPLEMENT → TEST → REVIEW → DONE`.
-- Git baseline and protected pre-existing-file ownership are mandatory.
-- Workers return schema-validated, stage-specific result envelopes; workers do not own state or transitions.
-- Implementation is sliced TDD: expected RED followed by GREEN for every slice.
-- The controller validates paths, symbols, impact, ownership, gates, and action-journal recovery before state changes.
-- `MANUAL` is the default. `BOUNDED_AUTO` requires a fresh approved plan and has finite budgets.
-- Commit, push, PR, external mutations, and destructive operations require explicit user approval.
+## Architecture
 
-## Verification
+```text
+skills/
+└── orchestrate/
+    └── sdd-orchestrator/
+        ├── SKILL.md                 # Hermes-native entry point
+        ├── scripts/install_project.py
+        └── templates/.hermes/       # project-local controller payload
+            └── orchestration/
 
-Run the self-contained Python protocol tests from the target after installing `jsonschema`:
+tests/
+└── test_sdd_orchestrator_skill.py   # installs the bundled skill into a fixture repo
+```
+
+## Project-local installation
+
+The skill runs the bundled installer. It requires an existing Git worktree root with an attached branch:
 
 ```bash
-python3 -m pip install jsonschema
-python3 -m unittest discover -s .hermes/orchestration -p 'test_*.py'
+python3 <installed-skill>/scripts/install_project.py \
+  --target /absolute/path/to/project --json
+
+python3 <installed-skill>/scripts/install_project.py \
+  --target /absolute/path/to/project --apply --json
 ```
 
-The target repository's own required gates remain defined by its local `GATES.md`.
+First run is a dry run. Apply only when it returns `READY`. Re-running a complete installation returns `ALREADY_INITIALIZED`; partial, tracked, symlinked, or conflicting configuration is blocked.
 
-## Contents
+Before the first demand, configure the target's `.hermes/orchestration/GATES.md` with its real format, test, analysis, and CI commands.
 
-- `template/.hermes.md` — controller operating rules
-- `template/.hermes/orchestration/` — contracts, JSON schemas, policy documents, action journal/recovery, bounded-run planner and drivers, and tests
-- `install.py` — safe project-local installer
+## Development and verification
+
+```bash
+python3 -m unittest discover -s tests -p 'test_*.py'
+python3 -m unittest discover -s skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration -p 'test_*.py'
+```
 
 ## License
 
