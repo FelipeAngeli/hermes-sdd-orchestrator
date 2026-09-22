@@ -6,6 +6,7 @@ commands referenced by a payload and does not read or update STATE.md.
 from __future__ import annotations
 
 import json
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,8 @@ from jsonschema import Draft202012Validator
 ROOT = Path(__file__).resolve().parent
 EXECUTOR_ACTIONS = {"SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST"}
 REVIEW_ACTION = "REVIEW"
+_VALIDATOR_CACHE_MAXSIZE = 32
+_VALIDATOR_CACHE: OrderedDict[str, Draft202012Validator] = OrderedDict()
 
 
 def _error(path: str, reason: str) -> dict[str, str]:
@@ -32,14 +35,29 @@ def _load_schema(action: str) -> tuple[dict[str, Any], str]:
     schema_path, envelope = _schema_for(action)
     with schema_path.open(encoding="utf-8") as schema_file:
         schema = json.load(schema_file)
-    Draft202012Validator.check_schema(schema)
     return schema, envelope
+
+
+def _validator_for_schema(schema: dict[str, Any]) -> Draft202012Validator:
+    schema_key = json.dumps(schema, sort_keys=True, separators=(",", ":"))
+    validator = _VALIDATOR_CACHE.get(schema_key)
+    if validator is not None:
+        _VALIDATOR_CACHE.move_to_end(schema_key)
+        return validator
+
+    Draft202012Validator.check_schema(schema)
+    validator = Draft202012Validator(schema)
+    _VALIDATOR_CACHE[schema_key] = validator
+    if len(_VALIDATOR_CACHE) > _VALIDATOR_CACHE_MAXSIZE:
+        _VALIDATOR_CACHE.popitem(last=False)
+    return validator
 
 
 def validate_payload(action: str, payload: Any, expected_version: int = 2) -> list[dict[str, str]]:
     """Return structural and semantic errors; an empty list means acceptance."""
     try:
         schema, envelope = _load_schema(action)
+        validator = _validator_for_schema(schema)
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         return [_error("$", str(exc))]
     if not isinstance(payload, dict):
@@ -48,7 +66,6 @@ def validate_payload(action: str, payload: Any, expected_version: int = 2) -> li
         return [_error("$", f"expected {envelope} envelope for {action}")]
 
     errors = []
-    validator = Draft202012Validator(schema)
     for error in sorted(validator.iter_errors(payload), key=lambda item: list(item.absolute_path)):
         path = "$" + "".join(f"[{part}]" if isinstance(part, int) else f".{part}" for part in error.absolute_path)
         errors.append(_error(path, error.message))

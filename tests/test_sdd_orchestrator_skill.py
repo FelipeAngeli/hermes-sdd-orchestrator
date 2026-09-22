@@ -12,6 +12,44 @@ INSTALLER = SKILL_ROOT / "scripts" / "install_project.py"
 
 
 class SddOrchestratorSkillTests(unittest.TestCase):
+    def test_entrypoint_is_compact_portable_and_has_dispatch_context(self) -> None:
+        entrypoint = SKILL_ROOT / "templates" / ".hermes.md"
+        content = entrypoint.read_text(encoding="utf-8")
+
+        self.assertLessEqual(len(content), 8000)
+        for marker in (
+            "one leaf worker at a time",
+            "stage-specific context",
+            "STATE authority",
+            "EXECUTOR_RESULT_SCHEMA.json",
+            "REVIEW_RESULT_SCHEMA.json",
+            "LOCAL_DELIVERY",
+            "schema 2",
+            "schema 1",
+            "cumulative global limits",
+        ):
+            self.assertIn(marker, content)
+        self.assertNotRegex(content, r"/(?:Users|home)/")
+
+    def test_loop_modes_distinguish_schema1_preview_from_schema2_authorization(self) -> None:
+        content = (SKILL_ROOT / "templates" / ".hermes.md").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "Schema 1 BOUNDED_AUTO requires a fresh deterministic preview and per-run confirmation.",
+            content,
+        )
+        self.assertIn(
+            "Schema 2 LOCAL_DELIVERY proceeds within its authorized fixed cumulative scope/workspace limits; replanning does not require reapproval.",
+            content,
+        )
+        self.assertNotIn(
+            "`BOUNDED_AUTO` is allowed only after the user approves a fresh deterministic plan",
+            content,
+        )
+        self.assertIn("one leaf worker at a time", content)
+        self.assertIn("total executor budget", content)
+        self.assertIn("never recursively spawn workers", content)
+
     def test_installs_project_local_configuration_from_skill_bundle(self) -> None:
         self.assertTrue((SKILL_ROOT / "SKILL.md").is_file())
         self.assertTrue(INSTALLER.is_file())
@@ -32,6 +70,12 @@ class SddOrchestratorSkillTests(unittest.TestCase):
             applied = self.execute("python3", str(INSTALLER), "--target", str(target), "--apply", "--json")
             self.assertTrue(json.loads(applied.stdout)["applied"])
             self.assertTrue((target / ".hermes" / "orchestration" / "STATE.md").is_file())
+            self.assertLessEqual(len((target / ".hermes.md").read_text(encoding="utf-8")), 8000)
+
+            installed_protocol = target / ".hermes" / "orchestration" / "test_protocol.py"
+            validator_run = self.execute("python3", str(installed_protocol))
+            self.assertIn("Ran", validator_run.stderr)
+            self.assertIn("OK", validator_run.stderr)
 
             repeated = self.execute("python3", str(INSTALLER), "--target", str(target), "--json")
             self.assertEqual("ALREADY_INITIALIZED", json.loads(repeated.stdout)["status"])

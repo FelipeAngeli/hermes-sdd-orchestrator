@@ -32,6 +32,10 @@ Hermes profile (once)                         Target Git project (per project)
 
 The skill is reusable. The controller configuration, state, incident log, and journal are project-local and added only to the target repository's Git `info/exclude`. The installer never overwrites existing configuration or modifies tracked files.
 
+## Efficient, safe dispatch
+
+The installed entrypoint keeps worker context small and stage-specific, with one leaf worker at a time and controller-owned state transitions. Updated bundles apply to new installations; the installer deliberately does not overwrite an existing project configuration, so migrate an existing installation only after reviewing its local configuration.
+
 ## Architecture
 
 ```text

@@ -2,11 +2,17 @@
 from __future__ import annotations
 
 import copy
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+from jsonschema.exceptions import SchemaError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import validate_protocol  # noqa: E402
 from validate_protocol import validate_json_text, validate_payload  # noqa: E402
 
 
@@ -65,6 +71,17 @@ def review_fixture(status: str = "APPROVED") -> dict:
 
 
 class ProtocolValidationTests(unittest.TestCase):
+    def _executor_schema(self, cache_id: int = 0, cache_namespace: str = "") -> dict:
+        return {
+            "$id": f"urn:protocol-cache:{cache_namespace}:{cache_id}",
+            "type": "object",
+            "required": ["executor_result"],
+        }
+
+    def _validate_with_schema(self, schema_path: Path, payload: dict) -> list[dict[str, str]]:
+        with patch.object(validate_protocol, "_schema_for", return_value=(schema_path, "executor_result")):
+            return validate_payload("SPECIFY", payload)
+
     def assertAccepted(self, action: str, payload: dict) -> None:
         self.assertEqual([], validate_payload(action, payload), msg=validate_payload(action, payload))
 
@@ -139,6 +156,45 @@ class ProtocolValidationTests(unittest.TestCase):
         version_one = executor_fixture("SPECIFY")
         version_one["executor_result"]["schema_version"] = 1
         self.assertRejected("SPECIFY", version_one)
+
+    def test_reuses_same_schema_content_but_reads_current_schema_file(self) -> None:
+        fixture = executor_fixture("SPECIFY")
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            schema_path = Path(temporary_directory) / "schema.json"
+            schema_path.write_text(json.dumps(self._executor_schema(cache_namespace=temporary_directory)), encoding="utf-8")
+            with patch.object(validate_protocol.Draft202012Validator, "check_schema", wraps=validate_protocol.Draft202012Validator.check_schema) as check_schema:
+                self.assertEqual([], self._validate_with_schema(schema_path, fixture))
+                self.assertEqual([], self._validate_with_schema(schema_path, fixture))
+            self.assertEqual(1, check_schema.call_count)
+
+            schema_path.write_text(json.dumps({"type": "object", "required": ["different_envelope"]}), encoding="utf-8")
+            self.assertTrue(self._validate_with_schema(schema_path, fixture))
+
+    def test_rejects_malformed_or_invalid_current_schema_after_valid_cache(self) -> None:
+        fixture = executor_fixture("SPECIFY")
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            schema_path = Path(temporary_directory) / "schema.json"
+            schema_path.write_text(json.dumps(self._executor_schema(cache_namespace=temporary_directory)), encoding="utf-8")
+            self.assertEqual([], self._validate_with_schema(schema_path, fixture))
+
+            schema_path.write_text("{", encoding="utf-8")
+            self.assertTrue(self._validate_with_schema(schema_path, fixture))
+
+            schema_path.write_text(json.dumps({"type": 42}), encoding="utf-8")
+            with self.assertRaises(SchemaError):
+                self._validate_with_schema(schema_path, fixture)
+
+    def test_evicts_least_recently_used_schema_when_cache_is_bounded(self) -> None:
+        fixture = executor_fixture("SPECIFY")
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            schema_path = Path(temporary_directory) / "schema.json"
+            with patch.object(validate_protocol.Draft202012Validator, "check_schema", wraps=validate_protocol.Draft202012Validator.check_schema) as check_schema:
+                for cache_id in range(33):
+                    schema_path.write_text(json.dumps(self._executor_schema(cache_id, temporary_directory)), encoding="utf-8")
+                    self.assertEqual([], self._validate_with_schema(schema_path, fixture))
+                schema_path.write_text(json.dumps(self._executor_schema(cache_namespace=temporary_directory)), encoding="utf-8")
+                self.assertEqual([], self._validate_with_schema(schema_path, fixture))
+            self.assertEqual(34, check_schema.call_count)
 
 
 if __name__ == "__main__":
