@@ -19,6 +19,7 @@ skills/orchestrate/sdd-orchestrator/
         ├── policies/         # FSM, gates, recovery and bounded automation
         ├── runtime/          # deterministic executable controller tools
         ├── schemas/          # JSON Schema validation boundaries
+        ├── sub-agents/       # specialized leaf-worker briefs
         ├── tests/            # tests shipped with the installed controller
         └── README.md         # installed layout guide
 
@@ -52,6 +53,10 @@ tests/
 
 `schemas/` contains machine-readable boundaries for plans, journals and executor/reviewer results. Runtime validation resolves schemas from this directory, avoiding implicit same-folder coupling.
 
+### Sub-agents
+
+`sub-agents/` contains specialized leaf-worker briefs for investigation, impact analysis, TDD implementation, focused test execution, security review and code review. They are dispatched directly by the controller, never by another agent, and do not own STATE or transitions.
+
 ### Tests
 
 The installed `tests/` suite validates protocol behavior against the exact runtime and schemas delivered to target projects. Repository-level tests validate packaging, safe installation and the layered directory contract.
@@ -81,6 +86,7 @@ State files (`STATE.md`, `ACTION_JOURNAL.json`, `INCIDENTS.md` and journal histo
 - Put stage-specific worker instructions in `agents/`; keep controller authority out of them.
 - Put executable controller behavior in `runtime/` and cover it in installed `tests/`.
 - Put JSON validation shapes in `schemas/`; do not embed duplicate schemas in Python.
+- Put reusable specialist roles in `sub-agents/`; keep them leaf-only and controller-dispatched.
 - Put governance prose in `policies/` and external worker interfaces in `contracts/`.
 - Keep `.hermes.md` compact and reference the layered paths rather than duplicating policy text.
 - Preserve installer idempotency and fail closed on tracked, partial, conflicting or symlinked destinations.

@@ -9,6 +9,7 @@ orchestration/
 ├── policies/    # FSM, gates, recovery and bounded automation
 ├── runtime/     # deterministic Python tools
 ├── schemas/     # JSON Schema documents
+├── sub-agents/  # specialized leaf-worker briefs
 ├── tests/       # installed protocol tests
 ├── STATE.md
 ├── ACTION_JOURNAL.json
@@ -35,3 +36,5 @@ python3 .hermes/orchestration/runtime/bounded_run_driver.py --help
 Configure project-specific validation in `policies/GATES.md` before starting a demand. The mutable state files are controller-owned and must not be moved into a source layer.
 
 Before dispatching a worker, load the matching brief from `agents/` together with only the applicable contract, policy excerpt and scoped project evidence. The brief never grants STATE or transition authority.
+
+When a stage needs a narrower role, the controller may select one matching brief from `sub-agents/` instead. Stage agents never dispatch sub-agents; the one-leaf-worker invariant remains unchanged. A successful specialized action returns evidence to the controller but never completes or transitions the enclosing stage by itself.

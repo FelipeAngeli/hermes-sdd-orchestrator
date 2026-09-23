@@ -15,7 +15,7 @@ class SddOrchestratorSkillTests(unittest.TestCase):
     def test_project_payload_has_layered_architecture(self) -> None:
         orchestration = SKILL_ROOT / "templates" / ".hermes" / "orchestration"
 
-        for layer in ("agents", "contracts", "policies", "runtime", "schemas", "tests"):
+        for layer in ("agents", "contracts", "policies", "runtime", "schemas", "sub-agents", "tests"):
             self.assertTrue((orchestration / layer).is_dir(), layer)
 
         self.assertEqual([], list(orchestration.glob("*.py")))
@@ -53,6 +53,33 @@ class SddOrchestratorSkillTests(unittest.TestCase):
                     self.assertIn("Write only to paths explicitly assigned by the controller", content)
                 else:
                     self.assertIn("The workspace is read-only for this stage", content)
+
+    def test_specialized_sub_agents_are_complete_and_controller_owned(self) -> None:
+        sub_agents = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "sub-agents"
+        expected = {
+            "investigator.md": ("INVESTIGATOR", "[SPECIFY, CLARIFY, PLAN]", "EXECUTOR_RESULT_SCHEMA.json"),
+            "impact-analyst.md": ("IMPACT_ANALYST", "[PLAN, TASKS]", "EXECUTOR_RESULT_SCHEMA.json"),
+            "tdd-implementer.md": ("TDD_IMPLEMENTER", "[IMPLEMENT]", "EXECUTOR_RESULT_SCHEMA.json"),
+            "test-runner.md": ("TEST_RUNNER", "[TEST]", "EXECUTOR_RESULT_SCHEMA.json"),
+            "security-reviewer.md": ("SECURITY_REVIEWER", "[REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
+            "code-reviewer.md": ("CODE_REVIEWER", "[REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
+        }
+
+        self.assertEqual(set(expected), {path.name for path in sub_agents.glob("*.md")})
+        for filename, (role, stages, schema) in expected.items():
+            path = sub_agents / filename
+            content = path.read_text(encoding="utf-8")
+            with self.subTest(path=path):
+                self.assertIn(f"role: {role}", content)
+                self.assertIn(f"allowed_stages: {stages}", content)
+                self.assertIn("executor_policy: CONTROLLER_SELECTED", content)
+                self.assertIn(f"result_schema: ../schemas/{schema}", content)
+                self.assertTrue((sub_agents / ".." / "schemas" / schema).resolve().is_file())
+                self.assertIn("Dispatched only by the controller", content)
+                self.assertIn("Never spawn another worker", content)
+                self.assertIn("Never write `STATE.md`", content)
+                self.assertIn("The controller alone decides transitions", content)
+                self.assertIn("Never commit, push, open a PR, mutate a backend", content)
 
     def test_documentation_has_no_legacy_flat_orchestration_paths(self) -> None:
         orchestration = SKILL_ROOT / "templates" / ".hermes" / "orchestration"
@@ -154,6 +181,15 @@ class SddOrchestratorSkillTests(unittest.TestCase):
             self.assertTrue(json.loads(applied.stdout)["applied"])
             self.assertTrue((target / ".hermes" / "orchestration" / "STATE.md").is_file())
             self.assertTrue((target / ".hermes" / "orchestration" / "agents" / "implement.md").is_file())
+            for filename in (
+                "investigator.md",
+                "impact-analyst.md",
+                "tdd-implementer.md",
+                "test-runner.md",
+                "security-reviewer.md",
+                "code-reviewer.md",
+            ):
+                self.assertTrue((target / ".hermes" / "orchestration" / "sub-agents" / filename).is_file())
             self.assertLessEqual(len((target / ".hermes.md").read_text(encoding="utf-8")), 8000)
 
             installed_protocol = target / ".hermes" / "orchestration" / "tests" / "test_protocol.py"

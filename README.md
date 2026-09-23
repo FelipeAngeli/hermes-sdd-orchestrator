@@ -28,6 +28,7 @@ Hermes profile (once)                         Target Git project (per project)
     └── .hermes/                              ├── policies/    # FSM, gates, recovery
                                                ├── runtime/     # executable controller tools
                                                ├── schemas/     # JSON validation contracts
+                                               ├── sub-agents/  # specialized leaf-worker briefs
                                                ├── tests/       # installed protocol tests
                                                ├── STATE.md (fresh local state)
                                                ├── ACTION_JOURNAL.json
@@ -57,6 +58,7 @@ skills/
                 ├── policies/
                 ├── runtime/
                 ├── schemas/
+                ├── sub-agents/
                 └── tests/
 
 tests/
