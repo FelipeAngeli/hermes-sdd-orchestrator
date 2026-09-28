@@ -6,10 +6,10 @@ Thanks for helping improve the Hermes SDD Orchestrator. This is an open-source p
 
 | You want to… | Open |
 | --- | --- |
-| Propose an improvement or new capability | [Feature request](../../issues/new?template=feature_request.yml) |
-| Add or improve support for a language/toolchain | [Ecosystem support](../../issues/new?template=ecosystem_support.yml) |
-| Report something that does not work | [Bug report](../../issues/new?template=bug_report.yml) |
-| Ask a question or discuss an idea | A [blank issue](../../issues/new) labeled `question` |
+| Propose an improvement or new capability | [Feature request](https://github.com/FelipeAngeli/hermes-sdd-orchestrator/issues/new?template=feature_request.yml) |
+| Add or improve support for a language/toolchain | [Ecosystem support](https://github.com/FelipeAngeli/hermes-sdd-orchestrator/issues/new?template=ecosystem_support.yml) |
+| Report something that does not work | [Bug report](https://github.com/FelipeAngeli/hermes-sdd-orchestrator/issues/new?template=bug_report.yml) |
+| Ask a question or discuss an idea | A [blank issue](https://github.com/FelipeAngeli/hermes-sdd-orchestrator/issues/new) labeled `question` |
 | Report a vulnerability | See [SECURITY.md](SECURITY.md) — do **not** open a public issue |
 
 Search existing issues first; a 👍 on an existing issue helps prioritize it more than a duplicate.
@@ -20,7 +20,7 @@ Search existing issues first; a 👍 on an existing issue helps prioritize it mo
 - **New reference row in `policies/GATES.md`**.
 - **Documentation fixes** where a README or policy no longer matches the code.
 
-Issues labeled [`good first issue`](../../labels/good%20first%20issue) and [`help wanted`](../../labels/help%20wanted) are ready to pick up.
+Issues labeled [`good first issue`](https://github.com/FelipeAngeli/hermes-sdd-orchestrator/labels/good%20first%20issue) and [`help wanted`](https://github.com/FelipeAngeli/hermes-sdd-orchestrator/labels/help%20wanted) are ready to pick up.
 
 ## Development
 
@@ -38,7 +38,9 @@ Both suites must pass before a pull request is reviewed.
 
 ## Project rules
 
-Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before changing structure. In short:
+Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before changing structure; all documentation starts at [docs/README.md](docs/README.md). In short:
+
+- **Docs ship with the change.** Every orchestration change updates its owning page (see `docs/doc-map.json`) and `CHANGELOG.md` in the same commit — enforced by `tests/test_docs.py`, `tools/check_docs_sync.py` and CI. Enable the hook with `git config core.hooksPath .githooks`. See [Maintaining the docs](docs/maintaining-docs.md).
 
 - **Test first.** Behavior changes start with a failing test (RED → GREEN).
 - **Language-neutral payload.** Never name a language, framework or toolchain in an action, schema field, contract or brief. Ecosystem knowledge lives only in `runtime/detect_stack.py` and the reference table of `policies/GATES.md`.
