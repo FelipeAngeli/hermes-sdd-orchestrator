@@ -1,0 +1,50 @@
+name: Bug report
+description: Something does not work as documented.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For security vulnerabilities, do **not** open a public issue — see SECURITY.md.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Include the exact command and its full output (JSON reports are especially helpful).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. git init …
+        2. python3 install_project.py --target … --json
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Skill version or commit
+      placeholder: 3.3.0 / 9d41c27
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: macOS 15, Python 3.12, Hermes x.y, target stack (e.g. pnpm monorepo)
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant STATE / journal excerpt
+      description: Remove secrets and private paths before pasting.
+      render: text

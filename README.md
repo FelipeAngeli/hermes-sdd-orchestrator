@@ -160,6 +160,10 @@ python3 -m unittest discover -s skills/orchestrate/sdd-orchestrator/templates/.h
 
 The first suite installs the bundled skill into a fixture repository and asserts that every sub-agent brief ships with a declared role, allowed stages and result schema, and that this README lists exactly the briefs the bundle contains.
 
+## Contributing
+
+This is an open-source project and contributions are welcome. You can [suggest an improvement](https://github.com/FelipeAngeli/hermes-sdd-orchestrator/issues/new?template=feature_request.yml), [request support for a language or tool](https://github.com/FelipeAngeli/hermes-sdd-orchestrator/issues/new?template=ecosystem_support.yml), [report a bug](https://github.com/FelipeAngeli/hermes-sdd-orchestrator/issues/new?template=bug_report.yml) or open a pull request. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, tests and project rules, [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md) for private vulnerability reports.
+
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Open source under the [MIT License](LICENSE): free to use, modify, distribute and use commercially, with the copyright notice preserved. Contributions are accepted under the same license.

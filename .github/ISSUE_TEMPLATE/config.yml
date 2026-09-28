@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/FelipeAngeli/hermes-sdd-orchestrator/security/advisories/new
+    about: Please report vulnerabilities privately, not as public issues.
+  - name: Contributing guide
+    url: https://github.com/FelipeAngeli/hermes-sdd-orchestrator/blob/main/CONTRIBUTING.md
+    about: How to set up, test and submit changes.

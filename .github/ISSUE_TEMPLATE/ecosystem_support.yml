@@ -1,0 +1,37 @@
+name: Language / ecosystem support
+description: Add or improve support for a language, package manager, formatter, linter or CI provider.
+title: "[Ecosystem]: "
+labels: ["enhancement", "good first issue"]
+body:
+  - type: input
+    id: ecosystem
+    attributes:
+      label: Ecosystem or tool
+      placeholder: e.g. Zig, Deno, uv, Bazel, Biome, Buildkite
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: How to detect it
+      description: Which manifest, lockfile or config file proves the project uses it?
+      placeholder: build.zig at the repository root
+    validations:
+      required: true
+  - type: textarea
+    id: commands
+    attributes:
+      label: Gate commands
+      description: The canonical commands, and which file justifies each one. Use `{files}` for the changed files in the format command.
+      value: |
+        - Focused tests:
+        - Format ({files}):
+        - Analyze:
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current output of detect_stack.py (if any)
+      description: "`python3 .hermes/orchestration/runtime/detect_stack.py --target . --json`"
+      render: json
