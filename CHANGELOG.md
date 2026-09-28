@@ -1,33 +1,50 @@
 # Changelog
 
-All notable changes to the orchestration are recorded here. Every change under `skills/`, `tools/`, `.githooks/` or `.github/workflows/` adds an entry (enforced by `tools/check_docs_sync.py`; see [docs/maintaining-docs.md](docs/maintaining-docs.md)).
+All notable changes to the orchestration are recorded here. Every change under `skills/`, `tools/`, `.githooks/` or `.github/workflows/` adds an entry.
 
 ## Unreleased
 
+### Added
+- `sub-agents/pr-reviewer.md`: global, language- and host-neutral PR review from the real merge-base diff, including an audit of prior reviews and deference to specialist roles.
+- This repository requires `pr-reviewer` on every pull request and prior review.
+
+## 3.7.0 - 2026-09-28
+
+### Added
+- Branch-per-improvement workflow and SemVer release commits through `tools/release.py`.
+
+### Changed
+- Release tags are created only after CI and `pr-reviewer` approve the exact unchanged release commit.
+
+## 3.6.1 - 2026-09-28
+
 ### Fixed
-- The installer ignores Python interpreter artifacts (`__pycache__`, `.pyc`, `.pyo`) in the source template. Previously a cache generated while the repository tests ran could be copied into a fixture, recompiled there and make the idempotency check fail on Linux CI.
+- Initial docs-map bootstrap in the base-aware synchronization checker.
+
+## 3.6.0 - 2026-09-28
+
+### Added
+- Linked per-component documentation, ownership map, drift tests, hook and CI.
+
+### Fixed
+- Python caches are excluded from installer templates; documentation waivers, renames, deletions, anchors and CLI flags are checked structurally.
+- Direct maintainer requests may state that no issue applies.
 
 ## 3.5.0 - 2026-09-28
 
 ### Added
-- `sub-agents/pr-reviewer.md`: a global, language- and host-neutral pull request reviewer that checks a PR as it will merge (scope, correctness, tests, checks, breaking changes, changelog and version, commits, mergeability) and audits every earlier review. It never posts on its own and defers deep findings to the owning specialist. It is routed from a new `Pull request` row in `DISPATCH_POLICY.md`.
-- This repository requires `pr-reviewer` on every pull request and on every earlier review (`AGENTS.md`, PR template).
+- Initial `pr-reviewer` draft (superseded by the reviewed release based on `3.7.0`).
 
 ## 3.4.0 - 2026-09-28
 
 ### Added
-- Linked documentation set under `docs/`: an index, an overview, a glossary and one page per component, with a file-ownership map in `docs/doc-map.json`.
-- `tests/test_docs.py`, which fails when documentation drifts from the code (coverage, links, reachability, CLI flags, statuses, actions, ecosystems, agent tables).
-- `tools/check_docs_sync.py`, the `.githooks/commit-msg` hook and a CI workflow that reject orchestration changes without documentation.
-- `AGENTS.md`, with the documentation rule for agents working in this repository.
-- Branch-per-improvement workflow and SemVer releases: `tools/release.py` infers the level from `## Unreleased`, bumps `SKILL.md`, rolls this changelog, commits and tags `vX.Y.Z`; it refuses on `main`, a dirty worktree, an empty section or an existing tag. `tests/test_versioning.py` keeps `SKILL.md`, the changelog and tags consistent.
+- Initial branch/version workflow draft (superseded by `3.7.0`).
 
 ## 3.3.0 - 2026-09-28
 
 ### Changed
-- The controller is language-agnostic: `FORMAT_DART_CHANGED_FILES` is now `FORMAT_CHANGED_FILES`, and `changed_dart_files_available` is now `changed_files_available` (the legacy name is still accepted).
+- The controller is language-agnostic; the legacy Dart snapshot field remains accepted.
 
 ### Added
-- `runtime/detect_stack.py`: evidence-based detection of 13 ecosystems. Its report is included in the installer dry run.
-- A language-neutral `GATES.md` template.
-- Per-worktree Obsidian vault binding, write containment, bootstrap and migration tools.
+- Evidence-based stack detection and a language-neutral gates template.
+- Per-worktree Obsidian vault binding, containment, bootstrap and migration.

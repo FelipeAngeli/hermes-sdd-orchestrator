@@ -9,6 +9,7 @@ on the page that owns them.
 """
 from __future__ import annotations
 
+import ast
 import fnmatch
 import json
 import re
@@ -25,7 +26,45 @@ ORCHESTRATION = SKILL_ROOT / "templates" / ".hermes" / "orchestration"
 RUNTIME = ORCHESTRATION / "runtime"
 DOC_MAP = DOCS / "doc-map.json"
 CHECKER = ROOT / "tools" / "check_docs_sync.py"
-LINK = re.compile(r"\]\(([^)#\s]+)(?:#[^)]*)?\)")
+LINK = re.compile(r"\]\(([^)\s]+)\)")
+EXPLICIT_ID = re.compile(r'<a\s+(?:name|id)=["\']([^"\']+)["\']\s*></a>', re.I)
+
+
+def markdown_links(text: str) -> list[tuple[str, str]]:
+    """Return (relative path, anchor) for non-external Markdown links."""
+    result: list[tuple[str, str]] = []
+    for target in LINK.findall(text):
+        if re.match(r"^[a-z][a-z0-9+.-]*:", target, re.I):
+            continue
+        path, _, anchor = target.partition("#")
+        result.append((path, anchor))
+    return result
+
+
+def markdown_anchors(text: str) -> set[str]:
+    """Approximate GitHub heading anchors plus explicit HTML ids."""
+    anchors = set(EXPLICIT_ID.findall(text))
+    seen: dict[str, int] = {}
+    for heading in re.findall(r"^#{1,6}\s+(.+?)\s*#*\s*$", text, re.M):
+        plain = re.sub(r"<[^>]+>|[`*~]", "", heading).strip().lower()
+        slug = re.sub(r"[^\w\- ]", "", plain, flags=re.UNICODE).replace(" ", "-")
+        count = seen.get(slug, 0)
+        anchors.add(slug if count == 0 else f"{slug}-{count}")
+        seen[slug] = count + 1
+    return anchors
+
+
+def python_cli_flags(source: str) -> set[str]:
+    """Extract argparse option strings independent of quote/layout style."""
+    flags: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute) or node.func.attr != "add_argument":
+            continue
+        flags.update(
+            arg.value for arg in node.args
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str) and arg.value.startswith("--")
+        )
+    return flags
 
 
 def load_map() -> dict[str, list[str]]:
@@ -97,20 +136,29 @@ class DocumentationGraphTests(unittest.TestCase):
     def all_pages(self) -> list[Path]:
         return sorted(DOCS.rglob("*.md"))
 
-    def test_relative_links_resolve(self) -> None:
+    def test_relative_links_and_anchors_resolve(self) -> None:
         for path in [*self.all_pages(), ROOT / "README.md", ROOT / "CONTRIBUTING.md", ROOT / "AGENTS.md"]:
-            for target in LINK.findall(path.read_text(encoding="utf-8")):
-                if re.match(r"^[a-z]+:", target):
-                    continue
-                with self.subTest(page=path.relative_to(ROOT).as_posix(), link=target):
-                    self.assertTrue((path.parent / target).resolve().exists())
+            for target, anchor in markdown_links(path.read_text(encoding="utf-8")):
+                destination = (path.parent / target).resolve() if target else path.resolve()
+                with self.subTest(page=path.relative_to(ROOT).as_posix(), link=target, anchor=anchor):
+                    self.assertTrue(destination.exists())
+                    if anchor and destination.suffix == ".md":
+                        self.assertIn(anchor, markdown_anchors(destination.read_text(encoding="utf-8")))
+
+    def test_markdown_parser_detects_same_page_and_cross_page_anchors(self) -> None:
+        self.assertEqual([("", "section"), ("other.md", "target")], markdown_links("[a](#section) [b](other.md#target)"))
+        self.assertEqual({"title", "repeated", "repeated-1", "manual"}, markdown_anchors(
+            "# Title\n## Repeated\n## Repeated\n<a id=\"manual\"></a>\n"
+        ))
 
     def test_every_page_is_reachable_from_the_index(self) -> None:
         index = DOCS / "README.md"
         seen, frontier = {index.resolve()}, [index]
         while frontier:
             current = frontier.pop()
-            for target in LINK.findall(current.read_text(encoding="utf-8")):
+            for target, _ in markdown_links(current.read_text(encoding="utf-8")):
+                if not target:
+                    continue
                 resolved = (current.parent / target).resolve()
                 if resolved.suffix == ".md" and resolved.is_relative_to(DOCS.resolve()) and resolved not in seen:
                     seen.add(resolved)
@@ -121,7 +169,7 @@ class DocumentationGraphTests(unittest.TestCase):
 
     def test_every_component_page_links_back_to_the_index_and_to_a_sibling(self) -> None:
         for path in sorted((DOCS / "components").glob("*.md")):
-            links = {(path.parent / t).resolve() for t in LINK.findall(path.read_text(encoding="utf-8"))}
+            links = {(path.parent / t).resolve() for t, _ in markdown_links(path.read_text(encoding="utf-8")) if t}
             siblings = {p.resolve() for p in (DOCS / "components").glob("*.md")} - {path.resolve()}
             with self.subTest(page=path.name):
                 self.assertIn((DOCS / "README.md").resolve(), links)
@@ -137,10 +185,14 @@ class DocumentationDriftTests(unittest.TestCase):
     """Names extracted from code must appear on the page that owns the code."""
 
     def cli_flags(self, source: str) -> set[str]:
-        return set(re.findall(r'add_argument\(\s*"(--[a-z0-9-]+)"', source))
+        return python_cli_flags(source)
+
+    def test_cli_flag_parser_accepts_single_quotes_and_multiline_calls(self) -> None:
+        source = """\nparser.add_argument('--single')\nparser.add_argument(\n    \"--multi\", action='store_true'\n)\n"""
+        self.assertEqual({"--single", "--multi"}, self.cli_flags(source))
 
     def test_every_cli_flag_is_documented_on_its_page(self) -> None:
-        sources = [*RUNTIME.glob("*.py"), SKILL_ROOT / "scripts" / "install_project.py", CHECKER]
+        sources = [*RUNTIME.glob("*.py"), SKILL_ROOT / "scripts" / "install_project.py", *sorted((ROOT / "tools").glob("*.py"))]
         for path in sources:
             relative = path.relative_to(ROOT).as_posix()
             text = owning_page(relative)
@@ -315,6 +367,59 @@ class DocsSyncCheckerTests(unittest.TestCase):
         self.git("add", "-A")
         self.git("commit", "-qm", "docs: runtime v3")
         self.assertEqual(0, self.check("--base", base).returncode)
+
+    def test_a_waiver_on_one_commit_does_not_cover_other_commits_in_the_range(self) -> None:
+        """A release commit carries Docs-Impact: none; it must not launder the branch."""
+        base = self.git("rev-parse", "HEAD").strip()
+        self.write("skills/o/runtime/tool.py", "x = 4\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "feat: undocumented change")
+        self.write("CHANGELOG.md", "# Changelog\n## 1.0.0\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "chore(release): v1.0.0", "-m", "Docs-Impact: none - version bump only")
+        result = self.check("--base", base)
+        self.assertEqual(1, result.returncode, result.stdout)
+        self.assertIn("docs/components/runtime.md", result.stdout)
+
+    def test_a_waived_commit_exempts_only_its_own_files(self) -> None:
+        base = self.git("rev-parse", "HEAD").strip()
+        self.write("skills/o/runtime/tool.py", "x = 5  # typo\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "fix: typo", "-m", "Docs-Impact: none - comment typo")
+        self.assertEqual(0, self.check("--base", base).returncode)
+
+    def test_renaming_a_source_into_a_test_path_is_not_exempt(self) -> None:
+        self.git("mv", "skills/o/runtime/tool.py", "skills/o/tests/test_moved.py")
+        result = self.check("--staged")
+        self.assertEqual(1, result.returncode, result.stdout)
+        self.assertIn("skills/o/runtime/tool.py", result.stdout)
+
+    def test_initial_introduction_of_doc_map_has_no_old_map(self) -> None:
+        self.git("rm", "docs/doc-map.json")
+        self.git("commit", "-qm", "remove preexisting map")
+        base = self.git("rev-parse", "HEAD").strip()
+        self.write("docs/doc-map.json", json.dumps({"docs": {
+            "docs/components/runtime.md": ["skills/o/runtime/*.py"],
+            "docs/components/testing.md": ["skills/o/tests/*.py"],
+        }}))
+        self.write("skills/o/runtime/tool.py", "x = 6\n")
+        self.write("docs/components/runtime.md", "runtime documented\n")
+        self.write("CHANGELOG.md", "# Changelog\n- introduce docs map\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "docs: introduce map")
+        result = self.check("--base", base)
+        self.assertEqual(0, result.returncode, result.stdout)
+
+    def test_documented_deletion_uses_the_owner_from_the_base_map(self) -> None:
+        self.git("rm", "skills/o/runtime/tool.py")
+        self.write("docs/doc-map.json", json.dumps({"docs": {
+            "docs/components/testing.md": ["skills/o/tests/*.py"],
+        }}))
+        self.write("docs/components/runtime.md", "runtime removed\n")
+        self.write("CHANGELOG.md", "# Changelog\n- remove runtime tool\n")
+        self.git("add", "-A")
+        result = self.check("--staged")
+        self.assertEqual(0, result.returncode, result.stdout)
 
 
 if __name__ == "__main__":

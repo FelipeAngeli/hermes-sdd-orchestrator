@@ -8,8 +8,8 @@ Never commit to `main`. For every improvement:
 
 1. `git switch main && git pull --ff-only && git switch -c <type>/<topic>`, with `<type>` one of `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
 2. Commit the change with its documentation and a `CHANGELOG.md` entry under `## Unreleased` (see below).
-3. `python3 tools/release.py --apply` on that branch. It bumps `SKILL.md`, rolls the changelog, commits and tags `vX.Y.Z` (MAJOR for `### Breaking`/`### Removed`, MINOR for `### Added`/`### Changed`, otherwise PATCH).
-4. Push the branch and the tag only when the user asks, then open a pull request to `main`.
+3. `python3 tools/release.py --apply` on that branch. It bumps `SKILL.md`, rolls the changelog and commits `chore(release): vX.Y.Z` without tagging (MAJOR for `### Breaking`/`### Removed`, MINOR for `### Added`/`### Changed`, otherwise PATCH).
+4. Push the branch and open a pull request. After CI and `pr-reviewer` approve that exact HEAD, run `python3 tools/release.py --tag` and push the tag. Merge only then.
 
 Details: [docs/maintaining-docs.md#branches-and-versions](docs/maintaining-docs.md#branches-and-versions).
 

@@ -11,9 +11,10 @@ The level comes from the headings of the ``## Unreleased`` section unless
 * anything else (``### Fixed``, ``### Docs``…) → PATCH
 
 ``--apply`` writes ``version:`` in SKILL.md, renames ``## Unreleased`` to
-``## X.Y.Z - <date>`` under a fresh empty ``## Unreleased``, commits
-``chore(release): vX.Y.Z`` and creates the annotated tag ``vX.Y.Z``. It
-never pushes: push the branch and the tag explicitly after review.
+``## X.Y.Z - <date>`` under a fresh empty ``## Unreleased`` and commits
+``chore(release): vX.Y.Z``. It deliberately does **not** tag before review.
+After CI and `pr-reviewer` approve that exact HEAD, ``--tag`` verifies the
+release commit and creates the annotated tag. Neither mode pushes.
 
 Exit status: 0 ok, 1 refused (reason printed), 2 usage or Git error.
 """
@@ -29,6 +30,7 @@ from pathlib import Path
 SKILL = "skills/orchestrate/sdd-orchestrator/SKILL.md"
 CHANGELOG = "CHANGELOG.md"
 PROTECTED_BRANCHES = {"main", "master"}
+ALLOWED_BRANCH = re.compile(r"^(?:feat|fix|docs|refactor|test|chore)/[a-z0-9][a-z0-9._-]*$")
 VERSION_LINE = re.compile(r"^version: *(\S+) *$", re.M)
 RELEASE_HEADING = re.compile(r"^## (\d+\.\d+\.\d+)\b", re.M)
 UNRELEASED = re.compile(r"^## Unreleased[ \t]*\n(?P<body>.*?)(?=^## |\Z)", re.M | re.S)
@@ -76,6 +78,8 @@ def plan(repo: Path, level: str | None) -> dict[str, str]:
     branch = git(repo, "rev-parse", "--abbrev-ref", "HEAD")
     if branch in PROTECTED_BRANCHES or branch == "HEAD":
         raise ReleaseError(f"BRANCH_NOT_ALLOWED: release from the improvement branch, not {branch!r}")
+    if not ALLOWED_BRANCH.fullmatch(branch):
+        raise ReleaseError(f"BRANCH_NAME_INVALID: {branch!r} must use feat/, fix/, docs/, refactor/, test/, or chore/")
     skill_text = (repo / SKILL).read_text(encoding="utf-8")
     match = VERSION_LINE.search(skill_text)
     if not match:
@@ -103,18 +107,56 @@ def apply(repo: Path, info: dict[str, str], date: str) -> None:
     tag = f"v{info['new']}"
     git(repo, "add", "--", SKILL, CHANGELOG)
     git(repo, "commit", "-q", "-m", f"chore(release): {tag}", "-m", "Docs-Impact: none - version bump and changelog roll only")
-    git(repo, "tag", "-a", tag, "-m", f"{tag}")
+
+
+def validate_date(value: str) -> str:
+    try:
+        parsed = dt.date.fromisoformat(value)
+    except ValueError:
+        raise ReleaseError(f"DATE_INVALID: {value!r} must be YYYY-MM-DD") from None
+    if parsed.isoformat() != value:
+        raise ReleaseError(f"DATE_INVALID: {value!r} must be YYYY-MM-DD")
+    return value
+
+
+def tag_release(repo: Path) -> str:
+    if git(repo, "status", "--porcelain"):
+        raise ReleaseError("WORKTREE_DIRTY: commit or stash changes before tagging")
+    skill_match = VERSION_LINE.search((repo / SKILL).read_text(encoding="utf-8"))
+    if not skill_match:
+        raise ReleaseError(f"VERSION_MISSING: no 'version:' line in {SKILL}")
+    version = skill_match.group(1)
+    versions = changelog_versions((repo / CHANGELOG).read_text(encoding="utf-8"))
+    if not versions or versions[0] != version:
+        raise ReleaseError("VERSION_DRIFT: SKILL.md must match the latest changelog release")
+    tag = f"v{version}"
+    if git(repo, "tag", "--list", tag):
+        raise ReleaseError(f"TAG_EXISTS: {tag} already exists")
+    subject = git(repo, "log", "-1", "--format=%s")
+    if subject != f"chore(release): {tag}":
+        raise ReleaseError(f"HEAD_NOT_RELEASE: HEAD must be the reviewed release commit 'chore(release): {tag}'")
+    git(repo, "tag", "-a", tag, "-m", tag)
+    return tag
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument("--repo", default=".", help="repository root (default: current directory)")
     parser.add_argument("--level", choices=LEVELS, help="override the level inferred from '## Unreleased'")
-    parser.add_argument("--apply", action="store_true", help="write, commit and tag (default: dry run)")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--apply", action="store_true", help="write and commit the release (default: dry run; never tags)")
+    mode.add_argument("--tag", action="store_true", help="tag the exact reviewed release HEAD")
     parser.add_argument("--date", help="release date YYYY-MM-DD (default: today)")
     args = parser.parse_args(argv)
     repo = Path(args.repo).resolve()
     try:
+        if args.tag:
+            if args.level or args.date:
+                raise ReleaseError("TAG_OPTIONS_INVALID: --tag does not accept --level or --date")
+            tag = tag_release(repo)
+            print(f"release: tagged exact reviewed HEAD as {tag}")
+            print(f"next: git push origin {tag}")
+            return 0
         if args.apply and git(repo, "status", "--porcelain"):
             raise ReleaseError("WORKTREE_DIRTY: commit or stash changes before releasing")
         info = plan(repo, args.level)
@@ -122,9 +164,10 @@ def main(argv: list[str] | None = None) -> int:
         if not args.apply:
             print(f"release: DRY RUN {summary}; rerun with --apply")
             return 0
-        apply(repo, info, args.date or dt.date.today().isoformat())
-        print(f"release: {summary}; tagged v{info['new']}")
-        print(f"next: git push -u origin {info['branch']} && git push origin v{info['new']}")
+        release_date = validate_date(args.date or dt.date.today().isoformat())
+        apply(repo, info, release_date)
+        print(f"release: {summary}; release commit created without a tag")
+        print(f"next: push/open PR; after CI and review approve this exact HEAD, run tools/release.py --tag")
         return 0
     except ReleaseError as error:
         print(f"release: REFUSED {error}")

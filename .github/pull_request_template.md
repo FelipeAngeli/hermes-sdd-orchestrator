@@ -2,7 +2,7 @@
 
 <!-- What changes and why. -->
 
-Closes #
+Issue: <!-- Closes #123, or: Not applicable — direct request -->
 
 ## Type
 
