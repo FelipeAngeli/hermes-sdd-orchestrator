@@ -10,6 +10,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 - `tools/check_docs_sync.py`, the `.githooks/commit-msg` hook and a CI workflow that reject orchestration changes without documentation.
 - `AGENTS.md`, with the documentation rule for agents working in this repository.
 
+### Fixed
+- The installer ignores Python interpreter artifacts (`__pycache__`, `.pyc`, `.pyo`) in the source template. Previously a cache generated while the repository tests ran could be copied into a fixture, recompiled there and make the idempotency check fail on Linux CI.
+
 ## 3.3.0
 
 ### Changed
