@@ -75,6 +75,11 @@ class SddOrchestratorSkillTests(unittest.TestCase):
                 "[PLAN, REVIEW]",
                 "REVIEW_RESULT_SCHEMA.json",
             ),
+            "documentation-writer.md": (
+                "DOCUMENTATION_WRITER",
+                "[IMPLEMENT, REVIEW]",
+                "EXECUTOR_RESULT_SCHEMA.json",
+            ),
         }
 
         self.assertEqual(set(expected), {path.name for path in sub_agents.glob("*.md")})
@@ -258,6 +263,34 @@ class SddOrchestratorSkillTests(unittest.TestCase):
         ):
             with self.subTest(surface=surface):
                 self.assertIn(surface, content.lower())
+
+    def test_documentation_writer_is_the_only_writing_audit_role(self) -> None:
+        """This role writes, so its failure mode is inverted.
+
+        Every other audit role is read-only and risks a wrong finding. A writer
+        risks something worse: fluent prose describing code that does not exist,
+        which readers trust precisely because it reads well. The brief therefore
+        grounds every statement in a verified symbol, confines writes to
+        controller-assigned paths, and requires deleting documentation for code
+        that is gone rather than leaving a plausible description of nothing.
+        """
+        sub_agents = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "sub-agents"
+        content = (sub_agents / "documentation-writer.md").read_text(encoding="utf-8")
+
+        for rule in (
+            "Write only to paths explicitly assigned by the controller",
+            "Never document behavior that was not verified in the code",
+            "Never invent a rationale for a decision",
+            "Remove documentation describing code that no longer exists",
+            "Never weaken or delete a warning, constraint or security note",
+            "Record an unexplained decision as an open question",
+        ):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, content)
+
+        for artifact in ("adr", "readme", "diagram", "changelog"):
+            with self.subTest(artifact=artifact):
+                self.assertIn(artifact, content.lower())
 
     def test_documentation_has_no_legacy_flat_orchestration_paths(self) -> None:
         orchestration = SKILL_ROOT / "templates" / ".hermes" / "orchestration"

@@ -55,9 +55,11 @@ tests/
 
 ### Sub-agents
 
-`sub-agents/` contains specialized leaf-worker briefs for investigation, impact analysis, TDD implementation, focused test execution, security review, code review, test-suite auditing, regression hunting, API contract auditing and performance auditing. They are dispatched directly by the controller, never by another agent, and do not own STATE or transitions.
+`sub-agents/` contains specialized leaf-worker briefs for investigation, impact analysis, TDD implementation, focused test execution, security review, code review, test-suite auditing, regression hunting, API contract auditing, performance auditing and documentation maintenance. They are dispatched directly by the controller, never by another agent, and do not own STATE or transitions.
 
 Four of them return findings only when evidence supports them. The TDD guardian decides whether a suite actually tests behavior by mutating production code and observing which tests stay green; the regression hunter decides whether a change broke existing behavior by running the suites of the consumers the change did not touch; the API contract auditor compares client models against the published specification and the deployed server, ranking the sources rather than choosing the convenient one; the performance auditor reports a cost only with a measurement or a counted operation behind it, and may conclude that nothing is worth changing. All four keep the workspace read-only, revert every temporary step, repair nothing, and separate proven findings from unproven suspicions — a suspicion presented as proof is worse than no report, because the controller cannot act on it.
+
+The documentation writer is the exception that writes, and its risk runs the other way. A read-only auditor produces a wrong finding that review can reject; a writer produces fluent prose describing code that does not exist, which readers trust because it reads well. It therefore verifies every symbol, command and path against the repository before writing it, deletes documentation whose subject is gone, and records an unexplained decision as an open question rather than inventing a rationale. Like the implementer, it writes only to paths the controller assigns, and it never edits code to match the text.
 
 ### Tests
 
