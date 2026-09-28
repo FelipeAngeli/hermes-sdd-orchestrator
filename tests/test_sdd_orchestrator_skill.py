@@ -179,6 +179,42 @@ class SddOrchestratorSkillTests(unittest.TestCase):
             with self.subTest(surface=surface):
                 self.assertIn(surface, content.lower())
 
+    def test_security_reviewer_covers_secrets_storage_and_log_exposure(self) -> None:
+        """Credential exposure is the failure mode that survives code review.
+
+        An injected token or a logged document number reads as ordinary code:
+        nothing crashes, tests stay green, and the leak is only visible to
+        someone looking for it. The brief therefore names the disclosure
+        surfaces explicitly, and forbids the two ways an audit can make things
+        worse — pasting the secret into the report, and quietly "fixing" it in
+        a way that leaves the value live in history.
+        """
+        sub_agents = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "sub-agents"
+        content = (sub_agents / "security-reviewer.md").read_text(encoding="utf-8")
+
+        for rule in (
+            "Never reproduce a discovered secret value",
+            "Report a committed secret as compromised and requiring rotation",
+            "Never repair",
+            "Report proven findings separately from unproven suspicions",
+        ):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, content)
+
+        for surface in (
+            "hardcoded",
+            "rotation",
+            "insecure storage",
+            "log",
+            "redact",
+            "token",
+            "session",
+            "authorization",
+            "personal data",
+        ):
+            with self.subTest(surface=surface):
+                self.assertIn(surface, content.lower())
+
     def test_documentation_has_no_legacy_flat_orchestration_paths(self) -> None:
         orchestration = SKILL_ROOT / "templates" / ".hermes" / "orchestration"
         documents = [
