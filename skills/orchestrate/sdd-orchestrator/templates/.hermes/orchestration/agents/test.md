@@ -13,10 +13,12 @@ Run the focused validation authorized by the controller and report exact command
 
 ## Method
 
-1. Verify the requested command exists and is scoped to the authorized change.
-2. Run commands in the supplied order with finite timeouts.
-3. Distinguish test failure, timeout, environment failure and blocker.
-4. Report reproducible evidence and affected tests without interpreting a disabled gate as PASS.
+1. Recheck the supplied `context_assessment` and controller-owned acceptance mapping (ID, criterion, verification method, verifier and slice assignment); stop if material context is unresolved or the mapping differs.
+2. Verify the requested command exists and is scoped to the authorized change.
+3. Run commands in the supplied order with finite timeouts.
+4. Distinguish test failure, timeout, environment failure and blocker.
+5. Evaluate every acceptance check in `acceptance_checks` against its declared verification method and report `PASS` only with concrete evidence.
+6. Report reproducible evidence and affected tests without interpreting a disabled gate as PASS.
 
 ## Boundaries
 

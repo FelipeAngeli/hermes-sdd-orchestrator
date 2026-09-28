@@ -114,6 +114,33 @@ class BundleContractTests(unittest.TestCase):
                 boundary = "write only to paths explicitly assigned" if stage == "IMPLEMENT" else "workspace is read-only"
                 self.assertIn(boundary, policy)
 
+    def test_stage_agents_enforce_context_and_acceptance_evidence(self) -> None:
+        agents = ORCHESTRATION / "agents"
+        for filename, stage in STAGE_AGENTS.items():
+            policy = normalized((agents / filename).read_text(encoding="utf-8"))
+            with self.subTest(agent=filename):
+                self.assertIn("material", policy)
+                self.assertIn("acceptance", policy)
+                self.assertIn("evidence", policy)
+                if stage != "REVIEW":
+                    self.assertIn("context_assessment", policy)
+                    self.assertIn("acceptance_checks", policy)
+                if stage in {"IMPLEMENT", "TEST", "REVIEW"}:
+                    for concept in (
+                        "controller-owned acceptance mapping",
+                        "criterion",
+                        "verification method",
+                        "verifier",
+                        "slice assignment",
+                    ):
+                        self.assertIn(concept, policy)
+                if stage in {"IMPLEMENT", "TEST"}:
+                    self.assertIn("every acceptance check", policy)
+                    self.assertIn("pass", policy)
+                if stage == "REVIEW":
+                    self.assertIn("green gates alone", policy)
+                    self.assertIn("independently", policy)
+
     def test_sub_agent_metadata_and_controller_boundaries_are_complete(self) -> None:
         directory = ORCHESTRATION / "sub-agents"
         self.assertEqual(set(SUB_AGENT_CONTRACTS), {path.name for path in directory.glob("*.md")})

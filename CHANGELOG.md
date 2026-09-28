@@ -4,6 +4,11 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 4.0.0 - 2026-09-28
+
+### Breaking
+- Executor and review result contracts now use schema version 3. Executor results must carry evidence-backed `context_assessment` and stable `acceptance_checks`; the controller owns every check's ID, criterion, verification method, verifier and non-whitespace slice assignment, preventing worker downgrades or unassigned criteria. Early stages cannot claim executed evidence, TASKS assigns a non-empty criterion set, and IMPLEMENT receives exactly one current plus an explicit disjoint completed set. TEST and every REVIEW status must match the full non-empty authoritative mapping with a complete non-empty check set independently of payload-declared values and green gates.
+
 ## 3.10.0 - 2026-09-28
 
 ### Added

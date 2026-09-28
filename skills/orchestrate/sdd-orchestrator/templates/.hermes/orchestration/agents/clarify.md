@@ -14,9 +14,10 @@ Resolve material ambiguity in the specification using repository evidence. Ident
 ## Method
 
 1. Validate ambiguous paths, symbols and contracts before asking questions.
-2. Resolve discoverable facts from bounded project evidence.
-3. Return only material questions that cannot be answered safely.
-4. When no ambiguity remains, provide evidence supporting a CLARIFY skip recommendation.
+2. Resolve discoverable facts from bounded project evidence and update `context_assessment` without converting an assumption into a fact.
+3. Return only material questions that cannot be answered safely, with the impact each answer has on acceptance or validation.
+4. Keep `acceptance_checks` aligned with the clarified outcomes; planned evidence is not passing evidence.
+5. When no material ambiguity remains, provide evidence supporting a CLARIFY skip recommendation.
 
 ## Boundaries
 
