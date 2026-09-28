@@ -9,7 +9,7 @@
 | Layer | What it checks | Files |
 | --- | --- | --- |
 | Ownership map | Every orchestration file has exactly one owning page. | `docs/doc-map.json` |
-| Content tests | Pages name their files. Links resolve. The page graph is connected. CLI flags, subcommands, statuses, decisions, actions, ecosystems and agent tables match the code. | `tests/test_docs.py` |
+| Content tests | Pages name their files. Links and anchors resolve. The page graph is connected. CLI flags, subcommands, statuses, decisions, actions, ecosystems and agent tables match the code. | `tests/test_docs.py` |
 | Change check | A changed source file requires its owning page **and** `CHANGELOG.md` to change in the same diff. | `tools/check_docs_sync.py` |
 | Local hook | Runs the change check on every commit. | `.githooks/commit-msg` |
 | CI | Runs both test suites and, on pull requests, the change check against the base branch. | `.github/workflows/ci.yml` |
@@ -37,9 +37,11 @@ python3 tools/check_docs_sync.py --base origin/main
 
 Exit codes: `0` in sync, `1` documentation missing (each missing page is listed), `2` usage or Git error.
 
-Editing, renaming or deleting an **existing** test needs no documentation. Adding a test file does, because [Testing](components/testing.md) lists every suite.
+Editing or deleting an **existing** test needs no documentation. Adding a test file does, because [Testing](components/testing.md) lists every suite. A rename counts as deleting the old path and adding the new one, so a source file moved into `tests/` still needs its page.
 
-**Waiver.** A change with truly no documentation impact, such as a comment typo, may carry the trailer below. The reason is mandatory and reviewers see it in the history:
+**Bootstrap.** On the first documentation PR, `docs/doc-map.json` may not exist in the base revision. The checker treats pre-diff ownership as empty in that one case; once the map exists, deleted and renamed paths always resolve their previous owner from the base map.
+
+**Waiver.** A change with truly no documentation impact, such as a comment typo, may carry the trailer below. The reason is mandatory and reviewers see it in the history. A waiver covers only the files changed by the commit that carries it; a later waived release or metadata commit never excuses another commit in the range:
 
 ```text
 Docs-Impact: none - fix typo in a comment
