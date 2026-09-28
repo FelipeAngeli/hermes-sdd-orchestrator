@@ -48,6 +48,7 @@ The installed entrypoint keeps worker context small and stage-specific, with one
 | Brief | Stages | Purpose |
 | --- | --- | --- |
 | `investigator` | SPECIFY, CLARIFY, PLAN | Bounded codebase investigation before a decision is made. |
+| `data-flow-tracer` | PLAN, IMPLEMENT | One demand's path: UI → state → service → repository → API and back. |
 | `impact-analyst` | PLAN, TASKS | Full blast radius of one proposed contract or behavior change. |
 | `tdd-implementer` | IMPLEMENT | One authorized vertical slice under strict RED → minimal → GREEN. |
 | `test-runner` | TEST | Focused test execution with exact commands and exit codes. |

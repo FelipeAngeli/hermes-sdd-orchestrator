@@ -91,6 +91,11 @@ class SddOrchestratorSkillTests(unittest.TestCase):
                 "[TASKS, REVIEW]",
                 "REVIEW_RESULT_SCHEMA.json",
             ),
+            "data-flow-tracer.md": (
+                "DATA_FLOW_TRACER",
+                "[PLAN, IMPLEMENT]",
+                "EXECUTOR_RESULT_SCHEMA.json",
+            ),
         }
 
         self.assertEqual(set(expected), {path.name for path in sub_agents.glob("*.md")})
@@ -460,6 +465,32 @@ class SddOrchestratorSkillTests(unittest.TestCase):
         ):
             with self.subTest(direction=direction):
                 self.assertIn(direction, content.lower())
+
+    def test_data_flow_tracer_stays_scoped_to_one_demand(self) -> None:
+        """A tracer's failure mode is scope, not accuracy.
+
+        Following data end to end invites mapping the whole system, which is the
+        expensive habit the dispatch policy exists to prevent. The brief binds
+        the trace to one demand's path and makes an honest partial trace with a
+        stated stopping point preferable to a complete-looking one padded with
+        inference.
+        """
+        sub_agents = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "sub-agents"
+        content = (sub_agents / "data-flow-tracer.md").read_text(encoding="utf-8")
+
+        for rule in (
+            "The workspace is read-only",
+            "Trace only the path the demand touches",
+            "Never audit the whole project",
+            "Report the trace as partial and name where it stopped",
+            "Never infer a hop that was not read in the code",
+        ):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, content)
+
+        for hop in ("ui", "state", "repository", "side effect", "risk"):
+            with self.subTest(hop=hop):
+                self.assertIn(hop, content.lower())
 
     def test_documentation_has_no_legacy_flat_orchestration_paths(self) -> None:
         orchestration = SKILL_ROOT / "templates" / ".hermes" / "orchestration"
