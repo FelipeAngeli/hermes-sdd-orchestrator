@@ -4,6 +4,21 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 5.0.0 - 2026-09-28
+
+### Breaking
+- `validate_protocol.py` enforces write scope and cited evidence: SPECIFY, CLARIFY, PLAN, TASKS and TEST reject any reported file change; every IMPLEMENT status requires anchored, non-match-all `editable_paths`, matched segment by segment (`*` never crosses `/`); an `AGENT` `PASS` for the current IMPLEMENT slice or in TEST must cite, in backticks, one of the commands the controller bound to that check (`check_verifiers`) recorded as exit 0 with `PASS`; optional `required_commands` must all be recorded as passing. Controllers must now pass `editable_paths` for IMPLEMENT and `check_verifiers` for IMPLEMENT/TEST, and validate read-only IMPLEMENT results (`project-context-guardian`, `data-flow-tracer`) with `role` (`stage_context.py verifier-context --role`). Patterns and written paths must be canonical (no `.`, `..` or empty segments). Malformed `--context` values are rejected with exit 2, and IMPLEMENT's `required_commands` covers only the current slice.
+
+### Added
+- `runtime/stage_context.py` and `schemas/STAGE_CONTEXT_SCHEMA.json`: a pure per-dispatch check of the context budget (scoped excerpts, no whole documents), the `project-context-guardian` result required before PLAN and IMPLEMENT, code-authoritative divergence records, and the slice contract (one current slice, safe editable paths, an observable verifier for every check, and per check at least one bound verifier that predates the slice), and it refuses STATE/journal files as sources. `slice_sha256` hashes one slice's contract without the stage or the completed-slice cursor. The per-slice hashes stored at PLAN/TASKS approval (`approved_slice_sha256s`) are reused by every later IMPLEMENT dispatch (`APPROVAL_REUSED`); TEST/REVIEW report `APPROVAL_NOT_APPLICABLE`; a changed slice yields `SCOPE_CHANGE_REQUIRED`. `verifier-context` feeds `validate_protocol.py --context`.
+- `runtime/correction_loop.py` and `schemas/CORRECTION_LOOP_SCHEMA.json`: a pure bounded execute → verify → correct decision with configurable attempt, executor-call and cost limits. It stops auditably with `stop_reason`, evidence and `next_step` on `RETRY_BUDGET_REACHED`, `EXECUTOR_CALL_BUDGET_REACHED`, `COST_BUDGET_REACHED`, `NO_NEW_HYPOTHESIS` or `NO_PROGRESS`, and refuses unjustified escalation.
+- `validate_protocol.py` gains a CLI (`--action`, `--result`, `--context`, `--json`).
+- `docs/components/harness.md` documents both tools; `LOOP_POLICY.md` §25 adds the harness procedure and three stop reasons to the closed list.
+
+### Changed
+- `project-context-guardian` is allowed in IMPLEMENT and returns a structured context status, gaps and divergences. During stages it only proposes vault updates; the proposal becomes an approved `OBSIDIAN WRITE PROPOSAL` after REVIEW/DONE. This fixes a contradiction with `LOOP_POLICY.md` §18, which already made Obsidian read-only during stages.
+- The PLAN, TASKS, IMPLEMENT and TEST briefs, `EXECUTOR_CONTRACT.md`, `.hermes.md`, `SKILL.md` and the installed README describe the harness steps.
+
 ## 4.0.0 - 2026-09-28
 
 ### Breaking

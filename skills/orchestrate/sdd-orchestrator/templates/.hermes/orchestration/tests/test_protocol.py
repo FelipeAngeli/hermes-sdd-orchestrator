@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -17,6 +18,27 @@ import validate_protocol  # noqa: E402
 from validate_protocol import validate_json_text, validate_payload  # noqa: E402
 
 
+FOCUSED_COMMAND = {
+    "command": "synthetic focused command",
+    "purpose": "focused behavior check",
+    "timeout_seconds": 300,
+    "exit_code": 0,
+    "result": "PASS",
+}
+PASSING_EVIDENCE = {
+    "IMPLEMENT": "`synthetic green command` exited 0 and asserted the outcome",
+    "TEST": "`synthetic focused command` exited 0 and asserted the outcome",
+}
+EDITABLE_PATHS = {"src/*", "tests/*"}
+BOUND_COMMANDS = ["synthetic focused command", "synthetic green command"]
+
+
+def bound_verifiers(action: str, payload: object) -> dict[str, list[str]] | None:
+    if action not in {"IMPLEMENT", "TEST"} or not isinstance(payload, dict) or "executor_result" not in payload:
+        return None
+    return {check["id"]: list(BOUND_COMMANDS) for check in payload["executor_result"]["acceptance_checks"]}
+
+
 def executor_fixture(stage: str, status: str = "SUCCESS") -> dict:
     return {
         "executor_result": {
@@ -27,7 +49,7 @@ def executor_fixture(stage: str, status: str = "SUCCESS") -> dict:
             "modified_paths": [],
             "created_paths": [],
             "validated_symbols": [{"symbol": "example", "path": "src/example.ext", "exists": True}],
-            "commands": [],
+            "commands": [copy.deepcopy(FOCUSED_COMMAND)] if stage == "TEST" else [],
             "blockers": [],
             "context_assessment": {
                 "facts": [{"statement": "synthetic fact", "evidence": "synthetic evidence"}],
@@ -41,7 +63,7 @@ def executor_fixture(stage: str, status: str = "SUCCESS") -> dict:
                 "verifier": "AGENT",
                 "slice_id": "synthetic-slice-1" if stage in {"TASKS", "IMPLEMENT", "TEST"} else None,
                 "status": "PASS" if stage in {"IMPLEMENT", "TEST"} else "PLANNED",
-                "evidence": "synthetic passing evidence" if stage in {"IMPLEMENT", "TEST"} else None,
+                "evidence": PASSING_EVIDENCE.get(stage),
             }],
             "stage_payload": {"summary": "synthetic test fixture", "tasks": [], "impact_files": [], "decisions": []},
             "tdd_slices": [],
@@ -147,6 +169,8 @@ class ProtocolValidationTests(unittest.TestCase):
             expected_acceptance=expected,
             current_slice_ids=current,
             completed_slice_ids=set() if action == "IMPLEMENT" else None,
+            editable_paths=EDITABLE_PATHS if action == "IMPLEMENT" else None,
+            check_verifiers=bound_verifiers(action, payload),
         )
         self.assertEqual([], errors, msg=errors)
 
@@ -160,6 +184,8 @@ class ProtocolValidationTests(unittest.TestCase):
                 expected_acceptance=expected,
                 current_slice_ids=current,
                 completed_slice_ids=set() if action == "IMPLEMENT" else None,
+                editable_paths=EDITABLE_PATHS if action == "IMPLEMENT" else None,
+                check_verifiers=bound_verifiers(action, payload),
             ),
             msg="fixture unexpectedly accepted",
         )
@@ -181,7 +207,15 @@ class ProtocolValidationTests(unittest.TestCase):
         fixture["executor_result"]["tdd_slices"][0]["green_command"] = None
         fixture["executor_result"]["tdd_slices"][0]["green_exit_code"] = None
         fixture["executor_result"]["tdd_slices"][0]["green_result"] = None
+        fixture["executor_result"]["acceptance_checks"][0].update({"status": "BLOCKED", "evidence": None})
         self.assertAccepted("IMPLEMENT", fixture)
+
+    def test_rejects_blocked_implement_claiming_pass_without_green_run(self) -> None:
+        fixture = successful_implementation()
+        fixture["executor_result"]["stage"]["status"] = "BLOCKED"
+        fixture["executor_result"]["blockers"] = [{"type": "SYNTHETIC", "description": "synthetic blocked state"}]
+        fixture["executor_result"]["tdd_slices"][0].update({"green_command": None, "green_exit_code": None, "green_result": None})
+        self.assertRejected("IMPLEMENT", fixture)
 
     def test_accepts_review_approved_with_ci_disabled(self) -> None:
         self.assertAccepted("REVIEW", review_fixture())
@@ -314,6 +348,8 @@ class ProtocolValidationTests(unittest.TestCase):
             expected_acceptance=expected,
             current_slice_ids={"synthetic-slice-1"},
             completed_slice_ids={"synthetic-slice-0"},
+            editable_paths=EDITABLE_PATHS,
+            check_verifiers=bound_verifiers("IMPLEMENT", fixture),
         ))
 
     def test_rejects_implement_success_with_future_slice_marked_pass(self) -> None:
@@ -556,6 +592,244 @@ class ProtocolValidationTests(unittest.TestCase):
                         fixture["review_result"]["acceptance"]["checks"][0]["criterion"] = "different outcome"
                     errors = validate_payload("REVIEW", fixture, expected_acceptance=authoritative)
                     self.assertTrue(errors, msg="review unexpectedly accepted against authoritative criteria")
+
+    def test_rejects_file_changes_from_analysis_only_stages(self) -> None:
+        for action in ("SPECIFY", "CLARIFY", "PLAN", "TASKS", "TEST"):
+            for field in ("modified_paths", "created_paths"):
+                for stage_status in ("SUCCESS", "BLOCKED"):
+                    with self.subTest(action=action, field=field, stage_status=stage_status):
+                        fixture = executor_fixture(action, stage_status)
+                        if stage_status == "BLOCKED":
+                            fixture["executor_result"]["blockers"] = [{"type": "SYNTHETIC", "description": "blocked"}]
+                        fixture["executor_result"][field] = [{"path": "src/example.ext"}]
+                        errors = validate_payload(
+                            action,
+                            fixture,
+                            expected_acceptance=self._expected_acceptance(action, fixture),
+                        )
+                        self.assertTrue(
+                            any("analysis-only" in error["reason"] for error in errors),
+                            msg=errors,
+                        )
+
+    def test_rejects_implement_writes_outside_controller_editable_paths(self) -> None:
+        for field in ("modified_paths", "created_paths"):
+            for stage_status in ("SUCCESS", "BLOCKED"):
+                with self.subTest(field=field, stage_status=stage_status):
+                    fixture = successful_implementation()
+                    fixture["executor_result"]["stage"]["status"] = stage_status
+                    if stage_status == "BLOCKED":
+                        fixture["executor_result"]["blockers"] = [{"type": "SYNTHETIC", "description": "blocked"}]
+                    fixture["executor_result"][field] = [{"path": "config/unowned.ext"}]
+                    self.assertRejected("IMPLEMENT", fixture)
+
+    def test_accepts_implement_writes_inside_editable_paths(self) -> None:
+        fixture = successful_implementation()
+        fixture["executor_result"]["modified_paths"] = [{"path": "src/example.ext"}]
+        fixture["executor_result"]["created_paths"] = [{"path": "tests/synthetic_protocol_test.ext"}]
+
+        self.assertAccepted("IMPLEMENT", fixture)
+
+    def test_implement_requires_controller_editable_paths_for_every_status(self) -> None:
+        for stage_status in ("SUCCESS", "BLOCKED", "TIMEOUT", "INVALID"):
+            with self.subTest(stage_status=stage_status):
+                fixture = successful_implementation()
+                fixture["executor_result"]["stage"]["status"] = stage_status
+                errors = validate_payload(
+                    "IMPLEMENT",
+                    fixture,
+                    expected_acceptance=self._expected_acceptance("IMPLEMENT", fixture),
+                    current_slice_ids={"synthetic-slice-1"},
+                    completed_slice_ids=set(),
+                )
+                self.assertTrue(
+                    any("editable_paths" in error["reason"] for error in errors),
+                    msg=errors,
+                )
+
+    def test_rejects_absolute_or_escaping_written_paths(self) -> None:
+        for path in ("/etc/passwd", "src/../../outside.ext", "../outside.ext"):
+            with self.subTest(path=path):
+                fixture = successful_implementation()
+                fixture["executor_result"]["modified_paths"] = [{"path": path}]
+                self.assertRejected("IMPLEMENT", fixture)
+
+    def test_rejects_self_declared_pass_without_a_cited_passing_command(self) -> None:
+        mutations = {
+            "narrative-only": lambda result: result["acceptance_checks"][0].update({"evidence": "concluído"}),
+            "cites-failing-command": lambda result: result["commands"][0].update({"exit_code": 1, "result": "FAIL"}),
+            "cites-unrecorded-command": lambda result: result["acceptance_checks"][0].update(
+                {"evidence": "`another command` exited 0"}
+            ),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(action="TEST", mutation=name):
+                fixture = executor_fixture("TEST")
+                mutate(fixture["executor_result"])
+                self.assertRejected("TEST", fixture)
+        with self.subTest(action="IMPLEMENT", mutation="narrative-only"):
+            fixture = successful_implementation()
+            fixture["executor_result"]["acceptance_checks"][0]["evidence"] = "done, all good"
+            self.assertRejected("IMPLEMENT", fixture)
+
+    def test_accepts_pass_citing_a_recorded_passing_command_in_implement(self) -> None:
+        fixture = successful_implementation()
+        fixture["executor_result"]["commands"] = [copy.deepcopy(FOCUSED_COMMAND)]
+        fixture["executor_result"]["acceptance_checks"][0]["evidence"] = "`synthetic focused command` exited 0"
+
+        self.assertAccepted("IMPLEMENT", fixture)
+
+    def test_human_verified_checks_are_not_forced_to_cite_commands(self) -> None:
+        fixture = executor_fixture("TEST")
+        fixture["executor_result"]["acceptance_checks"][0].update({
+            "verifier": "HUMAN",
+            "evidence": "Product owner approved the copy on 2026-09-28",
+        })
+
+        self.assertAccepted("TEST", fixture)
+
+    def test_rejects_pass_citing_a_command_not_bound_to_the_check(self) -> None:
+        cases = {
+            "self-chosen-true": ("true", {"AC-1": ["synthetic focused command"]}),
+            "other-checks-verifier": ("synthetic focused command", {"AC-1": ["pytest tests/feature -q"]}),
+            "no-bound-verifier": ("synthetic focused command", {}),
+        }
+        for name, (cited, verifiers) in cases.items():
+            with self.subTest(case=name):
+                fixture = executor_fixture("TEST")
+                fixture["executor_result"]["commands"].append({**FOCUSED_COMMAND, "command": cited})
+                fixture["executor_result"]["acceptance_checks"][0]["evidence"] = f"`{cited}` exited 0"
+                errors = validate_payload(
+                    "TEST", fixture,
+                    expected_acceptance=self._expected_acceptance("TEST", fixture),
+                    check_verifiers=verifiers,
+                )
+                self.assertTrue(errors, msg=f"{name} unexpectedly accepted")
+
+    def test_agent_pass_requires_controller_bound_verifiers(self) -> None:
+        fixture = executor_fixture("TEST")
+        errors = validate_payload("TEST", fixture, expected_acceptance=self._expected_acceptance("TEST", fixture))
+        self.assertTrue(any("check_verifiers" in error["reason"] for error in errors), errors)
+
+    def test_editable_patterns_do_not_cross_directories_or_match_everything(self) -> None:
+        for pattern in ("*", "*/*", "?*", "***", "**/**", "[!~]*", "**", "src/**x", "/src/*", "src/../*", "src/"):
+            with self.subTest(pattern=pattern):
+                self.assertFalse(validate_protocol.editable_pattern_is_safe(pattern))
+        for pattern in ("src/*", "src/**", "src/**/*.py", "docs/components/harness.md"):
+            with self.subTest(pattern=pattern):
+                self.assertTrue(validate_protocol.editable_pattern_is_safe(pattern))
+        self.assertTrue(validate_protocol.path_matches("src/a.py", "src/*"))
+        self.assertFalse(validate_protocol.path_matches("src/deep/a.py", "src/*"))
+        self.assertTrue(validate_protocol.path_matches("src/deep/a.py", "src/**"))
+        self.assertTrue(validate_protocol.path_matches("src/deep/er/a.py", "src/**/*.py"))
+        self.assertFalse(validate_protocol.path_matches(".github/workflows/ci.yml", "src/**"))
+
+    def test_implement_rejects_nested_write_under_single_level_pattern_and_unsafe_patterns(self) -> None:
+        fixture = successful_implementation()
+        fixture["executor_result"]["modified_paths"] = [{"path": "src/deep/example.ext"}]
+        self.assertRejected("IMPLEMENT", fixture)
+        fixture["executor_result"]["modified_paths"] = [{"path": ".github/workflows/ci.yml"}]
+        errors = validate_payload(
+            "IMPLEMENT", fixture,
+            expected_acceptance=self._expected_acceptance("IMPLEMENT", fixture),
+            current_slice_ids={"synthetic-slice-1"}, completed_slice_ids=set(),
+            editable_paths={"*/*"}, check_verifiers=bound_verifiers("IMPLEMENT", fixture),
+        )
+        self.assertTrue(any("unsafe" in error["reason"] for error in errors), errors)
+
+    def read_only_implement(self) -> dict:
+        fixture = executor_fixture("IMPLEMENT")
+        check = fixture["executor_result"]["acceptance_checks"][0]
+        check.update({"status": "PLANNED", "evidence": None})
+        return fixture
+
+    def validate_read_only(self, fixture: dict, role: str = "PROJECT_CONTEXT_GUARDIAN", action: str = "IMPLEMENT"):
+        return validate_payload(
+            action, fixture,
+            expected_acceptance=self._expected_acceptance("IMPLEMENT", fixture),
+            completed_slice_ids=set(),
+            role=role,
+        )
+
+    def test_read_only_roles_return_a_valid_implement_context_result(self) -> None:
+        for role in ("PROJECT_CONTEXT_GUARDIAN", "DATA_FLOW_TRACER"):
+            with self.subTest(role=role):
+                self.assertEqual([], self.validate_read_only(self.read_only_implement(), role))
+
+    def test_read_only_roles_cannot_write_verify_or_report_tdd(self) -> None:
+        mutations = {
+            "writes": lambda r: r.update({"modified_paths": [{"path": "src/example.ext"}]}),
+            "claims-pass": lambda r: r["acceptance_checks"][0].update({"status": "PASS", "evidence": "`x`"}),
+            "tdd": lambda r: r.update({"tdd_slices": successful_implementation()["executor_result"]["tdd_slices"]}),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(mutation=name):
+                fixture = self.read_only_implement()
+                mutate(fixture["executor_result"])
+                self.assertTrue(self.validate_read_only(fixture), msg=f"{name} unexpectedly accepted")
+
+    def test_read_only_role_is_limited_to_its_declared_stages(self) -> None:
+        self.assertTrue(self.validate_read_only(self.read_only_implement(), "TDD_IMPLEMENTER"))
+        fixture = executor_fixture("TEST")
+        self.assertTrue(validate_payload(
+            "TEST", fixture, expected_acceptance=self._expected_acceptance("TEST", fixture),
+            role="PROJECT_CONTEXT_GUARDIAN",
+        ))
+
+    def test_dot_segments_are_refused_in_patterns_and_written_paths(self) -> None:
+        for pattern in (".", "./**", "./*", "./src/*", "src/./*", "src/.."):
+            with self.subTest(pattern=pattern):
+                self.assertFalse(validate_protocol.editable_pattern_is_safe(pattern))
+        for path in ("./.hermes/STATE.md", "src/./a.ext", "src//a.ext", "."):
+            with self.subTest(path=path):
+                fixture = successful_implementation()
+                fixture["executor_result"]["modified_paths"] = [{"path": path}]
+                self.assertRejected("IMPLEMENT", fixture)
+
+    def test_read_only_role_cannot_rewrite_completed_checks(self) -> None:
+        fixture = self.read_only_implement()
+        fixture["executor_result"]["acceptance_checks"][0].update({"status": "FAIL", "evidence": "rewritten"})
+        errors = validate_payload(
+            "IMPLEMENT", fixture,
+            expected_acceptance=self._expected_acceptance("IMPLEMENT", fixture),
+            completed_slice_ids={"synthetic-slice-1"},
+            role="PROJECT_CONTEXT_GUARDIAN",
+        )
+        self.assertTrue(errors, msg="read-only role downgraded a completed check")
+        fixture["executor_result"]["acceptance_checks"][0].update({"status": "PASS", "evidence": "earlier evidence"})
+        self.assertEqual([], validate_payload(
+            "IMPLEMENT", fixture,
+            expected_acceptance=self._expected_acceptance("IMPLEMENT", fixture),
+            completed_slice_ids={"synthetic-slice-1"},
+            role="PROJECT_CONTEXT_GUARDIAN",
+        ))
+
+    def run_cli(self, context: object) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as temp:
+            result_path, context_path = Path(temp) / "result.json", Path(temp) / "context.json"
+            fixture = executor_fixture("TEST")
+            result_path.write_text(json.dumps(fixture), encoding="utf-8")
+            context_path.write_text(json.dumps(context), encoding="utf-8")
+            return subprocess.run(
+                [sys.executable, str(RUNTIME / "validate_protocol.py"), "--action", "TEST",
+                 "--result", str(result_path), "--context", str(context_path), "--json"],
+                text=True, capture_output=True, timeout=30,
+            )
+
+    def test_cli_reports_malformed_context_as_a_structured_rejection(self) -> None:
+        for context in (
+            {"check_verifiers": ["x"]},
+            {"check_verifiers": {"AC-1": "pytest"}},
+            {"editable_paths": "src/*"},
+            {"required_commands": [1]},
+            {"role": 3},
+            {"expected_acceptance": []},
+            ["not", "an", "object"],
+        ):
+            with self.subTest(context=context):
+                result = self.run_cli(context)
+                self.assertEqual(2, result.returncode, result.stderr)
+                self.assertFalse(json.loads(result.stdout)["valid"])
 
     def test_rejects_approved_review_with_e2e_violation(self) -> None:
         fixture = review_fixture()

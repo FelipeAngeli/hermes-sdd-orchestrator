@@ -8,7 +8,7 @@ A stage agent is the worker brief the controller loads before dispatching a stag
 
 - Never write `STATE.md`. Never spawn another worker. The controller alone decides transitions.
 - Never commit, push, open a PR, mutate a backend, update an external system, or run unapproved E2E.
-- The workspace is read-only, except in IMPLEMENT, which writes only to paths assigned by the controller.
+- The workspace is read-only, except in IMPLEMENT, which writes only to the slice's controller-assigned `editable_paths`. The [validator](contracts-and-schemas.md#executor-result) rejects any file change reported by another stage.
 
 | Brief | Stage | Mission | Result schema |
 | --- | --- | --- | --- |
@@ -20,6 +20,6 @@ A stage agent is the worker brief the controller loads before dispatching a stag
 | `agents/test.md` | `TEST` | Run the authorized focused validation and evaluate the complete acceptance-check ID set by its declared methods. | `EXECUTOR_RESULT_SCHEMA.json` |
 | `agents/review.md` | `REVIEW` | Independently match every authoritative acceptance ID, criterion, method, verifier and slice, then assess diff, baseline, ownership and gates. | `REVIEW_RESULT_SCHEMA.json` |
 
-The controller sends each stage only the context it needs: the request and constraints for SPECIFY/CLARIFY, validated paths, symbols and impact for PLAN/TASKS, and the slice, command boundary, ownership and gates for IMPLEMENT/TEST. Every executor stage carries the same explicit `context_assessment` and `acceptance_checks` forward, so a material unknown cannot silently become an implementation decision and planned validation cannot be mistaken for executed evidence. It never sends conversation history or state dumps.
+The controller sends each stage only the context it needs: the request and constraints for SPECIFY/CLARIFY, validated paths, symbols and impact for PLAN/TASKS, and the slice, command boundary, ownership and gates for IMPLEMENT/TEST. Every executor stage carries the same explicit `context_assessment` and `acceptance_checks` forward, so a material unknown cannot silently become an implementation decision and planned validation cannot be mistaken for executed evidence. It never sends conversation history or state dumps, and [`stage_context.py`](harness.md) refuses a manifest that exceeds the excerpt budget or that lacks the `project-context-guardian` result before PLAN/IMPLEMENT. PLAN records code/documentation divergences with the code as authority. TASKS names each slice's editable paths and its observable verifiers. IMPLEMENT and TEST cite a recorded passing command for every `PASS`.
 
 When a stage needs a narrower specialist, the controller may use one [sub-agent](sub-agents.md) instead. Stage agents never dispatch sub-agents themselves.

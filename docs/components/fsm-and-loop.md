@@ -31,7 +31,7 @@ Only `CLARIFY` may be skipped, and only with a recorded reason. Each stage has i
 | `BOUNDED_AUTO`, schema 1 (legacy) | Continue through a deterministic plan the user approved. A new round needs a new preview and a new confirmation. |
 | `LOCAL_DELIVERY`, schema 2 | Not a separate mode value: `schema_version: 2` + `local_delivery` + `loop.mode: BOUNDED_AUTO`. A single explicit authorization is bound to ticket, scope hash, worktree and **cumulative** limits. Replanning never requests new approval and never resets usage. |
 
-Default schema 1 budgets per round: 3 stage transitions, 8 executor calls, 1 corrective retry per action, 3 TDD slices, 1 investigation expansion per stage, 2 review cycles, 1 CI run, 0 external mutations. Stop reasons are a closed list in `LOOP_POLICY.md` §9. `TOOLCHAIN_ENVIRONMENT` covers a missing or mismatched SDK or version manager for any language.
+Default schema 1 budgets per round: 3 stage transitions, 8 executor calls, 1 corrective retry per action, 3 TDD slices, 1 investigation expansion per stage, 2 review cycles, 1 CI run, 0 external mutations. Stop reasons are a closed list in `LOOP_POLICY.md` §9; `COST_BUDGET_REACHED`, `NO_NEW_HYPOTHESIS` and `NO_PROGRESS` come from the [correction loop](harness.md). §25 describes the harness checks the controller runs around every dispatch, including per-slice approval hashes stored at PLAN/TASKS and `role` validation of read-only IMPLEMENT results. `TOOLCHAIN_ENVIRONMENT` covers a missing or mismatched SDK or version manager for any language.
 
 ## Actions
 
@@ -80,4 +80,4 @@ Subcommand `next`. Flags: `--snapshot`, `--plan`, `--json`. Decisions: `CONTINUE
 
 ## Per-action loop
 
-For every action, the controller follows the same sequence: reread STATE → driver `next` → [journal recovery](action-journal.md) → `prepare` → dispatch one worker → validate the [contract](contracts-and-schemas.md) → prepare and commit STATE → `release` → `rollover` → `next` again. A healthy success never ends a bounded round by itself. Only a stop decision does.
+For every action, the controller follows the same sequence: reread STATE → driver `next` → [journal recovery](action-journal.md) → [stage context check](harness.md#stage-context-manifest-stage_contextpy) → `prepare` → dispatch one worker → validate the [contract](contracts-and-schemas.md) → prepare and commit STATE → `release` → `rollover` → `next` again. A valid result whose verification fails goes through the [bounded correction loop](harness.md#bounded-correction-loop-correction_looppy) before any retry. A healthy success never ends a bounded round by itself. Only a stop decision does.

@@ -21,6 +21,7 @@ Each page owns a set of files (see [doc-map.json](doc-map.json)) and is the sing
 | --- | --- |
 | [Skill and installer](components/skill-and-installer.md) | `SKILL.md`, `install_project.py`, the `.hermes.md` entry point, what is installed where |
 | [FSM and bounded loop](components/fsm-and-loop.md) | The stage machine, modes (`MANUAL`, `PAUSED`, `BOUNDED_AUTO`, `LOCAL_DELIVERY`), budgets, planner and drivers |
+| [Harness: stage context and bounded correction](components/harness.md) | Per-dispatch context budget and slice contract, approval reuse, bounded execute → verify → correct loop |
 | [Action journal and recovery](components/action-journal.md) | Write-ahead journal, action lifecycle, rollover, recovery decisions |
 | [Contracts and schemas](components/contracts-and-schemas.md) | Executor and review result envelopes, their JSON Schemas and the protocol validator |
 | [Gates and stack detection](components/gates-and-stack-detection.md) | Validation gates, `GATES.md` configuration, `detect_stack.py` for any language |
@@ -36,6 +37,8 @@ flowchart LR
     SK[Skill and installer] --> FSM[FSM and bounded loop]
     SK --> G[Gates and stack detection]
     SK --> OB[Obsidian vault]
+    FSM --> H[Harness]
+    H --> C
     FSM --> J[Action journal]
     FSM --> A[Stage agents]
     FSM --> G
@@ -44,5 +47,5 @@ flowchart LR
     S --> C
     J --> C
     OB --> J
-    T[Testing] -.verifies.-> FSM & J & C & G & OB & SK
+    T[Testing] -.verifies.-> FSM & H & J & C & G & OB & SK
 ```

@@ -49,7 +49,7 @@ SUB_AGENT_CONTRACTS = {
     "data-flow-tracer.md": ("DATA_FLOW_TRACER", "[PLAN, IMPLEMENT]", "EXECUTOR_RESULT_SCHEMA.json"),
     "release-readiness-auditor.md": ("RELEASE_READINESS_AUDITOR", "[REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
     "dependency-auditor.md": ("DEPENDENCY_AUDITOR", "[PLAN, REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
-    "project-context-guardian.md": ("PROJECT_CONTEXT_GUARDIAN", "[SPECIFY, PLAN]", "EXECUTOR_RESULT_SCHEMA.json"),
+    "project-context-guardian.md": ("PROJECT_CONTEXT_GUARDIAN", "[SPECIFY, PLAN, IMPLEMENT]", "EXECUTOR_RESULT_SCHEMA.json"),
     "pr-reviewer.md": ("PR_REVIEWER", "[REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
 }
 FORBIDDEN_ACTIONS = (
@@ -345,6 +345,8 @@ class PromptPolicyContractTests(unittest.TestCase):
         "project-context-guardian.md": (
             "read the stored context before reading the repository", "refresh only what changed",
             "never recreate documentation", ".hermes/obsidian.json", "never write outside the project container",
+            "the code is the source for implemented behavior", "never invent the decision",
+            "obsidian write proposal", "never copy secrets",
         ),
         "pr-reviewer.md": (
             "full diff from the merge base", "description, the author's summary or an existing approval",

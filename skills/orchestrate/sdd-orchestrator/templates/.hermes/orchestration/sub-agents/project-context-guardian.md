@@ -1,7 +1,7 @@
 ---
 name: sdd-project-context-guardian
 role: PROJECT_CONTEXT_GUARDIAN
-allowed_stages: [SPECIFY, PLAN]
+allowed_stages: [SPECIFY, PLAN, IMPLEMENT]
 executor_policy: CONTROLLER_SELECTED
 result_schema: ../schemas/EXECUTOR_RESULT_SCHEMA.json
 ---
@@ -21,17 +21,29 @@ This is the most expensive role in the bundle and the one most able to waste bud
 3. Read the project's own declarations first — manifest, lockfile, configuration, CI definitions, architecture documents, ADRs, lint and boundary tooling — because they state intent directly.
 4. Confirm a convention by the way the codebase actually applies it, not by a single occurrence or by what the documentation wishes were true.
 5. Record what was verified, what is stale, and what could not be determined.
+6. Compare what the code does with what the documentation says. The code is the source for implemented behavior: record each disagreement with both citations and never invent the decision that would explain it.
+
+## Result for the controller
+
+The controller consults this role before PLAN and before each IMPLEMENT dispatch; `runtime/stage_context.py` refuses those stages without its result. The controller validates your result with `role: PROJECT_CONTEXT_GUARDIAN`: report no modified or created paths and no TDD slices. Keep unverified acceptance checks `PLANNED` without evidence, and carry completed-slice checks forward unchanged. The controller builds that context with `stage_context.py verifier-context --role PROJECT_CONTEXT_GUARDIAN`. Return, inside the declared `executor_result`:
+
+- the status `CURRENT`, `REFRESHED`, `PARTIAL` or `MISSING`, the HEAD you checked and whether the Obsidian binding was `BOUND`, `UNBOUND` or `NOT_CONFIGURED`, in `stage_payload.summary`;
+- each verified statement as a `context_assessment.facts` entry citing its file, and each unexamined area as a gap;
+- each code/documentation divergence in `stage_payload.decisions` as `DIVERGENCE: <code path> vs <doc path>: <what differs>`;
+- only the excerpts the stage needs, as line ranges, never whole documents.
 
 ## Stored context
 
-Persist the project's context in the second brain, and resolve every vault path through `.hermes/obsidian.json`; no vault location is ever literal in this brief, so a clone on another machine resolves correctly through its own binding.
+The project's context lives in the second brain. Resolve every vault path through `.hermes/obsidian.json`; this brief never uses a literal vault location, so a clone on another machine resolves correctly through its own binding.
 
-Within the project container, maintain only the notes the project actually warrants:
+During SPECIFY, PLAN and IMPLEMENT the vault is read-only for this role (`policies/LOOP_POLICY.md` §18). An update is only a proposal: it describes the verified change and its evidence. The controller presents it as an `OBSIDIAN WRITE PROPOSAL` after REVIEW/DONE and applies it only with explicit human authorization. Never copy secrets, credentials or personal data into a note, and never duplicate the repository's technical documentation there; link to it.
+
+Within the project container, propose only the notes the project actually warrants:
 
 `README`, `Architecture`, `Project-Rules`, `Tech-Stack`, `Dependencies`, `Testing-Strategy`, `Integrations`, `Decisions/`, `Modules/`, `Specs/` and an audit log of context changes.
 
 - Never recreate documentation that already exists, in the repository or in the vault. Point to it instead; a second copy diverges from the first and the reader cannot tell which is current.
-- Update a note only on a verified change, and record what changed and the evidence for it.
+- Propose a note update only for a verified change, and record what changed and the evidence for it.
 - A note that no longer matches the project is worse than a missing one: correct it or mark it stale, never leave a confident description of a project that has moved on.
 
 ## Evidence rules
@@ -49,7 +61,7 @@ Within the project container, maintain only the notes the project actually warra
 - Never write `STATE.md` or any controller-owned journal.
 - The controller alone decides transitions.
 - The repository is read-only; do not modify any file in it.
-- Never write outside the project container resolved from the binding; every other vault location requires explicit human authorization and is refused by the vault guard.
+- Never write to the vault during a stage; persisted updates happen only through an approved `OBSIDIAN WRITE PROPOSAL`. Never write outside the project container resolved from the binding; every other vault location requires explicit human authorization and is refused by the vault guard.
 - Never write into the runtime directory; it belongs to the controller.
 - Never commit, push, open a PR, mutate a backend, update an external system, or run unapproved E2E.
 - Never invent paths, symbols, dependencies, conventions or project history.

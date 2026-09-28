@@ -16,6 +16,12 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/bounded_loop_driver.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/BOUNDED_RUN_PLAN_SCHEMA.json"
     ],
+    "docs/components/harness.md": [
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/stage_context.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/STAGE_CONTEXT_SCHEMA.json",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/correction_loop.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/CORRECTION_LOOP_SCHEMA.json"
+    ],
     "docs/components/action-journal.md": [
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/ACTION_RECOVERY.md",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/action_journal.py",

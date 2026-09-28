@@ -6,7 +6,7 @@
 
 ## `SKILL.md`: Hermes entry point
 
-`skills/orchestrate/sdd-orchestrator/SKILL.md` is what Hermes loads with `/skill sdd-orchestrator`. Its frontmatter carries the name, the version (bumped on every contract change) and the tags. Its body explains when to use the skill, the prerequisites (Git, Python 3.10+, an attached-branch worktree root), installation, the nine-step operating procedure, pitfalls and verification. The procedure now carries evidence-backed context and acceptance checks across stages and requires REVIEW to verify outcomes independently of technical gates.
+`skills/orchestrate/sdd-orchestrator/SKILL.md` is what Hermes loads with `/skill sdd-orchestrator`. Its frontmatter carries the name, the version (bumped on every contract change) and the tags. Its body explains when to use the skill, the prerequisites (Git, Python 3.10+, an attached-branch worktree root), installation, the nine-step operating procedure, pitfalls and verification. The procedure now carries evidence-backed context and acceptance checks across stages, checks each dispatch's context and slice contract, bounds corrective retries, and requires REVIEW to verify outcomes independently of technical gates.
 
 Install it once per Hermes profile:
 
@@ -57,7 +57,7 @@ A fresh installation creates the untracked controller-owned `.hermes/orchestrati
 
 ## `.hermes.md`: controller entry point
 
-`templates/.hermes.md` is installed at the project root and is what Hermes reads first in that project. It is kept under 8,000 characters (enforced by a test). It states the controller role, the [FSM](fsm-and-loop.md), the safety rules, the dispatch and context rules for [stage agents](stage-agents.md) and [sub-agents](sub-agents.md), the [result schemas](contracts-and-schemas.md) and the loop modes. The controller carries `context_assessment` and stable `acceptance_checks` through executor stages, routes material unknowns from SPECIFY to CLARIFY, requires TASKS to assign a non-empty set, and retains the complete authoritative mapping (ID, criterion, verification method, verifier and slice assignment). Workers change only status/evidence; IMPLEMENT, TEST and every REVIEW status are validated against that mapping plus the current/completed slice context. It links to policies instead of duplicating them.
+`templates/.hermes.md` is installed at the project root and is what Hermes reads first in that project. It is kept under 8,000 characters (enforced by a test). It states the controller role, the [FSM](fsm-and-loop.md), the safety rules, the dispatch and context rules for [stage agents](stage-agents.md) and [sub-agents](sub-agents.md), the [result schemas](contracts-and-schemas.md) and the loop modes. The controller carries `context_assessment` and stable `acceptance_checks` through executor stages, routes material unknowns from SPECIFY to CLARIFY, requires TASKS to assign a non-empty set, and retains the complete authoritative mapping (ID, criterion, verification method, verifier and slice assignment). Workers change only status/evidence; IMPLEMENT, TEST and every REVIEW status are validated against that mapping plus the current/completed slice context. It also names the harness steps: `runtime/stage_context.py check` before each dispatch, reuse of an approved slice hash, and `runtime/correction_loop.py decide` before any retry of a failed verification ([Harness](harness.md)). It links to policies instead of duplicating them.
 
 ## Installed layout (`orchestration/README.md`)
 
@@ -71,7 +71,7 @@ The installed `README.md` inside `.hermes/orchestration/` is the on-disk guide f
 ├── contracts/   → contracts-and-schemas.md
 ├── policies/    → fsm-and-loop.md, gates-and-stack-detection.md, action-journal.md, sub-agents.md
 ├── runtime/     → one page per tool group (see the doc map)
-├── schemas/     → contracts-and-schemas.md, fsm-and-loop.md, action-journal.md
+├── schemas/     → contracts-and-schemas.md, fsm-and-loop.md, harness.md, action-journal.md
 ├── sub-agents/  → sub-agents.md
 ├── tests/       → testing.md
 ├── STATE.md, PROJECT_SETUP.md, ACTION_JOURNAL.json, INCIDENTS.md   (runtime data, untracked)

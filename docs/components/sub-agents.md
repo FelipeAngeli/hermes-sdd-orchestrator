@@ -22,7 +22,7 @@ Each brief's frontmatter declares `role`, `allowed_stages`, `executor_policy: CO
 
 | Brief | Role | Stages | Purpose | Result schema |
 | --- | --- | --- | --- | --- |
-| `sub-agents/project-context-guardian.md` | `PROJECT_CONTEXT_GUARDIAN` | SPECIFY, PLAN | Cache-first project context: stack, rules, conventions, integrations. | `EXECUTOR_RESULT_SCHEMA.json` |
+| `sub-agents/project-context-guardian.md` | `PROJECT_CONTEXT_GUARDIAN` | SPECIFY, PLAN, IMPLEMENT | Cache-first project context: stack, rules, conventions, integrations. It is required before PLAN and IMPLEMENT, records code/doc divergences and only proposes vault updates. | `EXECUTOR_RESULT_SCHEMA.json` |
 | `sub-agents/investigator.md` | `INVESTIGATOR` | SPECIFY, CLARIFY, PLAN | Bounded evidence for one controller-defined question. | `EXECUTOR_RESULT_SCHEMA.json` |
 | `sub-agents/data-flow-tracer.md` | `DATA_FLOW_TRACER` | PLAN, IMPLEMENT | One demand's path UI → state → service → repository → API and back. | `EXECUTOR_RESULT_SCHEMA.json` |
 | `sub-agents/impact-analyst.md` | `IMPACT_ANALYST` | PLAN, TASKS | Full blast radius of one contract or behavior change. | `EXECUTOR_RESULT_SCHEMA.json` |
@@ -41,7 +41,7 @@ Each brief's frontmatter declares `role`, `allowed_stages`, `executor_policy: CO
 | `sub-agents/pr-reviewer.md` | `PR_REVIEWER` | REVIEW | One pull request reviewed as it will merge: scope, correctness, tests, checks, breaking changes, changelog and version, commits, mergeability. Audits every earlier review as confirmed, refuted or unaddressed. | `REVIEW_RESULT_SCHEMA.json` |
 | `sub-agents/release-readiness-auditor.md` | `RELEASE_READINESS_AUDITOR` | REVIEW | `READY`, `BLOCKED` or `READY_WITH_RISK` (the last requires a named human). | `REVIEW_RESULT_SCHEMA.json` |
 
-Audit roles keep the workspace read-only, revert every temporary step, repair nothing, and report proven findings separately from suspicions. All briefs are language-neutral.
+`project-context-guardian` and `data-flow-tracer` are read-only even when dispatched during IMPLEMENT; the controller validates their results with `role` ([Contracts](contracts-and-schemas.md#executor-result)), building that context with `stage_context.py verifier-context --role` ([Harness](harness.md#feeding-the-validator)). Audit roles keep the workspace read-only, revert every temporary step, repair nothing, and report proven findings separately from suspicions. All briefs are language-neutral.
 
 ## `pr-reviewer`: global use, mandatory here
 

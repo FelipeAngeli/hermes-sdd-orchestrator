@@ -425,6 +425,10 @@ EXECUTOR_TIMEOUT
 EXECUTOR_UNAVAILABLE
 RETRY_BUDGET_REACHED
 
+COST_BUDGET_REACHED
+NO_NEW_HYPOTHESIS
+NO_PROGRESS
+
 RED_INVALID
 GREEN_FAILED
 
@@ -864,7 +868,40 @@ NOT PERFORMED
 
 ---
 
-## 25. Regra máxima
+## 25. Harness: contexto por etapa e correção limitada
+
+Antes de cada dispatch, o controller grava um manifesto de contexto e executa `.hermes/orchestration/runtime/stage_context.py check`. Qualquer achado impede o dispatch; nada é corrigido automaticamente para seguir em frente:
+
+- orçamento de contexto excedido ou documento inteiro → `INVESTIGATION_BUDGET_EXCEEDED` (pedir expansão conforme §13);
+- PLAN/IMPLEMENT sem resultado do `project-context-guardian` → despachar o guardian (cache-first) antes da etapa;
+- slice sem `editable_paths`, sem verificador observável ou apenas com verificadores criados pela própria slice → `CONTRACT_INVALID`;
+- hash da slice diferente do aprovado → `SCOPE_CHANGE_REQUIRED`.
+
+Ao aprovar PLAN/TASKS, o controller grava em `approved_slice_sha256s` o hash de cada slice planejada. Quando o hash da slice atual coincide (`APPROVAL_REUSED`), a aprovação já cobre aquela slice exata: não pedir nova confirmação. TEST e REVIEW não autorizam escrita (`APPROVAL_NOT_APPLICABLE`). A aprovação nunca cobre commit, push, issue tracker, Obsidian, backend ou DEV E2E.
+
+Divergência entre código e documentação é registrada no manifesto com `authority: CODE`; não inventar a decisão que a explicaria.
+
+O resultado do worker é validado com `validate_protocol.py --context` usando a saída de `stage_context.py verifier-context`. Um PASS de verificador AGENT precisa citar, entre crases, um dos comandos vinculados àquele check (`check_verifiers`), registrado com saída 0 e PASS; resultados de papéis somente leitura (`project-context-guardian`, `data-flow-tracer`) são validados com `role`; todo comando de `required_verification` precisa aparecer como aprovado; SPECIFY, CLARIFY, PLAN, TASKS e TEST não podem relatar arquivos alterados; IMPLEMENT só pode alterar `editable_paths`.
+
+Quando o resultado é válido mas a verificação falha, o ciclo é: executar a slice → coletar evidências → verificar → corrigir a falha específica → verificar de novo. Antes de cada correção, consultar `.hermes/orchestration/runtime/correction_loop.py decide`:
+
+- `VERIFIED` → commit de STATE e seguir com o driver;
+- `CORRECT` → uma única correção, com a hipótese e o tier propostos, como nova ação no journal com `parent_action_id`;
+- `STOP` → PAUSED com `stop_reason`, evidências e `next_step` do resultado.
+
+Limites padrão do registro de correção:
+
+max_attempts: 1 + max_corrective_retries_per_action
+
+max_executor_calls: executor calls restantes na rodada ou na autorização LOCAL_DELIVERY
+
+max_cost_units: null (somente registro) salvo configuração explícita do projeto
+
+Nunca repetir uma hipótese já tentada, nunca repetir uma correção sem mudança verificável e nunca escalar para um tier mais caro sem uma falha concreta registrada e um motivo escrito. Verificações determinísticas e locais vêm primeiro. Registrar consumo, tentativas e motivo de escalonamento no registro de correção quando disponíveis.
+
+---
+
+## 26. Regra máxima
 
 Quando houver conflito entre:
 
