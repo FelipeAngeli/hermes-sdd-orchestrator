@@ -51,9 +51,10 @@ Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before changing structure; all
 
 ## Pull requests
 
-1. Fork and create a branch from `main`.
+1. Fork and create one branch per improvement from `main`, named `feat/…`, `fix/…`, `docs/…`, `refactor/…`, `test/…` or `chore/…`. Never commit to `main` directly.
 2. Keep the change focused on one issue; reference it (`Closes #123`).
 3. Use [Conventional Commits](https://www.conventionalcommits.org/) as in the history: `feat(orchestrator): …`, `fix: …`, `docs: …`, `test: …`.
-4. Fill in the pull request template, including the test commands you ran.
+4. Add a `CHANGELOG.md` entry under `## Unreleased`. Maintainers cut the version with `tools/release.py` (SemVer, tag `vX.Y.Z`); see [Branches and versions](docs/maintaining-docs.md#branches-and-versions).
+5. Fill in the pull request template, including the test commands you ran.
 
 By contributing, you agree that your contributions are licensed under the MIT License and that you will follow the [Code of Conduct](CODE_OF_CONDUCT.md).

@@ -9,8 +9,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 - `tests/test_docs.py`, which fails when documentation drifts from the code (coverage, links, reachability, CLI flags, statuses, actions, ecosystems, agent tables).
 - `tools/check_docs_sync.py`, the `.githooks/commit-msg` hook and a CI workflow that reject orchestration changes without documentation.
 - `AGENTS.md`, with the documentation rule for agents working in this repository.
+- Branch-per-improvement workflow and SemVer releases: `tools/release.py` infers the level from `## Unreleased`, bumps `SKILL.md`, rolls this changelog, commits and tags `vX.Y.Z`; it refuses on `main`, a dirty worktree, an empty section or an existing tag. `tests/test_versioning.py` keeps `SKILL.md`, the changelog and tags consistent.
 
-## 3.3.0
+## 3.3.0 - 2026-09-28
 
 ### Changed
 - The controller is language-agnostic: `FORMAT_DART_CHANGED_FILES` is now `FORMAT_CHANGED_FILES`, and `changed_dart_files_available` is now `changed_files_available` (the legacy name is still accepted).
