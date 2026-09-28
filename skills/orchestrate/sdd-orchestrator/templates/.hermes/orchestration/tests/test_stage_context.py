@@ -285,6 +285,49 @@ class VerifierContextIntegrationTests(unittest.TestCase):
         self.assertTrue(any("ruff check src/feature" in error["reason"] for error in errors), errors)
 
 
+class MultiSliceVerifierContextTests(unittest.TestCase):
+    def test_implement_requires_only_the_current_slices_verifiers(self) -> None:
+        value = two_slice_context("S1", [])
+        value["slice"]["required_verification"][-1]["introduced_by_slice"] = True
+        value["slice"]["required_verification"].append(
+            {"id": "V4", "kind": "TEST", "command": "pytest tests/view_new -q", "check_ids": ["AC-2"],
+             "introduced_by_slice": True})
+        value["slice"]["required_verification"][-2]["introduced_by_slice"] = False
+        verifier = ctx.verifier_context(value)
+        self.assertEqual(["pytest tests/feature -q", "ruff check src/feature"], verifier["required_commands"])
+
+    def test_test_and_review_require_every_slices_verifiers(self) -> None:
+        value = two_slice_context("S1", [])
+        value["stage"] = "TEST"
+        value["slice"].update(current_slice_ids=[], completed_slice_ids=["S1", "S2"], editable_paths=[])
+        self.assertEqual(
+            ["pytest tests/feature -q", "pytest tests/view -q", "ruff check src/feature"],
+            ctx.verifier_context(value)["required_commands"],
+        )
+
+
+class ReadOnlyRoleContextTests(unittest.TestCase):
+    def test_guardian_context_can_be_built_before_project_context_exists(self) -> None:
+        value = context()
+        value["project_context"].update(status="MISSING", evidence=None, checked_head=None)
+        with self.assertRaises(ctx.ContextError):
+            ctx.verifier_context(value)
+        role_context = ctx.verifier_context(value, role="PROJECT_CONTEXT_GUARDIAN")
+        self.assertEqual("PROJECT_CONTEXT_GUARDIAN", role_context["role"])
+        self.assertNotIn("editable_paths", role_context)
+        self.assertEqual([], role_context["completed_slice_ids"])
+
+    def test_role_context_still_enforces_every_other_rule(self) -> None:
+        value = context()
+        value["sources"][0]["lines"] = [1, 999]
+        with self.assertRaises(ctx.ContextError):
+            ctx.verifier_context(value, role="PROJECT_CONTEXT_GUARDIAN")
+
+    def test_only_read_only_roles_are_accepted(self) -> None:
+        with self.assertRaises(ctx.ContextError):
+            ctx.verifier_context(context(), role="TDD_IMPLEMENTER")
+
+
 class StageContextCliTests(unittest.TestCase):
     def run_cli(self, *args: str, value: dict) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temp:
@@ -300,6 +343,15 @@ class StageContextCliTests(unittest.TestCase):
         result = self.run_cli("check", value=broken)
         self.assertEqual(2, result.returncode)
         self.assertFalse(json.loads(result.stdout)["valid"])
+
+    def test_verifier_context_command_accepts_a_read_only_role(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "context.json"
+            path.write_text(json.dumps(context()), encoding="utf-8")
+            result = subprocess.run([sys.executable, str(SCRIPT), "verifier-context", "--context", str(path),
+                                     "--role", "DATA_FLOW_TRACER", "--json"], text=True, capture_output=True, timeout=30)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("DATA_FLOW_TRACER", json.loads(result.stdout)["role"])
 
     def test_verifier_context_command(self) -> None:
         result = self.run_cli("verifier-context", value=context())

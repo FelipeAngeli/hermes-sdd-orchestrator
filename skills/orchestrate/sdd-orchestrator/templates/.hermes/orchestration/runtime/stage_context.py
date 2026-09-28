@@ -19,7 +19,7 @@ from typing import Any
 
 import jsonschema
 
-from validate_protocol import editable_pattern_is_safe
+from validate_protocol import READ_ONLY_ROLES, editable_pattern_is_safe
 
 SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schemas" / "STAGE_CONTEXT_SCHEMA.json"
 PROJECT_CONTEXT_STAGES = ("PLAN", "IMPLEMENT")
@@ -225,31 +225,56 @@ def check(value: Any) -> dict[str, Any]:
     return {"valid": not errors, "errors": errors, "approval": approval_state, "slice_sha256": digest}
 
 
-def verifier_context(value: dict[str, Any]) -> dict[str, Any]:
-    """Project the slice contract into validate_protocol.py keyword arguments."""
+def verifier_context(value: dict[str, Any], role: str | None = None) -> dict[str, Any]:
+    """Project the slice contract into validate_protocol.py keyword arguments.
+
+    IMPLEMENT requires only the verifiers bound to the current slice's checks:
+    a later slice's verifier may be a test that does not exist yet. TEST and
+    REVIEW require every verifier. With a read-only `role` (dispatched during
+    IMPLEMENT before the project context exists), the missing project context
+    is tolerated and no editable paths are emitted; every other rule applies.
+    """
+    if role is not None and (role not in READ_ONLY_ROLES or value["stage"] not in READ_ONLY_ROLES[role]):
+        raise ContextError(f"role {role} is not a read-only role allowed in {value['stage']}")
     result = check(value)
-    if not result["valid"]:
-        raise ContextError("; ".join(f"{item['code']}: {item['detail']}" for item in result["errors"]))
+    errors = [
+        item for item in result["errors"]
+        if not (role is not None and item["code"] in {"PROJECT_CONTEXT_REQUIRED", "PROJECT_CONTEXT_GAPS_REQUIRED"})
+    ]
+    if errors:
+        raise ContextError("; ".join(f"{item['code']}: {item['detail']}" for item in errors))
     contract = value["slice"]
     if contract is None:
-        return {}
+        return {"role": role} if role else {}
+    acceptance = contract["acceptance"]
+    if value["stage"] == "IMPLEMENT":
+        current = set(contract["current_slice_ids"])
+        required_checks = {key for key, check in acceptance.items() if check["slice_id"] in current}
+    else:
+        required_checks = set(acceptance)
     context: dict[str, Any] = {
-        "expected_acceptance": copy.deepcopy(contract["acceptance"]),
-        "required_commands": [item["command"] for item in contract["required_verification"] if item["command"]],
+        "expected_acceptance": copy.deepcopy(acceptance),
+        "required_commands": sorted({
+            item["command"] for item in contract["required_verification"]
+            if item["command"] and set(item["check_ids"]) & required_checks
+        }),
         "check_verifiers": {
             check_id: sorted(
                 item["command"] for item in contract["required_verification"]
                 if item["command"] and check_id in item["check_ids"]
             )
-            for check_id in sorted(contract["acceptance"])
+            for check_id in sorted(acceptance)
         },
     }
     if value["stage"] == "IMPLEMENT":
         context.update(
             current_slice_ids=sorted(contract["current_slice_ids"]),
             completed_slice_ids=sorted(contract["completed_slice_ids"]),
-            editable_paths=sorted(contract["editable_paths"]),
         )
+        if role is None:
+            context["editable_paths"] = sorted(contract["editable_paths"])
+    if role is not None:
+        context["role"] = role
     return context
 
 
@@ -260,6 +285,8 @@ def main(argv: list[str] | None = None) -> int:
         command = commands.add_parser(name)
         command.add_argument("--context", required=True, help="Controller-owned stage context manifest JSON.")
         command.add_argument("--json", action="store_true", help="Emit structured JSON.")
+        if name == "verifier-context":
+            command.add_argument("--role", choices=sorted(READ_ONLY_ROLES), help="Read-only sub-agent role being dispatched.")
     args = parser.parse_args(argv)
     try:
         value = json.loads(Path(args.context).read_text(encoding="utf-8"))
@@ -270,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
             digest = slice_sha256(value)
             result, code = {"slice_sha256": digest}, 0 if digest else 2
         else:
-            result, code = verifier_context(value), 0
+            result, code = verifier_context(value, role=args.role), 0
     except (OSError, json.JSONDecodeError, KeyError, ContextError) as exc:
         result, code = {"valid": False, "errors": [_finding("SCHEMA_INVALID", str(exc))]}, 2
     print(json.dumps(result, sort_keys=True) if args.json else result)

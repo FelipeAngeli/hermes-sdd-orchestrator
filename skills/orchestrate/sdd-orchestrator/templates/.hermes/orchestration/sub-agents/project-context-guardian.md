@@ -25,7 +25,7 @@ This is the most expensive role in the bundle and the one most able to waste bud
 
 ## Result for the controller
 
-The controller consults this role before PLAN and before each IMPLEMENT dispatch; `runtime/stage_context.py` refuses those stages without its result. The controller validates your result with `role: PROJECT_CONTEXT_GUARDIAN`: report no modified or created paths and no TDD slices, and keep unverified acceptance checks `PLANNED` without evidence. Return, inside the declared `executor_result`:
+The controller consults this role before PLAN and before each IMPLEMENT dispatch; `runtime/stage_context.py` refuses those stages without its result. The controller validates your result with `role: PROJECT_CONTEXT_GUARDIAN`: report no modified or created paths and no TDD slices. Keep unverified acceptance checks `PLANNED` without evidence, and carry completed-slice checks forward unchanged. The controller builds that context with `stage_context.py verifier-context --role PROJECT_CONTEXT_GUARDIAN`. Return, inside the declared `executor_result`:
 
 - the status `CURRENT`, `REFRESHED`, `PARTIAL` or `MISSING`, the HEAD you checked and whether the Obsidian binding was `BOUND`, `UNBOUND` or `NOT_CONFIGURED`, in `stage_payload.summary`;
 - each verified statement as a `context_assessment.facts` entry citing its file, and each unexamined area as a gap;

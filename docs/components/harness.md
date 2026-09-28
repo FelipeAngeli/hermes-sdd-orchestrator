@@ -31,7 +31,7 @@ Before each dispatch the controller writes one manifest that validates against `
 | `CONTEXT_BUDGET_EXCEEDED`, `CONTEXT_EXCERPT_TOO_LARGE`, `CONTEXT_EXCERPT_INVALID`, `CONTEXT_SOURCE_DUPLICATED`, `CONTEXT_SOURCE_FORBIDDEN` | Context stays within the declared budget, as excerpts, each listed once, and never includes STATE or journal files. |
 | `PROJECT_CONTEXT_REQUIRED`, `PROJECT_CONTEXT_GAPS_REQUIRED` | PLAN and IMPLEMENT need a guardian result with evidence and HEAD; a partial result must list its gaps. |
 | `SLICE_REQUIRED`, `SLICE_CURRENT_INVALID` | IMPLEMENT/TEST/REVIEW carry a slice. IMPLEMENT has exactly one current slice, disjoint from the completed ones. |
-| `SLICE_EDITABLE_PATHS_REQUIRED`, `SLICE_EDITABLE_PATH_UNSAFE`, `ANALYSIS_STAGE_EDITABLE_PATHS` | Only IMPLEMENT declares editable paths; TEST and REVIEW declare none. A pattern must be repository-relative and non-traversing, and its first segment must be literal. That rejects `*`, `*/*`, `?*` and `**/**`. Matching is segment by segment: `*`, `?` and `[...]` never cross `/`, and only a whole `**` segment spans directories. `src/*` covers `src/a.py`, not `src/deep/a.py`; use `src/**` for the subtree. |
+| `SLICE_EDITABLE_PATHS_REQUIRED`, `SLICE_EDITABLE_PATH_UNSAFE`, `ANALYSIS_STAGE_EDITABLE_PATHS` | Only IMPLEMENT declares editable paths; TEST and REVIEW declare none. A pattern must be a canonical repository-relative path: no leading `/` or `~`, no empty, `.` or `..` segment. Its first segment must also be literal. That rejects `*`, `*/*`, `?*`, `**/**`, `./**` and `.`. Matching is segment by segment: `*`, `?` and `[...]` never cross `/`, and only a whole `**` segment spans directories. `src/*` covers `src/a.py`, not `src/deep/a.py`; use `src/**` for the subtree. |
 | `ACCEPTANCE_CHECK_UNVERIFIED`, `VERIFIER_COMMAND_REQUIRED`, `VERIFIER_UNKNOWN_CHECK` | Every AGENT check in scope is bound to an observable verifier (`TEST`, `STATIC_ANALYSIS`, `SCHEMA_VALIDATION`, `STATE_INSPECTION`, `LOG_INSPECTION`) that has a command, and every HUMAN check is bound to a `HUMAN` verifier. |
 | `INDEPENDENT_VERIFIER_REQUIRED` | Each AGENT check in scope needs at least one bound verifier that predates the slice (`introduced_by_slice: false`). A test the slice has just written cannot be its only proof, and a pre-existing verifier bound to another check does not count. |
 | `SCOPE_CHANGE_REQUIRED` | The approved hash no longer matches the slice contract. |
@@ -50,15 +50,17 @@ The full list is published as `CONTEXT_ERROR_CODES`.
 
 ### Feeding the validator
 
-`verifier-context` projects a valid manifest into the keyword arguments of [`validate_protocol.py`](contracts-and-schemas.md#validate_protocolpy): `expected_acceptance`, `required_commands`, `check_verifiers` (check ID → the commands of the verifiers bound to it) and, for IMPLEMENT, `current_slice_ids`, `completed_slice_ids` and `editable_paths`. An AGENT `PASS` must cite one of *its own* bound commands, and that command must be recorded as passing. So a worker cannot prove a check with a command it chose (for example `true`) or with the verifier of a different check. The exit code is still self-reported by the worker. The controller confirms actual execution from its own records, as `EXECUTOR_CONTRACT.md` already requires. The controller passes this output unchanged with `--context`. The worker never supplies or edits it.
+`verifier-context` projects a valid manifest into the keyword arguments of [`validate_protocol.py`](contracts-and-schemas.md#validate_protocolpy): `expected_acceptance`, `required_commands`, `check_verifiers` (check ID → the commands of the verifiers bound to it) and, for IMPLEMENT, `current_slice_ids`, `completed_slice_ids` and `editable_paths`. For IMPLEMENT, `required_commands` holds only the verifiers bound to the current slice's checks, because a later slice's verifier may be a test that does not exist yet. For TEST and REVIEW it holds every verifier.
+
+`--role` (`PROJECT_CONTEXT_GUARDIAN` or `DATA_FLOW_TRACER`, only in that role's stages) builds the context for a read-only dispatch. The role is added and editable paths are left out. The missing or partial project context is tolerated, because the guardian's dispatch is what produces it; every other rule still applies. With that context, the validator rejects any write, TDD slice or new evidence. The read-only result must also carry completed-slice checks forward as `PASS` with evidence. An AGENT `PASS` must cite one of *its own* bound commands, and that command must be recorded as passing. So a worker cannot prove a check with a command it chose (for example `true`) or with the verifier of a different check. The exit code is still self-reported by the worker. The controller confirms actual execution from its own records, as `EXECUTOR_CONTRACT.md` already requires. The controller passes this output unchanged with `--context`. The worker never supplies or edits it.
 
 ```text
 stage_context.py check --context ctx.json --json             # exit 2 on any finding
 stage_context.py hash --context ctx.json --json              # slice_sha256 of the current IMPLEMENT slice (exit 2 for other stages)
-stage_context.py verifier-context --context ctx.json --json  # validator context
+stage_context.py verifier-context --context ctx.json [--role PROJECT_CONTEXT_GUARDIAN] --json  # validator context
 ```
 
-Subcommands `check`, `hash` and `verifier-context`. Flags: `--context`, `--json`.
+Subcommands `check`, `hash` and `verifier-context`. Flags: `--context`, `--role` (verifier-context only), `--json`.
 
 ## Bounded correction loop (`correction_loop.py`)
 

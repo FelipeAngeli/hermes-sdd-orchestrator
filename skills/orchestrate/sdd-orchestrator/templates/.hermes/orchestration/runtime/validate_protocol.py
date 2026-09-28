@@ -216,13 +216,14 @@ def _validate_authoritative_acceptance(
 
 
 def _is_safe_relative(path: str) -> bool:
-    candidate = PurePosixPath(path)
-    return (
-        bool(path)
-        and not candidate.is_absolute()
-        and ".." not in candidate.parts
-        and not path.startswith("~")
-    )
+    """A canonical repository-relative path: no root, home, empty, `.` or `..` segment.
+
+    Segments are checked on the raw string because PurePosixPath silently
+    drops `.` and empty segments, which would let `./**` pass as anchored.
+    """
+    if not isinstance(path, str) or not path or path.startswith(("/", "~")) or "\\" in path:
+        return False
+    return all(segment not in {"", ".", ".."} for segment in path.split("/"))
 
 
 def editable_pattern_is_safe(pattern: str) -> bool:
@@ -232,11 +233,9 @@ def editable_pattern_is_safe(pattern: str) -> bool:
     directories. Anchoring the first segment rejects match-all spellings such
     as `*`, `*/*`, `?*`, `**/**` or `[!~]*`.
     """
-    if not _is_safe_relative(pattern) or pattern.endswith("/"):
+    if not _is_safe_relative(pattern):
         return False
     segments = pattern.split("/")
-    if any(segment == "" for segment in segments):
-        return False
     if any("**" in segment and segment != "**" for segment in segments):
         return False
     return not (set(segments[0]) & _GLOB_CHARACTERS)
@@ -289,7 +288,7 @@ def _validate_write_scope(
     for field, index, path in written:
         prefix = f"$.executor_result.{field}[{index}]"
         if not _is_safe_relative(path):
-            errors.append(_error(prefix, "written paths must be repository-relative without '..'"))
+            errors.append(_error(prefix, "written paths must be canonical repository-relative paths (no '/', '~', '.', '..' or empty segments)"))
         elif not any(path_matches(path, pattern) for pattern in editable_paths):
             errors.append(_error(prefix, f"{path} is outside the slice editable_paths"))
     return errors
@@ -374,9 +373,14 @@ def _validate_read_only_result(
         errors.append(_error("$.executor_result.tdd_slices", "a read-only role cannot report TDD slices"))
     completed = completed_slice_ids or set()
     for index, check in enumerate(result["acceptance_checks"]):
-        if check["slice_id"] in completed:
-            continue
         prefix = f"$.executor_result.acceptance_checks[{index}]"
+        if check["slice_id"] in completed:
+            if check["status"] != "PASS" or not _has_text(check["evidence"]):
+                errors.append(_error(
+                    f"{prefix}.status",
+                    "a read-only role must carry completed-slice checks forward unchanged as PASS with evidence",
+                ))
+            continue
         if check["status"] != "PLANNED":
             errors.append(_error(f"{prefix}.status", "a read-only role keeps unverified checks PLANNED"))
         if check["evidence"] is not None:
@@ -640,16 +644,35 @@ def _validate_review_semantics(
     return errors
 
 
+def _is_string_list(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+_CONTEXT_TYPES = {
+    "expected_acceptance": lambda value: isinstance(value, dict) and all(
+        isinstance(key, str) and isinstance(item, dict) for key, item in value.items()
+    ),
+    "current_slice_ids": _is_string_list,
+    "completed_slice_ids": _is_string_list,
+    "editable_paths": _is_string_list,
+    "required_commands": _is_string_list,
+    "check_verifiers": lambda value: isinstance(value, dict) and all(
+        isinstance(key, str) and _is_string_list(item) for key, item in value.items()
+    ),
+    "role": lambda value: isinstance(value, str),
+}
+
+
 def _load_context(path: str | None) -> dict[str, Any]:
+    """Load a controller context, failing closed on unknown keys or wrong value types."""
     if path is None:
         return {}
     context = json.loads(Path(path).read_text(encoding="utf-8"))
-    allowed = {
-        "expected_acceptance", "current_slice_ids", "completed_slice_ids", "editable_paths",
-        "required_commands", "check_verifiers", "role",
-    }
-    if not isinstance(context, dict) or set(context) - allowed:
-        raise ValueError(f"context must be an object with only {sorted(allowed)}")
+    if not isinstance(context, dict) or set(context) - set(_CONTEXT_TYPES):
+        raise ValueError(f"context must be an object with only {sorted(_CONTEXT_TYPES)}")
+    for key, value in context.items():
+        if value is not None and not _CONTEXT_TYPES[key](value):
+            raise ValueError(f"context.{key} has the wrong type")
     return context
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -774,6 +775,61 @@ class ProtocolValidationTests(unittest.TestCase):
             "TEST", fixture, expected_acceptance=self._expected_acceptance("TEST", fixture),
             role="PROJECT_CONTEXT_GUARDIAN",
         ))
+
+    def test_dot_segments_are_refused_in_patterns_and_written_paths(self) -> None:
+        for pattern in (".", "./**", "./*", "./src/*", "src/./*", "src/.."):
+            with self.subTest(pattern=pattern):
+                self.assertFalse(validate_protocol.editable_pattern_is_safe(pattern))
+        for path in ("./.hermes/STATE.md", "src/./a.ext", "src//a.ext", "."):
+            with self.subTest(path=path):
+                fixture = successful_implementation()
+                fixture["executor_result"]["modified_paths"] = [{"path": path}]
+                self.assertRejected("IMPLEMENT", fixture)
+
+    def test_read_only_role_cannot_rewrite_completed_checks(self) -> None:
+        fixture = self.read_only_implement()
+        fixture["executor_result"]["acceptance_checks"][0].update({"status": "FAIL", "evidence": "rewritten"})
+        errors = validate_payload(
+            "IMPLEMENT", fixture,
+            expected_acceptance=self._expected_acceptance("IMPLEMENT", fixture),
+            completed_slice_ids={"synthetic-slice-1"},
+            role="PROJECT_CONTEXT_GUARDIAN",
+        )
+        self.assertTrue(errors, msg="read-only role downgraded a completed check")
+        fixture["executor_result"]["acceptance_checks"][0].update({"status": "PASS", "evidence": "earlier evidence"})
+        self.assertEqual([], validate_payload(
+            "IMPLEMENT", fixture,
+            expected_acceptance=self._expected_acceptance("IMPLEMENT", fixture),
+            completed_slice_ids={"synthetic-slice-1"},
+            role="PROJECT_CONTEXT_GUARDIAN",
+        ))
+
+    def run_cli(self, context: object) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as temp:
+            result_path, context_path = Path(temp) / "result.json", Path(temp) / "context.json"
+            fixture = executor_fixture("TEST")
+            result_path.write_text(json.dumps(fixture), encoding="utf-8")
+            context_path.write_text(json.dumps(context), encoding="utf-8")
+            return subprocess.run(
+                [sys.executable, str(RUNTIME / "validate_protocol.py"), "--action", "TEST",
+                 "--result", str(result_path), "--context", str(context_path), "--json"],
+                text=True, capture_output=True, timeout=30,
+            )
+
+    def test_cli_reports_malformed_context_as_a_structured_rejection(self) -> None:
+        for context in (
+            {"check_verifiers": ["x"]},
+            {"check_verifiers": {"AC-1": "pytest"}},
+            {"editable_paths": "src/*"},
+            {"required_commands": [1]},
+            {"role": 3},
+            {"expected_acceptance": []},
+            ["not", "an", "object"],
+        ):
+            with self.subTest(context=context):
+                result = self.run_cli(context)
+                self.assertEqual(2, result.returncode, result.stderr)
+                self.assertFalse(json.loads(result.stdout)["valid"])
 
     def test_rejects_approved_review_with_e2e_violation(self) -> None:
         fixture = review_fixture()
