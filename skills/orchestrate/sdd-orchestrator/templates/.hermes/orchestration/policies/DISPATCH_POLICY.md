@@ -55,6 +55,7 @@ Routing suggestions by change shape, each still subject to the dispatch question
 | API or contract | `api-contract-auditor`, then `impact-analyst` when the contract is shared |
 | Architectural | `impact-analyst`, `architecture-guardian` |
 | Pre-release | `regression-hunter`, `security-reviewer` when the change touches its surfaces |
+| Pull request | `pr-reviewer` for the whole PR and its prior reviews; it names the specialists above when a deeper finding needs one |
 
 A row in this table is a starting point, never an obligation. A specialist listed here and not needed for a named decision is still not dispatched. The table names only briefs that ship in `sub-agents/`; adding a row for a role that does not exist would send the controller looking for a brief it cannot load.
 

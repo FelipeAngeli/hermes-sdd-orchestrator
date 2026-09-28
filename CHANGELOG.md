@@ -4,6 +4,10 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+- `sub-agents/pr-reviewer.md`: a global, language- and host-neutral pull request reviewer that checks a PR as it will merge (scope, correctness, tests, checks, breaking changes, changelog and version, commits, mergeability) and audits every earlier review. It never posts on its own and defers deep findings to the owning specialist. It is routed from a new `Pull request` row in `DISPATCH_POLICY.md`.
+- This repository requires `pr-reviewer` on every pull request and on every earlier review (`AGENTS.md`, PR template).
+
 ## 3.4.0 - 2026-09-28
 
 ### Added

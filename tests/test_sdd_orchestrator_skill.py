@@ -111,6 +111,7 @@ class SddOrchestratorSkillTests(unittest.TestCase):
                 "[SPECIFY, PLAN]",
                 "EXECUTOR_RESULT_SCHEMA.json",
             ),
+            "pr-reviewer.md": ("PR_REVIEWER", "[REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
         }
 
         self.assertEqual(set(expected), {path.name for path in sub_agents.glob("*.md")})
@@ -705,6 +706,51 @@ class SddOrchestratorSkillTests(unittest.TestCase):
             text = path.read_text(encoding="utf-8").replace("changed_dart_files_available", "")
             with self.subTest(path=path.relative_to(orchestration)):
                 self.assertIsNone(pattern.search(text))
+
+    def test_pr_reviewer_reviews_the_whole_pull_request_and_audits_prior_reviews(self) -> None:
+        """A pull request is reviewed as what will merge, not as what the author says.
+
+        The failure mode is trusting the nearest summary: the PR description,
+        the author's report, or an existing approval. Each is a claim. The
+        reviewer checks the claim against the full diff from the merge base,
+        treats prior reviews as findings to confirm or refute, and never posts
+        to the hosting platform itself.
+        """
+        sub_agents = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "sub-agents"
+        content = (sub_agents / "pr-reviewer.md").read_text(encoding="utf-8")
+
+        for rule in (
+            "The workspace is read-only",
+            "full diff from the merge base",
+            "Never take the description, the author's summary or an existing approval as evidence",
+            "confirmed, refuted or unaddressed",
+            "A check that did not run is not a passing check",
+            "one improvement per pull request",
+            "Never post a review",
+            "never enforce a preference the project has not declared",
+            "`NO_FINDINGS`",
+        ):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, content)
+
+        for surface in ("scope", "tests", "changelog", "version", "breaking", "commits", "secrets", "ci"):
+            with self.subTest(surface=surface):
+                self.assertIn(surface, content.lower())
+
+        for defer_to in ("security-reviewer", "dependency-auditor", "architecture-guardian", "regression-hunter"):
+            with self.subTest(defer_to=defer_to):
+                self.assertIn(defer_to, content)
+
+    def test_this_repository_requires_pr_reviewer_on_every_pull_request(self) -> None:
+        agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        template = (ROOT / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
+        dispatch = (
+            SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "policies" / "DISPATCH_POLICY.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("## Pull request review", agents)
+        self.assertIn("sub-agents/pr-reviewer.md", agents)
+        self.assertIn("pr-reviewer", template)
+        self.assertIn("| Pull request | `pr-reviewer`", dispatch)
 
     def test_installs_project_local_configuration_from_skill_bundle(self) -> None:
         self.assertTrue((SKILL_ROOT / "SKILL.md").is_file())

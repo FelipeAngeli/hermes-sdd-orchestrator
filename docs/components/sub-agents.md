@@ -38,8 +38,17 @@ Each brief's frontmatter declares `role`, `allowed_stages`, `executor_policy: CO
 | `sub-agents/architecture-guardian.md` | `ARCHITECTURE_GUARDIAN` | PLAN, REVIEW | Violations of the project's declared rules only, never taste. | `REVIEW_RESULT_SCHEMA.json` |
 | `sub-agents/spec-consistency-guardian.md` | `SPEC_CONSISTENCY_GUARDIAN` | TASKS, REVIEW | Breaks in SPEC → PLAN → TASKS → CODE → TESTS. It never infers a requirement. | `REVIEW_RESULT_SCHEMA.json` |
 | `sub-agents/dependency-auditor.md` | `DEPENDENCY_AUDITOR` | PLAN, REVIEW | Versions, duplication, maintenance. It prefers what the project already has. | `REVIEW_RESULT_SCHEMA.json` |
+| `sub-agents/pr-reviewer.md` | `PR_REVIEWER` | REVIEW | One pull request reviewed as it will merge: scope, correctness, tests, checks, breaking changes, changelog and version, commits, mergeability. Audits every earlier review as confirmed, refuted or unaddressed. | `REVIEW_RESULT_SCHEMA.json` |
 | `sub-agents/release-readiness-auditor.md` | `RELEASE_READINESS_AUDITOR` | REVIEW | `READY`, `BLOCKED` or `READY_WITH_RISK` (the last requires a named human). | `REVIEW_RESULT_SCHEMA.json` |
 
 Audit roles keep the workspace read-only, revert every temporary step, repair nothing, and report proven findings separately from suspicions. All briefs are language-neutral.
+
+## `pr-reviewer`: global use, mandatory here
+
+`pr-reviewer` ships in every installation, so any project can dispatch it from the `Pull request` row of `DISPATCH_POLICY.md`. It works with any language and any host: the controller supplies the diff from the merge base, the commits, the description, the existing reviews and the check results.
+
+The role guards against one failure: trusting the nearest summary. The description, the author's report, a green badge and an earlier approval are claims, and the diff decides. It never posts, approves, merges or rebases on its own. Deep findings go to the owning specialist (`security-reviewer`, `dependency-auditor`, `architecture-guardian`, `regression-hunter`, `tdd-guardian`, `api-contract-auditor`).
+
+In **this** repository, every pull request and every review it already received must go through `pr-reviewer`, as required by `AGENTS.md` and the PR template.
 
 **Adding a sub-agent:** add the brief with complete frontmatter, add a row here and in the root [README](../../README.md#sub-agents), extend the expected set in `tests/test_sdd_orchestrator_skill.py`, and update `CHANGELOG.md`.
