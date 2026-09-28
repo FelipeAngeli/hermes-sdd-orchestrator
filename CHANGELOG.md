@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 3.8.1 - 2026-09-28
+
 ### Fixed
 - Preserve every released changelog entry byte-for-byte when stacking the PR-reviewer release; only the new release section is added.
 
