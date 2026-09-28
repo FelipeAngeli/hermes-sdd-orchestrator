@@ -52,7 +52,7 @@ Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before changing structure; all
 ## Pull requests
 
 1. Fork and create a branch from `main`.
-2. Keep the change focused on one issue; reference it (`Closes #123`).
+2. Keep the change focused on one improvement. If it addresses a tracked issue, reference it (`Closes #123`); work requested directly by a maintainer may state `Issue: not applicable — direct request` instead of creating an artificial issue.
 3. Use [Conventional Commits](https://www.conventionalcommits.org/) as in the history: `feat(orchestrator): …`, `fix: …`, `docs: …`, `test: …`.
 4. Fill in the pull request template, including the test commands you ran.
 

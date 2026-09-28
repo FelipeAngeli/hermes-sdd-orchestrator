@@ -12,6 +12,10 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ### Fixed
 - The installer ignores Python interpreter artifacts (`__pycache__`, `.pyc`, `.pyo`) in the source template. Previously a cache generated while the repository tests ran could be copied into a fixture, recompiled there and make the idempotency check fail on Linux CI.
+- `tools/check_docs_sync.py --base`: a `Docs-Impact: none` waiver covers only the commit that carries it, so an unrelated waived commit cannot excuse an undocumented change in the range.
+- `tools/check_docs_sync.py`: a rename is checked as a deletion of the old path plus an addition of the new one, so moving a source file into `tests/` cannot bypass the docs requirement.
+- `tests/test_docs.py` checks the CLI flags of every `tools/*.py`.
+- Direct maintainer requests may use `Issue: not applicable — direct request`; contributors no longer need to create an artificial issue solely to satisfy the PR template.
 
 ## 3.3.0
 
