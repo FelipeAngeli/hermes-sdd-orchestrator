@@ -769,6 +769,8 @@ class SddOrchestratorSkillTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("## Pull request review", agents)
         self.assertIn("sub-agents/pr-reviewer.md", agents)
+        self.assertNotIn("git merge-base origin/main HEAD", agents)
+        self.assertIn("baseRefName", agents)
         self.assertIn("pr-reviewer", template)
         self.assertIn("| Pull request | `pr-reviewer`", dispatch)
 

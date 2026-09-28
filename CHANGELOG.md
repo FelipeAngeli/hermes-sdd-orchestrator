@@ -8,6 +8,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 - `sub-agents/pr-reviewer.md`: global, language- and host-neutral PR review from the real merge-base diff, including an audit of prior reviews and deference to specialist roles.
 - This repository requires `pr-reviewer` on every pull request and prior review.
 
+### Fixed
+- Local PR-review instructions resolve `baseRefName` from GitHub instead of hard-coding `origin/main`, so stacked and non-main PRs are reviewed against the correct merge base.
+
 ## 3.7.0 - 2026-09-28
 
 ### Added
