@@ -70,7 +70,14 @@ def reject_symlinks(target: Path, relative: str) -> None:
 
 
 def template_files() -> list[Path]:
-    return sorted(path for path in TEMPLATE.rglob("*") if path.is_file())
+    """Return distributable template files, never interpreter artifacts."""
+    return sorted(
+        path
+        for path in TEMPLATE.rglob("*")
+        if path.is_file()
+        and "__pycache__" not in path.parts
+        and path.suffix not in {".pyc", ".pyo"}
+    )
 
 
 def state(workspace: dict[str, str]) -> str:

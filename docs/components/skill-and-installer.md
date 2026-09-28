@@ -38,7 +38,7 @@ The report contains `status`, `planned`, `applied`, `next_step` and **`stack`**,
 
 Guarantees, all covered by [the packaging tests](testing.md#skill-suite-tests):
 
-- It copies the template tree. It never overwrites a differing file and never writes to a tracked path or through a symlink.
+- It copies the distributable template tree, ignoring interpreter artifacts (`__pycache__`, `.pyc`, `.pyo`). It never overwrites a differing file and never writes to a tracked path or through a symlink.
 - It creates a fresh `STATE.md` (schema 2, `ticket: IDLE`, `mode: MANUAL`), `INCIDENTS.md` and an empty, schema-valid `ACTION_JOURNAL.json` (see [Action journal](action-journal.md)).
 - It adds the local paths to `.git/info/exclude`, never to `.gitignore`, so `git status` stays clean.
 - A second run returns `ALREADY_INITIALIZED`. A partially present state returns `LOCAL_STATE_REQUIRES_REVIEW`.
