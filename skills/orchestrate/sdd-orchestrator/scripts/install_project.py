@@ -163,7 +163,7 @@ def detect_stack(target: Path) -> dict:
     return _load_template_module("sdd_detect_stack", "runtime/detect_stack.py").detect(target)
 
 
-def _answer_state(value: str) -> tuple[bool, bool]:
+def _answer_state(question_id: str, value: str) -> tuple[bool, bool]:
     normalized = value.strip()
     if normalized.casefold() in {"", "unresolved", "null", "~", "{}", "[]"}:
         return True, True
@@ -173,15 +173,51 @@ def _answer_state(value: str) -> tuple[bool, bool]:
         decoded = json.loads(normalized)
     except (json.JSONDecodeError, TypeError):
         return True, False
-    if not isinstance(decoded, str) or not decoded.strip():
-        return True, False
-    if decoded.strip().casefold() in {"unresolved", "null", "~", "{}", "[]"}:
-        return True, True
-    return False, True
+    if isinstance(decoded, str):
+        marker = decoded.strip().casefold()
+        if marker in {"unresolved", "null", "~", "{}", "[]"}:
+            return True, True
+        return (False, True) if marker == "none" else (True, False)
+
+    def nonempty(item: object) -> bool:
+        return isinstance(item, str) and bool(item.strip())
+
+    if question_id == "issue_tracker":
+        valid = (
+            isinstance(decoded, dict)
+            and set(decoded) == {"provider", "project", "read", "write"}
+            and nonempty(decoded["provider"])
+            and nonempty(decoded["project"])
+            and isinstance(decoded["read"], bool)
+            and isinstance(decoded["write"], bool)
+        )
+    elif question_id == "obsidian":
+        valid = (
+            isinstance(decoded, dict)
+            and set(decoded) == {"vault", "project_container"}
+            and nonempty(decoded["vault"])
+            and Path(decoded["vault"]).is_absolute()
+            and nonempty(decoded["project_container"])
+            and not Path(decoded["project_container"]).is_absolute()
+            and ".." not in Path(decoded["project_container"]).parts
+        )
+    elif question_id == "project_tools":
+        valid = isinstance(decoded, list) and bool(decoded) and all(
+            isinstance(tool, dict)
+            and set(tool) == {"tool", "purpose", "read", "write"}
+            and nonempty(tool["tool"])
+            and nonempty(tool["purpose"])
+            and isinstance(tool["read"], bool)
+            and isinstance(tool["write"], bool)
+            for tool in decoded
+        )
+    else:
+        valid = False
+    return (False, True) if valid else (True, False)
 
 
-def _unresolved_answer(value: str) -> bool:
-    unresolved, valid = _answer_state(value)
+def _unresolved_answer(question_id: str, value: str) -> bool:
+    unresolved, valid = _answer_state(question_id, value)
     return unresolved or not valid
 
 
@@ -241,11 +277,11 @@ def _read_onboarding_record(target: Path, question_ids: set[str]) -> tuple[dict[
     missing = question_ids - set(answers)
     if missing:
         issues.append("ANSWERS_MISSING")
-    for value in answers.values():
-        _, valid = _answer_state(value)
+    for key, value in answers.items():
+        _, valid = _answer_state(key, value)
         if not valid:
             issues.append("ANSWER_VALUE_INVALID")
-    all_resolved = not missing and all(not _unresolved_answer(answers[key]) for key in question_ids)
+    all_resolved = not missing and all(not _unresolved_answer(key, answers[key]) for key in question_ids)
     expected_status = "COMPLETE" if all_resolved else "PENDING"
     if metadata.get("status") in {"PENDING", "COMPLETE"} and metadata["status"] != expected_status:
         issues.append("STATUS_ANSWER_MISMATCH")
@@ -263,17 +299,17 @@ def onboarding_questions(target: Path | None = None) -> dict[str, object]:
         {
             "id": "issue_tracker",
             "prompt": "Which issue tracker should the orchestrator read, and may it create or update issues?",
-            "accepted_answers": ["provider and project with read/write permissions", "none"],
+            "accepted_answers": ["JSON object with provider, project, read, and write", "none"],
         },
         {
             "id": "obsidian",
             "prompt": "Should the orchestrator connect this project to an Obsidian vault?",
-            "accepted_answers": ["vault and project container", "none"],
+            "accepted_answers": ["JSON object with absolute vault and relative project_container", "none"],
         },
         {
             "id": "project_tools",
             "prompt": "Which other project-specific tools must the orchestrator use, and with what permissions?",
-            "accepted_answers": ["tool, purpose, and read/write permissions", "none"],
+            "accepted_answers": ["JSON array of tool, purpose, read, and write objects", "none"],
         },
     ]
     answers: dict[str, str] = {}
@@ -287,7 +323,7 @@ def onboarding_questions(target: Path | None = None) -> dict[str, object]:
         questions = [
             question
             for question in questions
-            if _unresolved_answer(answers.get(str(question["id"]), "UNRESOLVED"))
+            if _unresolved_answer(str(question["id"]), answers.get(str(question["id"]), "UNRESOLVED"))
         ]
     complete = record_valid and record_status == "COMPLETE" and not questions
     return {
@@ -320,7 +356,7 @@ answers:
 
 - Ask only about orchestrator connectivity, never product requirements or implementation preferences.
 - Inspect repository evidence first and ask only questions whose answers remain unresolved.
-- Accept `none` as an explicit answer for every integration; write any descriptive answer as a JSON double-quoted string on the same line.
+- Accept `none` as an explicit answer for every integration. Otherwise use compact JSON on the same line: issue tracker requires `provider`, `project`, `read`, and `write`; Obsidian requires an absolute `vault` and relative `project_container`; project tools require a non-empty array of objects with `tool`, `purpose`, `read`, and `write`.
 - For an issue tracker, record the provider, project identifier, and separate read/write permission; verify connectivity read-only before any mutation.
 - For Obsidian, record whether it is enabled and, only when enabled, the vault and project container required by `BOOTSTRAP.md`.
 - For other project tools, record each tool's purpose and separate read/write permission.

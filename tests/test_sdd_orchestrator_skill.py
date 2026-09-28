@@ -523,6 +523,57 @@ class InstallerBehaviorTests(unittest.TestCase):
                     onboarding = json.loads(result.stdout)["onboarding"]
                     self.assertIn("project_tools", [question["id"] for question in onboarding["questions"]])
 
+    def test_semantically_incomplete_answers_remain_unresolved(self) -> None:
+        incomplete = {
+            "issue_tracker": "\"GitHub\"",
+            "obsidian": "\"yes\"",
+            "project_tools": "\"Jira\"",
+        }
+        with tempfile.TemporaryDirectory(prefix="sdd-onboarding-semantic-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            setup_path = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            original = setup_path.read_text(encoding="utf-8")
+            for question_id, value in incomplete.items():
+                with self.subTest(question_id=question_id):
+                    setup = original.replace("status: PENDING", "status: COMPLETE")
+                    for key in incomplete:
+                        setup = setup.replace(f"{key}: UNRESOLVED", f"{key}: none")
+                    setup = setup.replace(f"{question_id}: none", f"{question_id}: {value}")
+                    setup_path.write_text(setup, encoding="utf-8")
+                    onboarding = json.loads(self.run_installer(target).stdout)["onboarding"]
+                    self.assertFalse(onboarding["record_valid"])
+                    self.assertIn("ANSWER_VALUE_INVALID", onboarding["record_issues"])
+                    self.assertEqual([question_id], [question["id"] for question in onboarding["questions"]])
+
+    def test_structured_answers_can_complete_onboarding(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-onboarding-structured-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            setup_path = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            setup = setup_path.read_text(encoding="utf-8").replace("status: PENDING", "status: COMPLETE")
+            setup = setup.replace(
+                "issue_tracker: UNRESOLVED",
+                'issue_tracker: {"provider":"GitHub","project":"owner/repo","read":true,"write":false}',
+            )
+            setup = setup.replace(
+                "obsidian: UNRESOLVED",
+                'obsidian: {"vault":"/vault","project_container":"Projects/App"}',
+            )
+            setup = setup.replace(
+                "project_tools: UNRESOLVED",
+                'project_tools: [{"tool":"Jira","purpose":"read demands","read":true,"write":false}]',
+            )
+            setup_path.write_text(setup, encoding="utf-8")
+
+            onboarding = json.loads(self.run_installer(target).stdout)["onboarding"]
+
+            self.assertEqual("COMPLETE", onboarding["status"])
+            self.assertTrue(onboarding["record_valid"])
+            self.assertEqual([], onboarding["questions"])
+
     def test_invalid_onboarding_encoding_returns_fail_closed_json_report(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-onboarding-encoding-") as temp:
             target = Path(temp)

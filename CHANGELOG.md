@@ -7,7 +7,7 @@ All notable changes to the orchestration are recorded here. Every change under `
 ## 3.10.0 - 2026-09-28
 
 ### Added
-- Project-local orchestrator onboarding: installation creates `PROJECT_SETUP.md`, reports only unresolved questions for issue-tracker access, optional Obsidian binding and other project tools, and blocks the first demand until explicit answers (including `none`) are recorded without requesting credentials or product requirements.
+- Project-local orchestrator onboarding: installation creates `PROJECT_SETUP.md`, reports only unresolved questions for issue-tracker access, optional Obsidian binding and other project tools, validates the required connectivity and permission fields fail-closed, and blocks the first demand until explicit answers (including `none`) are recorded without requesting credentials or product requirements.
 
 ## 3.9.0 - 2026-09-28
 
