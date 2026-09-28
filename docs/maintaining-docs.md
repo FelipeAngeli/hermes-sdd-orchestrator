@@ -82,23 +82,28 @@ Hermes agents working in this repository follow the same rule; see `AGENTS.md` a
 
    ```bash
    python3 tools/release.py              # dry run: shows 3.3.0 -> 3.4.0 (minor)
-   python3 tools/release.py --apply      # bumps SKILL.md, rolls CHANGELOG, commits, tags vX.Y.Z
+   python3 tools/release.py --apply      # bumps SKILL.md, rolls CHANGELOG, commits (no tag yet)
    ```
 
    | Flag | Meaning |
    | --- | --- |
-   | `--apply` | Write, commit `chore(release): vX.Y.Z` and create the annotated tag. Without it the command is a dry run. |
+   | `--apply` | Write and commit `chore(release): vX.Y.Z`. It deliberately does not tag before review. Without it the command is a dry run. |
+   | `--tag` | After CI and `pr-reviewer` approve the exact release HEAD, verify it and create the annotated tag. |
    | `--level` | Force `major`, `minor` or `patch` instead of inferring it. |
    | `--date` | Release date `YYYY-MM-DD` (default today). |
    | `--repo` | Repository root (default `.`). |
 
-   It refuses with exit code 1 on `main`/`master` (`BRANCH_NOT_ALLOWED`), a dirty worktree (`WORKTREE_DIRTY`), an empty `Unreleased` section (`UNRELEASED_EMPTY`) or an existing tag (`TAG_EXISTS`). It never pushes.
+   It refuses with exit code 1 on `main`/`master` (`BRANCH_NOT_ALLOWED`), a branch without an allowed prefix (`BRANCH_NAME_INVALID`), a dirty worktree (`WORKTREE_DIRTY`), an invalid `--date` (`DATE_INVALID`), an empty `Unreleased` section (`UNRELEASED_EMPTY`), a changed head after the release commit (`HEAD_NOT_RELEASE`) or an existing tag (`TAG_EXISTS`). It never pushes.
 
-4. Push the branch and the tag, then open a pull request to `main`:
+4. Push the branch and open a pull request to `main`. Run CI and `pr-reviewer` on the exact release commit.
+5. Only after the verdict is `APPROVED`, tag that exact reviewed HEAD and push the tag; then merge:
 
    ```bash
-   git push -u origin feat/<topic> && git push origin vX.Y.Z
+   git push -u origin feat/<topic>
    gh pr create --fill
+   # after CI + review approve the unchanged HEAD:
+   python3 tools/release.py --tag
+   git push origin vX.Y.Z
    ```
 
 The version lives in one place: `version:` in `skills/orchestrate/sdd-orchestrator/SKILL.md`. `tests/test_versioning.py` checks that it is SemVer, that it equals the newest release in `CHANGELOG.md`, that `## Unreleased` stays on top and that release sections descend. Every version since `v3.3.0` has a matching Git tag.

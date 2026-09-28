@@ -1,7 +1,7 @@
-"""Versioning rules: one SemVer, one changelog section per release, one tag per version.
+"""Versioning rules: one SemVer and one changelog section per release.
 
-`tools/release.py` is the only supported way to cut a version. These tests pin
-its behavior and the invariants between SKILL.md, CHANGELOG.md and the docs.
+`tools/release.py` prepares the release commit before review and tags the exact
+approved HEAD afterward. These tests pin the workflow and file invariants.
 """
 from __future__ import annotations
 
@@ -106,20 +106,38 @@ class ReleaseCliTests(unittest.TestCase):
         self.assertIn("1.2.3 -> 1.3.0", result.stdout)
         self.assertIn("version: 1.2.3", (self.repo / "skills/orchestrate/sdd-orchestrator/SKILL.md").read_text())
 
-    def test_apply_bumps_skill_rolls_changelog_commits_and_tags(self) -> None:
+    def test_apply_bumps_skill_rolls_changelog_and_commits_without_tagging(self) -> None:
         result = self.run_release("--apply", "--date", "2026-09-28")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("version: 1.3.0", (self.repo / "skills/orchestrate/sdd-orchestrator/SKILL.md").read_text())
         changelog = (self.repo / "CHANGELOG.md").read_text()
         self.assertIn("## Unreleased\n\n## 1.3.0 - 2026-09-28\n\n### Added\n- New thing.\n\n## 1.2.3", changelog)
         self.assertEqual("chore(release): v1.3.0", self.git("log", "-1", "--format=%s").strip())
-        self.assertEqual("v1.3.0", self.git("tag", "--points-at", "HEAD").strip())
+        self.assertEqual("", self.git("tag", "--points-at", "HEAD").strip())
         self.assertEqual("", self.git("status", "--porcelain"))
+
+    def test_tag_marks_the_exact_reviewed_release_head(self) -> None:
+        self.assertEqual(0, self.run_release("--apply", "--date", "2026-09-28").returncode)
+        reviewed_head = self.git("rev-parse", "HEAD").strip()
+        result = self.run_release("--tag")
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("v1.3.0", self.git("tag", "--points-at", reviewed_head).strip())
 
     def test_explicit_level_overrides_inference(self) -> None:
         result = self.run_release("--level", "major", "--apply", "--date", "2026-09-28")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertEqual("v2.0.0", self.git("tag", "--points-at", "HEAD").strip())
+        self.assertIn("version: 2.0.0", (self.repo / "skills/orchestrate/sdd-orchestrator/SKILL.md").read_text())
+
+    def test_refuses_arbitrary_branch_name(self) -> None:
+        self.git("switch", "-q", "-c", "arbitrary")
+        result = self.run_release("--apply")
+        self.assertEqual(1, result.returncode)
+        self.assertIn("BRANCH_NAME_INVALID", result.stdout)
+
+    def test_refuses_invalid_release_date(self) -> None:
+        result = self.run_release("--apply", "--date", "28-09-2026")
+        self.assertEqual(1, result.returncode)
+        self.assertIn("DATE_INVALID", result.stdout)
 
     def test_refuses_to_release_from_main(self) -> None:
         self.git("switch", "-q", "main")
@@ -139,6 +157,13 @@ class ReleaseCliTests(unittest.TestCase):
         result = self.run_release("--apply")
         self.assertEqual(1, result.returncode)
         self.assertIn("WORKTREE_DIRTY", result.stdout)
+
+    def test_tag_refuses_a_head_that_changed_after_release_commit(self) -> None:
+        self.assertEqual(0, self.run_release("--apply", "--date", "2026-09-28").returncode)
+        self.git("commit", "--allow-empty", "-qm", "fix: after review")
+        result = self.run_release("--tag")
+        self.assertEqual(1, result.returncode)
+        self.assertIn("HEAD_NOT_RELEASE", result.stdout)
 
     def test_refuses_existing_tag(self) -> None:
         self.git("tag", "v1.3.0")
