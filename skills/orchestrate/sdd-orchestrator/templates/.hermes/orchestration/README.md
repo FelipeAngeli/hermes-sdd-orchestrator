@@ -12,6 +12,7 @@ orchestration/
 ├── sub-agents/  # specialized leaf-worker briefs
 ├── tests/       # installed protocol tests
 ├── STATE.md
+├── PROJECT_SETUP.md
 ├── ACTION_JOURNAL.json
 ├── INCIDENTS.md
 └── action-journal-history/  # created on demand
@@ -32,6 +33,8 @@ python3 .hermes/orchestration/runtime/action_journal.py --help
 python3 .hermes/orchestration/runtime/bounded_run_planner.py --help
 python3 .hermes/orchestration/runtime/bounded_run_driver.py --help
 ```
+
+Before the first demand, resolve `.hermes/orchestration/PROJECT_SETUP.md`. Inspect project evidence first, then ask only unresolved questions about issue tracker connectivity and read/write access, optional Obsidian binding, and other project-specific tools with their purpose and permissions. Accept `none`, never ask for credentials or product requirements, and validate connectivity read-only before recording it.
 
 Configure project-specific validation in `policies/GATES.md` before starting a demand. `runtime/detect_stack.py` is a read-only helper for that step: it reports each ecosystem (Node, Python, Go, Rust, JVM, .NET, Ruby, PHP, Elixir, Swift, C/C++, Dart…) with the manifest that proves it, the CI providers present and a suggested command per gate, leaving a gate `null` when nothing supports it. The FSM gate names (`TEST_FOCUSED`, `FORMAT_CHANGED_FILES`, `ANALYZE`) are identical for every language. The mutable state files are controller-owned and must not be moved into a source layer.
 

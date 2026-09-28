@@ -6,7 +6,7 @@
 
 ## `SKILL.md`: Hermes entry point
 
-`skills/orchestrate/sdd-orchestrator/SKILL.md` is what Hermes loads with `/skill sdd-orchestrator`. Its frontmatter carries the name, the version (bumped on every contract change) and the tags. Its body explains when to use the skill, the prerequisites (Git, Python 3.10+, an attached-branch worktree root), installation, the seven-step operating procedure, pitfalls and verification.
+`skills/orchestrate/sdd-orchestrator/SKILL.md` is what Hermes loads with `/skill sdd-orchestrator`. Its frontmatter carries the name, the version (bumped on every contract change) and the tags. Its body explains when to use the skill, the prerequisites (Git, Python 3.10+, an attached-branch worktree root), installation, the eight-step operating procedure, pitfalls and verification.
 
 Install it once per Hermes profile:
 
@@ -28,7 +28,7 @@ python3 <skill>/scripts/install_project.py --target <repo-root> --apply --json  
 | `--apply` | Write files. Without it the command only plans. |
 | `--json` | Machine-readable report. |
 
-The report contains `status`, `planned`, `applied`, `next_step` and **`stack`**, which is the read-only output of [`detect_stack.py`](gates-and-stack-detection.md#detect_stackpy) for the target.
+The report contains `status`, `planned`, `applied`, `next_step`, **`stack`**, and **`onboarding`**. `stack` is the read-only output of [`detect_stack.py`](gates-and-stack-detection.md#detect_stackpy) for the target. `onboarding` has scope `ORCHESTRATOR_ONLY` and lists only unresolved questions about issue-tracker access, optional Obsidian binding, and other project-specific tools; every integration accepts an explicit `none` answer. It also reports `record_valid`, `record_status`, and `record_issues` so malformed, unsupported, incomplete, or non-UTF-8 setup records remain visibly unresolved instead of failing open.
 
 | `status` | Meaning |
 | --- | --- |
@@ -39,11 +39,21 @@ The report contains `status`, `planned`, `applied`, `next_step` and **`stack`**,
 Guarantees, all covered by [the packaging tests](testing.md#skill-suite-tests):
 
 - It copies the distributable template tree, ignoring interpreter artifacts (`__pycache__`, `.pyc`, `.pyo`). It never overwrites a differing file and never writes to a tracked path or through a symlink.
-- It creates a fresh `STATE.md` (schema 2, `ticket: IDLE`, `mode: MANUAL`), `INCIDENTS.md` and an empty, schema-valid `ACTION_JOURNAL.json` (see [Action journal](action-journal.md)).
+- It creates a fresh `STATE.md` (schema 2, `ticket: IDLE`, `mode: MANUAL`), `PROJECT_SETUP.md` (pending project connectivity), `INCIDENTS.md` and an empty, schema-valid `ACTION_JOURNAL.json` (see [Action journal](action-journal.md)).
 - It adds the local paths to `.git/info/exclude`, never to `.gitignore`, so `git status` stays clean.
 - A second run returns `ALREADY_INITIALIZED`. A partially present state returns `LOCAL_STATE_REQUIRES_REVIEW`.
 
 An existing installation is **never upgraded automatically**. To pick up new template files, review and copy them by hand, or reinstall into a clean worktree.
+
+## Project onboarding (`PROJECT_SETUP.md`)
+
+A fresh installation creates the untracked controller-owned `.hermes/orchestration/PROJECT_SETUP.md`. Before the first demand, Hermes inspects repository evidence and asks only unresolved questions needed by the orchestrator:
+
+1. Which issue tracker and project it should read, plus separate permission to create or update issues.
+2. Whether to bind Obsidian and, only when enabled, which vault and project container to use.
+3. Which other project-specific tools it needs, why it needs each one, and whether access is read-only or writable.
+
+`none` is a valid explicit answer for every item; any descriptive answer is stored as a JSON double-quoted string on that item's line. The onboarding must not ask product requirements, implementation preferences, passwords, tokens, or verification codes. Connectivity is verified read-only before it is recorded; any external mutation still requires explicit authorization. Hermes replaces each `UNRESOLVED` value with the answer and sets `status: COMPLETE` only after all three items are resolved. On later installer runs, the `onboarding.questions` array contains only values that remain unresolved; empty, comment-only, malformed/unterminated, YAML-null, quoted/case-variant unresolved markers and missing answers all remain unresolved. Invalid encoding, malformed structure, duplicate keys, unsupported schema versions, invalid record statuses, and status/answer mismatches fail closed with `record_valid: false`. A successful `--apply` reloads the new record before reporting it. When no questions remain **and** the record declares `status: COMPLETE`, the computed onboarding status is `COMPLETE`.
 
 ## `.hermes.md`: controller entry point
 
@@ -64,7 +74,7 @@ The installed `README.md` inside `.hermes/orchestration/` is the on-disk guide f
 ├── schemas/     → contracts-and-schemas.md, fsm-and-loop.md, action-journal.md
 ├── sub-agents/  → sub-agents.md
 ├── tests/       → testing.md
-├── STATE.md, ACTION_JOURNAL.json, INCIDENTS.md   (runtime data, untracked)
+├── STATE.md, PROJECT_SETUP.md, ACTION_JOURNAL.json, INCIDENTS.md   (runtime data, untracked)
 ```
 
 After installation, configure the gates: [Gates and stack detection](gates-and-stack-detection.md).

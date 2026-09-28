@@ -15,7 +15,7 @@ The Hermes SDD Orchestrator makes Hermes act as a **controller** for Spec-Driven
 | Location | What | Page |
 | --- | --- | --- |
 | Hermes profile | The skill (`SKILL.md`, installer, templates) | [Skill and installer](components/skill-and-installer.md) |
-| Target project, untracked | `.hermes.md` + `.hermes/orchestration/` (policies, runtime, schemas, briefs, tests) | [Skill and installer](components/skill-and-installer.md) |
+| Target project, untracked | `.hermes.md` + `.hermes/orchestration/` (project setup, policies, runtime, schemas, briefs, tests) | [Skill and installer](components/skill-and-installer.md) |
 | Target project, versioned | `.hermes/obsidian.json` (optional vault binding) | [Obsidian vault](components/obsidian-vault.md) |
 | Target project or vault | `STATE.md`, `ACTION_JOURNAL.json`, `INCIDENTS.md` | [Action journal](components/action-journal.md), [Obsidian vault](components/obsidian-vault.md) |
 
@@ -39,7 +39,7 @@ sequenceDiagram
     H-->>U: DONE, or a stop reason needing a human
 ```
 
-1. **Install once per project.** See [Skill and installer](components/skill-and-installer.md).
+1. **Install once per project.** Resolve the generated `PROJECT_SETUP.md` by answering only the orchestrator's unresolved connectivity questions. See [Skill and installer](components/skill-and-installer.md).
 2. **Configure the gates** for the project's language. See [Gates and stack detection](components/gates-and-stack-detection.md).
 3. **Start a demand.** In `MANUAL` mode the controller runs one requested action and stops. `BOUNDED_AUTO` and `LOCAL_DELIVERY` continue until a checkpoint. See [FSM and bounded loop](components/fsm-and-loop.md).
 4. **Each action** goes through the journal lifecycle described in [Action journal](components/action-journal.md).
