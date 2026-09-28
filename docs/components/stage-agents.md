@@ -12,14 +12,14 @@ A stage agent is the worker brief the controller loads before dispatching a stag
 
 | Brief | Stage | Mission | Result schema |
 | --- | --- | --- | --- |
-| `agents/specify.md` | `SPECIFY` | Turn the request into a verifiable problem statement: objective, outcomes, scope, exclusions, acceptance criteria. | `EXECUTOR_RESULT_SCHEMA.json` |
-| `agents/clarify.md` | `CLARIFY` | Resolve material ambiguity with repository evidence and name decisions that need a human. | `EXECUTOR_RESULT_SCHEMA.json` |
-| `agents/plan.md` | `PLAN` | Design the smallest approach grounded in real files, symbols, contracts and test seams. | `EXECUTOR_RESULT_SCHEMA.json` |
-| `agents/tasks.md` | `TASKS` | Split the plan into ordered vertical slices, each traced to a requirement and a focused test. | `EXECUTOR_RESULT_SCHEMA.json` |
-| `agents/implement.md` | `IMPLEMENT` | Implement exactly one slice under RED → minimal implementation → GREEN. | `EXECUTOR_RESULT_SCHEMA.json` |
-| `agents/test.md` | `TEST` | Run the authorized focused validation and report exact commands and exit codes. | `EXECUTOR_RESULT_SCHEMA.json` |
-| `agents/review.md` | `REVIEW` | Independently assess the diff and evidence against requirements, baseline, ownership and gates. | `REVIEW_RESULT_SCHEMA.json` |
+| `agents/specify.md` | `SPECIFY` | Turn the request into a verifiable problem statement, separating facts, assumptions and material questions and defining planned acceptance checks. | `EXECUTOR_RESULT_SCHEMA.json` |
+| `agents/clarify.md` | `CLARIFY` | Resolve material ambiguity with repository evidence and keep acceptance checks aligned with the clarified outcomes. | `EXECUTOR_RESULT_SCHEMA.json` |
+| `agents/plan.md` | `PLAN` | Design the smallest approach grounded in real files and map every accepted outcome to a verification method. | `EXECUTOR_RESULT_SCHEMA.json` |
+| `agents/tasks.md` | `TASKS` | Split the plan into ordered vertical slices, producing a non-empty set whose stable acceptance IDs are all assigned to verifying slices. | `EXECUTOR_RESULT_SCHEMA.json` |
+| `agents/implement.md` | `IMPLEMENT` | Implement exactly the controller-selected current slice under RED → GREEN, pass current/completed checks and preserve future checks as planned. | `EXECUTOR_RESULT_SCHEMA.json` |
+| `agents/test.md` | `TEST` | Run the authorized focused validation and evaluate the complete acceptance-check ID set by its declared methods. | `EXECUTOR_RESULT_SCHEMA.json` |
+| `agents/review.md` | `REVIEW` | Independently match every authoritative acceptance ID, criterion, method, verifier and slice, then assess diff, baseline, ownership and gates. | `REVIEW_RESULT_SCHEMA.json` |
 
-The controller sends each stage only the context it needs: the request and constraints for SPECIFY/CLARIFY, validated paths, symbols and impact for PLAN/TASKS, and the slice, command boundary, ownership and gates for IMPLEMENT/TEST. It never sends conversation history or state dumps.
+The controller sends each stage only the context it needs: the request and constraints for SPECIFY/CLARIFY, validated paths, symbols and impact for PLAN/TASKS, and the slice, command boundary, ownership and gates for IMPLEMENT/TEST. Every executor stage carries the same explicit `context_assessment` and `acceptance_checks` forward, so a material unknown cannot silently become an implementation decision and planned validation cannot be mistaken for executed evidence. It never sends conversation history or state dumps.
 
 When a stage needs a narrower specialist, the controller may use one [sub-agent](sub-agents.md) instead. Stage agents never dispatch sub-agents themselves.

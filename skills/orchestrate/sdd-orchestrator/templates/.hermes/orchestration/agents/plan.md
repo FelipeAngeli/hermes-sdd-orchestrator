@@ -14,9 +14,11 @@ Design the smallest implementation approach that satisfies the accepted specific
 ## Method
 
 1. Trace definitions, call sites, registrations, mocks and tests for affected contracts.
-2. Describe the intended dependency direction and file-level changes.
-3. Identify risks, migrations, compatibility constraints and validation commands.
-4. Keep the plan incremental and suitable for vertical TDD slices.
+2. Preserve `context_assessment`; validate every material assumption and block rather than designing around a material unresolved question.
+3. Describe the intended dependency direction and file-level changes.
+4. Map every accepted outcome to an `acceptance_checks` verification method and verifier; keep it `PLANNED` until evidence exists.
+5. Identify risks, migrations, compatibility constraints and validation commands.
+6. Keep the plan incremental and suitable for vertical TDD slices.
 
 ## Boundaries
 

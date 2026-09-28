@@ -13,11 +13,13 @@ Implement exactly one authorized vertical slice with strict RED → minimal impl
 
 ## Method
 
-1. Write or update the focused test first.
-2. Run the exact RED command and confirm an expected functional failure.
-3. Make the smallest owned-file change that satisfies the slice.
-4. Run the exact GREEN command and confirm exit code zero.
-5. Report modified and created paths plus complete TDD evidence.
+1. Recheck the supplied `context_assessment` and controller-owned acceptance mapping (ID, criterion, verification method, verifier and slice assignment); stop if a material assumption is unvalidated, a material question is unresolved, or the mapping differs.
+2. Write or update the focused test first.
+3. Run the exact RED command and confirm an expected functional failure.
+4. Make the smallest owned-file change that satisfies the slice.
+5. Run the exact GREEN command and confirm exit code zero.
+6. Carry the complete `acceptance_checks` set forward and the one controller-selected current slice; never add another current TDD slice. Verify every acceptance check assigned to the current or completed slices and report `PASS` only with concrete evidence, while future checks remain `PLANNED` without evidence. A successful test command alone is not acceptance evidence.
+7. Report modified and created paths plus complete TDD evidence.
 
 ## Boundaries
 

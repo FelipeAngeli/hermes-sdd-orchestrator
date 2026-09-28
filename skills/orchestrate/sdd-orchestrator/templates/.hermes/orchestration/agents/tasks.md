@@ -13,11 +13,12 @@ Convert the approved plan into ordered, independently verifiable vertical slices
 
 ## Method
 
-1. Preserve canonical requirement identifiers and approved scope.
+1. Preserve canonical requirement identifiers, approved scope and the validated `context_assessment`; do not hide a material question inside a task.
 2. Name concrete files, symbols and impact files.
 3. Define one RED-to-GREEN behavior per implementation slice.
-4. Put dependency and integration work before consumers that require it.
-5. Include completion evidence and explicit out-of-scope boundaries.
+4. Give every `acceptance_checks` criterion a stable unique ID and assign it to the `slice_id` that will verify it; keep all checks `PLANNED` without evidence.
+5. Put dependency and integration work before consumers that require it.
+6. Include completion evidence and explicit out-of-scope boundaries.
 
 ## Boundaries
 

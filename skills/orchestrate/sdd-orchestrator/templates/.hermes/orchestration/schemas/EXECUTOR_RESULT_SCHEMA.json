@@ -6,22 +6,203 @@
   "properties": {
     "executor_result": {
       "type": "object",
-      "required": ["schema_version", "stage", "executor", "consulted_paths", "modified_paths", "created_paths", "validated_symbols", "commands", "blockers", "stage_payload", "tdd_slices", "next_step"],
+      "required": [
+        "schema_version",
+        "stage",
+        "executor",
+        "consulted_paths",
+        "modified_paths",
+        "created_paths",
+        "validated_symbols",
+        "commands",
+        "blockers",
+        "context_assessment",
+        "acceptance_checks",
+        "stage_payload",
+        "tdd_slices",
+        "next_step"
+      ],
       "additionalProperties": false,
       "properties": {
-        "schema_version": {"type": "integer", "const": 2},
-        "stage": {"type": "object", "required": ["value", "status"], "additionalProperties": false, "properties": {"value": {"type": "string", "enum": ["SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST"]}, "status": {"type": "string", "enum": ["SUCCESS", "BLOCKED", "TIMEOUT", "INVALID"]}}},
-        "executor": {"type": "object", "required": ["name", "invocation_type"], "additionalProperties": false, "properties": {"name": {"type": "string", "enum": ["CODEX", "CLAUDE"]}, "invocation_type": {"type": "string", "const": "EXTERNAL_CLI"}}},
-        "consulted_paths": {"type": "array", "items": {"type": "object", "required": ["path"], "additionalProperties": false, "properties": {"path": {"type": "string", "minLength": 1}}}},
-        "modified_paths": {"type": "array", "items": {"type": "object", "required": ["path"], "additionalProperties": false, "properties": {"path": {"type": "string", "minLength": 1}}}},
-        "created_paths": {"type": "array", "items": {"type": "object", "required": ["path"], "additionalProperties": false, "properties": {"path": {"type": "string", "minLength": 1}}}},
-        "validated_symbols": {"type": "array", "items": {"type": "object", "required": ["symbol", "path", "exists"], "additionalProperties": false, "properties": {"symbol": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1}, "exists": {"type": "boolean"}}}},
-        "commands": {"type": "array", "items": {"type": "object", "required": ["command", "purpose", "timeout_seconds", "exit_code", "result"], "additionalProperties": false, "properties": {"command": {"type": ["string", "null"]}, "purpose": {"type": "string", "minLength": 1}, "timeout_seconds": {"type": ["integer", "null"], "minimum": 1}, "exit_code": {"type": ["integer", "null"]}, "result": {"type": "string", "enum": ["PASS", "FAIL", "TIMEOUT"]}}}},
-        "blockers": {"type": "array", "items": {"type": "object", "required": ["type", "description"], "additionalProperties": false, "properties": {"type": {"type": "string", "minLength": 1}, "description": {"type": "string", "minLength": 1}}}},
-        "stage_payload": {"type": "object", "required": ["summary", "tasks", "impact_files", "decisions"], "additionalProperties": false, "properties": {"summary": {"type": "string"}, "tasks": {"type": "array", "items": {"type": "string"}}, "impact_files": {"type": "array", "items": {"type": "string", "minLength": 1}}, "decisions": {"type": "array", "items": {"type": "string"}}}},
-        "tdd_slices": {"type": "array", "items": {"type": "object", "required": ["id", "objective", "test_file", "red_command", "red_exit_code", "expected_failure", "red_failure_kind", "minimal_implementation", "green_command", "green_exit_code", "green_result"], "additionalProperties": false, "properties": {"id": {"type": "string", "minLength": 1}, "objective": {"type": "string", "minLength": 1}, "test_file": {"type": "string", "minLength": 1}, "red_command": {"type": ["string", "null"]}, "red_exit_code": {"type": ["integer", "null"]}, "expected_failure": {"type": ["string", "null"]}, "red_failure_kind": {"type": ["string", "null"], "enum": ["EXPECTED_FUNCTIONAL", "INFRASTRUCTURE", null]}, "minimal_implementation": {"type": ["string", "null"]}, "green_command": {"type": ["string", "null"]}, "green_exit_code": {"type": ["integer", "null"]}, "green_result": {"type": ["string", "null"]}}}},
-        "next_step": {"type": "object", "required": ["stage", "action"], "additionalProperties": false, "properties": {"stage": {"type": "string", "enum": ["SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST", "REVIEW"]}, "action": {"type": "string", "minLength": 1}}}
+        "schema_version": {"type": "integer", "const": 3},
+        "stage": {
+          "type": "object",
+          "required": ["value", "status"],
+          "additionalProperties": false,
+          "properties": {
+            "value": {"type": "string", "enum": ["SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST"]},
+            "status": {"type": "string", "enum": ["SUCCESS", "BLOCKED", "TIMEOUT", "INVALID"]}
+          }
+        },
+        "executor": {
+          "type": "object",
+          "required": ["name", "invocation_type"],
+          "additionalProperties": false,
+          "properties": {
+            "name": {"type": "string", "enum": ["CODEX", "CLAUDE"]},
+            "invocation_type": {"type": "string", "const": "EXTERNAL_CLI"}
+          }
+        },
+        "consulted_paths": {"type": "array", "items": {"$ref": "#/$defs/path"}},
+        "modified_paths": {"type": "array", "items": {"$ref": "#/$defs/path"}},
+        "created_paths": {"type": "array", "items": {"$ref": "#/$defs/path"}},
+        "validated_symbols": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["symbol", "path", "exists"],
+            "additionalProperties": false,
+            "properties": {
+              "symbol": {"type": "string", "minLength": 1},
+              "path": {"type": "string", "minLength": 1},
+              "exists": {"type": "boolean"}
+            }
+          }
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["command", "purpose", "timeout_seconds", "exit_code", "result"],
+            "additionalProperties": false,
+            "properties": {
+              "command": {"type": ["string", "null"]},
+              "purpose": {"type": "string", "minLength": 1},
+              "timeout_seconds": {"type": ["integer", "null"], "minimum": 1},
+              "exit_code": {"type": ["integer", "null"]},
+              "result": {"type": "string", "enum": ["PASS", "FAIL", "TIMEOUT"]}
+            }
+          }
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type", "description"],
+            "additionalProperties": false,
+            "properties": {
+              "type": {"type": "string", "minLength": 1},
+              "description": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "context_assessment": {
+          "type": "object",
+          "required": ["facts", "assumptions", "unresolved_questions"],
+          "additionalProperties": false,
+          "properties": {
+            "facts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["statement", "evidence"],
+                "additionalProperties": false,
+                "properties": {
+                  "statement": {"$ref": "#/$defs/text"},
+                  "evidence": {"$ref": "#/$defs/text"}
+                }
+              }
+            },
+            "assumptions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["statement", "material", "validation"],
+                "additionalProperties": false,
+                "properties": {
+                  "statement": {"$ref": "#/$defs/text"},
+                  "material": {"type": "boolean"},
+                  "validation": {"anyOf": [{"$ref": "#/$defs/text"}, {"type": "null"}]}
+                }
+              }
+            },
+            "unresolved_questions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["question", "material", "impact"],
+                "additionalProperties": false,
+                "properties": {
+                  "question": {"$ref": "#/$defs/text"},
+                  "material": {"type": "boolean"},
+                  "impact": {"$ref": "#/$defs/text"}
+                }
+              }
+            }
+          }
+        },
+        "acceptance_checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "criterion", "verification_method", "verifier", "slice_id", "status", "evidence"],
+            "additionalProperties": false,
+            "properties": {
+              "id": {"$ref": "#/$defs/text"},
+              "criterion": {"$ref": "#/$defs/text"},
+              "verification_method": {"$ref": "#/$defs/text"},
+              "verifier": {"type": "string", "enum": ["AGENT", "HUMAN"]},
+              "slice_id": {"anyOf": [{"$ref": "#/$defs/text"}, {"type": "null"}]},
+              "status": {"type": "string", "enum": ["PLANNED", "PASS", "FAIL", "BLOCKED"]},
+              "evidence": {"anyOf": [{"$ref": "#/$defs/text"}, {"type": "null"}]}
+            }
+          }
+        },
+        "stage_payload": {
+          "type": "object",
+          "required": ["summary", "tasks", "impact_files", "decisions"],
+          "additionalProperties": false,
+          "properties": {
+            "summary": {"type": "string"},
+            "tasks": {"type": "array", "items": {"type": "string"}},
+            "impact_files": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "decisions": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "tdd_slices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "objective", "test_file", "red_command", "red_exit_code", "expected_failure", "red_failure_kind", "minimal_implementation", "green_command", "green_exit_code", "green_result"],
+            "additionalProperties": false,
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "objective": {"type": "string", "minLength": 1},
+              "test_file": {"type": "string", "minLength": 1},
+              "red_command": {"type": ["string", "null"]},
+              "red_exit_code": {"type": ["integer", "null"]},
+              "expected_failure": {"type": ["string", "null"]},
+              "red_failure_kind": {"type": ["string", "null"], "enum": ["EXPECTED_FUNCTIONAL", "INFRASTRUCTURE", null]},
+              "minimal_implementation": {"type": ["string", "null"]},
+              "green_command": {"type": ["string", "null"]},
+              "green_exit_code": {"type": ["integer", "null"]},
+              "green_result": {"type": ["string", "null"]}
+            }
+          }
+        },
+        "next_step": {
+          "type": "object",
+          "required": ["stage", "action"],
+          "additionalProperties": false,
+          "properties": {
+            "stage": {"type": "string", "enum": ["SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST", "REVIEW"]},
+            "action": {"type": "string", "minLength": 1}
+          }
+        }
       }
+    }
+  },
+  "$defs": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": ".*\\S.*"
+    },
+    "path": {
+      "type": "object",
+      "required": ["path"],
+      "additionalProperties": false,
+      "properties": {"path": {"type": "string", "minLength": 1}}
     }
   }
 }
