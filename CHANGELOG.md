@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 5.0.0 - 2026-09-28
+
 ### Breaking
 - `validate_protocol.py` enforces write scope and cited evidence: SPECIFY, CLARIFY, PLAN, TASKS and TEST reject any reported file change; every IMPLEMENT status requires controller-declared `editable_paths`, and every written path must be repository-relative and match them; an `AGENT` `PASS` for the current IMPLEMENT slice or in TEST must cite, in backticks, a recorded command that exited 0 with `PASS` (or a GREEN command); optional `required_commands` must all be recorded as passing. Controllers must now pass `editable_paths` for IMPLEMENT.
 
