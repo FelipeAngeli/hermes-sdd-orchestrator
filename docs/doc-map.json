@@ -1,0 +1,61 @@
+{
+  "_comment": "Each orchestration file has exactly one owning page. tests/test_docs.py enforces completeness; tools/check_docs_sync.py requires the owning page to change with the file. See docs/maintaining-docs.md.",
+  "docs": {
+    "docs/components/skill-and-installer.md": [
+      "skills/orchestrate/sdd-orchestrator/SKILL.md",
+      "skills/orchestrate/sdd-orchestrator/scripts/*",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes.md",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/README.md"
+    ],
+    "docs/components/fsm-and-loop.md": [
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/LOOP_POLICY.md",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/BOUNDED_AUTOMATION.md",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/BOUNDED_RUN_DRIVER.md",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/bounded_run_planner.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/bounded_run_driver.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/bounded_loop_driver.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/BOUNDED_RUN_PLAN_SCHEMA.json"
+    ],
+    "docs/components/action-journal.md": [
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/ACTION_RECOVERY.md",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/action_journal.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/ACTION_JOURNAL_SCHEMA.json"
+    ],
+    "docs/components/contracts-and-schemas.md": [
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/contracts/*",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/EXECUTOR_RESULT_SCHEMA.json",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/REVIEW_RESULT_SCHEMA.json",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/validate_protocol.py"
+    ],
+    "docs/components/gates-and-stack-detection.md": [
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/GATES.md",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/detect_stack.py"
+    ],
+    "docs/components/stage-agents.md": [
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/agents/*"
+    ],
+    "docs/components/sub-agents.md": [
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/sub-agents/*",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/DISPATCH_POLICY.md"
+    ],
+    "docs/components/obsidian-vault.md": [
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/BOOTSTRAP.md",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/obsidian_binding.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/vault_guard.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/bootstrap_worktree.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/migrate_to_vault.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/migrate_all_worktrees.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/consolidate_runtime.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/state_format.py"
+    ],
+    "docs/components/testing.md": [
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/tests/*",
+      "tests/*"
+    ],
+    "docs/maintaining-docs.md": [
+      "tools/*",
+      ".githooks/*",
+      ".github/workflows/*"
+    ]
+  }
+}

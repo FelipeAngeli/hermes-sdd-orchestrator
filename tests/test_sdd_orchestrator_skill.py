@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import subprocess
@@ -21,6 +22,25 @@ class SddOrchestratorSkillTests(unittest.TestCase):
 
         self.assertEqual([], list(orchestration.glob("*.py")))
         self.assertEqual([], list(orchestration.glob("*.json")))
+
+    def test_installer_never_copies_python_cache_artifacts(self) -> None:
+        spec = importlib.util.spec_from_file_location("installer_for_cache_test", INSTALLER)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        installer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(installer)
+
+        with tempfile.TemporaryDirectory(prefix="sdd-template-cache-") as temp:
+            template = Path(temp)
+            source = template / ".hermes" / "orchestration" / "runtime" / "tool.py"
+            cache = source.parent / "__pycache__" / "tool.cpython-312.pyc"
+            source.parent.mkdir(parents=True)
+            cache.parent.mkdir()
+            source.write_text("pass\n", encoding="utf-8")
+            cache.write_bytes(b"machine-specific-cache")
+            installer.TEMPLATE = template
+
+            self.assertEqual([source], installer.template_files())
 
     def test_stage_agents_are_complete_and_controller_safe(self) -> None:
         agents = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "agents"

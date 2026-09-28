@@ -1,0 +1,4 @@
+#!/bin/sh
+# Blocks a commit that changes the orchestration without updating its docs.
+# Enable once per clone:  git config core.hooksPath .githooks
+exec python3 tools/check_docs_sync.py --staged --message-file "$1"

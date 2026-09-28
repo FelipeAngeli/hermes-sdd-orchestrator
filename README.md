@@ -4,6 +4,8 @@ A reusable, Hermes-native **SDD Orchestrator skill**. Install it through the Her
 
 The architecture follows the skill-collection pattern used by [Ow1onp/hermes-agent-skills](https://github.com/Ow1onp/hermes-agent-skills): a discoverable `skills/` tree, a self-contained `SKILL.md` entry point, supporting scripts/templates co-located with the skill, and registry-based installation. The target project's orchestration state remains local and untracked.
 
+**Documentation:** [docs/README.md](docs/README.md) — overview, architecture, one page per component, glossary.
+
 ## Quick start
 
 ```bash
@@ -85,7 +87,7 @@ All eight keep the workspace read-only, revert every temporary step, repair noth
 
 ## Architecture
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for layer responsibilities, dependency direction, and change rules.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for layer responsibilities, dependency direction, and change rules, and the [documentation index](docs/README.md) for one page per component.
 
 ```text
 skills/
