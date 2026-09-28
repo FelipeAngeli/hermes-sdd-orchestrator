@@ -80,6 +80,11 @@ class SddOrchestratorSkillTests(unittest.TestCase):
                 "[IMPLEMENT, REVIEW]",
                 "EXECUTOR_RESULT_SCHEMA.json",
             ),
+            "architecture-guardian.md": (
+                "ARCHITECTURE_GUARDIAN",
+                "[PLAN, REVIEW]",
+                "REVIEW_RESULT_SCHEMA.json",
+            ),
         }
 
         self.assertEqual(set(expected), {path.name for path in sub_agents.glob("*.md")})
@@ -291,6 +296,44 @@ class SddOrchestratorSkillTests(unittest.TestCase):
         for artifact in ("adr", "readme", "diagram", "changelog"):
             with self.subTest(artifact=artifact):
                 self.assertIn(artifact, content.lower())
+
+    def test_architecture_guardian_enforces_declared_rules_not_its_own_taste(self) -> None:
+        """An architecture role fails by importing opinion as law.
+
+        Every codebase violates someone's preferred architecture, so a guardian
+        that reasons from general principle produces endless findings and
+        rewrites a team's deliberate choices as defects. This brief binds it to
+        the project's own declared rules, requires citing the rule a violation
+        breaks, and forces an undeclared convention to be reported as a question
+        rather than enforced. It also separates a violation the change
+        introduced from one it merely inherited.
+        """
+        sub_agents = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "sub-agents"
+        content = (sub_agents / "architecture-guardian.md").read_text(encoding="utf-8")
+
+        for rule in (
+            "The workspace is read-only",
+            "Never repair",
+            "Cite the declared rule each violation breaks",
+            "Never enforce a convention the project has not declared",
+            "Report an undeclared but consistent convention as a question",
+            "Distinguish a violation this change introduced from one it inherited",
+            "Never invent an architectural rule",
+        ):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, content)
+
+        for surface in (
+            "presentation",
+            "domain",
+            "data",
+            "inversion",
+            "abstraction",
+            "leak",
+            "circular",
+        ):
+            with self.subTest(surface=surface):
+                self.assertIn(surface, content.lower())
 
     def test_documentation_has_no_legacy_flat_orchestration_paths(self) -> None:
         orchestration = SKILL_ROOT / "templates" / ".hermes" / "orchestration"
