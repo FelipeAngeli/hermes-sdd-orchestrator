@@ -70,6 +70,11 @@ class SddOrchestratorSkillTests(unittest.TestCase):
                 "[PLAN, REVIEW]",
                 "REVIEW_RESULT_SCHEMA.json",
             ),
+            "performance-auditor.md": (
+                "PERFORMANCE_AUDITOR",
+                "[PLAN, REVIEW]",
+                "REVIEW_RESULT_SCHEMA.json",
+            ),
         }
 
         self.assertEqual(set(expected), {path.name for path in sub_agents.glob("*.md")})
@@ -211,6 +216,45 @@ class SddOrchestratorSkillTests(unittest.TestCase):
             "session",
             "authorization",
             "personal data",
+        ):
+            with self.subTest(surface=surface):
+                self.assertIn(surface, content.lower())
+
+    def test_performance_auditor_requires_measurement_over_intuition(self) -> None:
+        """Performance is where plausible reasoning is most often wrong.
+
+        Any code can be described as potentially slow, so a brief that permits
+        intuition produces endless unfalsifiable findings and sends the team
+        optimizing whatever reads badly. This role therefore reports a cost
+        only with a measurement or a counted operation behind it, states the
+        input size at which it matters, and is explicitly allowed to conclude
+        that nothing is worth changing.
+        """
+        sub_agents = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "sub-agents"
+        content = (sub_agents / "performance-auditor.md").read_text(encoding="utf-8")
+
+        for rule in (
+            "The workspace is read-only",
+            "Never repair",
+            "Report proven findings separately from unproven suspicions",
+            "Report a cost only with a measurement or a counted operation behind it",
+            "State the input size at which the cost becomes material",
+            "Reporting no material finding is a valid and useful result",
+            "Never weaken a correctness guarantee to gain speed",
+        ):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, content)
+
+        for surface in (
+            "duplicate",
+            "cache",
+            "n+1",
+            "index",
+            "pagination",
+            "rebuild",
+            "allocation",
+            "leak",
+            "main thread",
         ):
             with self.subTest(surface=surface):
                 self.assertIn(surface, content.lower())

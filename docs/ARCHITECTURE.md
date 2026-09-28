@@ -55,9 +55,9 @@ tests/
 
 ### Sub-agents
 
-`sub-agents/` contains specialized leaf-worker briefs for investigation, impact analysis, TDD implementation, focused test execution, security review, code review, test-suite auditing, regression hunting and API contract auditing. They are dispatched directly by the controller, never by another agent, and do not own STATE or transitions.
+`sub-agents/` contains specialized leaf-worker briefs for investigation, impact analysis, TDD implementation, focused test execution, security review, code review, test-suite auditing, regression hunting, API contract auditing and performance auditing. They are dispatched directly by the controller, never by another agent, and do not own STATE or transitions.
 
-Three of them return findings only when evidence supports them. The TDD guardian decides whether a suite actually tests behavior by mutating production code and observing which tests stay green; the regression hunter decides whether a change broke existing behavior by running the suites of the consumers the change did not touch; the API contract auditor compares client models against the published specification and the deployed server, ranking the sources rather than choosing the convenient one. All three keep the workspace read-only, revert every temporary step, repair nothing, and separate proven findings from unproven suspicions — a suspicion presented as proof is worse than no report, because the controller cannot act on it.
+Four of them return findings only when evidence supports them. The TDD guardian decides whether a suite actually tests behavior by mutating production code and observing which tests stay green; the regression hunter decides whether a change broke existing behavior by running the suites of the consumers the change did not touch; the API contract auditor compares client models against the published specification and the deployed server, ranking the sources rather than choosing the convenient one; the performance auditor reports a cost only with a measurement or a counted operation behind it, and may conclude that nothing is worth changing. All four keep the workspace read-only, revert every temporary step, repair nothing, and separate proven findings from unproven suspicions — a suspicion presented as proof is worse than no report, because the controller cannot act on it.
 
 ### Tests
 
