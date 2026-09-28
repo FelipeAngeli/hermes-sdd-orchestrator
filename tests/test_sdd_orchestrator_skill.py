@@ -96,6 +96,11 @@ class SddOrchestratorSkillTests(unittest.TestCase):
                 "[PLAN, IMPLEMENT]",
                 "EXECUTOR_RESULT_SCHEMA.json",
             ),
+            "release-readiness-auditor.md": (
+                "RELEASE_READINESS_AUDITOR",
+                "[REVIEW]",
+                "REVIEW_RESULT_SCHEMA.json",
+            ),
         }
 
         self.assertEqual(set(expected), {path.name for path in sub_agents.glob("*.md")})
@@ -491,6 +496,36 @@ class SddOrchestratorSkillTests(unittest.TestCase):
         for hop in ("ui", "state", "repository", "side effect", "risk"):
             with self.subTest(hop=hop):
                 self.assertIn(hop, content.lower())
+
+    def test_release_readiness_auditor_cannot_hedge_its_verdict(self) -> None:
+        """The tri-state verdict is where this role can quietly fail.
+
+        READY_WITH_RISK is the comfortable answer: it never blocks anyone and
+        never looks careless. Left undefined it becomes the default, and the
+        audit stops meaning anything. The brief makes it the narrow case —
+        a known, named, accepted risk with a decision owner — and forbids using
+        it for an unverified item, which is BLOCKED.
+        """
+        sub_agents = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "sub-agents"
+        content = (sub_agents / "release-readiness-auditor.md").read_text(encoding="utf-8")
+
+        for rule in (
+            "The workspace is read-only",
+            "Never repair",
+            "An unverified item is `BLOCKED`, never `READY_WITH_RISK`",
+            "Never infer that an unexecuted check would have passed",
+            "name the human who accepted it",
+        ):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, content)
+
+        for verdict in ("READY", "BLOCKED", "READY_WITH_RISK"):
+            with self.subTest(verdict=verdict):
+                self.assertIn(verdict, content)
+
+        for surface in ("acceptance criteria", "migration", "feature flag", "rollback", "configuration"):
+            with self.subTest(surface=surface):
+                self.assertIn(surface, content.lower())
 
     def test_documentation_has_no_legacy_flat_orchestration_paths(self) -> None:
         orchestration = SKILL_ROOT / "templates" / ".hermes" / "orchestration"
