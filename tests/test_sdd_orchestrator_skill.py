@@ -366,6 +366,61 @@ class SddOrchestratorSkillTests(unittest.TestCase):
             "README documents a sub-agent that is no longer shipped",
         )
 
+    def test_dispatch_policy_defaults_to_not_dispatching(self) -> None:
+        """The gate the bundle was missing: a default of NOT dispatching.
+
+        Twelve sub-agents exist and the only rule governing them was that the
+        controller "may" select one. A permission with no refusal condition is
+        not a policy: it makes every specialist available for every demand and
+        pushes cost up with each brief added. The policy inverts that — a
+        dispatch must name the pending decision that depends on the answer, and
+        an answer that changes no decision is waste by definition.
+        """
+        policies = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "policies"
+        policy = policies / "DISPATCH_POLICY.md"
+        self.assertTrue(policy.is_file(), "DISPATCH_POLICY.md must ship with the bundle")
+        content = policy.read_text(encoding="utf-8")
+
+        for rule in (
+            "DEFAULT = DO NOT DISPATCH",
+            "name the pending decision the answer resolves",
+            "If no decision changes, do not dispatch",
+            "Deterministic tools run before any sub-agent",
+            "record which deterministic tool was tried and why it was insufficient",
+            "Escalating beyond the minimum path requires a recorded reason",
+            "NO_FINDINGS",
+            "A repeated iteration over unchanged evidence is forbidden",
+        ):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, content)
+
+        for tool in ("grep", "git diff", "linter", "schema", "package manager"):
+            with self.subTest(tool=tool):
+                self.assertIn(tool, content.lower())
+
+        for level in ("LOW", "MEDIUM", "HIGH", "CRITICAL"):
+            with self.subTest(level=level):
+                self.assertIn(level, content)
+
+        for path in ("FAST", "STANDARD", "DEEP"):
+            with self.subTest(path=path):
+                self.assertIn(path, content)
+
+        sub_agents = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "sub-agents"
+        shipped = {path.stem for path in sub_agents.glob("*.md")}
+        referenced = {
+            name
+            for name in re.findall(r"`([a-z][a-z0-9-]+)`", content)
+            if name.endswith(
+                ("-reviewer", "-auditor", "-guardian", "-hunter", "-writer", "-analyst", "-tracer")
+            )
+        }
+        self.assertEqual(
+            referenced - shipped,
+            set(),
+            "routing table names a sub-agent that does not ship",
+        )
+
     def test_documentation_has_no_legacy_flat_orchestration_paths(self) -> None:
         orchestration = SKILL_ROOT / "templates" / ".hermes" / "orchestration"
         documents = [
