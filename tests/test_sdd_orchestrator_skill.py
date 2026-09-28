@@ -63,6 +63,8 @@ class SddOrchestratorSkillTests(unittest.TestCase):
             "test-runner.md": ("TEST_RUNNER", "[TEST]", "EXECUTOR_RESULT_SCHEMA.json"),
             "security-reviewer.md": ("SECURITY_REVIEWER", "[REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
             "code-reviewer.md": ("CODE_REVIEWER", "[REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
+            "tdd-guardian.md": ("TDD_GUARDIAN", "[TEST, REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
+            "regression-hunter.md": ("REGRESSION_HUNTER", "[TEST, REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
         }
 
         self.assertEqual(set(expected), {path.name for path in sub_agents.glob("*.md")})
@@ -80,6 +82,60 @@ class SddOrchestratorSkillTests(unittest.TestCase):
                 self.assertIn("Never write `STATE.md`", content)
                 self.assertIn("The controller alone decides transitions", content)
                 self.assertIn("Never commit, push, open a PR, mutate a backend", content)
+
+    def test_tdd_quality_sub_agents_require_behavioral_test_design(self) -> None:
+        sub_agents = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "sub-agents"
+        required_rules = (
+            "Derive tests from business rules",
+            "State the bug each test detects",
+            "Cover the happy path, boundaries, and failures",
+            "Do not mirror the implementation",
+            "Do not use mocks that make the outcome inevitable",
+            "Green tests alone are not sufficient evidence",
+            "Propose three simple production-code mutations",
+        )
+
+        for filename in ("tdd-implementer.md", "test-runner.md"):
+            content = (sub_agents / filename).read_text(encoding="utf-8")
+            for rule in required_rules:
+                with self.subTest(filename=filename, rule=rule):
+                    self.assertIn(rule, content)
+
+    def test_audit_sub_agents_require_empirical_proof_over_reading(self) -> None:
+        """A finding these two report must be reproducible, not an impression.
+
+        Reading a test to decide it is weak, or reading a diff to decide a
+        consumer broke, produces plausible prose the controller cannot act on.
+        Both briefs therefore demand execution, forbid repairs, and keep
+        unproven suspicions in a separate section of the report.
+        """
+        sub_agents = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "sub-agents"
+        shared_rules = (
+            "The workspace is read-only",
+            "Never repair",
+            "Report proven findings separately from unproven suspicions",
+        )
+
+        guardian = (sub_agents / "tdd-guardian.md").read_text(encoding="utf-8")
+        for rule in (
+            *shared_rules,
+            "Prove every finding by mutation",
+            "Revert each mutation before interpreting the result",
+            "Confirm the workspace is byte-identical to the captured baseline",
+            "A test that stays green against broken production code is a proven false positive",
+        ):
+            with self.subTest(agent="tdd-guardian", rule=rule):
+                self.assertIn(rule, guardian)
+
+        hunter = (sub_agents / "regression-hunter.md").read_text(encoding="utf-8")
+        for rule in (
+            *shared_rules,
+            "Run the consumer's own suite",
+            "Separate a pre-existing failure from a failure this change introduced",
+            "A green consumer suite proves nothing when it never exercises the affected path",
+        ):
+            with self.subTest(agent="regression-hunter", rule=rule):
+                self.assertIn(rule, hunter)
 
     def test_documentation_has_no_legacy_flat_orchestration_paths(self) -> None:
         orchestration = SKILL_ROOT / "templates" / ".hermes" / "orchestration"
@@ -189,7 +245,17 @@ class SddOrchestratorSkillTests(unittest.TestCase):
                 "security-reviewer.md",
                 "code-reviewer.md",
             ):
-                self.assertTrue((target / ".hermes" / "orchestration" / "sub-agents" / filename).is_file())
+                installed = target / ".hermes" / "orchestration" / "sub-agents" / filename
+                bundled = (
+                    SKILL_ROOT
+                    / "templates"
+                    / ".hermes"
+                    / "orchestration"
+                    / "sub-agents"
+                    / filename
+                )
+                self.assertTrue(installed.is_file())
+                self.assertEqual(bundled.read_text(encoding="utf-8"), installed.read_text(encoding="utf-8"))
             self.assertLessEqual(len((target / ".hermes.md").read_text(encoding="utf-8")), 8000)
 
             installed_protocol = target / ".hermes" / "orchestration" / "tests" / "test_protocol.py"

@@ -14,10 +14,20 @@ Execute only the controller-authorized focused validation commands and return re
 
 ## Method
 
-1. Verify each command exists and is scoped to the assigned change.
-2. Execute commands in order with finite timeouts.
-3. Preserve exact command, exit code and relevant failure output.
-4. Distinguish product failure, timeout, environment failure and blocker.
+1. Derive tests from business rules when assessing whether the supplied suite protects the requested behavior.
+2. State the bug each test detects, or report the missing protection as a finding.
+3. Cover the happy path, boundaries, and failures in the validation matrix.
+4. Verify each command exists and is scoped to the assigned change, then execute commands in order with finite timeouts.
+5. Preserve exact command, exit code and relevant failure output.
+6. Distinguish product failure, timeout, environment failure and blocker.
+
+## Test quality
+
+- Do not mirror the implementation when judging coverage; validate observable rules and outcomes.
+- Do not use mocks that make the outcome inevitable, and flag existing tests that do.
+- Green tests alone are not sufficient evidence: inspect assertions, fixtures and seams for false positives.
+- Propose three simple production-code mutations that must each make at least one relevant test fail.
+- Report weak tests separately from product failures; do not edit them in TEST.
 
 ## Boundaries
 

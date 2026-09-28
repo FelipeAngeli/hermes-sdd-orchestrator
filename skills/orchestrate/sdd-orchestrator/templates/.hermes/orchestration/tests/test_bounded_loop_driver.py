@@ -163,6 +163,7 @@ class BoundedLoopDriverTests(unittest.TestCase):
             driver.evaluate_next(approved, plan)
 
     def test_local_delivery_rejects_completed_actions_without_cumulative_budget_charge(self) -> None:
+        """Bug caught: completed actions could advance without consuming authorized budget."""
         executor_progress = local_delivery_snapshot()
         executor_plan = planner.create_plan(copy.deepcopy(executor_progress))
         executor_progress["state"].update({
@@ -186,6 +187,7 @@ class BoundedLoopDriverTests(unittest.TestCase):
             driver.evaluate_next(slice_progress, slice_plan)
 
     def test_local_delivery_rejects_reused_historical_ledger_charge(self) -> None:
+        """Bug caught: an old ledger charge could be reused to pay for a new plan action."""
         value = local_delivery_snapshot()
         historical_cost = planner.zero_budgets()
         historical_cost["executor_calls"] = 1
@@ -205,6 +207,71 @@ class BoundedLoopDriverTests(unittest.TestCase):
         })
 
         with self.assertRaisesRegex(driver.DriverError, "ledger action id drift"):
+            driver.evaluate_next(value, plan)
+
+    def test_local_delivery_accepts_exact_plan_specific_ledger_charge(self) -> None:
+        """Bug caught: valid charged progress could be rejected despite exact ID and cost evidence."""
+        value = local_delivery_snapshot()
+        plan = planner.create_plan(copy.deepcopy(value))
+        accepted = plan["actions"][0]
+        value["state"].update({
+            "stage": accepted["success_transition"],
+            "completed": [accepted["action"]],
+            "next_action": accepted["success_transition"],
+        })
+        value["local_delivery"]["usage_ledger"].append({
+            "action_id": f'{plan["plan_id"]}:{accepted["id"]}',
+            "cost": copy.deepcopy(accepted["budget_cost"]),
+        })
+        for key, cost in accepted["budget_cost"].items():
+            source, used_key, _ = planner.BUDGET_SOURCES[key]
+            value["loop"]["budgets"][source][used_key] += cost
+
+        decision = driver.evaluate_next(value, plan)
+
+        self.assertEqual("CONTINUE", decision["decision"])
+        self.assertEqual("CLARIFY", decision["next_action"])
+
+    def test_local_delivery_zero_cost_action_still_requires_ledger_identity(self) -> None:
+        """Bug caught: zero-cost host actions could advance without plan-specific identity evidence."""
+        value = local_delivery_snapshot()
+        value["state"].update({"stage": "TEST", "next_action": "TEST"})
+        value["gates"]["focused_tests"] = "PASS"
+        plan = planner.create_plan(copy.deepcopy(value))
+        accepted = plan["actions"][0]
+        self.assertEqual("FORMAT_DART_CHANGED_FILES", accepted["action"])
+        self.assertEqual(planner.zero_budgets(), accepted["budget_cost"])
+        value["state"]["completed"] = [accepted["action"]]
+        value["gates"]["format"] = "PASS"
+
+        with self.assertRaisesRegex(driver.DriverError, "ledger length"):
+            driver.evaluate_next(value, plan)
+
+        value["local_delivery"]["usage_ledger"].append({
+            "action_id": f'{plan["plan_id"]}:{accepted["id"]}',
+            "cost": planner.zero_budgets(),
+        })
+        decision = driver.evaluate_next(value, plan)
+        self.assertEqual("CONTINUE", decision["decision"])
+        self.assertEqual("ANALYZE", decision["next_action"])
+
+    def test_local_delivery_rejects_plan_specific_entry_with_wrong_cost(self) -> None:
+        """Bug caught: a correct action ID paired with an undercharged cost could be accepted."""
+        value = local_delivery_snapshot()
+        plan = planner.create_plan(copy.deepcopy(value))
+        accepted = plan["actions"][0]
+        self.assertNotEqual(planner.zero_budgets(), accepted["budget_cost"])
+        value["state"].update({
+            "stage": accepted["success_transition"],
+            "completed": [accepted["action"]],
+            "next_action": accepted["success_transition"],
+        })
+        value["local_delivery"]["usage_ledger"].append({
+            "action_id": f'{plan["plan_id"]}:{accepted["id"]}',
+            "cost": planner.zero_budgets(),
+        })
+
+        with self.assertRaisesRegex(driver.DriverError, "ledger action cost drift"):
             driver.evaluate_next(value, plan)
 
     def test_runtime_loop_dispatches_remaining_actions_without_human_continue(self) -> None:

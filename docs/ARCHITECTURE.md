@@ -55,7 +55,9 @@ tests/
 
 ### Sub-agents
 
-`sub-agents/` contains specialized leaf-worker briefs for investigation, impact analysis, TDD implementation, focused test execution, security review and code review. They are dispatched directly by the controller, never by another agent, and do not own STATE or transitions.
+`sub-agents/` contains specialized leaf-worker briefs for investigation, impact analysis, TDD implementation, focused test execution, security review, code review, test-suite auditing and regression hunting. They are dispatched directly by the controller, never by another agent, and do not own STATE or transitions.
+
+Two of them return findings only when execution proves them. The TDD guardian decides whether a suite actually tests behavior by mutating production code and observing which tests stay green; the regression hunter decides whether a change broke existing behavior by running the suites of the consumers the change did not touch. Both keep the workspace read-only, revert every temporary step, repair nothing, and separate proven findings from unproven suspicions — a suspicion presented as proof is worse than no report, because the controller cannot act on it.
 
 ### Tests
 
