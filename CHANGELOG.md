@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 3.8.0 - 2026-09-28
+
 ### Added
 - `sub-agents/pr-reviewer.md`: global, language- and host-neutral PR review from the real merge-base diff, including an audit of prior reviews and deference to specialist roles.
 - This repository requires `pr-reviewer` on every pull request and prior review.
