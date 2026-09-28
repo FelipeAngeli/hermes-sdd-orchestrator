@@ -16,6 +16,8 @@ Used by `SPECIFY`, `CLARIFY`, `PLAN`, `TASKS`, `IMPLEMENT` and `TEST`, and by th
 
 For Codex, the controller passes the schema with `--output-schema` and reads `--output-last-message`.
 
+**Write scope and evidence citations.** SPECIFY, CLARIFY, PLAN, TASKS and TEST are analysis-only, so any reported `modified_paths`/`created_paths` is rejected. IMPLEMENT must receive controller-declared `editable_paths` for every status, and every written path must be repository-relative, non-traversing and matched by one of them. A current-slice (IMPLEMENT) or TEST `PASS` from an `AGENT` verifier must cite, in backticks, a recorded command that exited `0` with `PASS`, or a GREEN command. "Done" is not evidence. With `required_commands`, a successful IMPLEMENT/TEST must record each required verifier as passing.
+
 **TDD evidence.** `IMPLEMENT` with status `SUCCESS` needs at least one slice with a non-zero RED exit, `red_failure_kind: EXPECTED_FUNCTIONAL`, and GREEN exit `0`. An infrastructure failure does not count as RED.
 
 **Acceptance.** A non-zero CLI exit is a process failure. A zero exit with invalid JSON is `CONTRACT_INVALID`. Cited paths and symbols, ownership and TDD evidence are checked against the repository before a transition. A valid envelope is not proof that its commands actually ran.
@@ -28,6 +30,12 @@ Used by `REVIEW` and the audit sub-agents. The root is `review_result`, with the
 
 ## `validate_protocol.py`
 
-Validates a final-message JSON against the selected schema plus semantic rules (envelope/action match, material-context resolution, authoritative acceptance mapping, controller-selected current/completed slices, TDD evidence and path shapes). `validate_payload` and `validate_json_text` accept `expected_acceptance`, `current_slice_ids` and `completed_slice_ids`; every IMPLEMENT, TEST and REVIEW status fails closed unless both the authoritative acceptance mapping and returned check set are present and non-empty, and IMPLEMENT success additionally requires controller-owned current/completed slice inputs. The module never executes commands in the payload and never reads STATE. Its behavior is pinned by `tests/test_protocol.py` ([Testing](testing.md#installed-controller-tests)).
+Validates a final-message JSON against the selected schema plus semantic rules (envelope/action match, material-context resolution, authoritative acceptance mapping, controller-selected current/completed slices, write scope, evidence citations, required verification, TDD evidence and path shapes). `validate_payload` and `validate_json_text` accept `expected_acceptance`, `current_slice_ids`, `completed_slice_ids`, `editable_paths` and `required_commands`; `ANALYSIS_ONLY_ACTIONS` lists the stages that may not report file changes; every IMPLEMENT, TEST and REVIEW status fails closed unless both the authoritative acceptance mapping and returned check set are present and non-empty, and IMPLEMENT success additionally requires controller-owned current/completed slice inputs. The module never executes commands in the payload and never reads STATE.
+
+```text
+validate_protocol.py --action IMPLEMENT --result final-message.json --context verifier-context.json --json
+```
+
+Flags: `--action`, `--result`, `--context`, `--json`. `--context` takes the output of [`stage_context.py verifier-context`](harness.md#feeding-the-validator). Exit `0` means valid; `2` means the result is rejected and the errors are listed. Its behavior is pinned by `tests/test_protocol.py` ([Testing](testing.md#installed-controller-tests)).
 
 Changing a schema is a contract change: bump the `SKILL.md` version and update this page, the example envelopes in both contracts, and `test_protocol.py`.

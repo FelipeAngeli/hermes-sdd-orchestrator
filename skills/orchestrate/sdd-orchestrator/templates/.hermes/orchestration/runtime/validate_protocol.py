@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Local structural and semantic validation for SDD V3 result envelopes.
 
 This module validates synthetic or final-message JSON only. It never executes
@@ -5,9 +6,13 @@ commands referenced by a payload and does not read or update STATE.md.
 """
 from __future__ import annotations
 
+import argparse
+import fnmatch
 import json
+import re
+import sys
 from collections import OrderedDict
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from jsonschema import Draft202012Validator
@@ -15,7 +20,9 @@ from jsonschema import Draft202012Validator
 ORCHESTRATION_ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS_ROOT = ORCHESTRATION_ROOT / "schemas"
 EXECUTOR_ACTIONS = {"SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST"}
+ANALYSIS_ONLY_ACTIONS = {"SPECIFY", "CLARIFY", "PLAN", "TASKS", "TEST"}
 REVIEW_ACTION = "REVIEW"
+_CITED_COMMAND = re.compile(r"`([^`]+)`")
 _VALIDATOR_CACHE_MAXSIZE = 32
 _VALIDATOR_CACHE: OrderedDict[str, Draft202012Validator] = OrderedDict()
 
@@ -61,6 +68,8 @@ def validate_payload(
     expected_acceptance: dict[str, dict[str, str | None]] | None = None,
     current_slice_ids: set[str] | None = None,
     completed_slice_ids: set[str] | None = None,
+    editable_paths: set[str] | None = None,
+    required_commands: list[str] | None = None,
 ) -> list[dict[str, str]]:
     """Return structural and semantic errors; an empty list means acceptance."""
     try:
@@ -91,6 +100,8 @@ def validate_payload(
             expected_acceptance,
             current_slice_ids,
             completed_slice_ids,
+            editable_paths,
+            required_commands,
         ))
     else:
         errors.extend(_validate_review_semantics(result, expected_acceptance))
@@ -104,6 +115,8 @@ def validate_json_text(
     expected_acceptance: dict[str, dict[str, str | None]] | None = None,
     current_slice_ids: set[str] | None = None,
     completed_slice_ids: set[str] | None = None,
+    editable_paths: set[str] | None = None,
+    required_commands: list[str] | None = None,
 ) -> list[dict[str, str]]:
     """Accept JSON text only; YAML, transcripts, and Markdown are rejected."""
     try:
@@ -117,6 +130,8 @@ def validate_json_text(
         expected_acceptance,
         current_slice_ids,
         completed_slice_ids,
+        editable_paths,
+        required_commands,
     )
 
 
@@ -185,13 +200,113 @@ def _validate_authoritative_acceptance(
     return errors
 
 
+def _is_safe_relative(path: str) -> bool:
+    candidate = PurePosixPath(path)
+    return not candidate.is_absolute() and ".." not in candidate.parts and not path.startswith("~")
+
+
+def _validate_write_scope(
+    result: dict[str, Any], editable_paths: set[str] | None,
+) -> list[dict[str, str]]:
+    """Analysis stages write nothing; IMPLEMENT writes only controller-declared paths."""
+    stage = result["stage"]["value"]
+    errors: list[dict[str, str]] = []
+    written = [
+        (field, index, item["path"])
+        for field in ("modified_paths", "created_paths")
+        for index, item in enumerate(result[field])
+    ]
+    if stage in ANALYSIS_ONLY_ACTIONS:
+        for field, index, _ in written:
+            errors.append(_error(
+                f"$.executor_result.{field}[{index}]",
+                f"{stage} is analysis-only and cannot report file changes",
+            ))
+        return errors
+    if stage != "IMPLEMENT":
+        return errors
+    if not editable_paths:
+        errors.append(_error(
+            "$.executor_result.modified_paths",
+            "IMPLEMENT requires non-empty controller-declared editable_paths for the slice",
+        ))
+        return errors
+    for field, index, path in written:
+        prefix = f"$.executor_result.{field}[{index}]"
+        if not _is_safe_relative(path):
+            errors.append(_error(prefix, "written paths must be repository-relative without '..'"))
+        elif not any(fnmatch.fnmatchcase(path, pattern) for pattern in editable_paths):
+            errors.append(_error(prefix, f"{path} is outside the slice editable_paths"))
+    return errors
+
+
+def _passing_commands(result: dict[str, Any]) -> set[str]:
+    commands = {
+        item["command"]
+        for item in result["commands"]
+        if item["command"] and item["exit_code"] == 0 and item["result"] == "PASS"
+    }
+    commands.update(
+        item["green_command"]
+        for item in result["tdd_slices"]
+        if item["green_command"] and item["green_exit_code"] == 0
+    )
+    return commands
+
+
+def _validate_evidence_citations(
+    result: dict[str, Any], current_slice_ids: set[str] | None,
+) -> list[dict[str, str]]:
+    """An AGENT PASS verified in this result must cite a recorded passing command.
+
+    TEST verifies every check now. IMPLEMENT verifies only the current slice;
+    completed-slice checks carry evidence already accepted by an earlier action.
+    """
+    stage = result["stage"]["value"]
+    if stage not in {"IMPLEMENT", "TEST"}:
+        return []
+    passing = _passing_commands(result)
+    errors: list[dict[str, str]] = []
+    for index, check in enumerate(result["acceptance_checks"]):
+        if check["status"] != "PASS" or check["verifier"] != "AGENT" or not _has_text(check["evidence"]):
+            continue
+        if stage == "IMPLEMENT" and current_slice_ids is not None and check["slice_id"] not in current_slice_ids:
+            continue
+        cited = set(_CITED_COMMAND.findall(check["evidence"]))
+        if not cited & passing:
+            errors.append(_error(
+                f"$.executor_result.acceptance_checks[{index}].evidence",
+                "AGENT PASS evidence must cite, in backticks, a recorded command that exited 0 with PASS",
+            ))
+    return errors
+
+
+def _validate_required_commands(
+    result: dict[str, Any], required_commands: list[str] | None,
+) -> list[dict[str, str]]:
+    """A successful IMPLEMENT/TEST must record every controller-required verifier as passing."""
+    stage = result["stage"]
+    if not required_commands or stage["value"] not in {"IMPLEMENT", "TEST"} or stage["status"] != "SUCCESS":
+        return []
+    passing = _passing_commands(result)
+    return [
+        _error("$.executor_result.commands", f"required verification `{command}` was not recorded as passing")
+        for command in required_commands
+        if command not in passing
+    ]
+
+
 def _validate_executor_semantics(
     result: dict[str, Any],
     expected_acceptance: dict[str, dict[str, str | None]] | None,
     current_slice_ids: set[str] | None,
     completed_slice_ids: set[str] | None,
+    editable_paths: set[str] | None = None,
+    required_commands: list[str] | None = None,
 ) -> list[dict[str, str]]:
-    errors: list[dict[str, str]] = []
+    errors: list[dict[str, str]] = _validate_write_scope(result, editable_paths)
+    errors.extend(_validate_evidence_citations(result, current_slice_ids))
+    errors.extend(_validate_required_commands(result, required_commands))
     stage = result["stage"]
     slices = result["tdd_slices"]
     checks = result["acceptance_checks"]
@@ -429,3 +544,43 @@ def _validate_review_semantics(
         if gates["focused_tests"] != "PASS" or gates["format"] != "PASS" or gates["analyze"] != "PASS":
             errors.append(_error("$.review_result.gate_status", "APPROVED requires focused_tests, format, and analyze PASS"))
     return errors
+
+
+def _load_context(path: str | None) -> dict[str, Any]:
+    if path is None:
+        return {}
+    context = json.loads(Path(path).read_text(encoding="utf-8"))
+    allowed = {"expected_acceptance", "current_slice_ids", "completed_slice_ids", "editable_paths", "required_commands"}
+    if not isinstance(context, dict) or set(context) - allowed:
+        raise ValueError(f"context must be an object with only {sorted(allowed)}")
+    return context
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Validate one worker final-message JSON against its contract.")
+    parser.add_argument("--action", required=True, choices=sorted(EXECUTOR_ACTIONS | {REVIEW_ACTION}))
+    parser.add_argument("--result", required=True, help="Final-message JSON file written by the worker.")
+    parser.add_argument("--context", help="Controller verification context JSON, e.g. from stage_context.py verifier-context.")
+    parser.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    args = parser.parse_args(argv)
+    try:
+        context = _load_context(args.context)
+        as_set = lambda key: None if context.get(key) is None else set(context[key])  # noqa: E731
+        errors = validate_json_text(
+            args.action,
+            Path(args.result).read_text(encoding="utf-8"),
+            expected_acceptance=context.get("expected_acceptance"),
+            current_slice_ids=as_set("current_slice_ids"),
+            completed_slice_ids=as_set("completed_slice_ids"),
+            editable_paths=as_set("editable_paths"),
+            required_commands=context.get("required_commands"),
+        )
+    except (OSError, ValueError) as exc:
+        errors = [_error("$", str(exc))]
+    payload = {"valid": not errors, "errors": errors}
+    print(json.dumps(payload, sort_keys=True) if args.json else ("VALID" if not errors else json.dumps(errors)))
+    return 0 if not errors else 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -4,6 +4,19 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Breaking
+- `validate_protocol.py` enforces write scope and cited evidence: SPECIFY, CLARIFY, PLAN, TASKS and TEST reject any reported file change; every IMPLEMENT status requires controller-declared `editable_paths`, and every written path must be repository-relative and match them; an `AGENT` `PASS` for the current IMPLEMENT slice or in TEST must cite, in backticks, a recorded command that exited 0 with `PASS` (or a GREEN command); optional `required_commands` must all be recorded as passing. Controllers must now pass `editable_paths` for IMPLEMENT.
+
+### Added
+- `runtime/stage_context.py` and `schemas/STAGE_CONTEXT_SCHEMA.json`: a pure per-dispatch check of the context budget (scoped excerpts, no whole documents), the `project-context-guardian` result required before PLAN and IMPLEMENT, code-authoritative divergence records, and the slice contract (one current slice, safe editable paths, an observable verifier for every check, at least one verifier that predates the slice). `slice_sha256` binds an approval to the exact slice contract, so an unchanged slice reuses its PLAN/TASKS approval (`APPROVAL_REUSED`) and a changed one yields `SCOPE_CHANGE_REQUIRED`. `verifier-context` feeds `validate_protocol.py --context`.
+- `runtime/correction_loop.py` and `schemas/CORRECTION_LOOP_SCHEMA.json`: a pure bounded execute → verify → correct decision with configurable attempt, executor-call and cost limits. It stops auditably with `stop_reason`, evidence and `next_step` on `RETRY_BUDGET_REACHED`, `EXECUTOR_CALL_BUDGET_REACHED`, `COST_BUDGET_REACHED`, `NO_NEW_HYPOTHESIS` or `NO_PROGRESS`, and refuses unjustified escalation.
+- `validate_protocol.py` gains a CLI (`--action`, `--result`, `--context`, `--json`).
+- `docs/components/harness.md` documents both tools; `LOOP_POLICY.md` §25 adds the harness procedure and three stop reasons to the closed list.
+
+### Changed
+- `project-context-guardian` is allowed in IMPLEMENT and returns a structured context status, gaps and divergences. During stages it only proposes vault updates; the proposal becomes an approved `OBSIDIAN WRITE PROPOSAL` after REVIEW/DONE. This fixes a contradiction with `LOOP_POLICY.md` §18, which already made Obsidian read-only during stages.
+- The PLAN, TASKS, IMPLEMENT and TEST briefs, `EXECUTOR_CONTRACT.md`, `.hermes.md`, `SKILL.md` and the installed README describe the harness steps.
+
 ## 4.0.0 - 2026-09-28
 
 ### Breaking

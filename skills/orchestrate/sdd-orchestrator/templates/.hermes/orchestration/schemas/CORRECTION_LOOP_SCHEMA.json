@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Correction loop record v1",
+  "description": "Controller-owned record of one failure's execute → verify → correct attempts. Read by runtime/correction_loop.py; never written by a worker.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "ticket", "action", "limits", "usage", "attempts", "proposed"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "ticket": {"$ref": "#/$defs/text"},
+    "action": {"$ref": "#/$defs/text"},
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_attempts", "max_executor_calls", "max_cost_units"],
+      "properties": {
+        "max_attempts": {"type": "integer", "minimum": 1},
+        "max_executor_calls": {"type": "integer", "minimum": 0},
+        "max_cost_units": {"type": ["number", "null"], "minimum": 0}
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executor_calls", "cost_units"],
+      "properties": {
+        "executor_calls": {"type": "integer", "minimum": 0},
+        "cost_units": {"type": ["number", "null"], "minimum": 0}
+      }
+    },
+    "attempts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["attempt", "hypothesis", "tier", "escalation_reason", "change_digest", "evidence_digest", "verification", "failed_check_ids", "cost_units"],
+        "properties": {
+          "attempt": {"type": "integer", "minimum": 1},
+          "hypothesis": {"$ref": "#/$defs/text"},
+          "tier": {"$ref": "#/$defs/tier"},
+          "escalation_reason": {"anyOf": [{"$ref": "#/$defs/text"}, {"type": "null"}]},
+          "change_digest": {"$ref": "#/$defs/sha256"},
+          "evidence_digest": {"$ref": "#/$defs/sha256"},
+          "verification": {"enum": ["PASS", "FAIL"]},
+          "failed_check_ids": {"type": "array", "items": {"$ref": "#/$defs/text"}},
+          "cost_units": {"type": ["number", "null"], "minimum": 0}
+        }
+      }
+    },
+    "proposed": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hypothesis", "tier", "escalation_reason", "estimated_cost_units"],
+          "properties": {
+            "hypothesis": {"type": "string"},
+            "tier": {"$ref": "#/$defs/tier"},
+            "escalation_reason": {"type": ["string", "null"]},
+            "estimated_cost_units": {"type": ["number", "null"], "minimum": 0}
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "text": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "tier": {"enum": ["DETERMINISTIC", "WORKER", "ESCALATED"]}
+  }
+}

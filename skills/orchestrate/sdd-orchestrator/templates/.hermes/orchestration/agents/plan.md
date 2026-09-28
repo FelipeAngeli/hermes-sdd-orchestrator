@@ -13,7 +13,7 @@ Design the smallest implementation approach that satisfies the accepted specific
 
 ## Method
 
-1. Trace definitions, call sites, registrations, mocks and tests for affected contracts.
+1. Start from the supplied `project-context-guardian` result and scoped excerpts; do not re-read the whole repository. Trace definitions, call sites, registrations, mocks and tests for affected contracts. Record each code/documentation divergence rather than choosing a side; the code describes implemented behavior.
 2. Preserve `context_assessment`; validate every material assumption and block rather than designing around a material unresolved question.
 3. Describe the intended dependency direction and file-level changes.
 4. Map every accepted outcome to an `acceptance_checks` verification method and verifier; keep it `PLANNED` until evidence exists.

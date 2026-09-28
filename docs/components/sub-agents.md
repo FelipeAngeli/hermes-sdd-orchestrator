@@ -22,7 +22,7 @@ Each brief's frontmatter declares `role`, `allowed_stages`, `executor_policy: CO
 
 | Brief | Role | Stages | Purpose | Result schema |
 | --- | --- | --- | --- | --- |
-| `sub-agents/project-context-guardian.md` | `PROJECT_CONTEXT_GUARDIAN` | SPECIFY, PLAN | Cache-first project context: stack, rules, conventions, integrations. | `EXECUTOR_RESULT_SCHEMA.json` |
+| `sub-agents/project-context-guardian.md` | `PROJECT_CONTEXT_GUARDIAN` | SPECIFY, PLAN, IMPLEMENT | Cache-first project context: stack, rules, conventions, integrations. It is required before PLAN and IMPLEMENT, records code/doc divergences and only proposes vault updates. | `EXECUTOR_RESULT_SCHEMA.json` |
 | `sub-agents/investigator.md` | `INVESTIGATOR` | SPECIFY, CLARIFY, PLAN | Bounded evidence for one controller-defined question. | `EXECUTOR_RESULT_SCHEMA.json` |
 | `sub-agents/data-flow-tracer.md` | `DATA_FLOW_TRACER` | PLAN, IMPLEMENT | One demand's path UI → state → service → repository → API and back. | `EXECUTOR_RESULT_SCHEMA.json` |
 | `sub-agents/impact-analyst.md` | `IMPACT_ANALYST` | PLAN, TASKS | Full blast radius of one contract or behavior change. | `EXECUTOR_RESULT_SCHEMA.json` |

@@ -17,7 +17,7 @@ Run the focused validation authorized by the controller and report exact command
 2. Verify the requested command exists and is scoped to the authorized change.
 3. Run commands in the supplied order with finite timeouts.
 4. Distinguish test failure, timeout, environment failure and blocker.
-5. Evaluate every acceptance check in `acceptance_checks` against its declared verification method and report `PASS` only with concrete evidence.
+5. Evaluate every acceptance check in `acceptance_checks` against its declared verification method and report `PASS` only with concrete evidence that cites, in backticks, a command recorded in `commands` with exit code 0. Run every controller `required_verification` command; an omitted one fails the result.
 6. Report reproducible evidence and affected tests without interpreting a disabled gate as PASS.
 
 ## Boundaries
