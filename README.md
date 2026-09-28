@@ -60,10 +60,11 @@ The installed entrypoint keeps worker context small and stage-specific, with one
 | `performance-auditor` | PLAN, REVIEW | Work the system does that it does not need to do. |
 | `architecture-guardian` | PLAN, REVIEW | Violations of the project's own declared architectural rules. |
 | `spec-consistency-guardian` | TASKS, REVIEW | Breaks in the chain SPEC → PLAN → TASKS → CODE → TESTS. |
+| `dependency-auditor` | PLAN, REVIEW | Versions, duplication, compatibility and unmaintained packages. |
 | `release-readiness-auditor` | REVIEW | Whether this can ship: READY, BLOCKED or READY_WITH_RISK. |
 | `documentation-writer` | IMPLEMENT, REVIEW | Documentation, ADRs, README and diagrams realigned with the code. |
 
-The seven audit roles return findings only when evidence supports them, and each is bound by the failure mode specific to its domain:
+The eight audit roles return findings only when evidence supports them, and each is bound by the failure mode specific to its domain:
 
 - The **TDD guardian** proves a weak test by mutating production code and observing which tests stay green, because reading a test yields an opinion while mutating it yields a fact.
 - The **regression hunter** runs the suites of consumers the change did not touch; a consumer whose tests pass without exercising the affected path is reported as uncovered risk, not as safe.
@@ -71,9 +72,10 @@ The seven audit roles return findings only when evidence supports them, and each
 - The **performance auditor** reports a cost only with a measurement or a counted operation behind it, states the input size at which it matters, and may conclude that nothing is worth changing; a role rewarded for findings will produce them.
 - The **architecture guardian** cites the project's declared rule behind every violation. An undeclared convention is raised as a question, never enforced, since every codebase violates someone's preferred architecture.
 - The **spec consistency guardian** walks SPEC → PLAN → TASKS → CODE → TESTS in both directions and never infers a missing requirement: inferring one would turn unauthorized scope into retroactively justified scope, which is the failure it exists to catch.
+- The **dependency auditor** prefers what the project already depends on over anything new, and hands a vulnerability to the security reviewer and a layer violation to the architecture guardian instead of ruling on them; two roles over one domain let each assume the other checked it.
 - The **release readiness auditor** returns READY, BLOCKED or READY_WITH_RISK. An unverified item is BLOCKED, never READY_WITH_RISK — not knowing is not the same as knowing and accepting — and the risk verdict requires a named human who accepted it.
 
-All seven keep the workspace read-only, revert every temporary step, repair nothing, and report proven findings separately from unproven suspicions.
+All eight keep the workspace read-only, revert every temporary step, repair nothing, and report proven findings separately from unproven suspicions.
 
 `documentation-writer` is the only writing role among these, and its risk runs the other way: a read-only auditor produces a wrong finding that review can reject, while a writer produces fluent prose describing code that does not exist, which readers trust because it reads well. It verifies every symbol, command and path against the repository before writing it, deletes documentation whose subject is gone, and records an unexplained decision as an open question rather than inventing a rationale. Like the implementer, it writes only to paths the controller assigns.
 

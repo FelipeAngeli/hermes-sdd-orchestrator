@@ -101,6 +101,11 @@ class SddOrchestratorSkillTests(unittest.TestCase):
                 "[REVIEW]",
                 "REVIEW_RESULT_SCHEMA.json",
             ),
+            "dependency-auditor.md": (
+                "DEPENDENCY_AUDITOR",
+                "[PLAN, REVIEW]",
+                "REVIEW_RESULT_SCHEMA.json",
+            ),
         }
 
         self.assertEqual(set(expected), {path.name for path in sub_agents.glob("*.md")})
@@ -524,6 +529,34 @@ class SddOrchestratorSkillTests(unittest.TestCase):
                 self.assertIn(verdict, content)
 
         for surface in ("acceptance criteria", "migration", "feature flag", "rollback", "configuration"):
+            with self.subTest(surface=surface):
+                self.assertIn(surface, content.lower())
+
+    def test_dependency_auditor_defers_overlapping_domains(self) -> None:
+        """Two roles over one domain let each assume the other checked it.
+
+        Dependency findings touch security (a known vulnerability) and
+        architecture (a dependency crossing a layer), both of which already have
+        owners here. The brief must therefore name what it hands off, and must
+        prefer what the project already depends on over anything new — the
+        cheapest dependency is the one already there.
+        """
+        sub_agents = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "sub-agents"
+        content = (sub_agents / "dependency-auditor.md").read_text(encoding="utf-8")
+
+        for rule in (
+            "The workspace is read-only",
+            "Never repair",
+            "Never propose a new dependency when the project already has an equivalent",
+            "hand it to `security-reviewer`",
+            "hand it to `architecture-guardian`",
+            "Never add, upgrade or remove a dependency",
+            "`NO_FINDINGS`",
+        ):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, content)
+
+        for surface in ("transitive", "duplicate", "unmaintained", "version", "lockfile"):
             with self.subTest(surface=surface):
                 self.assertIn(surface, content.lower())
 
