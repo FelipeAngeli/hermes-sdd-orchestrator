@@ -118,4 +118,4 @@ State files (`STATE.md`, `ACTION_JOURNAL.json`, `INCIDENTS.md` and journal histo
 - Preserve installer idempotency and fail closed on tracked, partial, conflicting or symlinked destinations.
 - Update this document, the installed layout README and acceptance tests when introducing a new layer.
 - Update the owning documentation page, `docs/doc-map.json` and `CHANGELOG.md` in the same change; see [Maintaining the docs](maintaining-docs.md).
-- Never name a language, framework or toolchain in an action, schema field, contract or brief. Ecosystem knowledge belongs only in `runtime/detect_stack.py` and the reference table of `policies/GATES.md`; `test_payload_is_not_coupled_to_one_language` enforces this.
+- Never name a language, framework or toolchain in an action, schema field, contract or brief. Ecosystem knowledge belongs only in `runtime/detect_stack.py` and the reference table of `policies/GATES.md`; `test_controller_contracts_do_not_assume_a_specific_toolchain` enforces this.

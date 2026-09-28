@@ -54,17 +54,139 @@ def markdown_anchors(text: str) -> set[str]:
     return anchors
 
 
-def python_cli_flags(source: str) -> set[str]:
-    """Extract argparse option strings independent of quote/layout style."""
-    flags: set[str] = set()
-    for node in ast.walk(ast.parse(source)):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute) or node.func.attr != "add_argument":
+def public_help(path: Path, *arguments: str) -> str:
+    """Return the public help text exposed by a shipped command."""
+    result = subprocess.run(
+        [sys.executable, str(path), *arguments, "--help"],
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    if result.returncode:
+        raise AssertionError(f"{path} {' '.join(arguments)} --help failed:\n{result.stdout}{result.stderr}")
+    return result.stdout
+
+
+def public_options(help_text: str) -> set[str]:
+    """Read long options from observable argparse help, not Python syntax."""
+    return set(re.findall(r"(?<!\w)(--[a-z][a-z0-9-]*)", help_text)) - {"--help"}
+
+
+def argparse_clis() -> list[Path]:
+    """Discover every shipped Python module that constructs an argparse CLI."""
+    candidates = {
+        path
+        for directory in (RUNTIME, SKILL_ROOT / "scripts", ROOT / "tools")
+        for path in directory.rglob("*.py")
+    }
+    result: list[Path] = []
+    for path in sorted(candidates):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        if any(
+            isinstance(node, ast.Call)
+            and (
+                isinstance(node.func, ast.Attribute) and node.func.attr == "ArgumentParser"
+                or isinstance(node.func, ast.Name) and node.func.id == "ArgumentParser"
+            )
+            for node in ast.walk(tree)
+        ):
+            result.append(path)
+    return result
+
+
+def public_commands(help_text: str) -> set[str]:
+    """Read argparse positional choices, including subcommands, from help."""
+    section = re.search(
+        r"^positional arguments:\s*\n(?P<body>.*?)(?=^[a-z][^\n]*:\s*$|\Z)",
+        help_text,
+        re.M | re.S,
+    )
+    if section is None:
+        return set()
+    choices = re.findall(r"^\s+\{([a-z0-9,-]+)\}(?:\s+.*)?$", section.group("body"), re.M)
+    return {command for group in choices for command in group.split(",")}
+
+
+def public_help_tree(path: Path, *, max_depth: int = 8) -> dict[tuple[str, ...], str]:
+    """Traverse distinct nested command help without following cycles forever."""
+    root_help = public_help(path)
+    discovered: dict[tuple[str, ...], str] = {(): root_help}
+    frontier: list[tuple[str, ...]] = [()]
+    expanded_help = {root_help}
+    while frontier:
+        arguments = frontier.pop(0)
+        parent_help = discovered[arguments]
+        if len(arguments) >= max_depth:
             continue
-        flags.update(
-            arg.value for arg in node.args
-            if isinstance(arg, ast.Constant) and isinstance(arg.value, str) and arg.value.startswith("--")
-        )
-    return flags
+        for command in sorted(public_commands(parent_help)):
+            child_arguments = (*arguments, command)
+            if child_arguments in discovered:
+                continue
+            child_help = public_help(path, *child_arguments)
+            discovered[child_arguments] = child_help
+            if child_help != parent_help and child_help not in expanded_help:
+                expanded_help.add(child_help)
+                frontier.append(child_arguments)
+    return discovered
+
+
+def published_vocabulary(path: Path) -> set[str]:
+    """Collect public domain terms from conventional module-level constants."""
+    terms: set[str] = set()
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for statement in tree.body:
+        if isinstance(statement, ast.Assign):
+            names = [target.id for target in statement.targets if isinstance(target, ast.Name)]
+            value = statement.value
+        elif isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+            names = [statement.target.id]
+            value = statement.value
+        else:
+            continue
+        if value is None:
+            continue
+        for name in (candidate for candidate in names if candidate.isupper() and not candidate.startswith("_")):
+            if isinstance(value, ast.Constant) and isinstance(value.value, str) and value.value == name:
+                terms.add(value.value)
+                continue
+            literal_node = value
+            if (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Name)
+                and value.func.id in {"frozenset", "list", "set", "tuple"}
+                and len(value.args) == 1
+                and not value.keywords
+            ):
+                literal_node = value.args[0]
+            try:
+                literal = ast.literal_eval(literal_node)
+            except (ValueError, TypeError):
+                literal = None
+            if (
+                isinstance(literal, (list, tuple, set, frozenset))
+                and literal
+                and all(isinstance(term, str) and re.fullmatch(r"[A-Z][A-Z0-9_]*", term) for term in literal)
+            ):
+                terms.update(literal)
+                continue
+            if not isinstance(value, (ast.List, ast.Tuple, ast.Set)) or not value.elts:
+                continue
+            identifiers: list[str] = []
+            for row in value.elts:
+                if not isinstance(row, (ast.List, ast.Tuple)) or not row.elts:
+                    identifiers = []
+                    break
+                identifier = row.elts[0]
+                if not (
+                    isinstance(identifier, ast.Constant)
+                    and isinstance(identifier.value, str)
+                    and re.fullmatch(r"[a-z][a-z0-9-]*", identifier.value)
+                ):
+                    identifiers = []
+                    break
+                identifiers.append(identifier.value)
+            terms.update(identifiers)
+    return terms
 
 
 def load_map() -> dict[str, list[str]]:
@@ -145,11 +267,18 @@ class DocumentationGraphTests(unittest.TestCase):
                     if anchor and destination.suffix == ".md":
                         self.assertIn(anchor, markdown_anchors(destination.read_text(encoding="utf-8")))
 
-    def test_markdown_parser_detects_same_page_and_cross_page_anchors(self) -> None:
-        self.assertEqual([("", "section"), ("other.md", "target")], markdown_links("[a](#section) [b](other.md#target)"))
-        self.assertEqual({"title", "repeated", "repeated-1", "manual"}, markdown_anchors(
-            "# Title\n## Repeated\n## Repeated\n<a id=\"manual\"></a>\n"
-        ))
+    def test_ci_checks_out_the_real_pull_request_head(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        checkout_step = re.search(
+            r"- uses: actions/checkout@[^\n]+\n(?P<body>(?:\s{8,}.*\n)+)",
+            workflow,
+        )
+        self.assertIsNotNone(checkout_step, "CI must contain an actions/checkout step")
+        assert checkout_step is not None
+        self.assertIn(
+            "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+            checkout_step.group("body"),
+        )
 
     def test_every_page_is_reachable_from_the_index(self) -> None:
         index = DOCS / "README.md"
@@ -175,115 +304,115 @@ class DocumentationGraphTests(unittest.TestCase):
                 self.assertIn((DOCS / "README.md").resolve(), links)
                 self.assertTrue(links & siblings, "no link to another component page")
 
-    def test_ci_checks_the_real_pr_head_not_the_synthetic_merge_commit(self) -> None:
-        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-        self.assertIn("github.event.pull_request.head.sha", workflow)
-
     def test_readme_and_agents_point_to_the_documentation_index(self) -> None:
         for name in ("README.md", "AGENTS.md", "CONTRIBUTING.md"):
             with self.subTest(file=name):
                 self.assertIn("docs/README.md", (ROOT / name).read_text(encoding="utf-8"))
 
 
-class DocumentationDriftTests(unittest.TestCase):
-    """Names extracted from code must appear on the page that owns the code."""
+class PublicDocumentationContractTests(unittest.TestCase):
+    """Published commands and domain terms must be discoverable in their docs."""
 
-    def cli_flags(self, source: str) -> set[str]:
-        return python_cli_flags(source)
+    def test_public_command_discovery_handles_descriptions_and_nested_help(self) -> None:
+        described = "positional arguments:\n  {alpha,beta}  command to execute\n"
+        self.assertEqual({"alpha", "beta"}, public_commands(described))
 
-    def test_cli_flag_parser_accepts_single_quotes_and_multiline_calls(self) -> None:
-        source = """\nparser.add_argument('--single')\nparser.add_argument(\n    \"--multi\", action='store_true'\n)\n"""
-        self.assertEqual({"--single", "--multi"}, self.cli_flags(source))
+        with tempfile.TemporaryDirectory(prefix="nested-help-") as temp:
+            command = Path(temp) / "command.py"
+            command.write_text(
+                "import argparse\n"
+                "parser = argparse.ArgumentParser()\n"
+                "commands = parser.add_subparsers(dest='command')\n"
+                "parent = commands.add_parser('parent', help='parent command')\n"
+                "children = parent.add_subparsers(dest='child')\n"
+                "child = children.add_parser('child', help='child command')\n"
+                "child.add_argument('--deep-option')\n"
+                "parser.parse_args()\n",
+                encoding="utf-8",
+            )
 
-    def test_every_cli_flag_is_documented_on_its_page(self) -> None:
-        sources = [*RUNTIME.glob("*.py"), SKILL_ROOT / "scripts" / "install_project.py", *sorted((ROOT / "tools").glob("*.py"))]
-        for path in sources:
-            relative = path.relative_to(ROOT).as_posix()
-            text = owning_page(relative)
-            for flag in sorted(self.cli_flags(path.read_text(encoding="utf-8"))):
-                with self.subTest(file=relative, flag=flag):
-                    self.assertTrue(flag in text, f"{flag} undocumented")
+            help_tree = public_help_tree(command)
 
-    def test_every_subcommand_is_documented_with_its_tool(self) -> None:
-        for path in RUNTIME.glob("*.py"):
-            source = path.read_text(encoding="utf-8")
-            names = set(re.findall(r'add_parser\(\s*"([a-z-]+)"', source))
-            for group in re.findall(r'for name in \(([^)]*)\):\s*\n\s*\w+ = commands\.add_parser', source):
-                names |= set(re.findall(r'"([a-z-]+)"', group))
-            choices = re.search(r'"command", choices=\(([^)]*)\)', source)
-            if choices:
-                names |= set(re.findall(r'"([a-z-]+)"', choices.group(1)))
+            self.assertIn(("parent", "child"), help_tree)
+            self.assertIn("--deep-option", public_options("\n".join(help_tree.values())))
+            self.assertNotIn(("parent", "child"), public_help_tree(command, max_depth=1))
+
+    def test_runtime_vocabulary_conventions_exclude_path_and_config_constants(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="runtime-vocabulary-") as temp:
+            module = Path(temp) / "module.py"
+            module.write_text(
+                "READY = 'READY'\n"
+                "TERMS = {'ONE', 'TWO'}\n"
+                "FROZEN = frozenset({'THREE'})\n"
+                "ECOSYSTEMS = (('node', ('package.json',), detector), ('python', ('pyproject.toml',), detector))\n"
+                "CONFIG_FILES = ('STATE.md', 'GATES.md')\n"
+                "ROOT_PATH = '.hermes/orchestration'\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                {"READY", "ONE", "TWO", "THREE", "node", "python"},
+                published_vocabulary(module),
+            )
+
+    def test_every_public_cli_option_and_subcommand_is_documented(self) -> None:
+        for path in argparse_clis():
+            help_tree = public_help_tree(path)
+            commands = {command for arguments in help_tree for command in arguments}
             text = owning_page(path.relative_to(ROOT).as_posix())
-            for name in sorted(names):
-                with self.subTest(tool=path.name, command=name):
-                    self.assertTrue(f"`{name}`" in text, f"`{name}` undocumented")
 
-    def test_journal_statuses_and_driver_decisions_are_documented(self) -> None:
-        sys.path.insert(0, str(RUNTIME))
-        import action_journal
-        import bounded_loop_driver
-        import bounded_run_driver
+            for option in sorted(public_options("\n".join(help_tree.values()))):
+                with self.subTest(tool=path.name, option=option):
+                    self.assertIn(option, text)
+            for command in sorted(commands):
+                with self.subTest(tool=path.name, command=command):
+                    self.assertIn(f"`{command}`", text)
 
-        journal_page = owning_page((RUNTIME / "action_journal.py").relative_to(ROOT).as_posix())
-        for status in sorted(action_journal.STATUSES):
-            with self.subTest(status=status):
-                self.assertTrue(f"`{status}`" in journal_page, status)
-        loop_page = owning_page((RUNTIME / "bounded_run_driver.py").relative_to(ROOT).as_posix())
-        decisions = {
-            value for module in (bounded_run_driver, bounded_loop_driver)
-            for name, value in vars(module).items()
-            if name.isupper() and isinstance(value, str) and value == name
-        }
-        for decision in sorted(decisions):
-            with self.subTest(decision=decision):
-                self.assertTrue(f"`{decision}`" in loop_page, decision)
-
-    def test_planner_actions_are_documented(self) -> None:
-        sys.path.insert(0, str(RUNTIME))
-        import bounded_run_planner as planner
-
-        text = owning_page((RUNTIME / "bounded_run_planner.py").relative_to(ROOT).as_posix())
-        for action in sorted(planner.AUTO_SAFE | planner.AUTO_WITH_BUDGET | planner.HUMAN_REQUIRED):
-            with self.subTest(action=action):
-                self.assertTrue(f"`{action}`" in text, action)
-
-    def test_every_detected_ecosystem_is_documented(self) -> None:
-        sys.path.insert(0, str(RUNTIME))
-        import detect_stack
-
-        text = owning_page((RUNTIME / "detect_stack.py").relative_to(ROOT).as_posix())
-        for name, _, _ in detect_stack.ECOSYSTEMS:
-            with self.subTest(ecosystem=name):
-                self.assertTrue(f"`{name}`" in text, name)
+    def test_published_runtime_vocabulary_is_documented(self) -> None:
+        for path in sorted(RUNTIME.rglob("*.py")):
+            text = owning_page(path.relative_to(ROOT).as_posix())
+            for term in sorted(published_vocabulary(path)):
+                with self.subTest(tool=path.name, term=term):
+                    self.assertRegex(text, rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])")
 
     def frontmatter(self, path: Path) -> dict[str, str]:
         block = path.read_text(encoding="utf-8").split("---")[1]
         return dict(line.split(": ", 1) for line in block.strip().splitlines() if ": " in line)
 
-    def table_row(self, text: str, name: str) -> str:
-        rows = [line for line in text.splitlines() if line.startswith("|") and f"`{name}`" in line]
-        self.assertEqual(1, len(rows), f"expected one table row for {name}")
-        return rows[0]
+    def table_record(self, text: str, name: str) -> dict[str, str]:
+        lines = [line for line in text.splitlines() if line.startswith("|")]
+        for index, header_line in enumerate(lines[:-1]):
+            headers = [cell.strip() for cell in header_line.strip("|").split("|")]
+            if index + 1 >= len(lines) or not all(set(cell.strip()) <= {"-", ":"} for cell in lines[index + 1].strip("|").split("|")):
+                continue
+            for row in lines[index + 2:]:
+                cells = [cell.strip() for cell in row.strip("|").split("|")]
+                if len(cells) != len(headers):
+                    break
+                record = dict(zip(headers, cells))
+                if f"`{name}`" in cells:
+                    return record
+        self.fail(f"expected one documentation record for {name}")
 
-    def test_sub_agent_table_matches_each_brief(self) -> None:
+    def test_sub_agent_catalogue_publishes_each_briefs_contract(self) -> None:
         text = owning_page((ORCHESTRATION / "sub-agents" / "investigator.md").relative_to(ROOT).as_posix())
         for path in sorted((ORCHESTRATION / "sub-agents").glob("*.md")):
             meta = self.frontmatter(path)
             stages = meta["allowed_stages"].strip("[]").replace(" ", "").split(",")
             with self.subTest(sub_agent=path.stem):
-                row = self.table_row(text, f"sub-agents/{path.name}")
-                self.assertIn(meta["role"], row)
-                self.assertEqual(stages, re.findall(r"\b[A-Z]+\b", row.split("|")[3]))
-                self.assertIn(Path(meta["result_schema"]).name, row)
+                record = self.table_record(text, f"sub-agents/{path.name}")
+                self.assertEqual(f"`{meta['role']}`", record["Role"])
+                self.assertEqual(stages, re.findall(r"\b[A-Z]+\b", record["Stages"]))
+                self.assertEqual(f"`{Path(meta['result_schema']).name}`", record["Result schema"])
 
-    def test_stage_agent_table_matches_each_brief(self) -> None:
+    def test_stage_agent_catalogue_publishes_each_briefs_contract(self) -> None:
         text = owning_page((ORCHESTRATION / "agents" / "plan.md").relative_to(ROOT).as_posix())
         for path in sorted((ORCHESTRATION / "agents").glob("*.md")):
             meta = self.frontmatter(path)
             with self.subTest(agent=path.name):
-                row = self.table_row(text, f"agents/{path.name}")
-                self.assertIn(f"`{meta['stage']}`", row)
-                self.assertIn(Path(meta["result_schema"]).name, row)
+                record = self.table_record(text, f"agents/{path.name}")
+                self.assertEqual(f"`{meta['stage']}`", record["Stage"])
+                self.assertEqual(f"`{Path(meta['result_schema']).name}`", record["Result schema"])
 
 
 class DocsSyncCheckerTests(unittest.TestCase):

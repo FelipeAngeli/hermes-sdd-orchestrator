@@ -6,6 +6,8 @@
 
 Both suites use `unittest` and need no external services. The bounded-run tools additionally need `jsonschema`. CI runs both suites on every push and pull request (`.github/workflows/ci.yml`).
 
+The root suite is behavioral at its executable boundaries: installer, documentation-sync and release scenarios run their public CLIs against temporary Git repositories and assert observable files, output, commits and tags. Documentation and agent briefs are treated as published contracts; their tests assert metadata, catalogues, safety boundaries and decision concepts without importing production helpers or mirroring internal control flow.
+
 ```bash
 python3 -m unittest discover -s tests -p 'test_*.py'
 python3 -m unittest discover -s skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/tests -p 'test_*.py'
@@ -15,9 +17,9 @@ python3 -m unittest discover -s skills/orchestrate/sdd-orchestrator/templates/.h
 
 | File | Guarantees |
 | --- | --- |
-| `tests/test_sdd_orchestrator_skill.py` | Layered payload structure. Every stage agent and sub-agent has complete, controller-safe frontmatter. Role-specific rules for each audit brief. The README lists exactly the shipped sub-agents. The dispatch policy defaults to not dispatching. No legacy flat paths. `.hermes.md` stays compact and portable. The payload is not coupled to one language. The installer reports the detected stack and installs idempotently into a fixture repository with a clean `git status`. |
-| `tests/test_docs.py` | Documentation stays true: every orchestration file has exactly one owning page in `docs/doc-map.json`, and that page names it. Every relative link resolves. Every page is reachable from `docs/README.md`, and every component page links back to the index and to a sibling. CLI flags, subcommands, journal statuses, driver decisions, planner actions and detected ecosystems extracted from code appear on their page. The sub-agent and stage-agent tables match each brief's frontmatter. `tools/check_docs_sync.py` blocks undocumented changes. |
-| `tests/test_versioning.py` | Versioning stays consistent: `SKILL.md` has a SemVer version equal to the newest `CHANGELOG.md` release, `## Unreleased` stays on top, releases descend without duplicates. `tools/release.py` infers the level, bumps, rolls the changelog, commits and tags, and refuses on `main`, a dirty worktree, an empty section or an existing tag. |
+| `tests/test_sdd_orchestrator_skill.py` | Public installer behavior in temporary Git repositories: read-only stack detection, complete byte-identical installation, initial state and journal, installed-suite execution, idempotency, cache exclusion, Git exclusions and refusals for non-root, tracked, conflicting, symlinked or partial destinations. Published bundle contracts cover layered payload structure, agent metadata, controller ownership, safety boundaries, role-specific decision rules, catalogue agreement, portability and language neutrality. |
+| `tests/test_docs.py` | Live documentation behavior: complete ownership, resolvable links and anchors, graph reachability, public CLI help and subcommands, published runtime vocabulary and semantic agent catalogues. Black-box temporary-repository scenarios verify that `tools/check_docs_sync.py` accepts and rejects staged/range changes, waivers, merges, renames, bootstrap and deletion correctly. |
+| `tests/test_versioning.py` | Release behavior through the public CLI only: dry-run immutability, SemVer inference, changelog rollover, commits, annotated tags, stable refusal codes and exact reviewed-HEAD protection in isolated Git repositories. Repository-level tests keep the published version, changelog order and contributor workflow consistent. |
 
 ## Installed controller tests
 
