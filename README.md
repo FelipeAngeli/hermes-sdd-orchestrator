@@ -48,6 +48,8 @@ The installed entrypoint keeps worker context small and stage-specific, with one
 
 ## Sub-agents
 
+`pr-reviewer` ships with every installation, so any project can use it. In **this** repository it reviews every pull request and every earlier review of it (see [AGENTS.md](AGENTS.md#pull-request-review)).
+
 `sub-agents/` holds narrow leaf-worker briefs the controller may select when a stage needs a specialist. They are dispatched only by the controller, never by another agent, and never own STATE or transitions. All are language- and stack-agnostic.
 
 | Brief | Stages | Purpose |
@@ -68,6 +70,7 @@ The installed entrypoint keeps worker context small and stage-specific, with one
 | `spec-consistency-guardian` | TASKS, REVIEW | Breaks in the chain SPEC → PLAN → TASKS → CODE → TESTS. |
 | `dependency-auditor` | PLAN, REVIEW | Versions, duplication, compatibility and unmaintained packages. |
 | `release-readiness-auditor` | REVIEW | Whether this can ship: READY, BLOCKED or READY_WITH_RISK. |
+| `pr-reviewer` | REVIEW | One pull request as it will merge — scope, tests, checks, breaking changes, changelog, commits — plus an audit of every earlier review. Host-neutral; never posts on its own. |
 | `documentation-writer` | IMPLEMENT, REVIEW | Documentation, ADRs, README and diagrams realigned with the code. |
 
 The eight audit roles return findings only when evidence supports them, and each is bound by the failure mode specific to its domain:

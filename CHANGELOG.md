@@ -4,6 +4,20 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 3.8.1 - 2026-09-28
+
+### Fixed
+- Preserve every released changelog entry byte-for-byte when stacking the PR-reviewer release; only the new release section is added.
+
+## 3.8.0 - 2026-09-28
+
+### Added
+- `sub-agents/pr-reviewer.md`: a global, language- and host-neutral reviewer that evaluates the full diff from the PR’s actual base, audits prior reviews and defers deep findings to specialist roles.
+- This repository requires `pr-reviewer` for every pull request and every prior review.
+
+### Fixed
+- Local review instructions resolve `baseRefName` from GitHub rather than hard-coding `origin/main`, so stacked and non-main pull requests are reviewed against the correct merge base.
+
 ## 3.7.0 - 2026-09-28
 
 ### Added

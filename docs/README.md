@@ -25,7 +25,7 @@ Each page owns a set of files (see [doc-map.json](doc-map.json)) and is the sing
 | [Contracts and schemas](components/contracts-and-schemas.md) | Executor and review result envelopes, their JSON Schemas and the protocol validator |
 | [Gates and stack detection](components/gates-and-stack-detection.md) | Validation gates, `GATES.md` configuration, `detect_stack.py` for any language |
 | [Stage agents](components/stage-agents.md) | One brief per FSM stage |
-| [Sub-agents and dispatch](components/sub-agents.md) | The 17 specialist briefs and the "do not dispatch" default |
+| [Sub-agents and dispatch](components/sub-agents.md) | The 18 specialist briefs, including the global `pr-reviewer` and the "do not dispatch" default |
 | [Obsidian vault](components/obsidian-vault.md) | Vault binding, write containment, worktree bootstrap and migrations |
 | [Testing](components/testing.md) | Both test suites and what each test file guarantees |
 

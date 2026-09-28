@@ -23,3 +23,11 @@ Issue: <!-- Closes #123, or: Not applicable — direct request -->
 - [ ] Installer remains idempotent and never modifies tracked files of the target
 - [ ] No weakening of human approval, protected files, budgets or the one-leaf-worker rule
 - [ ] README / `docs/ARCHITECTURE.md` updated if structure or sub-agents changed
+
+## Review
+
+- [ ] Branch is one improvement (`feat/`, `fix/`, `docs/`…) with a `CHANGELOG.md` entry and its version tag
+- [ ] Reviewed with the `pr-reviewer` sub-agent (`sub-agents/pr-reviewer.md`), including any earlier reviews; verdict and findings pasted below
+
+<!-- pr-reviewer result -->
+

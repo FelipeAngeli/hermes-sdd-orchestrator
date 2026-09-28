@@ -13,6 +13,16 @@ Never commit to `main`. For every improvement:
 
 Details: [docs/maintaining-docs.md#branches-and-versions](docs/maintaining-docs.md#branches-and-versions).
 
+## Pull request review
+
+Every pull request in this repository is reviewed with the `pr-reviewer` sub-agent, and so is every review a pull request has already received. There are no exceptions for small or documentation-only changes.
+
+1. Load `skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/sub-agents/pr-reviewer.md` as the reviewer's brief.
+2. Read the PR's real base before building the diff: `BASE=$(gh pr view <n> --json baseRefName --jq .baseRefName)`, `git fetch origin "$BASE"`, then `git diff $(git merge-base "origin/$BASE" HEAD)..HEAD`. Give the reviewer that full diff, the commits, PR description, existing reviews and checks from `gh pr view <n> --json title,body,commits,reviews,comments,statusCheckRollup,baseRefName,headRefName,headRefOid`. Never assume the base is `main`; stacked PRs have a different base.
+3. The result is a `review_result` (see `docs/components/contracts-and-schemas.md`). Report it to the user. Post it to GitHub only when the user asks.
+4. When it names a specialist (`security-reviewer`, `dependency-auditor`…), run that sub-agent next only if a pending merge decision depends on its answer.
+5. Merge only after the verdict is `APPROVED` and the user authorizes the merge.
+
 ## Documentation is part of every orchestration change
 
 Documentation lives in [docs/README.md](docs/README.md). Each orchestration file has exactly one owning page, listed in [docs/doc-map.json](docs/doc-map.json).
