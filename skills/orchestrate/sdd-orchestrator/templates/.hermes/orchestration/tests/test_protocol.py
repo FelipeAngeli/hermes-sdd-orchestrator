@@ -23,10 +23,10 @@ def executor_fixture(stage: str, status: str = "SUCCESS") -> dict:
             "schema_version": 2,
             "stage": {"value": stage, "status": status},
             "executor": {"name": "CODEX", "invocation_type": "EXTERNAL_CLI"},
-            "consulted_paths": [{"path": "lib/example.dart"}],
+            "consulted_paths": [{"path": "src/example.ext"}],
             "modified_paths": [],
             "created_paths": [],
-            "validated_symbols": [{"symbol": "example", "path": "lib/example.dart", "exists": True}],
+            "validated_symbols": [{"symbol": "example", "path": "src/example.ext", "exists": True}],
             "commands": [],
             "blockers": [],
             "stage_payload": {"summary": "synthetic test fixture", "tasks": [], "impact_files": [], "decisions": []},
@@ -41,7 +41,7 @@ def successful_implementation() -> dict:
     fixture["executor_result"]["tdd_slices"] = [{
         "id": "synthetic-slice-1",
         "objective": "validate synthetic protocol behavior",
-        "test_file": "test/synthetic_protocol_test.dart",
+        "test_file": "tests/synthetic_protocol_test.ext",
         "red_command": "synthetic red command",
         "red_exit_code": 1,
         "expected_failure": "expected functional assertion failure",
@@ -59,8 +59,8 @@ def review_fixture(status: str = "APPROVED") -> dict:
         "review_result": {
             "schema_version": 2,
             "status": status,
-            "reviewed_paths": [{"path": "lib/example.dart"}],
-            "findings": [] if status == "APPROVED" else [{"severity": "medium", "path": "lib/example.dart", "description": "synthetic finding", "evidence": "synthetic evidence"}],
+            "reviewed_paths": [{"path": "src/example.ext"}],
+            "findings": [] if status == "APPROVED" else [{"severity": "medium", "path": "src/example.ext", "description": "synthetic finding", "evidence": "synthetic evidence"}],
             "baseline": {"preserved": True, "violations": []},
             "ownership": {"valid": True, "violations": []},
             "e2e": {"files_modified": False, "execution_performed": False, "violation": False},
@@ -138,8 +138,8 @@ class ProtocolValidationTests(unittest.TestCase):
 
     def test_rejects_path_strings_stage_payload_absence_and_done(self) -> None:
         for mutator in (
-            lambda f: f["executor_result"].update({"modified_paths": ["lib/example.dart"]}),
-            lambda f: f["executor_result"].update({"created_paths": ["lib/example.dart"]}),
+            lambda f: f["executor_result"].update({"modified_paths": ["src/example.ext"]}),
+            lambda f: f["executor_result"].update({"created_paths": ["src/example.ext"]}),
             lambda f: f["executor_result"].pop("stage_payload"),
             lambda f: f["executor_result"]["next_step"].update({"stage": "DONE"}),
         ):

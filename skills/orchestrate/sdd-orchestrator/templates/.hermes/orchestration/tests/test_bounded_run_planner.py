@@ -69,7 +69,7 @@ def snapshot(*, stage: str = "SPECIFY", status: str = "IN_PROGRESS", mode: str =
             "next_slice": "slice-1",
             "all_slices_green": False,
             "canonical_focused_test_command_available": True,
-            "changed_dart_files_available": True,
+            "changed_files_available": True,
         },
         "recovery": {
             "decision": "DISPATCH_ALLOWED",
@@ -131,6 +131,22 @@ class BoundedRunPlannerTests(unittest.TestCase):
         result = planner.create_plan(value, "NEXT_HUMAN_CHECKPOINT")
         self.assertEqual([], planner.validate_plan(result, value))
         return result
+
+    def test_format_gate_is_language_neutral(self) -> None:
+        self.assertIn("FORMAT_CHANGED_FILES", planner.AUTO_SAFE)
+        for name in (*planner.AUTO_SAFE, *planner.ACTION_TRANSITIONS):
+            with self.subTest(action=name):
+                self.assertNotIn("DART", name)
+
+    def test_snapshot_accepts_legacy_changed_files_flag_from_older_installations(self) -> None:
+        value = snapshot()
+        value["implementation"]["changed_dart_files_available"] = value["implementation"].pop("changed_files_available")
+        planner.validate_snapshot(value)
+
+        missing = snapshot()
+        del missing["implementation"]["changed_files_available"]
+        with self.assertRaises(planner.PlannerError):
+            planner.validate_snapshot(missing)
 
     def test_manual_plan_requires_future_exact_authorization(self) -> None:
         plan = self.plan(snapshot())
@@ -310,7 +326,7 @@ class BoundedRunPlannerTests(unittest.TestCase):
         value["implementation"].update({"completed_slices": ["slice-1"], "next_slice": None, "all_slices_green": True})
         plan = self.plan(value)
         planned = plan["actions"]
-        self.assertEqual(["TEST_FOCUSED", "FORMAT_DART_CHANGED_FILES", "ANALYZE"], [entry["action"] for entry in planned[:3]])
+        self.assertEqual(["TEST_FOCUSED", "FORMAT_CHANGED_FILES", "ANALYZE"], [entry["action"] for entry in planned[:3]])
         self.assertTrue(all(entry["classification"] == "AUTO_SAFE" for entry in planned[:3]))
 
     def test_all_green_slices_keep_gates_in_test_then_move_to_review(self) -> None:
@@ -318,7 +334,7 @@ class BoundedRunPlannerTests(unittest.TestCase):
         value["implementation"].update({"completed_slices": ["slice-1"], "next_slice": None, "all_slices_green": True})
         planned = self.plan(value)["actions"]
         self.assertEqual(
-            ["TEST_FOCUSED", "FORMAT_DART_CHANGED_FILES", "ANALYZE", "REVIEW"],
+            ["TEST_FOCUSED", "FORMAT_CHANGED_FILES", "ANALYZE", "REVIEW"],
             [entry["action"] for entry in planned],
         )
         self.assertEqual(
@@ -327,7 +343,7 @@ class BoundedRunPlannerTests(unittest.TestCase):
         )
 
     def test_test_gate_baseline_round_trips_each_pass_prefix_and_ci_policy(self) -> None:
-        gate_actions = ["TEST_FOCUSED", "FORMAT_DART_CHANGED_FILES", "ANALYZE"]
+        gate_actions = ["TEST_FOCUSED", "FORMAT_CHANGED_FILES", "ANALYZE"]
         for passed_count in range(4):
             for ci_enabled in (False, True):
                 with self.subTest(passed_count=passed_count, ci_enabled=ci_enabled):
@@ -357,7 +373,7 @@ class BoundedRunPlannerTests(unittest.TestCase):
         plan = self.plan(value)
 
         self.assertEqual(
-            ["TEST_FOCUSED", "FORMAT_DART_CHANGED_FILES", "ANALYZE"],
+            ["TEST_FOCUSED", "FORMAT_CHANGED_FILES", "ANALYZE"],
             actions(plan),
         )
         self.assertEqual("BUDGET_REACHED", plan["termination"]["expected_reason"])

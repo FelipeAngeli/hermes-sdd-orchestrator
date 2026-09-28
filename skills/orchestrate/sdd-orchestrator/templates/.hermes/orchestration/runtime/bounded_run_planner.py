@@ -39,7 +39,7 @@ BUDGET_SOURCES = {
     "external_mutations": ("external_mutations", "used", "max"),
 }
 AUTO_SAFE = {
-    "RECOVER_PENDING_ACTION", "TEST_FOCUSED", "FORMAT_DART_CHANGED_FILES", "ANALYZE",
+    "RECOVER_PENDING_ACTION", "TEST_FOCUSED", "FORMAT_CHANGED_FILES", "ANALYZE",
     "EVALUATE_DONE_WITH_CI_DISABLED", "EVALUATE_DONE", "STATE_TRANSACTION_UPDATE",
     "VERIFY_BASELINE_OWNERSHIP", "EVALUATE_BUDGETS", "CLOSE_BOUNDED_RUN",
 }
@@ -57,7 +57,7 @@ ACTION_TRANSITIONS = {
     "TASKS": ("TASKS", "IMPLEMENT"),
     "IMPLEMENT_SLICE": ("IMPLEMENT", "IMPLEMENT"),
     "TEST_FOCUSED": ("TEST", "TEST"),
-    "FORMAT_DART_CHANGED_FILES": ("TEST", "TEST"),
+    "FORMAT_CHANGED_FILES": ("TEST", "TEST"),
     "ANALYZE": ("TEST", "REVIEW"),
     "REVIEW": ("REVIEW", "REVIEW"),
     "CI": ("REVIEW", "DONE"),
@@ -114,7 +114,7 @@ def snapshot_schema() -> dict[str, Any]:
             "state": {"type": "object", "additionalProperties": False, "required": ["sha256", "ticket", "stage", "status", "completed", "skipped", "next_action", "blockers", "protected_preexisting", "agent_owned"], "properties": {"sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "ticket": {"type": "string"}, "stage": {"enum": list(FSM_STAGES)}, "status": {"type": "string"}, "completed": {"type": "array", "items": {"type": "string"}}, "skipped": {"type": "array", "items": {"type": "string"}}, "next_action": {"type": ["string", "null"]}, "blockers": {"type": "array", "items": {"type": "string"}}, "protected_preexisting": {"type": "array", "items": {"type": "string"}}, "agent_owned": {"type": "array", "items": {"type": "string"}}}},
             "loop": {"type": "object", "additionalProperties": False, "required": ["mode", "loop_active", "budgets", "stop_reason", "human_approval_required"], "properties": {"mode": {"enum": ["MANUAL", "PAUSED", "BOUNDED_AUTO"]}, "loop_active": {"type": "boolean"}, "budgets": {"type": "object", "additionalProperties": False, "required": list(BUDGET_KEYS), "properties": {**{key: budget for key in ("stage_transitions", "executor_calls", "tdd_slices", "review_cycles", "ci_runs", "external_mutations")}, "corrective_retries": {"type": "object", "additionalProperties": False, "required": ["max_per_action", "used_current_action"], "properties": {"max_per_action": integer, "used_current_action": integer}}, "investigation_expansions": {"type": "object", "additionalProperties": False, "required": ["max_per_stage", "used_current_stage"], "properties": {"max_per_stage": integer, "used_current_stage": integer}}}}, "stop_reason": {"type": "string"}, "human_approval_required": {"type": "boolean"}}},
             "gates": {"type": "object", "additionalProperties": False, "required": ["focused_tests", "format", "analyze", "review", "ci", "project_ci_enabled"], "properties": {"focused_tests": {"type": "string"}, "format": {"type": "string"}, "analyze": {"type": "string"}, "review": {"type": "string"}, "ci": {"type": "string"}, "project_ci_enabled": {"type": "boolean"}}},
-            "implementation": {"type": "object", "additionalProperties": False, "required": ["planned_slices", "completed_slices", "next_slice", "all_slices_green", "canonical_focused_test_command_available", "changed_dart_files_available"], "properties": {"planned_slices": {"type": "array", "items": {"type": "string"}}, "completed_slices": {"type": "array", "items": {"type": "string"}}, "next_slice": {"type": ["string", "null"]}, "all_slices_green": {"type": "boolean"}, "canonical_focused_test_command_available": {"type": "boolean"}, "changed_dart_files_available": {"type": "boolean"}}},
+            "implementation": {"type": "object", "additionalProperties": False, "required": ["planned_slices", "completed_slices", "next_slice", "all_slices_green", "canonical_focused_test_command_available"], "anyOf": [{"required": ["changed_files_available"]}, {"required": ["changed_dart_files_available"]}], "properties": {"planned_slices": {"type": "array", "items": {"type": "string"}}, "completed_slices": {"type": "array", "items": {"type": "string"}}, "next_slice": {"type": ["string", "null"]}, "all_slices_green": {"type": "boolean"}, "canonical_focused_test_command_available": {"type": "boolean"}, "changed_files_available": {"type": "boolean"}, "changed_dart_files_available": {"type": "boolean", "description": "Legacy alias of changed_files_available from pre-universal installations."}}},
             "recovery": {"type": "object", "additionalProperties": False, "required": ["decision", "journal_status", "current_action_id", "artifact_present"], "properties": {"decision": {"enum": ["DISPATCH_ALLOWED", "RECONCILE_ARTIFACT", "CORRECTIVE_RETRY_AVAILABLE", "STATE_COMMIT_REQUIRED", "ALREADY_COMMITTED", "WAIT_OR_MANUAL_REVIEW", "BLOCKED", "RELEASED"]}, "journal_status": {"type": "string"}, "current_action_id": {"type": ["string", "null"]}, "artifact_present": {"type": "boolean"}}},
             "restrictions": {"type": "object", "additionalProperties": False, "required": ["external_mutation_requested", "protected_file_required", "scope_change_required", "architecture_decision_required"], "properties": {"external_mutation_requested": {"type": "boolean"}, "protected_file_required": {"type": "boolean"}, "scope_change_required": {"type": "boolean"}, "architecture_decision_required": {"type": "boolean"}}},
         },
@@ -407,7 +407,7 @@ def gate_progress_error(
             return f"gate baseline {gate}={baseline_value} contradicts current {current[gate]}"
     accepted_results = {
         "TEST_FOCUSED": ("focused_tests", "PASS"),
-        "FORMAT_DART_CHANGED_FILES": ("format", "PASS"),
+        "FORMAT_CHANGED_FILES": ("format", "PASS"),
         "ANALYZE": ("analyze", "PASS"),
         "REVIEW": ("review", "APPROVED"),
         "CI": ("ci", "PASS"),
@@ -421,7 +421,7 @@ def gate_progress_error(
 
 def gate_precondition_error(action: str, gates: dict[str, Any]) -> str | None:
     """Return the unmet live gate precondition for a planned action."""
-    if action == "FORMAT_DART_CHANGED_FILES" and gates["focused_tests"] != "PASS":
+    if action == "FORMAT_CHANGED_FILES" and gates["focused_tests"] != "PASS":
         return "FOCUSED_TESTS_REQUIRED"
     if action == "ANALYZE" and (gates["focused_tests"] != "PASS" or gates["format"] != "PASS"):
         return "TEST_AND_FORMAT_REQUIRED"
@@ -455,7 +455,7 @@ def test_gate_sequence(gates: dict[str, Any]) -> list[str]:
     if gates["focused_tests"] != "PASS":
         sequence.append("TEST_FOCUSED")
     if gates["format"] != "PASS":
-        sequence.append("FORMAT_DART_CHANGED_FILES")
+        sequence.append("FORMAT_CHANGED_FILES")
     if gates["analyze"] != "PASS":
         sequence.append("ANALYZE")
     return [*sequence, "REVIEW"]

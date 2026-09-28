@@ -123,6 +123,31 @@ First run is a dry run. Apply only when it returns `READY`. Re-running a complet
 
 Before the first demand, configure the target's `.hermes/orchestration/policies/GATES.md` with its real format, test, analysis, and CI commands.
 
+## Any language, any project
+
+The controller is language-neutral. The FSM, contracts, schemas, stage briefs and sub-agents never name a toolchain; gate actions are named by role (`TEST_FOCUSED`, `FORMAT_CHANGED_FILES`, `ANALYZE`, `CI`). The **only** project-specific input is the command table in `policies/GATES.md`.
+
+To bring the orchestrator into a new project:
+
+```bash
+# 1. Dry run: preflight + detected stack (read-only).
+python3 <installed-skill>/scripts/install_project.py --target /path/to/project --json
+
+# 2. Install the untracked, project-local controller.
+python3 <installed-skill>/scripts/install_project.py --target /path/to/project --apply --json
+
+# 3. Inspect the stack again at any time.
+cd /path/to/project && python3 .hermes/orchestration/runtime/detect_stack.py --target .
+```
+
+The dry run's `stack` field lists every ecosystem found (root and up to two levels deep, for monorepos), the manifest that proves it, the CI providers present, the instruction files to read first (`AGENTS.md`, `CLAUDE.md`, ADRs…) and a suggested command per gate. Supported ecosystems: Node/TypeScript (npm, pnpm, yarn, bun), Python, Go, Rust, Java/Kotlin (Gradle, Maven), .NET, Ruby, PHP, Elixir, Swift, C/C++ (CMake) and Dart/Flutter (with FVM). A gate without evidence is `null`, never guessed.
+
+4. Copy the suggestions into `GATES.md` only after running each command once in the project; the project's own scripts and CI steps take precedence over the suggestions.
+5. Optionally bind an Obsidian vault with `.hermes/obsidian.json` (see `BOOTSTRAP.md`).
+6. Run the installed suite: `python3 -m unittest discover -s .hermes/orchestration/tests -p 'test_*.py'`.
+
+Requirements on the target are only Git and Python 3.10+ (plus `jsonschema` for the bounded-run tools); the project itself can be written in anything.
+
 ## Development and verification
 
 ```bash

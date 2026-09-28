@@ -319,7 +319,7 @@ class ActionJournalTests(unittest.TestCase):
         self.assertEqual(original, journal.load_journal(self.path))
 
     def test_metadata_overlay_preserves_parent_evidence(self) -> None:
-        parent = {"tdd_slices": [{"id": "slice-1"}], "modified_paths": ["lib/a.dart"], "created_paths": ["test/a_test.dart"], "stage_payload": {"summary": "valid"}, "evidence_functional": True}
+        parent = {"tdd_slices": [{"id": "slice-1"}], "modified_paths": ["src/a.ext"], "created_paths": ["tests/a_test.ext"], "stage_payload": {"summary": "valid"}, "evidence_functional": True}
         retry = journal.metadata_overlay(parent, {"stage_payload": {"summary": "corrected"}}, ["stage_payload"], baseline="b", ownership="o", parent_baseline="b", parent_ownership="o", product_changed=False)
         self.assertEqual(parent["tdd_slices"], retry["tdd_slices"])
         self.assertEqual(parent["modified_paths"], retry["modified_paths"])

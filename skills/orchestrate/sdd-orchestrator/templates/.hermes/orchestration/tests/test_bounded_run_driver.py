@@ -58,7 +58,7 @@ def snapshot(*, stage: str = "SPECIFY") -> dict:
             "human_approval_required": False,
         },
         "gates": {"focused_tests": "PENDING", "format": "PENDING", "analyze": "PENDING", "review": "PENDING", "ci": "PENDING", "project_ci_enabled": False},
-        "implementation": {"planned_slices": [], "completed_slices": [], "next_slice": None, "all_slices_green": False, "canonical_focused_test_command_available": True, "changed_dart_files_available": True},
+        "implementation": {"planned_slices": [], "completed_slices": [], "next_slice": None, "all_slices_green": False, "canonical_focused_test_command_available": True, "changed_files_available": True},
         "recovery": {"decision": "DISPATCH_ALLOWED", "journal_status": "IDLE", "current_action_id": None, "artifact_present": False},
         "restrictions": {"external_mutation_requested": False, "protected_file_required": False, "scope_change_required": False, "architecture_decision_required": False},
     }
@@ -301,7 +301,7 @@ class BoundedRunDriverTests(unittest.TestCase):
             self.assertFalse(driver.evaluate_next(value, plan)["end_turn"])
 
             value, plan = bind_plan(value)
-            for action, gate in (("TEST_FOCUSED", "focused_tests"), ("FORMAT_DART_CHANGED_FILES", "format"), ("ANALYZE", "analyze")):
+            for action, gate in (("TEST_FOCUSED", "focused_tests"), ("FORMAT_CHANGED_FILES", "format"), ("ANALYZE", "analyze")):
                 self.assertEqual(action, driver.evaluate_next(value, plan)["action"])
                 value = self.rollover(self.local_succeed(value, plan))
                 value["gates"][gate] = "PASS"
@@ -480,7 +480,7 @@ class BoundedRunDriverTests(unittest.TestCase):
         substituted["gate_baseline"].update({"focused_tests": "PASS", "format": "PASS"})
         substituted["actions"] = [
             entry for entry in substituted["actions"]
-            if entry["action"] not in {"TEST_FOCUSED", "FORMAT_DART_CHANGED_FILES"}
+            if entry["action"] not in {"TEST_FOCUSED", "FORMAT_CHANGED_FILES"}
         ]
         for sequence, entry in enumerate(substituted["actions"], start=1):
             entry.update({"sequence": sequence, "id": f"action-{sequence}"})
@@ -518,7 +518,7 @@ class BoundedRunDriverTests(unittest.TestCase):
 
         result = driver.evaluate_next(value, plan)
 
-        self.assertEqual("FORMAT_DART_CHANGED_FILES", result["action"])
+        self.assertEqual("FORMAT_CHANGED_FILES", result["action"])
 
     def test_manual_pauses_after_an_action(self) -> None:
         value = snapshot()

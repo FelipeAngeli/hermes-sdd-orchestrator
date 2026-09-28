@@ -1,13 +1,13 @@
 ---
 name: sdd-orchestrator
 description: Install and run safe project-local SDD orchestration.
-version: 3.2.0
+version: 3.3.0
 author: Felipe Angeli (FelipeAngeli), Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
   hermes:
-    tags: [sdd, orchestration, tdd, code-review, bounded-automation]
+    tags: [sdd, orchestration, tdd, code-review, bounded-automation, language-agnostic]
     related_skills: []
 ---
 
@@ -20,6 +20,7 @@ Installs and operates a project-local SDD controller. It provides a strict FSM, 
 - The user wants to start, resume, or govern an SDD delivery in a Git project.
 - The user needs reproducible controller safeguards across projects.
 - The project has no configured local SDD controller yet.
+- The project may use any language or stack: the FSM, contracts, schemas and runtime are language-neutral, and only `policies/GATES.md` carries project-specific commands.
 
 Do not use it to bypass a target project's `AGENTS.md`, `CLAUDE.md`, existing tracked configuration, or explicit approval requirements.
 
@@ -52,7 +53,7 @@ The dry run must return `READY` before `--apply`. Installation must return `appl
 
 1. Read the target project's instructions and capture the Git baseline. Completion: protected pre-existing files are recorded before any edit.
 2. Read the installed local controller documents: `.hermes.md`, `.hermes/orchestration/STATE.md`, `.hermes/orchestration/policies/LOOP_POLICY.md`, `.hermes/orchestration/policies/GATES.md`, `.hermes/orchestration/policies/ACTION_RECOVERY.md`, the matching stage brief under `.hermes/orchestration/agents/`, and the applicable contract. Completion: the current FSM state and allowed next action are known.
-3. Configure the target-specific commands in `.hermes/orchestration/policies/GATES.md`. Completion: formatter, focused test, analysis, and CI policy are explicit; no generic placeholder is used for DONE.
+3. Configure the target-specific commands in `.hermes/orchestration/policies/GATES.md`. Run `python3 .hermes/orchestration/runtime/detect_stack.py --target .` (the installer's dry run already includes this report under `stack`), prefer the project's own scripts and CI steps over the suggestions, and run each command once before recording it. Completion: formatter, focused test, analysis, and CI policy are explicit and verified; no `UNCONFIGURED` placeholder is used for DONE.
 4. In `MANUAL`, perform only an explicitly requested action. Schema 1 BOUNDED_AUTO requires a fresh deterministic preview and approval linked to that exact plan. Schema 2 LOCAL_DELIVERY uses its existing explicit authorization bound to ticket, scope, workspace and cumulative limits; replanning does not request a new approval. Completion: mode, budgets, and authorization are persisted in STATE.
 5. Before every worker call, run action recovery; load the matching `agents/<stage>.md` brief or one narrower controller-selected `sub-agents/<role>.md` brief; issue a stage-specific structured result contract; validate artifact schema, paths, symbols, ownership, and required evidence. Completion: STATE is committed and verified before the next action.
 6. Run each implementation slice RED → minimal implementation → GREEN. Completion: every slice has expected failure and passing evidence.
@@ -63,6 +64,7 @@ The dry run must return `READY` before `--apply`. Installation must return `appl
 - This is a global **skill**, but it installs the actual orchestration policy and state **inside the target project**. Do not write SDD state under the Hermes home directory.
 - `MANUAL` never advances automatically. Schema 1 BOUNDED_AUTO never starts without an approved fresh plan; schema 2 LOCAL_DELIVERY requires its persisted request authorization and does not seek fresh approval for replans.
 - A valid worker envelope is not proof of execution. Validate independent evidence before transitions.
+- `detect_stack.py` suggestions are inferences from manifests, never verified commands. A gate reported `UNKNOWN` must be configured by a human; do not invent a command for it.
 - Do not use polling, background waits, force flags, overwrites, or Git reset/checkout to resolve conflicts.
 
 ## Verification

@@ -29,9 +29,9 @@ For schema 1, an affirmative response is valid only as a direct reply to the mos
 
 The default target is `NEXT_HUMAN_CHECKPOINT`: continue only while the next action is `AUTO_SAFE` or `AUTO_WITH_BUDGET`, budgets are available, no stop condition occurs, and no human authorization is required.
 
-- `AUTO_SAFE`: local deterministic actions without model calls or external mutation, including recovery reconciliation, focused tests, changed-Dart formatting, analysis, budget and ownership checks, transactional STATE update, DONE evaluation, and run closure.
+- `AUTO_SAFE`: local deterministic actions without model calls or external mutation, including recovery reconciliation, focused tests, formatting restricted to changed files, analysis, budget and ownership checks, transactional STATE update, DONE evaluation, and run closure.
 - `AUTO_WITH_BUDGET`: `SPECIFY`, `CLARIFY`, `PLAN`, `TASKS`, `IMPLEMENT_SLICE`, `REVIEW`, and policy-enabled `CI`.
-- `HUMAN_REQUIRED`: retry-exhausted stage reopening, inconclusive recovery, protected-file changes, material scope or architecture choices, backend mutation, DEV E2E, commit, push, Linear, Obsidian writes, destructive actions, and unplanned external-contract changes.
+- `HUMAN_REQUIRED`: retry-exhausted stage reopening, inconclusive recovery, protected-file changes, material scope or architecture choices, backend mutation, DEV E2E, commit, push, issue-tracker updates (e.g. Linear), Obsidian writes, destructive actions, and unplanned external-contract changes.
 
 The planner stops at the first human requirement, blocker, gate or contract failure, budget exhaustion, inconclusive recovery, protected file, material scope change, external mutation, or `DONE`.
 

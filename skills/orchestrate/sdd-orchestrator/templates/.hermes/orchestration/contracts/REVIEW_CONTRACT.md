@@ -23,7 +23,7 @@ For tasks in scope, receive their canonical requirement/design references and ve
   "review_result": {
     "schema_version": 2,
     "status": "APPROVED",
-    "reviewed_paths": [{"path": "lib/example.dart"}],
+    "reviewed_paths": [{"path": "src/example.ext"}],
     "findings": [],
     "baseline": {"preserved": true, "violations": []},
     "ownership": {"valid": true, "violations": []},

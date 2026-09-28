@@ -141,6 +141,20 @@ evidence: {{tdd_slices: [], historical_validation: [], historical_review: null, 
 '''
 
 
+def _load_template_module(name: str, relative: str):
+    spec = importlib.util.spec_from_file_location(name, TEMPLATE / CONFIG_ROOT / relative)
+    if spec is None or spec.loader is None:
+        raise InstallError(f"TEMPLATE_MODULE_UNAVAILABLE: {relative}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def detect_stack(target: Path) -> dict:
+    """Read-only, evidence-based stack report used to configure GATES.md."""
+    return _load_template_module("sdd_detect_stack", "runtime/detect_stack.py").detect(target)
+
+
 def empty_journal(target: Path, workspace: dict[str, str]) -> str:
     module_path = target / CONFIG_ROOT / "runtime" / "action_journal.py"
     spec = importlib.util.spec_from_file_location("sdd_action_journal", module_path)
@@ -197,7 +211,11 @@ def main() -> int:
                 raise InstallError(f"LOCAL_STATE_REQUIRES_REVIEW: {', '.join(existing_state)}")
         else:
             planned.extend(state_paths)
-        report = {"status": "READY" if planned else "ALREADY_INITIALIZED", "target": str(target), "planned": planned, "applied": False}
+        report = {
+            "status": "READY" if planned else "ALREADY_INITIALIZED", "target": str(target), "planned": planned,
+            "applied": False, "stack": detect_stack(target),
+            "next_step": "Configure .hermes/orchestration/policies/GATES.md with verified commands before the first demand.",
+        }
         if args.apply and planned:
             for source in template_files():
                 relative = source.relative_to(TEMPLATE)
@@ -210,7 +228,11 @@ def main() -> int:
             (target / CONFIG_ROOT / "ACTION_JOURNAL.json").write_text(empty_journal(target, workspace), encoding="utf-8")
             update_exclude(target)
             report["applied"] = True
-        print(json.dumps(report, ensure_ascii=False) if args.json else f'{report["status"]}: {len(planned)} files planned')
+        if args.json:
+            print(json.dumps(report, ensure_ascii=False))
+        else:
+            ecosystems = ", ".join(f'{item["ecosystem"]}@{item["path"]}' for item in report["stack"]["ecosystems"]) or "none detected"
+            print(f'{report["status"]}: {len(planned)} files planned; stack: {ecosystems}')
         return 0
     except (InstallError, OSError, subprocess.TimeoutExpired) as error:
         report = {"status": "BLOCKED", "reason": str(error)}

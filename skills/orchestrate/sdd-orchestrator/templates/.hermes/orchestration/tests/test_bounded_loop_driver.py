@@ -134,7 +134,7 @@ class BoundedLoopDriverTests(unittest.TestCase):
         substituted["gate_baseline"].update({"focused_tests": "PASS", "format": "PASS"})
         substituted["actions"] = [
             entry for entry in substituted["actions"]
-            if entry["action"] not in {"TEST_FOCUSED", "FORMAT_DART_CHANGED_FILES"}
+            if entry["action"] not in {"TEST_FOCUSED", "FORMAT_CHANGED_FILES"}
         ]
         for sequence, entry in enumerate(substituted["actions"], start=1):
             entry.update({"sequence": sequence, "id": f"action-{sequence}"})
@@ -239,7 +239,7 @@ class BoundedLoopDriverTests(unittest.TestCase):
         value["gates"]["focused_tests"] = "PASS"
         plan = planner.create_plan(copy.deepcopy(value))
         accepted = plan["actions"][0]
-        self.assertEqual("FORMAT_DART_CHANGED_FILES", accepted["action"])
+        self.assertEqual("FORMAT_CHANGED_FILES", accepted["action"])
         self.assertEqual(planner.zero_budgets(), accepted["budget_cost"])
         value["state"]["completed"] = [accepted["action"]]
         value["gates"]["format"] = "PASS"

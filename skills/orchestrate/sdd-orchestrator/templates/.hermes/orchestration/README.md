@@ -33,7 +33,7 @@ python3 .hermes/orchestration/runtime/bounded_run_planner.py --help
 python3 .hermes/orchestration/runtime/bounded_run_driver.py --help
 ```
 
-Configure project-specific validation in `policies/GATES.md` before starting a demand. The mutable state files are controller-owned and must not be moved into a source layer.
+Configure project-specific validation in `policies/GATES.md` before starting a demand. `runtime/detect_stack.py` is a read-only helper for that step: it reports each ecosystem (Node, Python, Go, Rust, JVM, .NET, Ruby, PHP, Elixir, Swift, C/C++, Dart…) with the manifest that proves it, the CI providers present and a suggested command per gate, leaving a gate `null` when nothing supports it. The FSM gate names (`TEST_FOCUSED`, `FORMAT_CHANGED_FILES`, `ANALYZE`) are identical for every language. The mutable state files are controller-owned and must not be moved into a source layer.
 
 ## Obsidian second brain
 

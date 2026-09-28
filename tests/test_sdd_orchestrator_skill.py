@@ -671,6 +671,41 @@ class SddOrchestratorSkillTests(unittest.TestCase):
         self.assertNotIn("`BOUNDED_AUTO` never starts without an approved fresh plan", skill)
         self.assertIn("Este fallback aplica-se somente a ações MANUAL", loop_policy)
 
+    def test_installer_reports_detected_stack_for_any_language(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-orchestrator-stack-") as temp:
+            target = Path(temp)
+            self.execute("git", "init", "-b", "main", str(target))
+            self.execute("git", "-C", str(target), "config", "user.email", "test@example.invalid")
+            self.execute("git", "-C", str(target), "config", "user.name", "Test")
+            (target / "go.mod").write_text("module example\n", encoding="utf-8")
+            self.execute("git", "-C", str(target), "add", "go.mod")
+            self.execute("git", "-C", str(target), "commit", "-m", "fixture")
+
+            report = json.loads(self.execute("python3", str(INSTALLER), "--target", str(target), "--json").stdout)
+            self.assertEqual("READY", report["status"])
+            self.assertEqual(["go"], [item["ecosystem"] for item in report["stack"]["ecosystems"]])
+            self.assertEqual("DETECTED_UNVERIFIED", report["stack"]["status"])
+            self.assertFalse((target / ".hermes").exists(), "dry run must not write")
+
+    def test_payload_is_not_coupled_to_one_language(self) -> None:
+        """Only the detector and the GATES reference table may name a specific ecosystem."""
+        orchestration = SKILL_ROOT / "templates" / ".hermes" / "orchestration"
+        allowed = {
+            orchestration / "runtime" / "detect_stack.py",
+            orchestration / "tests" / "test_detect_stack.py",
+            orchestration / "policies" / "GATES.md",
+            orchestration / "policies" / "LOOP_POLICY.md",  # toolchain examples list
+            orchestration / "tests" / "test_bounded_run_planner.py",  # legacy-name regression tests
+            orchestration / "README.md",  # lists the ecosystems the detector covers
+        }
+        pattern = re.compile(r"\b(?:dart|flutter|fvm|pubspec)\b|\.dart\b", re.IGNORECASE)
+        for path in sorted(orchestration.rglob("*")):
+            if not path.is_file() or path in allowed or path.suffix not in {".md", ".py", ".json"}:
+                continue
+            text = path.read_text(encoding="utf-8").replace("changed_dart_files_available", "")
+            with self.subTest(path=path.relative_to(orchestration)):
+                self.assertIsNone(pattern.search(text))
+
     def test_installs_project_local_configuration_from_skill_bundle(self) -> None:
         self.assertTrue((SKILL_ROOT / "SKILL.md").is_file())
         self.assertTrue(INSTALLER.is_file())

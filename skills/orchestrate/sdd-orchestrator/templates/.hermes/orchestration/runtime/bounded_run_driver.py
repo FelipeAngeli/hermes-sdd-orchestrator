@@ -207,7 +207,7 @@ def _action_precondition_failure(
     if snapshot["schema_version"] == 2 and not _local_delivery_cursor_is_valid(snapshot, plan, runtime):
         return "IMPLEMENTATION_CURSOR_INVALID"
     if (
-        action in {"TEST_FOCUSED", "FORMAT_DART_CHANGED_FILES", "ANALYZE", "REVIEW"}
+        action in {"TEST_FOCUSED", "FORMAT_CHANGED_FILES", "ANALYZE", "REVIEW"}
         and implementation["planned_slices"]
         and not implementation["all_slices_green"]
     ):

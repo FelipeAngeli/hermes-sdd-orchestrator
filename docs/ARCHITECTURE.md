@@ -47,7 +47,9 @@ tests/
 
 ### Runtime
 
-`runtime/` contains deterministic Python tools for planning, continuation decisions, journal recovery and result validation. Runtime modules may depend on `schemas/`; they must not import tests or mutate project source code.
+`runtime/` contains deterministic Python tools for planning, continuation decisions, journal recovery, result validation and stack detection. Runtime modules may depend on `schemas/`; they must not import tests or mutate project source code.
+
+The runtime is language-neutral: gate actions are named by role (`TEST_FOCUSED`, `FORMAT_CHANGED_FILES`, `ANALYZE`), never by toolchain, and the only project-specific data are the commands in `policies/GATES.md`. `detect_stack.py` is the single place that knows ecosystems; it is read-only and suggests commands only from manifest, lockfile or tool-configuration evidence. The legacy snapshot field `changed_dart_files_available` is still accepted as an alias of `changed_files_available` so older installations keep validating.
 
 ### Schemas
 
@@ -95,3 +97,4 @@ State files (`STATE.md`, `ACTION_JOURNAL.json`, `INCIDENTS.md` and journal histo
 - Keep `.hermes.md` compact and reference the layered paths rather than duplicating policy text.
 - Preserve installer idempotency and fail closed on tracked, partial, conflicting or symlinked destinations.
 - Update this document, the installed layout README and acceptance tests when introducing a new layer.
+- Never name a language, framework or toolchain in an action, schema field, contract or brief. Ecosystem knowledge belongs only in `runtime/detect_stack.py` and the reference table of `policies/GATES.md`; `test_payload_is_not_coupled_to_one_language` enforces this.

@@ -336,7 +336,7 @@ CI_TIMEOUT
 
 ### Ambiente
 
-FVM_ENVIRONMENT
+TOOLCHAIN_ENVIRONMENT (SDK/version manager ausente ou divergente: fvm, nvm, pyenv, asdf, rustup, sdkman…)
 SANDBOX_PERMISSION
 ENVIRONMENT_BLOCKED
 
@@ -346,7 +346,7 @@ Parar antes de:
 
 - commit;
 - push;
-- Linear update;
+- atualização de issue tracker (Linear, Jira, GitHub Issues…);
 - Obsidian write;
 - Obsidian update;
 - backend mutation;
