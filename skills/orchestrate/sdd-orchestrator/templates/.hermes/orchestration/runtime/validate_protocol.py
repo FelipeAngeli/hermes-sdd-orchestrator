@@ -21,6 +21,11 @@ ORCHESTRATION_ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS_ROOT = ORCHESTRATION_ROOT / "schemas"
 EXECUTOR_ACTIONS = {"SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST"}
 ANALYSIS_ONLY_ACTIONS = {"SPECIFY", "CLARIFY", "PLAN", "TASKS", "TEST"}
+READ_ONLY_ROLES = {
+    "PROJECT_CONTEXT_GUARDIAN": {"SPECIFY", "PLAN", "IMPLEMENT"},
+    "DATA_FLOW_TRACER": {"PLAN", "IMPLEMENT"},
+}
+_GLOB_CHARACTERS = set("*?[")
 REVIEW_ACTION = "REVIEW"
 _CITED_COMMAND = re.compile(r"`([^`]+)`")
 _VALIDATOR_CACHE_MAXSIZE = 32
@@ -70,6 +75,8 @@ def validate_payload(
     completed_slice_ids: set[str] | None = None,
     editable_paths: set[str] | None = None,
     required_commands: list[str] | None = None,
+    check_verifiers: dict[str, list[str]] | None = None,
+    role: str | None = None,
 ) -> list[dict[str, str]]:
     """Return structural and semantic errors; an empty list means acceptance."""
     try:
@@ -92,6 +99,8 @@ def validate_payload(
     result = payload[envelope]
     if result["schema_version"] != expected_version:
         return [_error(f"$.{envelope}.schema_version", f"expected version {expected_version}")]
+    if role is not None and (role not in READ_ONLY_ROLES or action not in READ_ONLY_ROLES[role]):
+        return [_error("$", f"role {role} is not a read-only role allowed in {action}")]
     if action in EXECUTOR_ACTIONS:
         if result["stage"]["value"] != action:
             return [_error("$.executor_result.stage.value", f"must equal requested action {action}")]
@@ -102,6 +111,8 @@ def validate_payload(
             completed_slice_ids,
             editable_paths,
             required_commands,
+            check_verifiers,
+            role,
         ))
     else:
         errors.extend(_validate_review_semantics(result, expected_acceptance))
@@ -117,6 +128,8 @@ def validate_json_text(
     completed_slice_ids: set[str] | None = None,
     editable_paths: set[str] | None = None,
     required_commands: list[str] | None = None,
+    check_verifiers: dict[str, list[str]] | None = None,
+    role: str | None = None,
 ) -> list[dict[str, str]]:
     """Accept JSON text only; YAML, transcripts, and Markdown are rejected."""
     try:
@@ -132,6 +145,8 @@ def validate_json_text(
         completed_slice_ids,
         editable_paths,
         required_commands,
+        check_verifiers,
+        role,
     )
 
 
@@ -202,13 +217,48 @@ def _validate_authoritative_acceptance(
 
 def _is_safe_relative(path: str) -> bool:
     candidate = PurePosixPath(path)
-    return not candidate.is_absolute() and ".." not in candidate.parts and not path.startswith("~")
+    return (
+        bool(path)
+        and not candidate.is_absolute()
+        and ".." not in candidate.parts
+        and not path.startswith("~")
+    )
+
+
+def editable_pattern_is_safe(pattern: str) -> bool:
+    """Editable patterns are anchored at a literal first segment and never escape.
+
+    `*`, `?` and `[...]` never cross `/`; only a whole `**` segment spans
+    directories. Anchoring the first segment rejects match-all spellings such
+    as `*`, `*/*`, `?*`, `**/**` or `[!~]*`.
+    """
+    if not _is_safe_relative(pattern) or pattern.endswith("/"):
+        return False
+    segments = pattern.split("/")
+    if any(segment == "" for segment in segments):
+        return False
+    if any("**" in segment and segment != "**" for segment in segments):
+        return False
+    return not (set(segments[0]) & _GLOB_CHARACTERS)
+
+
+def path_matches(path: str, pattern: str) -> bool:
+    """Match a repository path segment by segment (`*` does not cross `/`)."""
+    def match(path_parts: list[str], pattern_parts: list[str]) -> bool:
+        if not pattern_parts:
+            return not path_parts
+        head, rest = pattern_parts[0], pattern_parts[1:]
+        if head == "**":
+            return any(match(path_parts[index:], rest) for index in range(len(path_parts) + 1))
+        return bool(path_parts) and fnmatch.fnmatchcase(path_parts[0], head) and match(path_parts[1:], rest)
+
+    return match(path.split("/"), pattern.split("/"))
 
 
 def _validate_write_scope(
-    result: dict[str, Any], editable_paths: set[str] | None,
+    result: dict[str, Any], editable_paths: set[str] | None, read_only: bool,
 ) -> list[dict[str, str]]:
-    """Analysis stages write nothing; IMPLEMENT writes only controller-declared paths."""
+    """Analysis stages and read-only roles write nothing; IMPLEMENT writes only declared paths."""
     stage = result["stage"]["value"]
     errors: list[dict[str, str]] = []
     written = [
@@ -216,11 +266,12 @@ def _validate_write_scope(
         for field in ("modified_paths", "created_paths")
         for index, item in enumerate(result[field])
     ]
-    if stage in ANALYSIS_ONLY_ACTIONS:
+    if stage in ANALYSIS_ONLY_ACTIONS or read_only:
+        label = "a read-only role" if read_only else "analysis-only"
         for field, index, _ in written:
             errors.append(_error(
                 f"$.executor_result.{field}[{index}]",
-                f"{stage} is analysis-only and cannot report file changes",
+                f"{stage} result from {label} (analysis-only) cannot report file changes",
             ))
         return errors
     if stage != "IMPLEMENT":
@@ -231,11 +282,15 @@ def _validate_write_scope(
             "IMPLEMENT requires non-empty controller-declared editable_paths for the slice",
         ))
         return errors
+    unsafe = sorted(pattern for pattern in editable_paths if not editable_pattern_is_safe(pattern))
+    if unsafe:
+        errors.append(_error("$", f"editable_paths patterns are unsafe or match everything: {unsafe}"))
+        return errors
     for field, index, path in written:
         prefix = f"$.executor_result.{field}[{index}]"
         if not _is_safe_relative(path):
             errors.append(_error(prefix, "written paths must be repository-relative without '..'"))
-        elif not any(fnmatch.fnmatchcase(path, pattern) for pattern in editable_paths):
+        elif not any(path_matches(path, pattern) for pattern in editable_paths):
             errors.append(_error(prefix, f"{path} is outside the slice editable_paths"))
     return errors
 
@@ -255,12 +310,17 @@ def _passing_commands(result: dict[str, Any]) -> set[str]:
 
 
 def _validate_evidence_citations(
-    result: dict[str, Any], current_slice_ids: set[str] | None,
+    result: dict[str, Any],
+    current_slice_ids: set[str] | None,
+    check_verifiers: dict[str, list[str]] | None,
 ) -> list[dict[str, str]]:
-    """An AGENT PASS verified in this result must cite a recorded passing command.
+    """An AGENT PASS verified here must cite one of that check's controller-bound verifiers.
 
     TEST verifies every check now. IMPLEMENT verifies only the current slice;
     completed-slice checks carry evidence already accepted by an earlier action.
+    The cited command must be both bound to the check by the controller and
+    recorded as passing, so a worker cannot prove a check with a command it
+    chose itself (for example `true`).
     """
     stage = result["stage"]["value"]
     if stage not in {"IMPLEMENT", "TEST"}:
@@ -272,11 +332,20 @@ def _validate_evidence_citations(
             continue
         if stage == "IMPLEMENT" and current_slice_ids is not None and check["slice_id"] not in current_slice_ids:
             continue
+        prefix = f"$.executor_result.acceptance_checks[{index}].evidence"
+        if check_verifiers is None:
+            errors.append(_error(prefix, "AGENT PASS requires controller-owned check_verifiers"))
+            continue
+        allowed = set(check_verifiers.get(check["id"], []))
+        if not allowed:
+            errors.append(_error(prefix, f"check {check['id']} has no controller-bound verifier command"))
+            continue
         cited = set(_CITED_COMMAND.findall(check["evidence"]))
-        if not cited & passing:
+        if not cited & allowed & passing:
             errors.append(_error(
-                f"$.executor_result.acceptance_checks[{index}].evidence",
-                "AGENT PASS evidence must cite, in backticks, a recorded command that exited 0 with PASS",
+                prefix,
+                f"AGENT PASS evidence for {check['id']} must cite, in backticks, one of its bound verifier "
+                "commands recorded as exit 0 with PASS",
             ))
     return errors
 
@@ -296,6 +365,25 @@ def _validate_required_commands(
     ]
 
 
+def _validate_read_only_result(
+    result: dict[str, Any], completed_slice_ids: set[str] | None,
+) -> list[dict[str, str]]:
+    """A read-only role verifies nothing: it reports context, never TDD work or new PASS evidence."""
+    errors: list[dict[str, str]] = []
+    if result["tdd_slices"]:
+        errors.append(_error("$.executor_result.tdd_slices", "a read-only role cannot report TDD slices"))
+    completed = completed_slice_ids or set()
+    for index, check in enumerate(result["acceptance_checks"]):
+        if check["slice_id"] in completed:
+            continue
+        prefix = f"$.executor_result.acceptance_checks[{index}]"
+        if check["status"] != "PLANNED":
+            errors.append(_error(f"{prefix}.status", "a read-only role keeps unverified checks PLANNED"))
+        if check["evidence"] is not None:
+            errors.append(_error(f"{prefix}.evidence", "a read-only role cannot add acceptance evidence"))
+    return errors
+
+
 def _validate_executor_semantics(
     result: dict[str, Any],
     expected_acceptance: dict[str, dict[str, str | None]] | None,
@@ -303,10 +391,16 @@ def _validate_executor_semantics(
     completed_slice_ids: set[str] | None,
     editable_paths: set[str] | None = None,
     required_commands: list[str] | None = None,
+    check_verifiers: dict[str, list[str]] | None = None,
+    role: str | None = None,
 ) -> list[dict[str, str]]:
-    errors: list[dict[str, str]] = _validate_write_scope(result, editable_paths)
-    errors.extend(_validate_evidence_citations(result, current_slice_ids))
-    errors.extend(_validate_required_commands(result, required_commands))
+    read_only = role in READ_ONLY_ROLES
+    errors: list[dict[str, str]] = _validate_write_scope(result, editable_paths, read_only)
+    if read_only:
+        errors.extend(_validate_read_only_result(result, completed_slice_ids))
+    else:
+        errors.extend(_validate_evidence_citations(result, current_slice_ids, check_verifiers))
+        errors.extend(_validate_required_commands(result, required_commands))
     stage = result["stage"]
     slices = result["tdd_slices"]
     checks = result["acceptance_checks"]
@@ -378,7 +472,7 @@ def _validate_executor_semantics(
                 "$.executor_result.acceptance_checks",
                 f"{stage['value']} SUCCESS requires at least one acceptance check",
             ))
-    if stage["value"] == "IMPLEMENT" and stage["status"] == "SUCCESS":
+    if stage["value"] == "IMPLEMENT" and stage["status"] == "SUCCESS" and not read_only:
         reported_slice_ids = [item["id"] for item in slices]
         if current_slice_ids is None:
             errors.append(_error(
@@ -443,7 +537,7 @@ def _validate_executor_semantics(
                 errors.append(_error(f"{prefix}.status", "TEST SUCCESS requires every acceptance check to PASS"))
             if not _has_text(check["evidence"]):
                 errors.append(_error(f"{prefix}.evidence", "TEST SUCCESS requires evidence"))
-    if stage["value"] == "IMPLEMENT" and stage["status"] == "SUCCESS":
+    if stage["value"] == "IMPLEMENT" and stage["status"] == "SUCCESS" and not read_only:
         if not slices:
             errors.append(_error("$.executor_result.tdd_slices", "IMPLEMENT SUCCESS requires at least one TDD slice"))
         for index, item in enumerate(slices):
@@ -550,7 +644,10 @@ def _load_context(path: str | None) -> dict[str, Any]:
     if path is None:
         return {}
     context = json.loads(Path(path).read_text(encoding="utf-8"))
-    allowed = {"expected_acceptance", "current_slice_ids", "completed_slice_ids", "editable_paths", "required_commands"}
+    allowed = {
+        "expected_acceptance", "current_slice_ids", "completed_slice_ids", "editable_paths",
+        "required_commands", "check_verifiers", "role",
+    }
     if not isinstance(context, dict) or set(context) - allowed:
         raise ValueError(f"context must be an object with only {sorted(allowed)}")
     return context
@@ -574,6 +671,8 @@ def main(argv: list[str] | None = None) -> int:
             completed_slice_ids=as_set("completed_slice_ids"),
             editable_paths=as_set("editable_paths"),
             required_commands=context.get("required_commands"),
+            check_verifiers=context.get("check_verifiers"),
+            role=context.get("role"),
         )
     except (OSError, ValueError) as exc:
         errors = [_error("$", str(exc))]

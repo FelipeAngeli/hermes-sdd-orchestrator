@@ -29,6 +29,13 @@ PASSING_EVIDENCE = {
     "TEST": "`synthetic focused command` exited 0 and asserted the outcome",
 }
 EDITABLE_PATHS = {"src/*", "tests/*"}
+BOUND_COMMANDS = ["synthetic focused command", "synthetic green command"]
+
+
+def bound_verifiers(action: str, payload: object) -> dict[str, list[str]] | None:
+    if action not in {"IMPLEMENT", "TEST"} or not isinstance(payload, dict) or "executor_result" not in payload:
+        return None
+    return {check["id"]: list(BOUND_COMMANDS) for check in payload["executor_result"]["acceptance_checks"]}
 
 
 def executor_fixture(stage: str, status: str = "SUCCESS") -> dict:
@@ -162,6 +169,7 @@ class ProtocolValidationTests(unittest.TestCase):
             current_slice_ids=current,
             completed_slice_ids=set() if action == "IMPLEMENT" else None,
             editable_paths=EDITABLE_PATHS if action == "IMPLEMENT" else None,
+            check_verifiers=bound_verifiers(action, payload),
         )
         self.assertEqual([], errors, msg=errors)
 
@@ -176,6 +184,7 @@ class ProtocolValidationTests(unittest.TestCase):
                 current_slice_ids=current,
                 completed_slice_ids=set() if action == "IMPLEMENT" else None,
                 editable_paths=EDITABLE_PATHS if action == "IMPLEMENT" else None,
+                check_verifiers=bound_verifiers(action, payload),
             ),
             msg="fixture unexpectedly accepted",
         )
@@ -339,6 +348,7 @@ class ProtocolValidationTests(unittest.TestCase):
             current_slice_ids={"synthetic-slice-1"},
             completed_slice_ids={"synthetic-slice-0"},
             editable_paths=EDITABLE_PATHS,
+            check_verifiers=bound_verifiers("IMPLEMENT", fixture),
         ))
 
     def test_rejects_implement_success_with_future_slice_marked_pass(self) -> None:
@@ -676,6 +686,94 @@ class ProtocolValidationTests(unittest.TestCase):
         })
 
         self.assertAccepted("TEST", fixture)
+
+    def test_rejects_pass_citing_a_command_not_bound_to_the_check(self) -> None:
+        cases = {
+            "self-chosen-true": ("true", {"AC-1": ["synthetic focused command"]}),
+            "other-checks-verifier": ("synthetic focused command", {"AC-1": ["pytest tests/feature -q"]}),
+            "no-bound-verifier": ("synthetic focused command", {}),
+        }
+        for name, (cited, verifiers) in cases.items():
+            with self.subTest(case=name):
+                fixture = executor_fixture("TEST")
+                fixture["executor_result"]["commands"].append({**FOCUSED_COMMAND, "command": cited})
+                fixture["executor_result"]["acceptance_checks"][0]["evidence"] = f"`{cited}` exited 0"
+                errors = validate_payload(
+                    "TEST", fixture,
+                    expected_acceptance=self._expected_acceptance("TEST", fixture),
+                    check_verifiers=verifiers,
+                )
+                self.assertTrue(errors, msg=f"{name} unexpectedly accepted")
+
+    def test_agent_pass_requires_controller_bound_verifiers(self) -> None:
+        fixture = executor_fixture("TEST")
+        errors = validate_payload("TEST", fixture, expected_acceptance=self._expected_acceptance("TEST", fixture))
+        self.assertTrue(any("check_verifiers" in error["reason"] for error in errors), errors)
+
+    def test_editable_patterns_do_not_cross_directories_or_match_everything(self) -> None:
+        for pattern in ("*", "*/*", "?*", "***", "**/**", "[!~]*", "**", "src/**x", "/src/*", "src/../*", "src/"):
+            with self.subTest(pattern=pattern):
+                self.assertFalse(validate_protocol.editable_pattern_is_safe(pattern))
+        for pattern in ("src/*", "src/**", "src/**/*.py", "docs/components/harness.md"):
+            with self.subTest(pattern=pattern):
+                self.assertTrue(validate_protocol.editable_pattern_is_safe(pattern))
+        self.assertTrue(validate_protocol.path_matches("src/a.py", "src/*"))
+        self.assertFalse(validate_protocol.path_matches("src/deep/a.py", "src/*"))
+        self.assertTrue(validate_protocol.path_matches("src/deep/a.py", "src/**"))
+        self.assertTrue(validate_protocol.path_matches("src/deep/er/a.py", "src/**/*.py"))
+        self.assertFalse(validate_protocol.path_matches(".github/workflows/ci.yml", "src/**"))
+
+    def test_implement_rejects_nested_write_under_single_level_pattern_and_unsafe_patterns(self) -> None:
+        fixture = successful_implementation()
+        fixture["executor_result"]["modified_paths"] = [{"path": "src/deep/example.ext"}]
+        self.assertRejected("IMPLEMENT", fixture)
+        fixture["executor_result"]["modified_paths"] = [{"path": ".github/workflows/ci.yml"}]
+        errors = validate_payload(
+            "IMPLEMENT", fixture,
+            expected_acceptance=self._expected_acceptance("IMPLEMENT", fixture),
+            current_slice_ids={"synthetic-slice-1"}, completed_slice_ids=set(),
+            editable_paths={"*/*"}, check_verifiers=bound_verifiers("IMPLEMENT", fixture),
+        )
+        self.assertTrue(any("unsafe" in error["reason"] for error in errors), errors)
+
+    def read_only_implement(self) -> dict:
+        fixture = executor_fixture("IMPLEMENT")
+        check = fixture["executor_result"]["acceptance_checks"][0]
+        check.update({"status": "PLANNED", "evidence": None})
+        return fixture
+
+    def validate_read_only(self, fixture: dict, role: str = "PROJECT_CONTEXT_GUARDIAN", action: str = "IMPLEMENT"):
+        return validate_payload(
+            action, fixture,
+            expected_acceptance=self._expected_acceptance("IMPLEMENT", fixture),
+            completed_slice_ids=set(),
+            role=role,
+        )
+
+    def test_read_only_roles_return_a_valid_implement_context_result(self) -> None:
+        for role in ("PROJECT_CONTEXT_GUARDIAN", "DATA_FLOW_TRACER"):
+            with self.subTest(role=role):
+                self.assertEqual([], self.validate_read_only(self.read_only_implement(), role))
+
+    def test_read_only_roles_cannot_write_verify_or_report_tdd(self) -> None:
+        mutations = {
+            "writes": lambda r: r.update({"modified_paths": [{"path": "src/example.ext"}]}),
+            "claims-pass": lambda r: r["acceptance_checks"][0].update({"status": "PASS", "evidence": "`x`"}),
+            "tdd": lambda r: r.update({"tdd_slices": successful_implementation()["executor_result"]["tdd_slices"]}),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(mutation=name):
+                fixture = self.read_only_implement()
+                mutate(fixture["executor_result"])
+                self.assertTrue(self.validate_read_only(fixture), msg=f"{name} unexpectedly accepted")
+
+    def test_read_only_role_is_limited_to_its_declared_stages(self) -> None:
+        self.assertTrue(self.validate_read_only(self.read_only_implement(), "TDD_IMPLEMENTER"))
+        fixture = executor_fixture("TEST")
+        self.assertTrue(validate_payload(
+            "TEST", fixture, expected_acceptance=self._expected_acceptance("TEST", fixture),
+            role="PROJECT_CONTEXT_GUARDIAN",
+        ))
 
     def test_rejects_approved_review_with_e2e_violation(self) -> None:
         fixture = review_fixture()

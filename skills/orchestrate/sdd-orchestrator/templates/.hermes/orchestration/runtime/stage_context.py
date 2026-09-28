@@ -19,17 +19,22 @@ from typing import Any
 
 import jsonschema
 
+from validate_protocol import editable_pattern_is_safe
+
 SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schemas" / "STAGE_CONTEXT_SCHEMA.json"
 PROJECT_CONTEXT_STAGES = ("PLAN", "IMPLEMENT")
+FORBIDDEN_SOURCE_NAMES = ("STATE.md", "ACTION_JOURNAL.json", "INCIDENTS.md", "action-journal-history")
 SLICE_STAGES = ("IMPLEMENT", "TEST", "REVIEW")
 APPROVAL_REUSED = "APPROVAL_REUSED"
 APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
 APPROVAL_NOT_REQUESTED = "APPROVAL_NOT_REQUESTED"
+APPROVAL_NOT_APPLICABLE = "APPROVAL_NOT_APPLICABLE"
 CONTEXT_ERROR_CODES = (
     "CONTEXT_BUDGET_EXCEEDED",
     "CONTEXT_EXCERPT_INVALID",
     "CONTEXT_EXCERPT_TOO_LARGE",
     "CONTEXT_SOURCE_DUPLICATED",
+    "CONTEXT_SOURCE_FORBIDDEN",
     "PROJECT_CONTEXT_REQUIRED",
     "PROJECT_CONTEXT_GAPS_REQUIRED",
     "SLICE_REQUIRED",
@@ -54,25 +59,38 @@ def _canonical(value: Any) -> bytes:
     return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
-def slice_sha256(value: dict[str, Any]) -> str:
-    """Hash exactly what an approval authorizes: ticket, stage and slice contract.
+def slice_contract(value: dict[str, Any], slice_id: str) -> dict[str, Any]:
+    """Return the order-independent contract of one slice: what an approval authorizes.
 
-    Paths, verifiers and check IDs are order-independent, so a refreshed or
-    reordered context never forces a second approval for the same slice.
+    It holds only the ticket, the slice ID, its editable paths, its acceptance
+    checks and the verifiers bound to them. The stage and the completed-slice
+    cursor are excluded, so a hash computed when TASKS is approved matches the
+    later IMPLEMENT dispatch of the same slice, and finishing S1 does not change
+    the hash of S2.
     """
-    contract = copy.deepcopy(value["slice"])
-    if contract is not None:
-        for key in ("current_slice_ids", "completed_slice_ids", "editable_paths"):
-            contract[key] = sorted(contract[key])
-        for item in contract["required_verification"]:
-            item["check_ids"] = sorted(item["check_ids"])
-        contract["required_verification"] = sorted(contract["required_verification"], key=lambda item: item["id"])
-    return hashlib.sha256(_canonical({"ticket": value["ticket"], "stage": value["stage"], "slice": contract})).hexdigest()
+    contract = value["slice"]
+    acceptance = {key: check for key, check in contract["acceptance"].items() if check["slice_id"] == slice_id}
+    verifiers = []
+    for item in contract["required_verification"]:
+        bound = sorted(set(item["check_ids"]) & set(acceptance))
+        if bound:
+            verifiers.append({**item, "check_ids": bound})
+    return {
+        "ticket": value["ticket"],
+        "slice_id": slice_id,
+        "editable_paths": sorted(contract["editable_paths"]),
+        "acceptance": acceptance,
+        "required_verification": sorted(verifiers, key=lambda item: item["id"]),
+    }
 
 
-def _safe_pattern(pattern: str) -> bool:
-    candidate = PurePosixPath(pattern)
-    return not candidate.is_absolute() and ".." not in candidate.parts and pattern not in {"*", "**", "**/*"}
+def slice_sha256(value: dict[str, Any]) -> str | None:
+    """Hash the current IMPLEMENT slice contract; other stages authorize no writes."""
+    contract = value.get("slice")
+    if value["stage"] != "IMPLEMENT" or contract is None or len(set(contract["current_slice_ids"])) != 1:
+        return None
+    (slice_id,) = set(contract["current_slice_ids"])
+    return hashlib.sha256(_canonical(slice_contract(value, slice_id))).hexdigest()
 
 
 def _finding(code: str, detail: str) -> dict[str, str]:
@@ -91,6 +109,11 @@ def _check_sources(value: dict[str, Any]) -> list[dict[str, str]]:
         if key in seen:
             errors.append(_finding("CONTEXT_SOURCE_DUPLICATED", f"{source['path']}:{start}-{end} is listed twice"))
         seen.add(key)
+        if set(PurePosixPath(source["path"]).parts) & set(FORBIDDEN_SOURCE_NAMES):
+            errors.append(_finding(
+                "CONTEXT_SOURCE_FORBIDDEN",
+                f"{source['path']} is controller-owned runtime state; send the relevant facts, not a STATE or journal dump",
+            ))
         if end < start:
             errors.append(_finding("CONTEXT_EXCERPT_INVALID", f"{source['path']} ends before it starts"))
         elif end - start + 1 > limits["max_lines_per_source"]:
@@ -132,8 +155,11 @@ def _check_slice(value: dict[str, Any]) -> list[dict[str, str]]:
     elif contract["editable_paths"]:
         errors.append(_finding("ANALYSIS_STAGE_EDITABLE_PATHS", f"{stage} is read-only and cannot declare editable paths"))
     for pattern in contract["editable_paths"]:
-        if not _safe_pattern(pattern):
-            errors.append(_finding("SLICE_EDITABLE_PATH_UNSAFE", f"{pattern} is absolute, escapes the repository or matches everything"))
+        if not editable_pattern_is_safe(pattern):
+            errors.append(_finding(
+                "SLICE_EDITABLE_PATH_UNSAFE",
+                f"{pattern} is absolute, escapes the repository, is unanchored or matches everything",
+            ))
 
     acceptance = contract["acceptance"]
     in_scope = (
@@ -148,21 +174,21 @@ def _check_slice(value: dict[str, Any]) -> list[dict[str, str]]:
             if check_id not in acceptance:
                 errors.append(_finding("VERIFIER_UNKNOWN_CHECK", f"{verifier['id']} names unknown check {check_id}"))
             covered.setdefault(check_id, []).append(verifier)
-    independent = [item for item in contract["required_verification"] if not item["introduced_by_slice"]]
-    if not independent:
-        errors.append(_finding(
-            "INDEPENDENT_VERIFIER_REQUIRED",
-            "at least one required verifier must predate the slice; a test the slice just wrote cannot be its only proof",
-        ))
     for check_id, check in sorted(acceptance.items()):
         if check["slice_id"] not in in_scope:
             continue
         verifiers = covered.get(check_id, [])
         wanted_kind = {"HUMAN"} if check["verifier"] == "HUMAN" else set(_MACHINE_KINDS)
-        if not any(item["kind"] in wanted_kind for item in verifiers):
+        bound = [item for item in verifiers if item["kind"] in wanted_kind]
+        if not bound:
             errors.append(_finding(
                 "ACCEPTANCE_CHECK_UNVERIFIED",
                 f"{check_id} has no {'human' if check['verifier'] == 'HUMAN' else 'observable'} verifier bound to it",
+            ))
+        elif check["verifier"] == "AGENT" and all(item["introduced_by_slice"] for item in bound):
+            errors.append(_finding(
+                "INDEPENDENT_VERIFIER_REQUIRED",
+                f"{check_id} is bound only to verifiers this slice introduced; bind one that predates the slice",
             ))
     return errors
 
@@ -186,7 +212,9 @@ def check(value: Any) -> dict[str, Any]:
     approval = value["approval"]
     if approval is None:
         approval_state = APPROVAL_NOT_REQUESTED
-    elif approval["approved_slice_sha256"] == digest:
+    elif digest is None:
+        approval_state = APPROVAL_NOT_APPLICABLE
+    elif digest in approval["approved_slice_sha256s"]:
         approval_state = APPROVAL_REUSED
     else:
         approval_state = APPROVAL_REQUIRED
@@ -208,6 +236,13 @@ def verifier_context(value: dict[str, Any]) -> dict[str, Any]:
     context: dict[str, Any] = {
         "expected_acceptance": copy.deepcopy(contract["acceptance"]),
         "required_commands": [item["command"] for item in contract["required_verification"] if item["command"]],
+        "check_verifiers": {
+            check_id: sorted(
+                item["command"] for item in contract["required_verification"]
+                if item["command"] and check_id in item["check_ids"]
+            )
+            for check_id in sorted(contract["acceptance"])
+        },
     }
     if value["stage"] == "IMPLEMENT":
         context.update(
@@ -232,7 +267,8 @@ def main(argv: list[str] | None = None) -> int:
             result = check(value)
             code = 0 if result["valid"] else 2
         elif args.command == "hash":
-            result, code = {"slice_sha256": slice_sha256(value)}, 0
+            digest = slice_sha256(value)
+            result, code = {"slice_sha256": digest}, 0 if digest else 2
         else:
             result, code = verifier_context(value), 0
     except (OSError, json.JSONDecodeError, KeyError, ContextError) as exc:

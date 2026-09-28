@@ -51,7 +51,7 @@ def context(stage: str = "IMPLEMENT") -> dict:
             "required_verification": [
                 {"id": "V1", "kind": "TEST", "command": "pytest tests/feature -q", "check_ids": ["AC-1"],
                  "introduced_by_slice": True},
-                {"id": "V2", "kind": "STATIC_ANALYSIS", "command": "ruff check src/feature", "check_ids": [],
+                {"id": "V2", "kind": "STATIC_ANALYSIS", "command": "ruff check src/feature", "check_ids": ["AC-1"],
                  "introduced_by_slice": False},
             ],
         }
@@ -129,13 +129,34 @@ class SliceContractTests(unittest.TestCase):
 
     def test_every_agent_check_in_scope_is_bound_to_an_observable_verifier(self) -> None:
         value = context()
-        value["slice"]["required_verification"][0]["check_ids"] = []
+        for verifier in value["slice"]["required_verification"]:
+            verifier["check_ids"] = []
         self.assertIn("ACCEPTANCE_CHECK_UNVERIFIED", errors_of(value))
 
     def test_a_slice_cannot_rely_only_on_verifiers_it_introduced(self) -> None:
         value = context()
         value["slice"]["required_verification"][1]["introduced_by_slice"] = True
         self.assertIn("INDEPENDENT_VERIFIER_REQUIRED", errors_of(value))
+
+    def test_an_unbound_preexisting_verifier_does_not_make_a_check_independent(self) -> None:
+        value = context()
+        value["slice"]["required_verification"][1]["check_ids"] = []
+        self.assertIn("INDEPENDENT_VERIFIER_REQUIRED", errors_of(value))
+
+    def test_match_all_and_depth_crossing_editable_patterns_are_refused(self) -> None:
+        for pattern in ("*/*", "?*", "***", "**/**", "[!~]*", "*"):
+            with self.subTest(pattern=pattern):
+                value = context()
+                value["slice"]["editable_paths"] = [pattern]
+                self.assertIn("SLICE_EDITABLE_PATH_UNSAFE", errors_of(value))
+
+    def test_controller_runtime_files_are_never_context_sources(self) -> None:
+        for path in (".hermes/orchestration/STATE.md", "vault/runtime/wt/ACTION_JOURNAL.json",
+                     ".hermes/orchestration/action-journal-history/APP-1/a.json"):
+            with self.subTest(path=path):
+                value = context()
+                value["sources"].append({"kind": "EVIDENCE", "path": path, "lines": [1, 5], "sha256": SHA})
+                self.assertIn("CONTEXT_SOURCE_FORBIDDEN", errors_of(value))
 
     def test_machine_verifiers_need_a_command_and_known_checks(self) -> None:
         value = context()
@@ -154,32 +175,65 @@ class SliceContractTests(unittest.TestCase):
         self.assertTrue(ctx.check(value)["valid"], ctx.check(value)["errors"])
 
 
+def two_slice_context(current: str, completed: list[str]) -> dict:
+    value = context()
+    contract = value["slice"]
+    contract["current_slice_ids"] = [current]
+    contract["completed_slice_ids"] = completed
+    contract["acceptance"]["AC-2"] = {"criterion": "totals are shown", "verification_method": "focused test",
+                                      "verifier": "AGENT", "slice_id": "S2"}
+    contract["required_verification"].append(
+        {"id": "V3", "kind": "TEST", "command": "pytest tests/view -q", "check_ids": ["AC-2"],
+         "introduced_by_slice": False})
+    return value
+
+
+def approve(value: dict, hashes: list[str]) -> dict:
+    value["approval"] = {"approved_slice_sha256s": hashes, "evidence": "user approved TASKS"}
+    return value
+
+
 class ApprovalReuseTests(unittest.TestCase):
-    def test_an_approval_for_the_exact_slice_is_reused_without_a_new_question(self) -> None:
-        value = context()
-        value["approval"] = {"approved_slice_sha256": ctx.slice_sha256(value), "evidence": "user approved TASKS"}
-        result = ctx.check(value)
-        self.assertEqual("APPROVAL_REUSED", result["approval"])
-        self.assertTrue(result["valid"])
+    def approved_at_tasks(self) -> list[str]:
+        """What the controller stores when TASKS is approved: one hash per planned slice."""
+        return [ctx.slice_sha256(two_slice_context("S1", [])), ctx.slice_sha256(two_slice_context("S2", []))]
+
+    def test_tasks_approval_is_reused_by_every_later_implement_dispatch(self) -> None:
+        approved = self.approved_at_tasks()
+        for current, completed in (("S1", []), ("S2", ["S1"])):
+            with self.subTest(slice=current):
+                result = ctx.check(approve(two_slice_context(current, completed), approved))
+                self.assertEqual("APPROVAL_REUSED", result["approval"], result["errors"])
+                self.assertTrue(result["valid"], result["errors"])
+
+    def test_finishing_a_slice_does_not_change_the_hash_of_the_next(self) -> None:
+        self.assertEqual(ctx.slice_sha256(two_slice_context("S2", [])),
+                         ctx.slice_sha256(two_slice_context("S2", ["S1"])))
 
     def test_context_refresh_does_not_invalidate_the_slice_approval(self) -> None:
-        value = context()
-        approved = ctx.slice_sha256(value)
+        value = approve(two_slice_context("S1", []), self.approved_at_tasks())
         value["sources"].append({"kind": "EVIDENCE", "path": "logs/run.txt", "lines": [1, 5], "sha256": SHA})
-        value["approval"] = {"approved_slice_sha256": approved, "evidence": "user approved TASKS"}
+        value["project_context"]["status"] = "REFRESHED"
         self.assertEqual("APPROVAL_REUSED", ctx.check(value)["approval"])
+
+    def test_read_only_stages_need_no_slice_approval(self) -> None:
+        for stage in ("TEST", "REVIEW"):
+            with self.subTest(stage=stage):
+                value = approve(context(stage), self.approved_at_tasks())
+                result = ctx.check(value)
+                self.assertEqual("APPROVAL_NOT_APPLICABLE", result["approval"])
+                self.assertTrue(result["valid"], result["errors"])
 
     def test_any_scope_change_requires_new_approval(self) -> None:
         mutations = (
             lambda s: s["editable_paths"].append("config/*"),
             lambda s: s["acceptance"]["AC-1"].update({"criterion": "different"}),
-            lambda s: s["required_verification"].pop(),
+            lambda s: s["required_verification"][0].update({"command": "pytest -q"}),
         )
         for mutate in mutations:
-            value = context()
-            approved = ctx.slice_sha256(value)
+            value = two_slice_context("S1", [])
             mutate(value["slice"])
-            value["approval"] = {"approved_slice_sha256": approved, "evidence": "user approved TASKS"}
+            approve(value, self.approved_at_tasks())
             with self.subTest(mutation=mutate):
                 result = ctx.check(value)
                 self.assertEqual("APPROVAL_REQUIRED", result["approval"])
@@ -197,6 +251,7 @@ class VerifierContextIntegrationTests(unittest.TestCase):
     def test_verifier_context_feeds_the_protocol_validator(self) -> None:
         verifier = ctx.verifier_context(context())
         self.assertEqual({"S1"}, set(verifier["current_slice_ids"]))
+        self.assertEqual({"AC-1": ["pytest tests/feature -q", "ruff check src/feature"]}, verifier["check_verifiers"])
         self.assertEqual(["pytest tests/feature -q", "ruff check src/feature"], verifier["required_commands"])
         result = {
             "executor_result": {

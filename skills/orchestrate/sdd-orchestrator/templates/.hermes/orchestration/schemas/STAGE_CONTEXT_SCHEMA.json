@@ -4,30 +4,97 @@
   "description": "Controller-owned, per-dispatch context manifest checked by runtime/stage_context.py before a worker runs. It lists scoped excerpts, never whole documents or transcripts.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "ticket", "stage", "limits", "project_context", "sources", "divergences", "slice", "approval"],
+  "required": [
+    "schema_version",
+    "ticket",
+    "stage",
+    "limits",
+    "project_context",
+    "sources",
+    "divergences",
+    "slice",
+    "approval"
+  ],
   "properties": {
-    "schema_version": {"const": 1},
-    "ticket": {"$ref": "#/$defs/text"},
-    "stage": {"enum": ["SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST", "REVIEW"]},
+    "schema_version": {
+      "const": 1
+    },
+    "ticket": {
+      "$ref": "#/$defs/text"
+    },
+    "stage": {
+      "enum": [
+        "SPECIFY",
+        "CLARIFY",
+        "PLAN",
+        "TASKS",
+        "IMPLEMENT",
+        "TEST",
+        "REVIEW"
+      ]
+    },
     "limits": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["max_sources", "max_lines_per_source"],
+      "required": [
+        "max_sources",
+        "max_lines_per_source"
+      ],
       "properties": {
-        "max_sources": {"type": "integer", "minimum": 1},
-        "max_lines_per_source": {"type": "integer", "minimum": 1}
+        "max_sources": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_lines_per_source": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
     "project_context": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "checked_head", "obsidian", "evidence", "gaps"],
+      "required": [
+        "status",
+        "checked_head",
+        "obsidian",
+        "evidence",
+        "gaps"
+      ],
       "properties": {
-        "status": {"enum": ["CURRENT", "REFRESHED", "PARTIAL", "MISSING"]},
-        "checked_head": {"type": ["string", "null"]},
-        "obsidian": {"enum": ["BOUND", "UNBOUND", "NOT_CONFIGURED"]},
-        "evidence": {"type": ["string", "null"]},
-        "gaps": {"type": "array", "items": {"$ref": "#/$defs/text"}}
+        "status": {
+          "enum": [
+            "CURRENT",
+            "REFRESHED",
+            "PARTIAL",
+            "MISSING"
+          ]
+        },
+        "checked_head": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "obsidian": {
+          "enum": [
+            "BOUND",
+            "UNBOUND",
+            "NOT_CONFIGURED"
+          ]
+        },
+        "evidence": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        }
       }
     },
     "sources": {
@@ -35,12 +102,46 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["kind", "path", "lines", "sha256"],
+        "required": [
+          "kind",
+          "path",
+          "lines",
+          "sha256"
+        ],
         "properties": {
-          "kind": {"enum": ["RULES", "ARCHITECTURE", "SPEC", "DECISION", "EVIDENCE", "CODE", "CONTRACT"]},
-          "path": {"$ref": "#/$defs/text"},
-          "lines": {"type": "array", "prefixItems": [{"type": "integer", "minimum": 1}, {"type": "integer", "minimum": 1}], "minItems": 2, "maxItems": 2},
-          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+          "kind": {
+            "enum": [
+              "RULES",
+              "ARCHITECTURE",
+              "SPEC",
+              "DECISION",
+              "EVIDENCE",
+              "CODE",
+              "CONTRACT"
+            ]
+          },
+          "path": {
+            "$ref": "#/$defs/text"
+          },
+          "lines": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "integer",
+                "minimum": 1
+              }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
         }
       }
     },
@@ -49,38 +150,90 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["code_path", "doc_path", "summary", "authority"],
+        "required": [
+          "code_path",
+          "doc_path",
+          "summary",
+          "authority"
+        ],
         "properties": {
-          "code_path": {"$ref": "#/$defs/text"},
-          "doc_path": {"$ref": "#/$defs/text"},
-          "summary": {"$ref": "#/$defs/text"},
-          "authority": {"const": "CODE"}
+          "code_path": {
+            "$ref": "#/$defs/text"
+          },
+          "doc_path": {
+            "$ref": "#/$defs/text"
+          },
+          "summary": {
+            "$ref": "#/$defs/text"
+          },
+          "authority": {
+            "const": "CODE"
+          }
         }
       }
     },
     "slice": {
       "anyOf": [
-        {"type": "null"},
+        {
+          "type": "null"
+        },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["current_slice_ids", "completed_slice_ids", "editable_paths", "acceptance", "required_verification"],
+          "required": [
+            "current_slice_ids",
+            "completed_slice_ids",
+            "editable_paths",
+            "acceptance",
+            "required_verification"
+          ],
           "properties": {
-            "current_slice_ids": {"type": "array", "items": {"$ref": "#/$defs/text"}},
-            "completed_slice_ids": {"type": "array", "items": {"$ref": "#/$defs/text"}},
-            "editable_paths": {"type": "array", "items": {"$ref": "#/$defs/text"}},
+            "current_slice_ids": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/text"
+              }
+            },
+            "completed_slice_ids": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/text"
+              }
+            },
+            "editable_paths": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/text"
+              }
+            },
             "acceptance": {
               "type": "object",
               "minProperties": 1,
               "additionalProperties": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["criterion", "verification_method", "verifier", "slice_id"],
+                "required": [
+                  "criterion",
+                  "verification_method",
+                  "verifier",
+                  "slice_id"
+                ],
                 "properties": {
-                  "criterion": {"$ref": "#/$defs/text"},
-                  "verification_method": {"$ref": "#/$defs/text"},
-                  "verifier": {"enum": ["AGENT", "HUMAN"]},
-                  "slice_id": {"$ref": "#/$defs/text"}
+                  "criterion": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "verification_method": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "verifier": {
+                    "enum": [
+                      "AGENT",
+                      "HUMAN"
+                    ]
+                  },
+                  "slice_id": {
+                    "$ref": "#/$defs/text"
+                  }
                 }
               }
             },
@@ -90,13 +243,46 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["id", "kind", "command", "check_ids", "introduced_by_slice"],
+                "required": [
+                  "id",
+                  "kind",
+                  "command",
+                  "check_ids",
+                  "introduced_by_slice"
+                ],
                 "properties": {
-                  "id": {"$ref": "#/$defs/text"},
-                  "kind": {"enum": ["TEST", "STATIC_ANALYSIS", "SCHEMA_VALIDATION", "STATE_INSPECTION", "LOG_INSPECTION", "HUMAN"]},
-                  "command": {"anyOf": [{"$ref": "#/$defs/text"}, {"type": "null"}]},
-                  "check_ids": {"type": "array", "items": {"$ref": "#/$defs/text"}},
-                  "introduced_by_slice": {"type": "boolean"}
+                  "id": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "kind": {
+                    "enum": [
+                      "TEST",
+                      "STATIC_ANALYSIS",
+                      "SCHEMA_VALIDATION",
+                      "STATE_INSPECTION",
+                      "LOG_INSPECTION",
+                      "HUMAN"
+                    ]
+                  },
+                  "command": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/text"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "check_ids": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/text"
+                    }
+                  },
+                  "introduced_by_slice": {
+                    "type": "boolean"
+                  }
                 }
               }
             }
@@ -106,20 +292,38 @@
     },
     "approval": {
       "anyOf": [
-        {"type": "null"},
+        {
+          "type": "null"
+        },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["approved_slice_sha256", "evidence"],
+          "required": [
+            "approved_slice_sha256s",
+            "evidence"
+          ],
           "properties": {
-            "approved_slice_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-            "evidence": {"$ref": "#/$defs/text"}
+            "approved_slice_sha256s": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "evidence": {
+              "$ref": "#/$defs/text"
+            }
           }
         }
       ]
     }
   },
   "$defs": {
-    "text": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"}
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": ".*\\S.*"
+    }
   }
 }

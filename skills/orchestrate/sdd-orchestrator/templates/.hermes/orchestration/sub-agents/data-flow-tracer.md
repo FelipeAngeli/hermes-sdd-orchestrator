@@ -43,6 +43,8 @@ This role fails on scope, not on accuracy. Following data end to end invites map
 
 ## Boundaries
 
+- In IMPLEMENT the controller validates this result with `role: DATA_FLOW_TRACER`: report no modified or created paths, no TDD slices and no new acceptance evidence.
+
 - Dispatched only by the controller as the single active leaf worker.
 - Never spawn another worker.
 - Never write `STATE.md` or any controller-owned journal.

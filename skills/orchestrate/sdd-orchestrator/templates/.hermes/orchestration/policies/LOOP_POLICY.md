@@ -877,11 +877,11 @@ Antes de cada dispatch, o controller grava um manifesto de contexto e executa `.
 - slice sem `editable_paths`, sem verificador observável ou apenas com verificadores criados pela própria slice → `CONTRACT_INVALID`;
 - hash da slice diferente do aprovado → `SCOPE_CHANGE_REQUIRED`.
 
-Quando o hash aprovado coincide (`APPROVAL_REUSED`), a aprovação de PLAN/TASKS já cobre aquela slice exata: não pedir nova confirmação. A aprovação nunca cobre commit, push, issue tracker, Obsidian, backend ou DEV E2E.
+Ao aprovar PLAN/TASKS, o controller grava em `approved_slice_sha256s` o hash de cada slice planejada. Quando o hash da slice atual coincide (`APPROVAL_REUSED`), a aprovação já cobre aquela slice exata: não pedir nova confirmação. TEST e REVIEW não autorizam escrita (`APPROVAL_NOT_APPLICABLE`). A aprovação nunca cobre commit, push, issue tracker, Obsidian, backend ou DEV E2E.
 
 Divergência entre código e documentação é registrada no manifesto com `authority: CODE`; não inventar a decisão que a explicaria.
 
-O resultado do worker é validado com `validate_protocol.py --context` usando a saída de `stage_context.py verifier-context`. Um PASS de verificador AGENT precisa citar, entre crases, um comando registrado que saiu 0 com PASS; todo comando de `required_verification` precisa aparecer como aprovado; SPECIFY, CLARIFY, PLAN, TASKS e TEST não podem relatar arquivos alterados; IMPLEMENT só pode alterar `editable_paths`.
+O resultado do worker é validado com `validate_protocol.py --context` usando a saída de `stage_context.py verifier-context`. Um PASS de verificador AGENT precisa citar, entre crases, um dos comandos vinculados àquele check (`check_verifiers`), registrado com saída 0 e PASS; resultados de papéis somente leitura (`project-context-guardian`, `data-flow-tracer`) são validados com `role`; todo comando de `required_verification` precisa aparecer como aprovado; SPECIFY, CLARIFY, PLAN, TASKS e TEST não podem relatar arquivos alterados; IMPLEMENT só pode alterar `editable_paths`.
 
 Quando o resultado é válido mas a verificação falha, o ciclo é: executar a slice → coletar evidências → verificar → corrigir a falha específica → verificar de novo. Antes de cada correção, consultar `.hermes/orchestration/runtime/correction_loop.py decide`:
 

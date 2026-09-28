@@ -18,22 +18,22 @@ stage_context.py check ──► dispatch one worker ──► validate_protocol
 
 Before each dispatch the controller writes one manifest that validates against `STAGE_CONTEXT_SCHEMA.json`. It holds:
 
-- `sources`: scoped excerpts, each with `kind` (`RULES`, `ARCHITECTURE`, `SPEC`, `DECISION`, `EVIDENCE`, `CODE`, `CONTRACT`), path, line range and hash. `limits.max_sources` and `limits.max_lines_per_source` bound the list. The defaults the controller uses are those already in `.hermes.md`: 12 files and 250 lines per file. A whole document, a transcript or a STATE dump fails the check.
+- `sources`: scoped excerpts, each with `kind` (`RULES`, `ARCHITECTURE`, `SPEC`, `DECISION`, `EVIDENCE`, `CODE`, `CONTRACT`), path, line range and hash. `limits.max_sources` and `limits.max_lines_per_source` bound the list. The defaults the controller uses are those already in `.hermes.md`: 12 files and 250 lines per file. The check refuses excerpts longer than the per-source limit and any source path containing a controller runtime file (`FORBIDDEN_SOURCE_NAMES`: `STATE.md`, `ACTION_JOURNAL.json`, `INCIDENTS.md`, `action-journal-history`). The manifest does not record file lengths, so it cannot detect that a short file was sent in full, and it cannot detect a transcript pasted under another name. Keeping those out remains the controller's job under `.hermes.md`.
 - `project_context`: the outcome of `project-context-guardian`. The status is `CURRENT`, `REFRESHED`, `PARTIAL` or `MISSING`, and the record also holds the checked HEAD, the Obsidian binding (`BOUND`, `UNBOUND`, `NOT_CONFIGURED`), evidence and gaps. The guardian must have been consulted before stages in `PROJECT_CONTEXT_STAGES` (PLAN and IMPLEMENT). A `PARTIAL` result has to name what it did not examine. An unbound vault is allowed; missing context is not.
 - `divergences`: code/documentation mismatches, each citing both sides. `authority` is always `CODE`, because the code describes what is implemented. The divergence is recorded; no decision is invented to settle it.
 - `slice`: required for `SLICE_STAGES` (IMPLEMENT, TEST, REVIEW). It declares `current_slice_ids`, `completed_slice_ids`, `editable_paths`, the authoritative `acceptance` mapping and `required_verification`.
-- `approval`: the hash of a slice contract a human already approved (PLAN/TASKS) and the evidence for that approval.
+- `approval`: `approved_slice_sha256s`, the per-slice hashes stored when a human approved PLAN/TASKS, and the evidence for that approval.
 
 ### Rules enforced by `check`
 
 | Code | Rule |
 | --- | --- |
-| `CONTEXT_BUDGET_EXCEEDED`, `CONTEXT_EXCERPT_TOO_LARGE`, `CONTEXT_EXCERPT_INVALID`, `CONTEXT_SOURCE_DUPLICATED` | Context stays within the declared budget, as excerpts, each listed once. |
+| `CONTEXT_BUDGET_EXCEEDED`, `CONTEXT_EXCERPT_TOO_LARGE`, `CONTEXT_EXCERPT_INVALID`, `CONTEXT_SOURCE_DUPLICATED`, `CONTEXT_SOURCE_FORBIDDEN` | Context stays within the declared budget, as excerpts, each listed once, and never includes STATE or journal files. |
 | `PROJECT_CONTEXT_REQUIRED`, `PROJECT_CONTEXT_GAPS_REQUIRED` | PLAN and IMPLEMENT need a guardian result with evidence and HEAD; a partial result must list its gaps. |
 | `SLICE_REQUIRED`, `SLICE_CURRENT_INVALID` | IMPLEMENT/TEST/REVIEW carry a slice. IMPLEMENT has exactly one current slice, disjoint from the completed ones. |
-| `SLICE_EDITABLE_PATHS_REQUIRED`, `SLICE_EDITABLE_PATH_UNSAFE`, `ANALYSIS_STAGE_EDITABLE_PATHS` | Only IMPLEMENT declares editable paths. They must be repository-relative, must not traverse, and must not be a match-all glob. TEST and REVIEW declare none. |
+| `SLICE_EDITABLE_PATHS_REQUIRED`, `SLICE_EDITABLE_PATH_UNSAFE`, `ANALYSIS_STAGE_EDITABLE_PATHS` | Only IMPLEMENT declares editable paths; TEST and REVIEW declare none. A pattern must be repository-relative and non-traversing, and its first segment must be literal. That rejects `*`, `*/*`, `?*` and `**/**`. Matching is segment by segment: `*`, `?` and `[...]` never cross `/`, and only a whole `**` segment spans directories. `src/*` covers `src/a.py`, not `src/deep/a.py`; use `src/**` for the subtree. |
 | `ACCEPTANCE_CHECK_UNVERIFIED`, `VERIFIER_COMMAND_REQUIRED`, `VERIFIER_UNKNOWN_CHECK` | Every AGENT check in scope is bound to an observable verifier (`TEST`, `STATIC_ANALYSIS`, `SCHEMA_VALIDATION`, `STATE_INSPECTION`, `LOG_INSPECTION`) that has a command, and every HUMAN check is bound to a `HUMAN` verifier. |
-| `INDEPENDENT_VERIFIER_REQUIRED` | At least one required verifier must predate the slice (`introduced_by_slice: false`). A test the slice has just written cannot be its only proof. |
+| `INDEPENDENT_VERIFIER_REQUIRED` | Each AGENT check in scope needs at least one bound verifier that predates the slice (`introduced_by_slice: false`). A test the slice has just written cannot be its only proof, and a pre-existing verifier bound to another check does not count. |
 | `SCOPE_CHANGE_REQUIRED` | The approved hash no longer matches the slice contract. |
 | `SCHEMA_INVALID` | The manifest does not match the schema. |
 
@@ -41,15 +41,20 @@ The full list is published as `CONTEXT_ERROR_CODES`.
 
 ### Approval reuse
 
-`slice_sha256` hashes only the ticket, the stage and the slice contract. Paths, verifiers and check IDs are sorted before hashing, so reordering them does not change the hash. When the approved hash matches, the result is `APPROVAL_REUSED`: the controller does not ask again, even after it refreshes or adds context sources. Any change to editable paths, criteria or required verifiers gives `APPROVAL_REQUIRED` plus `SCOPE_CHANGE_REQUIRED`, which means new scope that needs its own approval. With no approval recorded, the result is `APPROVAL_NOT_REQUESTED`. This check never authorizes commit, push, issue-tracker, Obsidian, backend or DEV E2E actions; those remain `HUMAN_REQUIRED` in the [planner](fsm-and-loop.md#actions).
+`slice_sha256` hashes one slice's contract: the ticket, the slice ID, the editable paths, the checks assigned to that slice, and the verifiers bound to those checks. The stage and the completed-slice cursor are excluded, and lists are sorted. This makes the hash stable across the flow:
+
+1. When the human approves PLAN/TASKS, the controller computes the hash of each planned slice (a manifest with `stage: IMPLEMENT` and that slice as current) and stores them as `approved_slice_sha256s`.
+2. Each IMPLEMENT dispatch checks its current slice against that list. A match gives `APPROVAL_REUSED`, so the controller does not ask again. Finishing S1 does not change S2's hash, and refreshing context sources does not change any hash.
+3. TEST and REVIEW authorize no writes and have no slice hash; with an approval present they report `APPROVAL_NOT_APPLICABLE`.
+4. Any change to the slice's editable paths, criteria or bound verifiers gives `APPROVAL_REQUIRED` plus `SCOPE_CHANGE_REQUIRED`: this is new scope that needs its own approval. With no approval recorded, the result is `APPROVAL_NOT_REQUESTED`. This check never authorizes commit, push, issue-tracker, Obsidian, backend or DEV E2E actions; those remain `HUMAN_REQUIRED` in the [planner](fsm-and-loop.md#actions).
 
 ### Feeding the validator
 
-`verifier-context` projects a valid manifest into the keyword arguments of [`validate_protocol.py`](contracts-and-schemas.md#validate_protocolpy): `expected_acceptance`, `required_commands` and, for IMPLEMENT, `current_slice_ids`, `completed_slice_ids` and `editable_paths`. The controller passes this output unchanged with `--context`. The worker never supplies or edits it.
+`verifier-context` projects a valid manifest into the keyword arguments of [`validate_protocol.py`](contracts-and-schemas.md#validate_protocolpy): `expected_acceptance`, `required_commands`, `check_verifiers` (check ID → the commands of the verifiers bound to it) and, for IMPLEMENT, `current_slice_ids`, `completed_slice_ids` and `editable_paths`. An AGENT `PASS` must cite one of *its own* bound commands, and that command must be recorded as passing. So a worker cannot prove a check with a command it chose (for example `true`) or with the verifier of a different check. The exit code is still self-reported by the worker. The controller confirms actual execution from its own records, as `EXECUTOR_CONTRACT.md` already requires. The controller passes this output unchanged with `--context`. The worker never supplies or edits it.
 
 ```text
 stage_context.py check --context ctx.json --json             # exit 2 on any finding
-stage_context.py hash --context ctx.json --json              # slice_sha256 to store with an approval
+stage_context.py hash --context ctx.json --json              # slice_sha256 of the current IMPLEMENT slice (exit 2 for other stages)
 stage_context.py verifier-context --context ctx.json --json  # validator context
 ```
 
