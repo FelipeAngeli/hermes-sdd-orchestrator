@@ -41,6 +41,37 @@ The skill is reusable. The controller configuration, state, incident log, and jo
 
 The installed entrypoint keeps worker context small and stage-specific, with one leaf worker at a time and controller-owned state transitions. Updated bundles apply to new installations; the installer deliberately does not overwrite an existing project configuration, so migrate an existing installation only after reviewing its local configuration.
 
+## Sub-agents
+
+`sub-agents/` holds narrow leaf-worker briefs the controller may select when a stage needs a specialist. They are dispatched only by the controller, never by another agent, and never own STATE or transitions. All are language- and stack-agnostic.
+
+| Brief | Stages | Purpose |
+| --- | --- | --- |
+| `investigator` | SPECIFY, CLARIFY, PLAN | Bounded codebase investigation before a decision is made. |
+| `impact-analyst` | PLAN, TASKS | Full blast radius of one proposed contract or behavior change. |
+| `tdd-implementer` | IMPLEMENT | One authorized vertical slice under strict RED → minimal → GREEN. |
+| `test-runner` | TEST | Focused test execution with exact commands and exit codes. |
+| `code-reviewer` | REVIEW | Delivered changes against requirements, ownership, tests and gates. |
+| `security-reviewer` | REVIEW | Exploitable flaws plus disclosure: secrets, storage, auth, logs. |
+| `tdd-guardian` | TEST, REVIEW | Whether the suite would go red if the rule broke. |
+| `regression-hunter` | TEST, REVIEW | What previously worked and may have stopped. |
+| `api-contract-auditor` | PLAN, REVIEW | Client models against the specification and the deployed server. |
+| `performance-auditor` | PLAN, REVIEW | Work the system does that it does not need to do. |
+| `architecture-guardian` | PLAN, REVIEW | Violations of the project's own declared architectural rules. |
+| `documentation-writer` | IMPLEMENT, REVIEW | Documentation, ADRs, README and diagrams realigned with the code. |
+
+The five audit roles return findings only when evidence supports them, and each is bound by the failure mode specific to its domain:
+
+- The **TDD guardian** proves a weak test by mutating production code and observing which tests stay green, because reading a test yields an opinion while mutating it yields a fact.
+- The **regression hunter** runs the suites of consumers the change did not touch; a consumer whose tests pass without exercising the affected path is reported as uncovered risk, not as safe.
+- The **API contract auditor** ranks its sources — deployed runtime over served specification over server source over committed spec, with client models last — instead of trusting whichever is nearest, and never invents a contract element to close a gap.
+- The **performance auditor** reports a cost only with a measurement or a counted operation behind it, states the input size at which it matters, and may conclude that nothing is worth changing; a role rewarded for findings will produce them.
+- The **architecture guardian** cites the project's declared rule behind every violation. An undeclared convention is raised as a question, never enforced, since every codebase violates someone's preferred architecture.
+
+All five keep the workspace read-only, revert every temporary step, repair nothing, and report proven findings separately from unproven suspicions.
+
+`documentation-writer` is the only writing role among these, and its risk runs the other way: a read-only auditor produces a wrong finding that review can reject, while a writer produces fluent prose describing code that does not exist, which readers trust because it reads well. It verifies every symbol, command and path against the repository before writing it, deletes documentation whose subject is gone, and records an unexplained decision as an open question rather than inventing a rationale. Like the implementer, it writes only to paths the controller assigns.
+
 ## Architecture
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for layer responsibilities, dependency direction, and change rules.
@@ -84,9 +115,14 @@ Before the first demand, configure the target's `.hermes/orchestration/policies/
 ## Development and verification
 
 ```bash
+# Skill packaging and sub-agent contracts.
 python3 -m unittest discover -s tests -p 'test_*.py'
+
+# Installed controller protocol, drivers and journal.
 python3 -m unittest discover -s skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/tests -p 'test_*.py'
 ```
+
+The first suite installs the bundled skill into a fixture repository and asserts that every sub-agent brief ships with a declared role, allowed stages and result schema, and that this README lists exactly the briefs the bundle contains.
 
 ## License
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import tempfile
 import unittest
@@ -334,6 +335,36 @@ class SddOrchestratorSkillTests(unittest.TestCase):
         ):
             with self.subTest(surface=surface):
                 self.assertIn(surface, content.lower())
+
+    def test_readme_documents_every_shipped_sub_agent(self) -> None:
+        """The README must not silently fall behind the bundle.
+
+        A reader decides whether this skill does what they need from the README
+        alone. A sub-agent that ships without appearing there is invisible, and
+        a sub-agent listed after being removed is worse — the reader plans
+        around a role that does not exist. Binding the document to the directory
+        makes both states a test failure instead of a discovery months later.
+        """
+        sub_agents = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "sub-agents"
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+        shipped = {path.stem for path in sub_agents.glob("*.md")}
+        self.assertTrue(shipped, "no sub-agent briefs found to document")
+
+        for name in sorted(shipped):
+            with self.subTest(sub_agent=name):
+                self.assertIn(name, readme)
+
+        documented = {
+            name
+            for name in re.findall(r"`([a-z][a-z0-9-]+)`", readme)
+            if name.endswith(("-reviewer", "-auditor", "-guardian", "-hunter", "-writer", "-analyst", "-implementer", "-runner"))
+        }
+        self.assertEqual(
+            documented - shipped,
+            set(),
+            "README documents a sub-agent that is no longer shipped",
+        )
 
     def test_documentation_has_no_legacy_flat_orchestration_paths(self) -> None:
         orchestration = SKILL_ROOT / "templates" / ".hermes" / "orchestration"
