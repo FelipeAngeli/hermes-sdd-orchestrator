@@ -35,6 +35,18 @@ python3 .hermes/orchestration/runtime/bounded_run_driver.py --help
 
 Configure project-specific validation in `policies/GATES.md` before starting a demand. The mutable state files are controller-owned and must not be moved into a source layer.
 
+## Obsidian second brain
+
+`runtime/obsidian_binding.py` resolves every vault path through `.hermes/obsidian.json` at the repository root. That binding is deliberately **versioned**, not excluded: it is the connectivity itself and must survive a clone. `HERMES_OBSIDIAN_VAULT` overrides `vault_path` on a machine where the vault sits elsewhere; a missing vault is an error, never a silent fallback.
+
+`runtime/vault_guard.py` refuses writes outside the bound `project_container` and hashes content for `capture_vault_baseline` / `assert_baseline_preserved`, because Git cannot see the vault and mtimes change without edits. The runtime directory is excluded from that baseline: every transition rewrites it by design.
+
+`runtime/bootstrap_worktree.py` prepares an already-registered worktree and is the per-worktree counterpart to `scripts/install_project.py`. Runtime state lands in `<project_container>/<runtime_subpath>/<worktree-slug>/`, where the slug hashes the worktree's resolved absolute path, so two worktrees of one repository never share a `STATE.md` or journal — that sharing would break the one-executor-at-a-time guarantee. See `BOOTSTRAP.md`.
+
+`runtime/migrate_to_vault.py`, `runtime/migrate_all_worktrees.py` and `runtime/consolidate_runtime.py` move pre-vault installations onto this model; `runtime/state_format.py` is the shared STATE serializer.
+
+> A fresh `install_project.py` writes `STATE.md`, `INCIDENTS.md` and `ACTION_JOURNAL.json` at the orchestration root. Once a worktree is bootstrapped against a vault, those files live in the vault instead and the local copies are no longer the source of truth.
+
 Before dispatching a worker, load the matching brief from `agents/` together with only the applicable contract, policy excerpt and scoped project evidence. The brief never grants STATE or transition authority.
 
 When a stage needs a narrower role, the controller may select one matching brief from `sub-agents/` instead, subject to `policies/DISPATCH_POLICY.md`, whose default is **not** to dispatch: a specialist runs only when the controller can name the pending decision that depends on its answer, and only when a deterministic tool cannot answer the question first. Stage agents never dispatch sub-agents; the one-leaf-worker invariant remains unchanged. A successful specialized action returns evidence to the controller but never completes or transitions the enclosing stage by itself.

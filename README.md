@@ -22,10 +22,11 @@ Then load `/skill sdd-orchestrator` in Hermes. It guides safe installation of th
 Hermes profile (once)                         Target Git project (per project)
 ─────────────────────                         ──────────────────────────────
 ~/.hermes/skills/sdd-orchestrator/            .hermes.md
-├── SKILL.md                                  .hermes/orchestration/
-├── scripts/install_project.py                ├── agents/      # stage-specific worker briefs
-└── templates/                                ├── contracts/   # worker/review interfaces
-    └── .hermes/                              ├── policies/    # FSM, gates, recovery
+├── SKILL.md                                  .hermes/obsidian.json  # vault binding (versioned)
+├── scripts/install_project.py                .hermes/orchestration/
+└── templates/                                ├── agents/      # stage-specific worker briefs
+    └── .hermes/                              ├── contracts/   # worker/review interfaces
+                                               ├── policies/    # FSM, gates, recovery
                                                ├── runtime/     # executable controller tools
                                                ├── schemas/     # JSON validation contracts
                                                ├── sub-agents/  # specialized leaf-worker briefs
@@ -34,6 +35,8 @@ Hermes profile (once)                         Target Git project (per project)
                                                ├── ACTION_JOURNAL.json
                                                └── INCIDENTS.md
 ```
+
+`.hermes/obsidian.json` is the one exception to the untracked rule: it binds the project to its Obsidian vault and is versioned so connectivity survives a clone. When a worktree is bootstrapped against a vault, `STATE.md`, `ACTION_JOURNAL.json` and `INCIDENTS.md` move into that vault, keyed per worktree — see `templates/.hermes/orchestration/BOOTSTRAP.md`.
 
 The skill is reusable. The controller configuration, state, incident log, and journal are project-local and added only to the target repository's Git `info/exclude`. The installer never overwrites existing configuration or modifies tracked files.
 
