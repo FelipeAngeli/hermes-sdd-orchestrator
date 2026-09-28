@@ -105,7 +105,7 @@ The installed `tests/` suite validates protocol behavior against the exact runti
       tests
 ```
 
-State files (`STATE.md`, `ACTION_JOURNAL.json`, `INCIDENTS.md` and journal history) are created only during installation and remain at the orchestration root. They are runtime data, not source layers.
+`PROJECT_SETUP.md` is created during installation and remains at the local orchestration root. It gates the first demand until orchestrator-only connectivity questions are resolved. Runtime files (`STATE.md`, `ACTION_JOURNAL.json`, `INCIDENTS.md` and journal history) are initially created there too; an Obsidian-bound worktree relocates its runtime files to the vault as documented in [Obsidian vault](components/obsidian-vault.md).
 
 ## Change rules
 

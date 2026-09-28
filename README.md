@@ -34,13 +34,14 @@ Hermes profile (once)                         Target Git project (per project)
                                                ├── sub-agents/  # specialized leaf-worker briefs
                                                ├── tests/       # installed protocol tests
                                                ├── STATE.md (fresh local state)
+                                               ├── PROJECT_SETUP.md (orchestrator connectivity)
                                                ├── ACTION_JOURNAL.json
                                                └── INCIDENTS.md
 ```
 
 `.hermes/obsidian.json` is the one exception to the untracked rule: it binds the project to its Obsidian vault and is versioned so connectivity survives a clone. When a worktree is bootstrapped against a vault, `STATE.md`, `ACTION_JOURNAL.json` and `INCIDENTS.md` move into that vault, keyed per worktree — see `templates/.hermes/orchestration/BOOTSTRAP.md`.
 
-The skill is reusable. The controller configuration, state, incident log, and journal are project-local and added only to the target repository's Git `info/exclude`. The installer never overwrites existing configuration or modifies tracked files.
+The skill is reusable. The controller configuration, project setup, state, incident log, and journal are project-local and added only to the target repository's Git `info/exclude`. The installer never overwrites existing configuration or modifies tracked files.
 
 ## Efficient, safe dispatch
 
@@ -126,7 +127,7 @@ python3 <installed-skill>/scripts/install_project.py \
 
 First run is a dry run. Apply only when it returns `READY`. Re-running a complete installation returns `ALREADY_INITIALIZED`; partial, tracked, symlinked, or conflicting configuration is blocked.
 
-Before the first demand, configure the target's `.hermes/orchestration/policies/GATES.md` with its real format, test, analysis, and CI commands.
+Before the first demand, Hermes resolves `.hermes/orchestration/PROJECT_SETUP.md`: it inspects repository evidence and asks only unanswered questions about issue tracker access, optional Obsidian binding, and other project-specific tools. `none` is valid; it never asks for credentials or product requirements. Then configure the target's `.hermes/orchestration/policies/GATES.md` with its real format, test, analysis, and CI commands.
 
 ## Any language, any project
 
@@ -147,9 +148,10 @@ cd /path/to/project && python3 .hermes/orchestration/runtime/detect_stack.py --t
 
 The dry run's `stack` field lists every ecosystem found (root and up to two levels deep, for monorepos), the manifest that proves it, the CI providers present, the instruction files to read first (`AGENTS.md`, `CLAUDE.md`, ADRs…) and a suggested command per gate. Supported ecosystems: Node/TypeScript (npm, pnpm, yarn, bun), Python, Go, Rust, Java/Kotlin (Gradle, Maven), .NET, Ruby, PHP, Elixir, Swift, C/C++ (CMake) and Dart/Flutter (with FVM). A gate without evidence is `null`, never guessed.
 
-4. Copy the suggestions into `GATES.md` only after running each command once in the project; the project's own scripts and CI steps take precedence over the suggestions.
-5. Optionally bind an Obsidian vault with `.hermes/obsidian.json` (see `BOOTSTRAP.md`).
-6. Run the installed suite: `python3 -m unittest discover -s .hermes/orchestration/tests -p 'test_*.py'`.
+4. Resolve the installer report's `onboarding.questions` in `PROJECT_SETUP.md`; ask only unresolved orchestrator connectivity questions and accept `none`.
+5. Copy the suggestions into `GATES.md` only after running each command once in the project; the project's own scripts and CI steps take precedence over the suggestions.
+6. If enabled during onboarding, bind the Obsidian vault with `.hermes/obsidian.json` (see `BOOTSTRAP.md`).
+7. Run the installed suite: `python3 -m unittest discover -s .hermes/orchestration/tests -p 'test_*.py'`.
 
 Requirements on the target are only Git and Python 3.10+ (plus `jsonschema` for the bounded-run tools); the project itself can be written in anything.
 

@@ -186,6 +186,18 @@ class BundleContractTests(unittest.TestCase):
         self.assertIn("Schema 2 LOCAL_DELIVERY uses its existing explicit authorization", skill)
         self.assertIn("Este fallback aplica-se somente a ações MANUAL", loop_policy)
 
+    def test_controller_requires_scoped_project_onboarding_before_first_demand(self) -> None:
+        entrypoint = normalized((TEMPLATES / ".hermes.md").read_text(encoding="utf-8"))
+        skill = normalized((SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8"))
+        for policy in (entrypoint, skill):
+            self.assertIn("project_setup.md", policy)
+            self.assertIn("ask only unresolved", policy)
+            self.assertIn("issue tracker", policy)
+            self.assertIn("obsidian", policy)
+            self.assertIn("project-specific tools", policy)
+            self.assertIn("never ask for credentials", policy)
+            self.assertIn("before the first demand", policy)
+
     def test_documentation_uses_only_layered_orchestration_paths(self) -> None:
         documents = [
             ROOT / "README.md", ROOT / "docs" / "ARCHITECTURE.md", SKILL_ROOT / "SKILL.md",
@@ -426,6 +438,231 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertFalse((target / ".hermes").exists())
             self.assertEqual(before, self.execute("git", "-C", str(target), "status", "--porcelain").stdout)
 
+    def test_dry_run_requests_only_project_orchestrator_onboarding(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-onboarding-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+
+            result = self.run_installer(target)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            onboarding = json.loads(result.stdout)["onboarding"]
+            self.assertEqual("REQUIRED", onboarding["status"])
+            self.assertEqual("ORCHESTRATOR_ONLY", onboarding["scope"])
+            self.assertTrue(onboarding["ask_only_unresolved"])
+            self.assertEqual(
+                ["issue_tracker", "obsidian", "project_tools"],
+                [question["id"] for question in onboarding["questions"]],
+            )
+            self.assertTrue(all("none" in question["accepted_answers"] for question in onboarding["questions"]))
+
+    def test_apply_creates_pending_project_onboarding_record(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-onboarding-record-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+
+            result = self.run_installer(target, apply=True)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            setup = (target / ".hermes/orchestration/PROJECT_SETUP.md").read_text(encoding="utf-8")
+            self.assertIn("status: PENDING", setup)
+            self.assertIn("issue_tracker: UNRESOLVED", setup)
+            self.assertIn("obsidian: UNRESOLVED", setup)
+            self.assertIn("project_tools: UNRESOLVED", setup)
+            self.assertIn("Ask only about orchestrator connectivity", setup)
+
+    def test_repeated_run_asks_only_unresolved_onboarding_questions(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-onboarding-resume-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            setup_path = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            setup = setup_path.read_text(encoding="utf-8")
+            setup = setup.replace("issue_tracker: UNRESOLVED", "issue_tracker: none")
+            setup = setup.replace("project_tools: UNRESOLVED", "project_tools: none")
+            setup_path.write_text(setup, encoding="utf-8")
+
+            result = self.run_installer(target)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            onboarding = json.loads(result.stdout)["onboarding"]
+            self.assertEqual("REQUIRED", onboarding["status"])
+            self.assertEqual(["obsidian"], [question["id"] for question in onboarding["questions"]])
+
+    def test_missing_onboarding_answer_fails_closed_as_unresolved(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-onboarding-invalid-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            setup_path = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            setup = setup_path.read_text(encoding="utf-8").replace("  project_tools: UNRESOLVED\n", "")
+            setup_path.write_text(setup, encoding="utf-8")
+
+            result = self.run_installer(target)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            question_ids = [question["id"] for question in json.loads(result.stdout)["onboarding"]["questions"]]
+            self.assertIn("project_tools", question_ids)
+
+    def test_invalid_onboarding_answer_markers_remain_unresolved(self) -> None:
+        invalid_values = ("", "null", "~", "unresolved", "\"UNRESOLVED\"", "# missing", "\"", "'none'")
+        with tempfile.TemporaryDirectory(prefix="sdd-onboarding-markers-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            setup_path = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            original = setup_path.read_text(encoding="utf-8")
+            for value in invalid_values:
+                with self.subTest(value=value):
+                    setup_path.write_text(
+                        original.replace("project_tools: UNRESOLVED", f"project_tools: {value}"),
+                        encoding="utf-8",
+                    )
+                    result = self.run_installer(target)
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    onboarding = json.loads(result.stdout)["onboarding"]
+                    self.assertIn("project_tools", [question["id"] for question in onboarding["questions"]])
+
+    def test_semantically_incomplete_answers_remain_unresolved(self) -> None:
+        incomplete = {
+            "issue_tracker": "\"GitHub\"",
+            "obsidian": "\"yes\"",
+            "project_tools": "\"Jira\"",
+        }
+        with tempfile.TemporaryDirectory(prefix="sdd-onboarding-semantic-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            setup_path = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            original = setup_path.read_text(encoding="utf-8")
+            for question_id, value in incomplete.items():
+                with self.subTest(question_id=question_id):
+                    setup = original.replace("status: PENDING", "status: COMPLETE")
+                    for key in incomplete:
+                        setup = setup.replace(f"{key}: UNRESOLVED", f"{key}: none")
+                    setup = setup.replace(f"{question_id}: none", f"{question_id}: {value}")
+                    setup_path.write_text(setup, encoding="utf-8")
+                    onboarding = json.loads(self.run_installer(target).stdout)["onboarding"]
+                    self.assertFalse(onboarding["record_valid"])
+                    self.assertIn("ANSWER_VALUE_INVALID", onboarding["record_issues"])
+                    self.assertEqual([question_id], [question["id"] for question in onboarding["questions"]])
+
+    def test_structured_answers_can_complete_onboarding(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-onboarding-structured-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            setup_path = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            setup = setup_path.read_text(encoding="utf-8").replace("status: PENDING", "status: COMPLETE")
+            setup = setup.replace(
+                "issue_tracker: UNRESOLVED",
+                'issue_tracker: {"provider":"GitHub","project":"owner/repo","read":true,"write":false}',
+            )
+            setup = setup.replace(
+                "obsidian: UNRESOLVED",
+                'obsidian: {"vault":"/vault","project_container":"Projects/App"}',
+            )
+            setup = setup.replace(
+                "project_tools: UNRESOLVED",
+                'project_tools: [{"tool":"Jira","purpose":"read demands","read":true,"write":false}]',
+            )
+            setup_path.write_text(setup, encoding="utf-8")
+
+            onboarding = json.loads(self.run_installer(target).stdout)["onboarding"]
+
+            self.assertEqual("COMPLETE", onboarding["status"])
+            self.assertTrue(onboarding["record_valid"])
+            self.assertEqual([], onboarding["questions"])
+
+    def test_invalid_onboarding_encoding_returns_fail_closed_json_report(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-onboarding-encoding-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            (target / ".hermes/orchestration/PROJECT_SETUP.md").write_bytes(b"\xff\xfe")
+
+            result = self.run_installer(target)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            onboarding = json.loads(result.stdout)["onboarding"]
+            self.assertEqual("REQUIRED", onboarding["status"])
+            self.assertFalse(onboarding["record_valid"])
+            self.assertEqual(
+                ["issue_tracker", "obsidian", "project_tools"],
+                [question["id"] for question in onboarding["questions"]],
+            )
+
+    def test_invalid_onboarding_schema_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-onboarding-schema-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            setup_path = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            setup = setup_path.read_text(encoding="utf-8")
+            setup = setup.replace("schema_version: 1", "schema_version: 99")
+            setup = setup.replace("issue_tracker: UNRESOLVED", "issue_tracker: none")
+            setup = setup.replace("obsidian: UNRESOLVED", "obsidian: none")
+            setup = setup.replace("project_tools: UNRESOLVED", "project_tools: none")
+            setup_path.write_text(setup, encoding="utf-8")
+
+            result = self.run_installer(target)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            onboarding = json.loads(result.stdout)["onboarding"]
+            self.assertFalse(onboarding["record_valid"])
+            self.assertEqual(
+                ["issue_tracker", "obsidian", "project_tools"],
+                [question["id"] for question in onboarding["questions"]],
+            )
+
+    def test_onboarding_status_must_match_answer_completion(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-onboarding-status-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            setup_path = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            pending = setup_path.read_text(encoding="utf-8")
+            pending = pending.replace("issue_tracker: UNRESOLVED", "issue_tracker: none")
+            pending = pending.replace("obsidian: UNRESOLVED", "obsidian: none")
+            pending = pending.replace("project_tools: UNRESOLVED", "project_tools: none")
+            setup_path.write_text(pending, encoding="utf-8")
+
+            pending_result = json.loads(self.run_installer(target).stdout)["onboarding"]
+
+            self.assertEqual("REQUIRED", pending_result["status"])
+            self.assertFalse(pending_result["record_valid"])
+            self.assertIn("STATUS_ANSWER_MISMATCH", pending_result["record_issues"])
+            self.assertEqual([], pending_result["questions"])
+
+            complete = pending.replace("status: PENDING", "status: COMPLETE")
+            setup_path.write_text(complete, encoding="utf-8")
+            resolved_result = json.loads(self.run_installer(target).stdout)["onboarding"]
+            self.assertEqual("COMPLETE", resolved_result["status"])
+            self.assertTrue(resolved_result["record_valid"])
+            self.assertEqual([], resolved_result["questions"])
+
+            complete = complete.replace("obsidian: none", "obsidian: UNRESOLVED")
+            setup_path.write_text(complete, encoding="utf-8")
+            complete_result = json.loads(self.run_installer(target).stdout)["onboarding"]
+
+            self.assertEqual("REQUIRED", complete_result["status"])
+            self.assertFalse(complete_result["record_valid"])
+            self.assertIn("STATUS_ANSWER_MISMATCH", complete_result["record_issues"])
+            self.assertEqual(["obsidian"], [question["id"] for question in complete_result["questions"]])
+
+    def test_apply_report_reloads_the_created_onboarding_record(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-onboarding-apply-report-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+
+            result = self.run_installer(target, apply=True)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            onboarding = json.loads(result.stdout)["onboarding"]
+            self.assertTrue(onboarding["record_valid"])
+            self.assertEqual("PENDING", onboarding["record_status"])
+            self.assertEqual([], onboarding["record_issues"])
+
     def test_apply_installs_complete_bundle_initial_state_and_runnable_suite(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-install-") as temp:
             target = Path(temp)
@@ -454,6 +691,7 @@ class InstallerBehaviorTests(unittest.TestCase):
 
             generated = {
                 ".hermes/orchestration/STATE.md",
+                ".hermes/orchestration/PROJECT_SETUP.md",
                 ".hermes/orchestration/ACTION_JOURNAL.json",
                 ".hermes/orchestration/INCIDENTS.md",
             }
