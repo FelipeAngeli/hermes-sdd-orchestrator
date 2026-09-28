@@ -47,21 +47,41 @@ def git(repo: Path, *args: str) -> str:
     return result.stdout
 
 
-def changes(repo: Path, staged: bool, base: str | None) -> list[tuple[str, str]]:
-    """(status letter, path) for every changed file.
-
-    A rename yields two entries: ``D`` for the old path and ``A`` for the new
-    one, so moving a source file into a test path is never silently exempt.
-    """
-    args = ["diff", "--name-status", "-M"] + (["--cached"] if staged else [f"{base}..HEAD"])
-    entries = []
-    for line in git(repo, *args).splitlines():
+def parse_name_status(text: str) -> list[tuple[str, str]]:
+    """Parse Git name-status output, expanding a rename to old delete + new add."""
+    entries: list[tuple[str, str]] = []
+    for line in text.splitlines():
         parts = line.split("\t")
         if parts[0].startswith("R") and len(parts) == 3:
             entries += [("D", parts[1]), ("A", parts[2])]
         else:
             entries.append((parts[0][0], parts[-1]))
     return entries
+
+
+def changes(repo: Path, staged: bool, base: str | None) -> list[tuple[str, str]]:
+    """(status letter, path) for every changed file.
+
+    A rename yields two entries, so moving source into a test path is not exempt.
+    """
+    args = ["diff", "--name-status", "-M"] + (["--cached"] if staged else [f"{base}..HEAD"])
+    return parse_name_status(git(repo, *args))
+
+
+def commit_paths(repo: Path, sha: str) -> set[str]:
+    """All paths attributable to one commit, including merge resolutions."""
+    record = git(repo, "rev-list", "--parents", "-n", "1", sha).split()
+    parents = record[1:]
+    if not parents:
+        output = git(repo, "diff-tree", "--root", "--no-commit-id", "--name-status", "-r", "-M", sha)
+        return {path for _, path in parse_name_status(output)}
+    paths: set[str] = set()
+    # A merge diff is empty without an explicit parent. Union every parent diff
+    # so a change introduced only while resolving the merge cannot disappear.
+    for parent in parents:
+        output = git(repo, "diff", "--name-status", "-M", parent, sha)
+        paths.update(path for _, path in parse_name_status(output))
+    return paths
 
 
 def waived_paths(repo: Path, base: str) -> set[str]:
@@ -74,7 +94,7 @@ def waived_paths(repo: Path, base: str) -> set[str]:
     unwaived: set[str] = set()
     for sha in git(repo, "rev-list", f"{base}..HEAD").split():
         body = git(repo, "log", "-1", "--format=%B", sha)
-        files = set(git(repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "-M", sha).split())
+        files = commit_paths(repo, sha)
         (waived if TRAILER.search(body) else unwaived).update(files)
     return waived - unwaived
 

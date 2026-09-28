@@ -388,6 +388,34 @@ class DocsSyncCheckerTests(unittest.TestCase):
         self.git("commit", "-qm", "fix: typo", "-m", "Docs-Impact: none - comment typo")
         self.assertEqual(0, self.check("--base", base).returncode)
 
+    def test_waiver_does_not_launder_a_merge_resolution_change(self) -> None:
+        base = self.git("rev-parse", "HEAD").strip()
+        self.git("switch", "-q", "-c", "side")
+        self.write("side.txt", "side\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "side")
+        self.git("switch", "-q", "main")
+        self.write("main.txt", "main\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "main")
+        self.git("merge", "--no-ff", "--no-commit", "side")
+        self.write("skills/o/runtime/tool.py", "x = 7  # merge-only change\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "merge side with resolution")
+        self.write("skills/o/runtime/tool.py", "x = 8  # waived metadata\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "chore: metadata", "-m", "Docs-Impact: none - metadata only")
+        result = self.check("--base", base)
+        self.assertEqual(1, result.returncode, result.stdout)
+        self.assertIn("docs/components/runtime.md", result.stdout)
+
+    def test_waiver_covers_both_paths_of_its_own_rename(self) -> None:
+        base = self.git("rev-parse", "HEAD").strip()
+        self.git("mv", "skills/o/runtime/tool.py", "skills/o/tests/test_moved.py")
+        self.git("commit", "-qm", "chore: move fixture", "-m", "Docs-Impact: none - test fixture move only")
+        result = self.check("--base", base)
+        self.assertEqual(0, result.returncode, result.stdout)
+
     def test_renaming_a_source_into_a_test_path_is_not_exempt(self) -> None:
         self.git("mv", "skills/o/runtime/tool.py", "skills/o/tests/test_moved.py")
         result = self.check("--staged")
