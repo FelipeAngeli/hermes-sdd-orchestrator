@@ -175,6 +175,10 @@ class DocumentationGraphTests(unittest.TestCase):
                 self.assertIn((DOCS / "README.md").resolve(), links)
                 self.assertTrue(links & siblings, "no link to another component page")
 
+    def test_ci_checks_the_real_pr_head_not_the_synthetic_merge_commit(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn("github.event.pull_request.head.sha", workflow)
+
     def test_readme_and_agents_point_to_the_documentation_index(self) -> None:
         for name in ("README.md", "AGENTS.md", "CONTRIBUTING.md"):
             with self.subTest(file=name):

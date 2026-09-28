@@ -12,7 +12,7 @@
 | Content tests | Pages name their files. Links and anchors resolve. The page graph is connected. CLI flags, subcommands, statuses, decisions, actions, ecosystems and agent tables match the code. | `tests/test_docs.py` |
 | Change check | A changed source file requires its owning page **and** `CHANGELOG.md` to change in the same diff. | `tools/check_docs_sync.py` |
 | Local hook | Runs the change check on every commit. | `.githooks/commit-msg` |
-| CI | Runs both test suites and, on pull requests, the change check against the base branch. | `.github/workflows/ci.yml` |
+| CI | Checks out the real PR `head.sha` (not GitHub's synthetic merge commit), runs both suites and checks docs against the base branch. | `.github/workflows/ci.yml` |
 
 Enable the hook once per clone:
 
