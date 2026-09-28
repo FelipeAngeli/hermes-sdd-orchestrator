@@ -65,6 +65,11 @@ class SddOrchestratorSkillTests(unittest.TestCase):
             "code-reviewer.md": ("CODE_REVIEWER", "[REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
             "tdd-guardian.md": ("TDD_GUARDIAN", "[TEST, REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
             "regression-hunter.md": ("REGRESSION_HUNTER", "[TEST, REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
+            "api-contract-auditor.md": (
+                "API_CONTRACT_AUDITOR",
+                "[PLAN, REVIEW]",
+                "REVIEW_RESULT_SCHEMA.json",
+            ),
         }
 
         self.assertEqual(set(expected), {path.name for path in sub_agents.glob("*.md")})
@@ -136,6 +141,43 @@ class SddOrchestratorSkillTests(unittest.TestCase):
         ):
             with self.subTest(agent="regression-hunter", rule=rule):
                 self.assertIn(rule, hunter)
+
+    def test_api_contract_auditor_ranks_sources_and_refuses_to_guess(self) -> None:
+        """Contract drift is decided by evidence, never by plausibility.
+
+        Three sources disagree in practice: the client's models, the published
+        specification, and the server actually deployed. An auditor that picks
+        the convenient one, or invents a field to close a gap, produces a
+        confident answer that breaks in production. The brief therefore fixes a
+        source hierarchy, forbids inventing any contract element, and requires
+        an unresolvable divergence to be reported as a gap for human decision.
+        """
+        sub_agents = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "sub-agents"
+        content = (sub_agents / "api-contract-auditor.md").read_text(encoding="utf-8")
+
+        for rule in (
+            "The workspace is read-only",
+            "Never repair",
+            "Report proven findings separately from unproven suspicions",
+            "Cite the exact field, path and source for every divergence",
+            "Never invent a field, endpoint, status code, enum value or nullability",
+            "Report an unresolvable divergence as a gap and request a decision",
+            "Never call a live API without explicit authorization",
+        ):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, content)
+
+        for surface in (
+            "nullability",
+            "enum",
+            "required",
+            "obsolete",
+            "pagination",
+            "error envelope",
+            "unit",
+        ):
+            with self.subTest(surface=surface):
+                self.assertIn(surface, content.lower())
 
     def test_documentation_has_no_legacy_flat_orchestration_paths(self) -> None:
         orchestration = SKILL_ROOT / "templates" / ".hermes" / "orchestration"
