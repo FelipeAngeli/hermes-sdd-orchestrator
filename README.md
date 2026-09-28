@@ -47,6 +47,7 @@ The installed entrypoint keeps worker context small and stage-specific, with one
 
 | Brief | Stages | Purpose |
 | --- | --- | --- |
+| `project-context-guardian` | SPECIFY, PLAN | Cache-first project context: stack, rules, conventions, integrations. |
 | `investigator` | SPECIFY, CLARIFY, PLAN | Bounded codebase investigation before a decision is made. |
 | `data-flow-tracer` | PLAN, IMPLEMENT | One demand's path: UI → state → service → repository → API and back. |
 | `impact-analyst` | PLAN, TASKS | Full blast radius of one proposed contract or behavior change. |

@@ -106,6 +106,11 @@ class SddOrchestratorSkillTests(unittest.TestCase):
                 "[PLAN, REVIEW]",
                 "REVIEW_RESULT_SCHEMA.json",
             ),
+            "project-context-guardian.md": (
+                "PROJECT_CONTEXT_GUARDIAN",
+                "[SPECIFY, PLAN]",
+                "EXECUTOR_RESULT_SCHEMA.json",
+            ),
         }
 
         self.assertEqual(set(expected), {path.name for path in sub_agents.glob("*.md")})
@@ -559,6 +564,33 @@ class SddOrchestratorSkillTests(unittest.TestCase):
         for surface in ("transitive", "duplicate", "unmaintained", "version", "lockfile"):
             with self.subTest(surface=surface):
                 self.assertIn(surface, content.lower())
+
+    def test_project_context_guardian_is_cache_first_and_path_agnostic(self) -> None:
+        """The most expensive role, so it must not run by default.
+
+        Reading a whole project is exactly the global-context habit the dispatch
+        policy exists to prevent; it only pays for itself if the result is
+        persisted and reused across demands. The brief must therefore read the
+        cache before the repository, refresh only what changed, and resolve the
+        vault through the repo-local binding rather than any literal path, so a
+        clone on another machine still works.
+        """
+        sub_agents = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "sub-agents"
+        content = (sub_agents / "project-context-guardian.md").read_text(encoding="utf-8")
+
+        for rule in (
+            "Read the stored context before reading the repository",
+            "Refresh only what changed",
+            "Never recreate documentation that already exists",
+            "resolve every vault path through `.hermes/obsidian.json`",
+            "Never write outside the project container",
+            "Never invent a convention the project does not follow",
+        ):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, content)
+
+        self.assertNotIn("/Users/", content)
+        self.assertNotIn("Obsidian Vault/", content)
 
     def test_documentation_has_no_legacy_flat_orchestration_paths(self) -> None:
         orchestration = SKILL_ROOT / "templates" / ".hermes" / "orchestration"
