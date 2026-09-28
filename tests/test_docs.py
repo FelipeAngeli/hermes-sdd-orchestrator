@@ -394,6 +394,22 @@ class DocsSyncCheckerTests(unittest.TestCase):
         self.assertEqual(1, result.returncode, result.stdout)
         self.assertIn("skills/o/runtime/tool.py", result.stdout)
 
+    def test_initial_introduction_of_doc_map_has_no_old_map(self) -> None:
+        self.git("rm", "docs/doc-map.json")
+        self.git("commit", "-qm", "remove preexisting map")
+        base = self.git("rev-parse", "HEAD").strip()
+        self.write("docs/doc-map.json", json.dumps({"docs": {
+            "docs/components/runtime.md": ["skills/o/runtime/*.py"],
+            "docs/components/testing.md": ["skills/o/tests/*.py"],
+        }}))
+        self.write("skills/o/runtime/tool.py", "x = 6\n")
+        self.write("docs/components/runtime.md", "runtime documented\n")
+        self.write("CHANGELOG.md", "# Changelog\n- introduce docs map\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "docs: introduce map")
+        result = self.check("--base", base)
+        self.assertEqual(0, result.returncode, result.stdout)
+
     def test_documented_deletion_uses_the_owner_from_the_base_map(self) -> None:
         self.git("rm", "skills/o/runtime/tool.py")
         self.write("docs/doc-map.json", json.dumps({"docs": {

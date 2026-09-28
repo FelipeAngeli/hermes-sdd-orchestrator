@@ -84,7 +84,13 @@ def owning_page(relative: str, doc_map: dict[str, list[str]]) -> list[str]:
 
 
 def map_at(repo: Path, ref: str) -> dict[str, list[str]]:
-    """Load the ownership map before the diff, for deleted and renamed paths."""
+    """Load pre-diff ownership; the first docs PR legitimately has no map."""
+    exists = subprocess.run(
+        ["git", "-C", str(repo), "cat-file", "-e", f"{ref}:{DOC_MAP}"],
+        text=True, capture_output=True, timeout=30, check=False,
+    )
+    if exists.returncode:
+        return {}
     return json.loads(git(repo, "show", f"{ref}:{DOC_MAP}"))["docs"]
 
 

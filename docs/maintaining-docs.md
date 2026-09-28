@@ -39,6 +39,8 @@ Exit codes: `0` in sync, `1` documentation missing (each missing page is listed)
 
 Editing or deleting an **existing** test needs no documentation. Adding a test file does, because [Testing](components/testing.md) lists every suite. A rename counts as deleting the old path and adding the new one, so a source file moved into `tests/` still needs its page.
 
+**Bootstrap.** On the first documentation PR, `docs/doc-map.json` may not exist in the base revision. The checker treats pre-diff ownership as empty in that one case; once the map exists, deleted and renamed paths always resolve their previous owner from the base map.
+
 **Waiver.** A change with truly no documentation impact, such as a comment typo, may carry the trailer below. The reason is mandatory and reviewers see it in the history. A waiver covers only the files changed by the commit that carries it; a later waived release or metadata commit never excuses another commit in the range:
 
 ```text
