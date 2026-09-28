@@ -37,9 +37,9 @@ python3 tools/check_docs_sync.py --base origin/main
 
 Exit codes: `0` in sync, `1` documentation missing (each missing page is listed), `2` usage or Git error.
 
-Editing, renaming or deleting an **existing** test needs no documentation. Adding a test file does, because [Testing](components/testing.md) lists every suite.
+Editing or deleting an **existing** test needs no documentation. Adding a test file does, because [Testing](components/testing.md) lists every suite. A rename counts as deleting the old path and adding the new one, so a source file moved into `tests/` still needs its page.
 
-**Waiver.** A change with truly no documentation impact, such as a comment typo, may carry the trailer below. The reason is mandatory and reviewers see it in the history:
+**Waiver.** A change with truly no documentation impact, such as a comment typo, may carry the trailer below. The reason is mandatory and reviewers see it in the history. A waiver covers only the files changed by the commit that carries it. In `--base` mode, for example, the waiver that `tools/release.py` writes on a release commit never excuses another commit in the range:
 
 ```text
 Docs-Impact: none - fix typo in a comment
@@ -99,4 +99,4 @@ Hermes agents working in this repository follow the same rule; see `AGENTS.md` a
    gh pr create --fill
    ```
 
-The version lives in one place: `version:` in `skills/orchestrate/sdd-orchestrator/SKILL.md`. `tests/test_versioning.py` checks that it is SemVer, that it equals the newest release in `CHANGELOG.md`, that `## Unreleased` stays on top and that release sections descend. Every version since `v3.3.0` has a matching Git tag.
+The version lives in one place: `version:` in `skills/orchestrate/sdd-orchestrator/SKILL.md`. `tests/test_versioning.py` checks that it is SemVer, that it equals the newest release in `CHANGELOG.md`, that `## Unreleased` stays on top and that release sections descend. `tools/release.py` creates an annotated tag `vX.Y.Z` for every version from `v3.3.0` on. Tags are pushed together with their branch.

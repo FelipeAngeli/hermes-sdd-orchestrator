@@ -140,7 +140,7 @@ class DocumentationDriftTests(unittest.TestCase):
         return set(re.findall(r'add_argument\(\s*"(--[a-z0-9-]+)"', source))
 
     def test_every_cli_flag_is_documented_on_its_page(self) -> None:
-        sources = [*RUNTIME.glob("*.py"), SKILL_ROOT / "scripts" / "install_project.py", CHECKER]
+        sources = [*RUNTIME.glob("*.py"), SKILL_ROOT / "scripts" / "install_project.py", *sorted((ROOT / "tools").glob("*.py"))]
         for path in sources:
             relative = path.relative_to(ROOT).as_posix()
             text = owning_page(relative)
@@ -315,6 +315,32 @@ class DocsSyncCheckerTests(unittest.TestCase):
         self.git("add", "-A")
         self.git("commit", "-qm", "docs: runtime v3")
         self.assertEqual(0, self.check("--base", base).returncode)
+
+    def test_a_waiver_on_one_commit_does_not_cover_other_commits_in_the_range(self) -> None:
+        """A release commit carries Docs-Impact: none; it must not launder the branch."""
+        base = self.git("rev-parse", "HEAD").strip()
+        self.write("skills/o/runtime/tool.py", "x = 4\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "feat: undocumented change")
+        self.write("CHANGELOG.md", "# Changelog\n## 1.0.0\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "chore(release): v1.0.0", "-m", "Docs-Impact: none - version bump only")
+        result = self.check("--base", base)
+        self.assertEqual(1, result.returncode, result.stdout)
+        self.assertIn("docs/components/runtime.md", result.stdout)
+
+    def test_a_waived_commit_exempts_only_its_own_files(self) -> None:
+        base = self.git("rev-parse", "HEAD").strip()
+        self.write("skills/o/runtime/tool.py", "x = 5  # typo\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "fix: typo", "-m", "Docs-Impact: none - comment typo")
+        self.assertEqual(0, self.check("--base", base).returncode)
+
+    def test_renaming_a_source_into_a_test_path_is_not_exempt(self) -> None:
+        self.git("mv", "skills/o/runtime/tool.py", "skills/o/tests/test_moved.py")
+        result = self.check("--staged")
+        self.assertEqual(1, result.returncode, result.stdout)
+        self.assertIn("skills/o/runtime/tool.py", result.stdout)
 
 
 if __name__ == "__main__":

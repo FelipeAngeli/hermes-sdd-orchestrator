@@ -3,12 +3,15 @@
 
 Every orchestration file has exactly one owning page in ``docs/doc-map.json``.
 A change is accepted when, for every changed source file, its owning page and
-``CHANGELOG.md`` change in the same diff — or the commit message carries an
-explicit ``Docs-Impact: none - <reason>`` trailer.
+``CHANGELOG.md`` change in the same diff — or the commit that changes it
+carries an explicit ``Docs-Impact: none - <reason>`` trailer. In ``--base``
+mode each commit's waiver covers only the files that commit touched, so a
+release commit's waiver never excuses another commit in the range.
 
-Only *modified*, *renamed* or *deleted* existing tests are exempt: editing a
-test does not change what the orchestration does. Adding a test file still
-needs the testing page, because the page lists every suite.
+Only *modified* or *deleted* existing tests are exempt: editing a test does
+not change what the orchestration does. Adding a test file still needs the
+testing page, because the page lists every suite. A rename counts as deleting
+the old path and adding the new one.
 
 Modes:
   --staged              check the index (pre-commit hook)
@@ -45,20 +48,35 @@ def git(repo: Path, *args: str) -> str:
 
 
 def changes(repo: Path, staged: bool, base: str | None) -> list[tuple[str, str]]:
-    """(status letter, path) for every changed file; renames report the new path."""
+    """(status letter, path) for every changed file.
+
+    A rename yields two entries: ``D`` for the old path and ``A`` for the new
+    one, so moving a source file into a test path is never silently exempt.
+    """
     args = ["diff", "--name-status", "-M"] + (["--cached"] if staged else [f"{base}..HEAD"])
     entries = []
     for line in git(repo, *args).splitlines():
         parts = line.split("\t")
-        entries.append((parts[0][0], parts[-1]))
+        if parts[0].startswith("R") and len(parts) == 3:
+            entries += [("D", parts[1]), ("A", parts[2])]
+        else:
+            entries.append((parts[0][0], parts[-1]))
     return entries
 
 
-def messages(repo: Path, base: str | None, message_file: str | None) -> str:
-    text = Path(message_file).read_text(encoding="utf-8") if message_file else ""
-    if base:
-        text += "\n" + git(repo, "log", "--format=%B", f"{base}..HEAD")
-    return text
+def waived_paths(repo: Path, base: str) -> set[str]:
+    """Paths touched ONLY by commits that carry their own Docs-Impact waiver.
+
+    A waiver covers the commit it is written on, never the rest of the range:
+    a release commit's waiver must not excuse an undocumented feature commit.
+    """
+    waived: set[str] = set()
+    unwaived: set[str] = set()
+    for sha in git(repo, "rev-list", f"{base}..HEAD").split():
+        body = git(repo, "log", "-1", "--format=%B", sha)
+        files = set(git(repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "-M", sha).split())
+        (waived if TRAILER.search(body) else unwaived).update(files)
+    return waived - unwaived
 
 
 def owning_page(relative: str, doc_map: dict[str, list[str]]) -> list[str]:
@@ -71,9 +89,14 @@ def check(repo: Path, staged: bool, base: str | None, message_file: str | None, 
     changed_paths = {path for _, path in changed}
     sources = [
         (status, path) for status, path in changed
-        if path.startswith(prefixes) and not (status in "MRD" and TEST_FILE.search(path))
+        if path.startswith(prefixes) and not (status in "MD" and TEST_FILE.search(path))
     ]
-    if not sources or TRAILER.search(messages(repo, base, message_file)):
+    if base:
+        exempt = waived_paths(repo, base)
+        sources = [(status, path) for status, path in sources if path not in exempt]
+    elif message_file and TRAILER.search(Path(message_file).read_text(encoding="utf-8")):
+        return []
+    if not sources:
         return []
     problems: list[str] = []
     for status, path in sources:

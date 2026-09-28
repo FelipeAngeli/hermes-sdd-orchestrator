@@ -4,6 +4,11 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- `tools/check_docs_sync.py --base`: a `Docs-Impact: none` waiver now covers only the commit that carries it. Before, the waiver on a release commit excused every undocumented change in the range, so the CI docs check passed any released branch.
+- `tools/check_docs_sync.py`: a rename is checked as a deletion of the old path plus an addition of the new one, so moving a source file into `tests/` no longer bypasses the docs requirement.
+- `tests/test_docs.py` now also checks the CLI flags of every `tools/*.py`.
+
 ## 3.5.0 - 2026-09-28
 
 ### Added
