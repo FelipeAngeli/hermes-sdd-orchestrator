@@ -58,17 +58,19 @@ The installed entrypoint keeps worker context small and stage-specific, with one
 | `api-contract-auditor` | PLAN, REVIEW | Client models against the specification and the deployed server. |
 | `performance-auditor` | PLAN, REVIEW | Work the system does that it does not need to do. |
 | `architecture-guardian` | PLAN, REVIEW | Violations of the project's own declared architectural rules. |
+| `spec-consistency-guardian` | TASKS, REVIEW | Breaks in the chain SPEC → PLAN → TASKS → CODE → TESTS. |
 | `documentation-writer` | IMPLEMENT, REVIEW | Documentation, ADRs, README and diagrams realigned with the code. |
 
-The five audit roles return findings only when evidence supports them, and each is bound by the failure mode specific to its domain:
+The six audit roles return findings only when evidence supports them, and each is bound by the failure mode specific to its domain:
 
 - The **TDD guardian** proves a weak test by mutating production code and observing which tests stay green, because reading a test yields an opinion while mutating it yields a fact.
 - The **regression hunter** runs the suites of consumers the change did not touch; a consumer whose tests pass without exercising the affected path is reported as uncovered risk, not as safe.
 - The **API contract auditor** ranks its sources — deployed runtime over served specification over server source over committed spec, with client models last — instead of trusting whichever is nearest, and never invents a contract element to close a gap.
 - The **performance auditor** reports a cost only with a measurement or a counted operation behind it, states the input size at which it matters, and may conclude that nothing is worth changing; a role rewarded for findings will produce them.
 - The **architecture guardian** cites the project's declared rule behind every violation. An undeclared convention is raised as a question, never enforced, since every codebase violates someone's preferred architecture.
+- The **spec consistency guardian** walks SPEC → PLAN → TASKS → CODE → TESTS in both directions and never infers a missing requirement: inferring one would turn unauthorized scope into retroactively justified scope, which is the failure it exists to catch.
 
-All five keep the workspace read-only, revert every temporary step, repair nothing, and report proven findings separately from unproven suspicions.
+All six keep the workspace read-only, revert every temporary step, repair nothing, and report proven findings separately from unproven suspicions.
 
 `documentation-writer` is the only writing role among these, and its risk runs the other way: a read-only auditor produces a wrong finding that review can reject, while a writer produces fluent prose describing code that does not exist, which readers trust because it reads well. It verifies every symbol, command and path against the repository before writing it, deletes documentation whose subject is gone, and records an unexplained decision as an open question rather than inventing a rationale. Like the implementer, it writes only to paths the controller assigns.
 

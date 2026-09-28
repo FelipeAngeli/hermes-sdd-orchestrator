@@ -86,6 +86,11 @@ class SddOrchestratorSkillTests(unittest.TestCase):
                 "[PLAN, REVIEW]",
                 "REVIEW_RESULT_SCHEMA.json",
             ),
+            "spec-consistency-guardian.md": (
+                "SPEC_CONSISTENCY_GUARDIAN",
+                "[TASKS, REVIEW]",
+                "REVIEW_RESULT_SCHEMA.json",
+            ),
         }
 
         self.assertEqual(set(expected), {path.name for path in sub_agents.glob("*.md")})
@@ -420,6 +425,41 @@ class SddOrchestratorSkillTests(unittest.TestCase):
             set(),
             "routing table names a sub-agent that does not ship",
         )
+
+    def test_spec_consistency_guardian_never_infers_a_requirement(self) -> None:
+        """Traceability is asserted at TASKS time and never rechecked.
+
+        The tasks agent already requires every task to trace to a requirement,
+        but nothing verifies that the chain held once code and tests landed.
+        This role walks SPEC → PLAN → TASKS → CODE → TESTS and reports breaks in
+        both directions: a requirement with no implementation, and code with no
+        requirement behind it. Its defining refusal is inventing the missing
+        link — a requirement inferred from code turns unauthorized scope into
+        retroactively justified scope, which is the failure it exists to catch.
+        """
+        sub_agents = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "sub-agents"
+        content = (sub_agents / "spec-consistency-guardian.md").read_text(encoding="utf-8")
+
+        for rule in (
+            "The workspace is read-only",
+            "Never repair",
+            "Never infer a requirement that the specification does not state",
+            "Report code with no requirement behind it as unauthorized scope",
+            "Return `NO_FINDINGS` when the chain is intact",
+            "Quote the requirement identifier",
+        ):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, content)
+
+        for direction in (
+            "not implemented",
+            "unauthorized scope",
+            "incomplete task",
+            "does not prove",
+            "documentation",
+        ):
+            with self.subTest(direction=direction):
+                self.assertIn(direction, content.lower())
 
     def test_documentation_has_no_legacy_flat_orchestration_paths(self) -> None:
         orchestration = SKILL_ROOT / "templates" / ".hermes" / "orchestration"
