@@ -54,7 +54,56 @@ Docs-Impact: none - fix typo in a comment
 3. For a new file, add it to `doc-map.json` under the right page and name it on that page.
 4. For a new component, create `docs/components/<name>.md` with a link back to the [index](README.md) and to at least one related page, then add it to the index table and to `doc-map.json`.
 5. Add an entry under `Unreleased` in `CHANGELOG.md`.
-6. For a contract, schema or action change, bump the version in `SKILL.md`.
+6. For a contract, schema or action change, use `### Added`, `### Changed` or `### Breaking` so [the release](#branches-and-versions) bumps the right level.
 7. Run both test suites.
 
 Hermes agents working in this repository follow the same rule; see `AGENTS.md` at the repository root.
+
+## Branches and versions
+
+**One improvement, one branch, one version.** Nothing is committed directly to `main`.
+
+1. Create a branch from an up-to-date `main`. The prefix follows the Conventional Commit type:
+
+   | Prefix | Use for | Typical level |
+   | --- | --- | --- |
+   | `feat/<topic>` | New capability | MINOR |
+   | `fix/<topic>` | Bug fix | PATCH |
+   | `docs/<topic>` | Documentation only | PATCH |
+   | `refactor/<topic>`, `test/<topic>`, `chore/<topic>` | No behavior change | PATCH |
+
+   ```bash
+   git switch main && git pull --ff-only
+   git switch -c feat/<topic>
+   ```
+
+2. Commit the change with its documentation and an entry under `## Unreleased` in `CHANGELOG.md`. The entry's heading sets the level: `### Breaking` or `### Removed` → **MAJOR**, `### Added` or `### Changed` → **MINOR**, anything else (`### Fixed`, `### Docs`…) → **PATCH**.
+3. Cut the version on the same branch with `tools/release.py`:
+
+   ```bash
+   python3 tools/release.py              # dry run: shows 3.3.0 -> 3.4.0 (minor)
+   python3 tools/release.py --apply      # bumps SKILL.md, rolls CHANGELOG, commits (no tag yet)
+   ```
+
+   | Flag | Meaning |
+   | --- | --- |
+   | `--apply` | Write and commit `chore(release): vX.Y.Z`. It deliberately does not tag before review. Without it the command is a dry run. |
+   | `--tag` | After CI and `pr-reviewer` approve the exact release HEAD, verify it and create the annotated tag. |
+   | `--level` | Force `major`, `minor` or `patch` instead of inferring it. |
+   | `--date` | Release date `YYYY-MM-DD` (default today). |
+   | `--repo` | Repository root (default `.`). |
+
+   It refuses with exit code 1 on `main`/`master` (`BRANCH_NOT_ALLOWED`), a branch without an allowed prefix (`BRANCH_NAME_INVALID`), a dirty worktree (`WORKTREE_DIRTY`), an invalid `--date` (`DATE_INVALID`), an empty `Unreleased` section (`UNRELEASED_EMPTY`), a changed head after the release commit (`HEAD_NOT_RELEASE`) or an existing tag (`TAG_EXISTS`). It never pushes.
+
+4. Push the branch and open a pull request to `main`. Run CI and `pr-reviewer` on the exact release commit.
+5. Only after the verdict is `APPROVED`, tag that exact reviewed HEAD and push the tag; then merge:
+
+   ```bash
+   git push -u origin feat/<topic>
+   gh pr create --fill
+   # after CI + review approve the unchanged HEAD:
+   python3 tools/release.py --tag
+   git push origin vX.Y.Z
+   ```
+
+The version lives in one place: `version:` in `skills/orchestrate/sdd-orchestrator/SKILL.md`. `tests/test_versioning.py` checks that it is SemVer, that it equals the newest release in `CHANGELOG.md`, that `## Unreleased` stays on top and that release sections descend. Every version since `v3.3.0` has a matching Git tag.

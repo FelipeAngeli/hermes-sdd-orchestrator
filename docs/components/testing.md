@@ -17,6 +17,7 @@ python3 -m unittest discover -s skills/orchestrate/sdd-orchestrator/templates/.h
 | --- | --- |
 | `tests/test_sdd_orchestrator_skill.py` | Layered payload structure. Every stage agent and sub-agent has complete, controller-safe frontmatter. Role-specific rules for each audit brief. The README lists exactly the shipped sub-agents. The dispatch policy defaults to not dispatching. No legacy flat paths. `.hermes.md` stays compact and portable. The payload is not coupled to one language. The installer reports the detected stack and installs idempotently into a fixture repository with a clean `git status`. |
 | `tests/test_docs.py` | Documentation stays true: every orchestration file has exactly one owning page in `docs/doc-map.json`, and that page names it. Every relative link resolves. Every page is reachable from `docs/README.md`, and every component page links back to the index and to a sibling. CLI flags, subcommands, journal statuses, driver decisions, planner actions and detected ecosystems extracted from code appear on their page. The sub-agent and stage-agent tables match each brief's frontmatter. `tools/check_docs_sync.py` blocks undocumented changes. |
+| `tests/test_versioning.py` | Versioning stays consistent: `SKILL.md` has a SemVer version equal to the newest `CHANGELOG.md` release, `## Unreleased` stays on top, releases descend without duplicates. `tools/release.py` infers the level, bumps, rolls the changelog, commits and tags, and refuses on `main`, a dirty worktree, an empty section or an existing tag. |
 
 ## Installed controller tests
 

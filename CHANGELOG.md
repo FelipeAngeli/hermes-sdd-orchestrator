@@ -4,6 +4,14 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 3.7.0 - 2026-09-28
+
+### Added
+- Branch-per-improvement workflow and SemVer releases: `tools/release.py` infers the level from `## Unreleased`, bumps `SKILL.md`, rolls this changelog and commits the release; after the exact PR head is approved it creates the annotated `vX.Y.Z` tag. It refuses protected/arbitrary branch names, a dirty worktree, an invalid date, an empty section or an existing tag. `tests/test_versioning.py` keeps the version and changelog consistent.
+
+### Changed
+- Release tags are created only by `tools/release.py --tag` after CI and `pr-reviewer` approve the exact unchanged release commit; `--apply` never publishes a pre-review tag.
+
 ## 3.6.1 - 2026-09-28
 
 ### Fixed
@@ -18,13 +26,16 @@ All notable changes to the orchestration are recorded here. Every change under `
 - `AGENTS.md`, with the documentation rule for agents working in this repository.
 
 ### Fixed
-- The installer ignores Python interpreter artifacts (`__pycache__`, `.pyc`, `.pyo`) in the source template. Previously a cache generated while the repository tests ran could be copied into a fixture, recompiled there and make the idempotency check fail on Linux CI.
-- `tools/check_docs_sync.py --base`: a `Docs-Impact: none` waiver covers only the commit that carries it, so an unrelated waived commit cannot excuse an undocumented change in the range.
-- `tools/check_docs_sync.py`: a rename is checked as a deletion of the old path plus an addition of the new one, so moving a source file into `tests/` cannot bypass the docs requirement.
-- `tests/test_docs.py` checks the CLI flags of every `tools/*.py`.
-- Direct maintainer requests may use `Issue: not applicable — direct request`; contributors no longer need to create an artificial issue solely to satisfy the PR template.
+- The installer ignores Python interpreter artifacts (`__pycache__`, `.pyc`, `.pyo`) in the source template.
+- Docs-impact waivers are commit-scoped; renames and deletions preserve ownership checks; Markdown anchors and argparse flags are structurally checked.
+- Direct maintainer requests may state `Issue: not applicable — direct request` instead of creating an artificial issue.
 
-## 3.3.0
+## 3.4.0 - 2026-09-28
+
+### Added
+- Initial branch/version workflow draft (superseded by the reviewed workflow released after `3.6.1`).
+
+## 3.3.0 - 2026-09-28
 
 ### Changed
 - The controller is language-agnostic: `FORMAT_DART_CHANGED_FILES` is now `FORMAT_CHANGED_FILES`, and `changed_dart_files_available` is now `changed_files_available` (the legacy name is still accepted).
