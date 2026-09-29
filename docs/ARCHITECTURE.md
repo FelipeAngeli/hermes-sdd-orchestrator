@@ -20,6 +20,7 @@ skills/orchestrate/sdd-orchestrator/
     └── .hermes/orchestration/
         ├── agents/           # stage-specific leaf-worker briefs
         ├── contracts/        # worker and reviewer result contracts
+        ├── hooks/            # opt-in Hermes event adapters
         ├── policies/         # FSM, gates, recovery and bounded automation
         ├── runtime/          # deterministic executable controller tools
         ├── schemas/          # JSON Schema validation boundaries
@@ -50,6 +51,12 @@ Details: [Stage agents](components/stage-agents.md).
 Details: [Contracts and schemas](components/contracts-and-schemas.md).
 
 `contracts/` defines the information exchanged with implementation workers and reviewers. Contracts describe transport, evidence and acceptance semantics; they do not execute actions or own state transitions.
+
+### Hooks
+
+Details: [Repository-local Hermes hooks](components/hooks.md).
+
+`hooks/` is the opt-in event edge of the controller. Its scripts translate Hermes shell-hook JSON into calls to centralized `runtime/` policy; they do not duplicate FSM, path-matching, vault, STATE, journal, or acceptance rules. Installation copies the layer inactive, and activation remains an explicit dedicated-profile decision with checkout-bound consent. Hook adapters may depend on `runtime/`; runtime never depends on hook scripts. The layer observes or gates structured events but does not own STATE transitions, dispatch, profile configuration, or consent.
 
 ### Policies
 
@@ -90,19 +97,14 @@ The installed `tests/` suite validates protocol behavior against the exact runti
 ## Dependency direction
 
 ```text
-.hermes.md / SKILL.md
-        │
-        ▼
-      agents ─────────► contracts
-        │                  │
-        ▼                  │
-     policies              │
-        │                  │
-        ▼                  ▼
-      runtime ───────────► schemas
-        ▲
-        │
-      tests
+.hermes.md / SKILL.md ─────► agents ─────► contracts ─────────► schemas
+          │                    │                                  ▲
+          └────► hooks ────────┼──────────────┐                   │
+                               ▼              ▼                   │
+                            policies ───────► runtime ─────────────┘
+                                                ▲
+                                                │
+                                              tests
 ```
 
 `PROJECT_SETUP.md` is created during installation and remains at the local orchestration root. It gates the first demand until orchestrator-only connectivity questions are resolved. Runtime files (`STATE.md`, `ACTION_JOURNAL.json`, `INCIDENTS.md` and journal history) are initially created there too; an Obsidian-bound worktree relocates its runtime files to the vault as documented in [Obsidian vault](components/obsidian-vault.md).
@@ -111,6 +113,7 @@ The installed `tests/` suite validates protocol behavior against the exact runti
 
 - Put stage-specific worker instructions in `agents/`; keep controller authority out of them.
 - Put executable controller behavior in `runtime/` and cover it in installed `tests/`.
+- Keep `hooks/` as thin opt-in event adapters over `runtime/`; they never own policy, STATE transitions, profile configuration or consent.
 - Put JSON validation shapes in `schemas/`; do not embed duplicate schemas in Python.
 - Put reusable specialist roles in `sub-agents/`; keep them leaf-only and controller-dispatched.
 - Put governance prose in `policies/` and external worker interfaces in `contracts/`.
