@@ -8,7 +8,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from os import environ as process_environment
 from pathlib import Path
+from unittest.mock import patch
 
 ORCHESTRATION = Path(__file__).resolve().parents[1]
 RUNTIME = ORCHESTRATION / "runtime"
@@ -109,6 +111,17 @@ class ScopeHookTests(unittest.TestCase):
         self.assertEqual("block", result["action"])
         self.assertIn("unavailable or inconsistent", result["message"])
 
+    def test_default_hook_environment_exposes_only_supported_overrides(self) -> None:
+        configured = str(self.root / "context.json")
+        with patch.dict(process_environment, {
+            "SDD_STAGE_CONTEXT": configured,
+            "UNRELATED_RUNTIME_VALUE": "must-not-be-exposed",
+        }, clear=True):
+            self.assertEqual(
+                {"SDD_STAGE_CONTEXT": configured},
+                hook_runtime.hook_environment(),
+            )
+
 
 class VerificationAndLifecycleHookTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -191,16 +204,16 @@ class VerificationAndLifecycleHookTests(unittest.TestCase):
 
     def test_state_hook_never_echoes_malformed_or_wrong_shaped_content(self) -> None:
         payload = {"cwd": str(self.root), "extra": {}}
-        secret = "TOP-SECRET-CREDENTIAL"
-        wrong_shape = f"""# State\n```yaml\nticket:\n  id: {{secret: {secret}}}\nstage:\n  current: IMPLEMENT\nloop:\n  mode: MANUAL\n  progress:\n    current_slice: S1\n  budgets:\n    executor_calls: {{max: 8, used: 3}}\n    stage_transitions: {{max: 5, used: 2}}\n```\n"""
+        sentinel = "SENSITIVE_FIXTURE_MUST_NOT_LEAK"
+        wrong_shape = f"""# State\n```yaml\nticket:\n  id: {{private: {sentinel}}}\nstage:\n  current: IMPLEMENT\nloop:\n  mode: MANUAL\n  progress:\n    current_slice: S1\n  budgets:\n    executor_calls: {{max: 8, used: 3}}\n    stage_transitions: {{max: 5, used: 2}}\n```\n"""
         (self.orchestration / "STATE.md").write_text(wrong_shape, encoding="utf-8")
         result = hook_runtime.run_context_hook(payload, environ={})
         self.assertEqual("SDD state unavailable.", result["context"])
-        self.assertNotIn(secret, result["context"])
-        (self.orchestration / "STATE.md").write_text(f"# State\n```yaml\nticket:\n bad-indent: {secret}\n```\n", encoding="utf-8")
+        self.assertNotIn(sentinel, result["context"])
+        (self.orchestration / "STATE.md").write_text(f"# State\n```yaml\nticket:\n bad-indent: {sentinel}\n```\n", encoding="utf-8")
         result = hook_runtime.run_context_hook(payload, environ={})
         self.assertEqual("SDD state unavailable.", result["context"])
-        self.assertNotIn(secret, result["context"])
+        self.assertNotIn(sentinel, result["context"])
         (self.orchestration / "STATE.md").write_bytes(b"\xff")
         completed = subprocess.run(
             [sys.executable, str(HOOKS / "inject-state-summary.py")], input=json.dumps(payload),
@@ -211,18 +224,18 @@ class VerificationAndLifecycleHookTests(unittest.TestCase):
 
     def test_scope_and_verify_never_echo_malformed_state_details(self) -> None:
         self.install_live_binding()
-        secret = "TOP-SECRET-STATE-VALUE"
+        sentinel = "PRIVATE_STATE_FIXTURE_MUST_NOT_LEAK"
         (self.orchestration / "STATE.md").write_text(
-            f"# State\n```yaml\nticket:\n bad-indent: {secret}\n```\n", encoding="utf-8"
+            f"# State\n```yaml\nticket:\n bad-indent: {sentinel}\n```\n", encoding="utf-8"
         )
         scope_payload = {"cwd": str(self.root), "tool_name": "write_file", "tool_input": {"path": "src/a.py", "content": "x"}}
         scope_result = hook_runtime.run_scope_hook(scope_payload, environ={})
         self.assertEqual("block", scope_result["action"])
-        self.assertNotIn(secret, scope_result["message"])
+        self.assertNotIn(sentinel, scope_result["message"])
         verify_payload = {"cwd": str(self.root), "extra": {"coding": True, "attempt": 0, "changed_paths": ["src/a.py"]}}
         verify_result = hook_runtime.run_verify_hook(verify_payload, environ={})
         self.assertEqual("continue", verify_result["action"])
-        self.assertNotIn(secret, verify_result["message"])
+        self.assertNotIn(sentinel, verify_result["message"])
 
     def test_state_budget_booleans_are_rejected(self) -> None:
         state = """# State\n```yaml\nticket:\n  id: APP-1\nstage:\n  current: IMPLEMENT\nloop:\n  mode: MANUAL\n  progress:\n    current_slice: S1\n  budgets:\n    executor_calls: {max: true, used: false}\n    stage_transitions: {max: 5, used: 2}\n```\n"""

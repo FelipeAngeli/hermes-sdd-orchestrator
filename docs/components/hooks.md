@@ -19,7 +19,7 @@ The `hooks/` layer is the event-driven edge of the SDD harness, parallel to `age
 | `hooks/hooks.example.yaml` | configuration | — | Opt-in profile snippet. Its events are Hermes `VALID_HOOKS`: `pre_tool_call`, `pre_verify`, `subagent_stop`, and the optional `pre_llm_call`. |
 | `hooks/README.md` | documentation | — | Installed operator guide, inputs, failure behavior, and JSON protocol. |
 
-`runtime/hook_runtime.py` owns the shared implementation and stable default paths. The four scripts only select a handler and run `shell_main`; this keeps event transport separate from harness policy and prevents four copies of path and JSON validation.
+`runtime/hook_runtime.py` owns the shared implementation and stable default paths. The four scripts only select a handler and run `shell_main`; this keeps event transport separate from harness policy and prevents four copies of path and JSON validation. Default hook execution projects only the supported `SDD_STAGE_CONTEXT`, `SDD_HOOK_BINDING`, `SDD_VERIFICATION_EVIDENCE`, and `SDD_STATE` overrides from the process environment instead of exposing unrelated environment state to the runtime. Tests may still inject an explicit mapping, which is used as-is and does not consult process state.
 
 ## Activation and consent
 
