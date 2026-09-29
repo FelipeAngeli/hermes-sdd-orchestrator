@@ -414,6 +414,20 @@ class PublicDocumentationContractTests(unittest.TestCase):
                 self.assertEqual(f"`{meta['stage']}`", record["Stage"])
                 self.assertEqual(f"`{Path(meta['result_schema']).name}`", record["Result schema"])
 
+    def test_hook_catalogue_publishes_each_installed_hook_file_exactly_once(self) -> None:
+        hooks = ORCHESTRATION / "hooks"
+        text = owning_page((hooks / "enforce-slice-scope.py").relative_to(ROOT).as_posix())
+        installed = {f"hooks/{path.name}" for path in hooks.iterdir() if path.is_file()}
+        documented = {
+            match.group(1)
+            for line in text.splitlines()
+            if (match := re.match(r"^\| `(?P<path>hooks/[^`]+)` \|", line))
+        }
+        self.assertEqual(installed, documented)
+        for name in sorted(installed):
+            with self.subTest(hook=name):
+                self.table_record(text, name)
+
 
 class DocsSyncCheckerTests(unittest.TestCase):
     """tools/check_docs_sync.py blocks orchestration changes without docs."""
