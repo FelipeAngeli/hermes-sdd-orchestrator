@@ -47,7 +47,7 @@ python3 <installed-skill>/scripts/install_project.py --target <project-root> --j
 python3 <installed-skill>/scripts/install_project.py --target <project-root> --apply --json
 ```
 
-The dry run must return `READY` before `--apply`. Installation must return `applied: true` and create an untracked `.hermes/` tree. It refuses tracked, conflicting, symlinked, or partial existing SDD state.
+The dry run must return `READY` before `--apply`. Installation must return `applied: true` and create an untracked `.hermes/` tree. It refuses tracked, conflicting, symlinked, or partial existing SDD state. The installed `orchestration/hooks/` layer is inactive by default: activation is an explicit dedicated-profile opt-in after replacing `<ABSOLUTE_PROJECT_ROOT>` in `hooks/hooks.example.yaml`; the installer never edits `~/.hermes/config.yaml`, SOUL, or global skills and never grants hook consent.
 
 ## Procedure
 
