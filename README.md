@@ -28,6 +28,7 @@ Hermes profile (once)                         Target Git project (per project)
 ├── scripts/install_project.py                .hermes/orchestration/
 └── templates/                                ├── agents/      # stage-specific worker briefs
     └── .hermes/                              ├── contracts/   # worker/review interfaces
+                                               ├── hooks/       # opt-in Hermes event adapters
                                                ├── policies/    # FSM, gates, recovery
                                                ├── runtime/     # executable controller tools
                                                ├── schemas/     # JSON validation contracts
@@ -42,6 +43,17 @@ Hermes profile (once)                         Target Git project (per project)
 `.hermes/obsidian.json` is the one exception to the untracked rule: it binds the project to its Obsidian vault and is versioned so connectivity survives a clone. When a worktree is bootstrapped against a vault, `STATE.md`, `ACTION_JOURNAL.json` and `INCIDENTS.md` move into that vault, keyed per worktree — see `templates/.hermes/orchestration/BOOTSTRAP.md`.
 
 The skill is reusable. The controller configuration, project setup, state, incident log, and journal are project-local and added only to the target repository's Git `info/exclude`. The installer never overwrites existing configuration or modifies tracked files.
+
+## Repository-local hooks (opt-in)
+
+Each installation includes `.hermes/orchestration/hooks/`, parallel to `agents/` and `sub-agents/`. The scripts connect Hermes shell-hook events to the existing runtime without introducing global SDD policy:
+
+- `pre_tool_call` fails closed for `write_file` and `patch`, validating every direct/V4A target against the live IMPLEMENT slice or bound vault container.
+- `pre_verify` keeps the turn open until HUMAN/AGENT acceptance evidence is bound to the current workspace, HEAD, ticket, stage, slice, action, and attempt.
+- `subagent_stop` stores one immutable, non-sensitive result digest in the authoritative local or vault-backed action history.
+- optional `pre_llm_call` injects a bounded STATE summary; missing, non-UTF-8, malformed, or wrong-shaped STATE returns only `SDD state unavailable.` and never parser details or source values.
+
+Hooks are installed **inactive**. To opt in, use a dedicated Hermes profile, replace `<ABSOLUTE_PROJECT_ROOT>` in `hooks/hooks.example.yaml`, then merge that block into the profile configuration and approve each `(event, command)` pair. Absolute, quoted commands bind persistent consent to one checkout and work when its path contains spaces. The installer never edits `~/.hermes/config.yaml`, SOUL, global skills, or consent. Full contracts and limitations: [Repository-local Hermes hooks](docs/components/hooks.md).
 
 ## Efficient, safe dispatch
 
@@ -103,6 +115,7 @@ skills/
             └── orchestration/
                 ├── agents/
                 ├── contracts/
+                ├── hooks/
                 ├── policies/
                 ├── runtime/
                 ├── schemas/

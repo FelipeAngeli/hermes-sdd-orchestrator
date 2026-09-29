@@ -6,6 +6,7 @@ This directory separates controller concerns while keeping mutable local state a
 orchestration/
 ├── agents/      # stage-specific leaf-worker briefs
 ├── contracts/   # executor and reviewer interfaces
+├── hooks/       # opt-in Hermes shell-hook adapters
 ├── policies/    # FSM, gates, recovery and bounded automation
 ├── runtime/     # deterministic Python tools
 ├── schemas/     # JSON Schema documents
@@ -33,6 +34,12 @@ python3 .hermes/orchestration/runtime/action_journal.py --help
 python3 .hermes/orchestration/runtime/bounded_run_planner.py --help
 python3 .hermes/orchestration/runtime/bounded_run_driver.py --help
 ```
+
+## Opt-in Hermes hooks
+
+The installed `hooks/` directory mirrors the `agents/` and `sub-agents/` source layers. Its shell scripts connect Hermes events to the existing deterministic runtime: slice/vault scope at `pre_tool_call`, acceptance evidence at `pre_verify`, non-sensitive leaf-worker audit metadata at `subagent_stop`, and an optional bounded STATE summary at `pre_llm_call`.
+
+Installation only copies these files. It never edits a Hermes profile or grants hook consent. To activate them, inspect `hooks/README.md`, replace `<ABSOLUTE_PROJECT_ROOT>` in `hooks/hooks.example.yaml`, and merge it into a dedicated profile for this checkout. Absolute paths bind Hermes' persistent `(event, command)` consent to this repository. The controller must atomically maintain `STAGE_CONTEXT.json`, `HOOK_BINDING.json`, and `VERIFICATION_EVIDENCE.json` before an active implementation turn; the scope hook fails closed when live Git, STATE, journal, binding, and context cannot be proven consistent.
 
 Before the first demand, resolve `.hermes/orchestration/PROJECT_SETUP.md`. Inspect project evidence first, then ask only unresolved questions about issue tracker connectivity and read/write access, optional Obsidian binding, and other project-specific tools with their purpose and permissions. Accept `none`, never ask for credentials or product requirements, and validate connectivity read-only before recording it.
 

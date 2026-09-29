@@ -38,7 +38,7 @@ The report contains `status`, `planned`, `applied`, `next_step`, **`stack`**, an
 
 Guarantees, all covered by [the packaging tests](testing.md#skill-suite-tests):
 
-- It copies the distributable template tree, ignoring interpreter artifacts (`__pycache__`, `.pyc`, `.pyo`). It never overwrites a differing file and never writes to a tracked path or through a symlink.
+- It copies the distributable template tree, including the inactive-by-default repository-local `hooks/` layer, ignoring interpreter artifacts (`__pycache__`, `.pyc`, `.pyo`). It never overwrites a differing file, writes to a tracked path or through a symlink, edits a Hermes profile, or grants shell-hook consent.
 - It creates a fresh `STATE.md` (schema 2, `ticket: IDLE`, `mode: MANUAL`), `PROJECT_SETUP.md` (pending project connectivity), `INCIDENTS.md` and an empty, schema-valid `ACTION_JOURNAL.json` (see [Action journal](action-journal.md)).
 - It adds the local paths to `.git/info/exclude`, never to `.gitignore`, so `git status` stays clean.
 - A second run returns `ALREADY_INITIALIZED`. A partially present state returns `LOCAL_STATE_REQUIRES_REVIEW`.
@@ -57,7 +57,7 @@ A fresh installation creates the untracked controller-owned `.hermes/orchestrati
 
 ## `.hermes.md`: controller entry point
 
-`templates/.hermes.md` is installed at the project root and is what Hermes reads first in that project. It is kept under 8,000 characters (enforced by a test). It states the controller role, the [FSM](fsm-and-loop.md), the safety rules, the dispatch and context rules for [stage agents](stage-agents.md) and [sub-agents](sub-agents.md), the [result schemas](contracts-and-schemas.md) and the loop modes. The controller carries `context_assessment` and stable `acceptance_checks` through executor stages, routes material unknowns from SPECIFY to CLARIFY, requires TASKS to assign a non-empty set, and retains the complete authoritative mapping (ID, criterion, verification method, verifier and slice assignment). Workers change only status/evidence; IMPLEMENT, TEST and every REVIEW status are validated against that mapping plus the current/completed slice context. It also names the harness steps: `runtime/stage_context.py check` before each dispatch, reuse of an approved slice hash, and `runtime/correction_loop.py decide` before any retry of a failed verification ([Harness](harness.md)). It links to policies instead of duplicating them.
+`templates/.hermes.md` is installed at the project root and is what Hermes reads first in that project. It is kept under 8,000 characters (enforced by a test). It states the controller role, the [FSM](fsm-and-loop.md), the safety rules, the dispatch and context rules for [stage agents](stage-agents.md) and [sub-agents](sub-agents.md), the [result schemas](contracts-and-schemas.md), the opt-in [hook](hooks.md) state inputs, and the loop modes. The controller carries `context_assessment` and stable `acceptance_checks` through executor stages, routes material unknowns from SPECIFY to CLARIFY, requires TASKS to assign a non-empty set, and retains the complete authoritative mapping (ID, criterion, verification method, verifier and slice assignment). Workers change only status/evidence; IMPLEMENT, TEST and every REVIEW status are validated against that mapping plus the current/completed slice context. It also names the harness steps: `runtime/stage_context.py check` before each dispatch, reuse of an approved slice hash, and `runtime/correction_loop.py decide` before any retry of a failed verification ([Harness](harness.md)). It links to policies instead of duplicating them.
 
 ## Installed layout (`orchestration/README.md`)
 
@@ -69,6 +69,7 @@ The installed `README.md` inside `.hermes/orchestration/` is the on-disk guide f
 .hermes/orchestration/
 ├── agents/      → stage-agents.md
 ├── contracts/   → contracts-and-schemas.md
+├── hooks/       → hooks.md (installed but inactive until explicit profile opt-in)
 ├── policies/    → fsm-and-loop.md, gates-and-stack-detection.md, action-journal.md, sub-agents.md
 ├── runtime/     → one page per tool group (see the doc map)
 ├── schemas/     → contracts-and-schemas.md, fsm-and-loop.md, harness.md, action-journal.md

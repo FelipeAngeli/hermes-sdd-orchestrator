@@ -88,7 +88,7 @@ def markdown_first_column(text: str, heading: str) -> set[str]:
 
 class BundleContractTests(unittest.TestCase):
     def test_payload_has_layered_architecture_without_flat_runtime_files(self) -> None:
-        for layer in ("agents", "contracts", "policies", "runtime", "schemas", "sub-agents", "tests"):
+        for layer in ("agents", "contracts", "hooks", "policies", "runtime", "schemas", "sub-agents", "tests"):
             with self.subTest(layer=layer):
                 self.assertTrue((ORCHESTRATION / layer).is_dir())
         self.assertEqual([], list(ORCHESTRATION.glob("*.py")))
