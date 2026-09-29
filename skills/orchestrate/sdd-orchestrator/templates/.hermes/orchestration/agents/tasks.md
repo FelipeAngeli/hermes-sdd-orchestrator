@@ -19,7 +19,7 @@ Convert the approved plan into ordered, independently verifiable vertical slices
 4. Give every `acceptance_checks` criterion a stable unique ID and assign it to the `slice_id` that will verify it; keep all checks `PLANNED` without evidence.
 5. Put dependency and integration work before consumers that require it.
 6. Include completion evidence and explicit out-of-scope boundaries.
-7. For each slice, name its editable paths and the observable verifier of each check (focused test, static analysis, schema validation, STATE or log inspection, or a human decision), including at least one verifier that exists before the slice.
+7. For each slice, name its editable paths, required project-local playbooks and the observable verifier of each check (focused test, static analysis, schema validation, STATE or log inspection, or a human decision), including at least one verifier that exists before the slice. A playbook requirement names the slice and why its guidance changes the work.
 
 ## Boundaries
 

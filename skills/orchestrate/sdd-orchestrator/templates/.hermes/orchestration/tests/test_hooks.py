@@ -23,7 +23,8 @@ SHA = "a" * 64
 
 def context() -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
+        "project_root": "/tmp/project",
         "ticket": "APP-1",
         "stage": "IMPLEMENT",
         "limits": {"max_sources": 12, "max_lines_per_source": 250},
@@ -32,10 +33,12 @@ def context() -> dict:
             "evidence": "Repository rules inspected", "gaps": [],
         },
         "sources": [{"kind": "RULES", "path": "AGENTS.md", "lines": [1, 20], "sha256": SHA}],
+        "playbooks": [],
         "divergences": [],
         "slice": {
             "current_slice_ids": ["S1"], "completed_slice_ids": [],
             "editable_paths": ["src/**", "tests/*"],
+            "required_playbooks": [],
             "acceptance": {
                 "AC-1": {"criterion": "works", "verification_method": "focused test", "verifier": "AGENT", "slice_id": "S1"},
             },

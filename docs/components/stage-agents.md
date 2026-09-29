@@ -14,9 +14,9 @@ A stage agent is the worker brief the controller loads before dispatching a stag
 | --- | --- | --- | --- |
 | `agents/specify.md` | `SPECIFY` | Turn the request into a verifiable problem statement, separating facts, assumptions and material questions and defining planned acceptance checks. | `EXECUTOR_RESULT_SCHEMA.json` |
 | `agents/clarify.md` | `CLARIFY` | Resolve material ambiguity with repository evidence and keep acceptance checks aligned with the clarified outcomes. | `EXECUTOR_RESULT_SCHEMA.json` |
-| `agents/plan.md` | `PLAN` | Design the smallest approach grounded in real files and map every accepted outcome to a verification method. | `EXECUTOR_RESULT_SCHEMA.json` |
-| `agents/tasks.md` | `TASKS` | Split the plan into ordered vertical slices, producing a non-empty set whose stable acceptance IDs are all assigned to verifying slices. | `EXECUTOR_RESULT_SCHEMA.json` |
-| `agents/implement.md` | `IMPLEMENT` | Implement exactly the controller-selected current slice under RED → GREEN, pass current/completed checks and preserve future checks as planned. | `EXECUTOR_RESULT_SCHEMA.json` |
+| `agents/plan.md` | `PLAN` | Design the smallest approach grounded in real files, map every accepted outcome to a verification method and name only project-local playbooks that change a slice decision. | `EXECUTOR_RESULT_SCHEMA.json` |
+| `agents/tasks.md` | `TASKS` | Split the plan into ordered vertical slices, producing a non-empty set whose stable acceptance IDs are all assigned to verifying slices and whose required playbooks are bound to slice IDs. | `EXECUTOR_RESULT_SCHEMA.json` |
+| `agents/implement.md` | `IMPLEMENT` | Implement exactly the controller-selected current slice under RED → GREEN after its required project-local playbooks are present by name/path/version/hash; preserve future checks as planned. | `EXECUTOR_RESULT_SCHEMA.json` |
 | `agents/test.md` | `TEST` | Run the authorized focused validation and evaluate the complete acceptance-check ID set by its declared methods. | `EXECUTOR_RESULT_SCHEMA.json` |
 | `agents/review.md` | `REVIEW` | Independently match every authoritative acceptance ID, criterion, method, verifier and slice, then assess diff, baseline, ownership and gates. | `REVIEW_RESULT_SCHEMA.json` |
 

@@ -54,6 +54,7 @@ Routing suggestions by change shape, each still subject to the dispatch question
 | UI or copy | none beyond implement, test, review |
 | API or contract | `api-contract-auditor`, then `impact-analyst` when the contract is shared |
 | Architectural | `impact-analyst`, `architecture-guardian` |
+| Database schema/data migration | `migration-safety-auditor` when rollout, mixed-version compatibility or recovery remains a pending decision |
 | Pre-release | `regression-hunter`, `security-reviewer` when the change touches its surfaces |
 | Pull request | `pr-reviewer` for the whole PR and its prior reviews; it names the specialists above when a deeper finding needs one |
 

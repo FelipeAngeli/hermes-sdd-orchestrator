@@ -48,6 +48,9 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/hooks/*",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/hook_runtime.py"
     ],
+    "docs/components/project-local-skills.md": [
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/skills/*"
+    ],
     "docs/components/obsidian-vault.md": [
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/BOOTSTRAP.md",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/obsidian_binding.py",

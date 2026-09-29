@@ -38,9 +38,9 @@ The report contains `status`, `planned`, `applied`, `next_step`, **`stack`**, an
 
 Guarantees, all covered by [the packaging tests](testing.md#skill-suite-tests):
 
-- It copies the distributable template tree, including the inactive-by-default repository-local `hooks/` layer, ignoring interpreter artifacts (`__pycache__`, `.pyc`, `.pyo`). It never overwrites a differing file, writes to a tracked path or through a symlink, edits a Hermes profile, or grants shell-hook consent.
+- It copies the distributable template tree, including the inactive-by-default repository-local `hooks/` layer and the project-local engineering skills, ignoring interpreter artifacts (`__pycache__`, `.pyc`, `.pyo`). It never overwrites a differing file, writes to a tracked path or through a symlink, edits a Hermes profile, modifies global skills/trust, or grants shell-hook consent.
 - It creates a fresh `STATE.md` (schema 2, `ticket: IDLE`, `mode: MANUAL`), `PROJECT_SETUP.md` (pending project connectivity), `INCIDENTS.md` and an empty, schema-valid `ACTION_JOURNAL.json` (see [Action journal](action-journal.md)).
-- It adds the local paths to `.git/info/exclude`, never to `.gitignore`, so `git status` stays clean.
+- It adds only `.hermes.md`, `.hermes/orchestration` and the three bundled `.hermes/skills/<name>` paths to `.git/info/exclude`, never `.hermes/skills` as a whole and never `.gitignore`. Therefore it does not newly hide unrelated project skills. Pre-existing user-owned exclusion entries are preserved verbatim, including any broader rule the user already configured.
 - A second run returns `ALREADY_INITIALIZED`. A partially present state returns `LOCAL_STATE_REQUIRES_REVIEW`.
 
 An existing installation is **never upgraded automatically**. To pick up new template files, review and copy them by hand, or reinstall into a clean worktree.
@@ -57,7 +57,7 @@ A fresh installation creates the untracked controller-owned `.hermes/orchestrati
 
 ## `.hermes.md`: controller entry point
 
-`templates/.hermes.md` is installed at the project root and is what Hermes reads first in that project. It is kept under 8,000 characters (enforced by a test). It states the controller role, the [FSM](fsm-and-loop.md), the safety rules, the dispatch and context rules for [stage agents](stage-agents.md) and [sub-agents](sub-agents.md), the [result schemas](contracts-and-schemas.md), the opt-in [hook](hooks.md) state inputs, and the loop modes. The controller carries `context_assessment` and stable `acceptance_checks` through executor stages, routes material unknowns from SPECIFY to CLARIFY, requires TASKS to assign a non-empty set, and retains the complete authoritative mapping (ID, criterion, verification method, verifier and slice assignment). Workers change only status/evidence; IMPLEMENT, TEST and every REVIEW status are validated against that mapping plus the current/completed slice context. It also names the harness steps: `runtime/stage_context.py check` before each dispatch, reuse of an approved slice hash, and `runtime/correction_loop.py decide` before any retry of a failed verification ([Harness](harness.md)). It links to policies instead of duplicating them.
+`templates/.hermes.md` is installed at the project root and is what Hermes reads first in that project. It is kept under 8,000 characters (enforced by a test). It states the controller role, the [FSM](fsm-and-loop.md), the safety rules, the dispatch and context rules for [stage agents](stage-agents.md) and [sub-agents](sub-agents.md), the [result schemas](contracts-and-schemas.md), the opt-in [hook](hooks.md) state inputs, and the loop modes. The controller carries `context_assessment` and stable `acceptance_checks` through executor stages, routes material unknowns from SPECIFY to CLARIFY, requires TASKS to assign a non-empty set, and retains the complete authoritative mapping (ID, criterion, verification method, verifier and slice assignment). Workers change only status/evidence; IMPLEMENT, TEST and every REVIEW status are validated against that mapping plus the current/completed slice context. It also names the harness steps: `runtime/stage_context.py check` before each dispatch, exact project-local playbook descriptors bound to the approved slice hash, and `runtime/correction_loop.py decide` before any retry of a failed verification ([Harness](harness.md)). It links to policies instead of duplicating them.
 
 ## Installed layout (`orchestration/README.md`)
 
@@ -66,6 +66,10 @@ The installed `README.md` inside `.hermes/orchestration/` is the on-disk guide f
 ```text
 .hermes.md
 .hermes/obsidian.json            # optional, versioned — see Obsidian vault
+.hermes/skills/                  → project-local-skills.md (explicit repository trust)
+├── sdd-backend-engineering/
+├── sdd-architecture-decisions/
+└── sdd-database-design-migrations/
 .hermes/orchestration/
 ├── agents/      → stage-agents.md
 ├── contracts/   → contracts-and-schemas.md
@@ -77,5 +81,7 @@ The installed `README.md` inside `.hermes/orchestration/` is the on-disk guide f
 ├── tests/       → testing.md
 ├── STATE.md, PROJECT_SETUP.md, ACTION_JOURNAL.json, INCIDENTS.md   (runtime data, untracked)
 ```
+
+The installer does not run `hermes skills trust`; after inspecting `.hermes/skills/`, the user opts in for that repository and starts a new session. No SOUL, profile-level skill or global configuration is changed.
 
 After installation, configure the gates: [Gates and stack detection](gates-and-stack-detection.md).

@@ -14,8 +14,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 TEMPLATE = ROOT.parent / "templates"
 CONFIG_ROOT = ".hermes/orchestration"
+PROJECT_SKILLS = (
+    ".hermes/skills/sdd-backend-engineering",
+    ".hermes/skills/sdd-architecture-decisions",
+    ".hermes/skills/sdd-database-design-migrations",
+)
 LOCAL_PATHS = (
     ".hermes.md",
+    *PROJECT_SKILLS,
     CONFIG_ROOT,
     f"{CONFIG_ROOT}/STATE.md",
     f"{CONFIG_ROOT}/PROJECT_SETUP.md",
@@ -386,7 +392,10 @@ def update_exclude(target: Path) -> None:
     entries = existing.splitlines()
     additions = [item for item in LOCAL_PATHS if item not in entries]
     if additions:
-        path.write_text(existing + ("" if not existing or existing.endswith("\n") else "\n") + "\n".join(additions) + "\n", encoding="utf-8")
+        path.write_text(
+            existing + ("" if not existing or existing.endswith("\n") else "\n") + "\n".join(additions) + "\n",
+            encoding="utf-8",
+        )
 
 
 def main() -> int:

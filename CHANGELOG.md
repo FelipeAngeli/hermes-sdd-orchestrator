@@ -4,6 +4,12 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+- Three trusted project-local engineering skills under `.hermes/skills/` provide progressive, stack-neutral playbooks for backend services, architecture/DDD decisions, and database design/migrations without duplicating specialist reviewers. A new read-only `migration-safety-auditor` covers concrete rollout order, mixed-version compatibility, data preservation, locks, restartability and recovery.
+
+### Breaking
+- Stage-context schema 2 replaces schema 1. Controllers must add canonical absolute `project_root`, top-level `playbooks` and slice `required_playbooks`; old per-dispatch manifests are ephemeral and must be regenerated rather than reused. The runtime binds the root to the live canonical Git workspace, then binds the exact project-local `SKILL.md` and loaded reference bytes to implementation slices by name/version/path/hash/reason descriptors. Validation rejects root or descendant symlinks/escapes, mismatched bytes/frontmatter, duplicate or unsafe descriptors, unknown slice bindings, and extra or missing playbooks for the current IMPLEMENT slice; canonicalized loaded guidance participates in the approved slice hash, and invalid manifests never report approval reuse. PLAN, TASKS and IMPLEMENT briefs, installation docs and tests describe the new contract. Installation adds exclusions only for the three bundled skill directories—never a broad `.hermes/skills` rule—while preserving pre-existing user exclusions, and still modifies neither Hermes profiles, global skills, SOUL, repository trust nor hook consent.
+
 ## 5.1.0 - 2026-09-28
 
 ### Added

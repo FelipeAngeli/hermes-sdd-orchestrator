@@ -1,23 +1,29 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Stage context and slice contract v1",
-  "description": "Controller-owned, per-dispatch context manifest checked by runtime/stage_context.py before a worker runs. It lists scoped excerpts, never whole documents or transcripts.",
+  "title": "Stage context and slice contract v2",
+  "description": "Controller-owned, per-dispatch context manifest checked by runtime/stage_context.py before a worker runs. It lists scoped excerpts and byte-verified project-local playbooks, never whole repository documents or transcripts.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema_version",
+    "project_root",
     "ticket",
     "stage",
     "limits",
     "project_context",
     "sources",
+    "playbooks",
     "divergences",
     "slice",
     "approval"
   ],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2
+    },
+    "project_root": {
+      "type": "string",
+      "minLength": 1
     },
     "ticket": {
       "$ref": "#/$defs/text"
@@ -145,6 +151,52 @@
         }
       }
     },
+    "playbooks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "version", "path", "sha256", "references", "reason"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,63}$"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+          },
+          "path": {
+            "$ref": "#/$defs/text"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "references": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "sha256"],
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/text"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            }
+          },
+          "reason": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      }
+    },
     "divergences": {
       "type": "array",
       "items": {
@@ -184,6 +236,7 @@
             "current_slice_ids",
             "completed_slice_ids",
             "editable_paths",
+            "required_playbooks",
             "acceptance",
             "required_verification"
           ],
@@ -204,6 +257,27 @@
               "type": "array",
               "items": {
                 "$ref": "#/$defs/text"
+              }
+            },
+            "required_playbooks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "slice_ids"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,63}$"
+                  },
+                  "slice_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "$ref": "#/$defs/text"
+                    }
+                  }
+                }
               }
             },
             "acceptance": {

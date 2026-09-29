@@ -36,12 +36,15 @@ Each brief's frontmatter declares `role`, `allowed_stages`, `executor_policy: CO
 | `sub-agents/api-contract-auditor.md` | `API_CONTRACT_AUDITOR` | PLAN, REVIEW | Client models against spec and deployed server, with ranked sources. | `REVIEW_RESULT_SCHEMA.json` |
 | `sub-agents/performance-auditor.md` | `PERFORMANCE_AUDITOR` | PLAN, REVIEW | Costs backed by a measurement or counted operation only. | `REVIEW_RESULT_SCHEMA.json` |
 | `sub-agents/architecture-guardian.md` | `ARCHITECTURE_GUARDIAN` | PLAN, REVIEW | Violations of the project's declared rules only, never taste. | `REVIEW_RESULT_SCHEMA.json` |
+| `sub-agents/migration-safety-auditor.md` | `MIGRATION_SAFETY_AUDITOR` | PLAN, REVIEW | Database rollout order, mixed-version compatibility, data conversion, locks, restartability and recovery for a concrete migration. | `REVIEW_RESULT_SCHEMA.json` |
 | `sub-agents/spec-consistency-guardian.md` | `SPEC_CONSISTENCY_GUARDIAN` | TASKS, REVIEW | Breaks in SPEC → PLAN → TASKS → CODE → TESTS. It never infers a requirement. | `REVIEW_RESULT_SCHEMA.json` |
 | `sub-agents/dependency-auditor.md` | `DEPENDENCY_AUDITOR` | PLAN, REVIEW | Versions, duplication, maintenance. It prefers what the project already has. | `REVIEW_RESULT_SCHEMA.json` |
 | `sub-agents/pr-reviewer.md` | `PR_REVIEWER` | REVIEW | One pull request reviewed as it will merge: scope, correctness, tests, checks, breaking changes, changelog and version, commits, mergeability. Audits every earlier review as confirmed, refuted or unaddressed. | `REVIEW_RESULT_SCHEMA.json` |
 | `sub-agents/release-readiness-auditor.md` | `RELEASE_READINESS_AUDITOR` | REVIEW | `READY`, `BLOCKED` or `READY_WITH_RISK` (the last requires a named human). | `REVIEW_RESULT_SCHEMA.json` |
 
 `project-context-guardian` and `data-flow-tracer` are read-only even when dispatched during IMPLEMENT; the controller validates their results with `role` ([Contracts](contracts-and-schemas.md#executor-result)), building that context with `stage_context.py verifier-context --role` ([Harness](harness.md#feeding-the-validator)). Audit roles keep the workspace read-only, revert every temporary step, repair nothing, and report proven findings separately from suspicions. All briefs are language-neutral.
+
+Database work loads `sdd-database-design-migrations` for reusable planning/implementation procedure. The controller dispatches `migration-safety-auditor` only when a concrete rollout, mixed-version, data-preservation, lock or recovery judgment remains pending after deterministic schema/SQL/test inspection. Query cost routes to `performance-auditor`, layer violations to `architecture-guardian`, wire models to `api-contract-auditor` and disclosure/auth concerns to `security-reviewer`; the migration role does not duplicate them.
 
 ## `pr-reviewer`: global use, mandatory here
 

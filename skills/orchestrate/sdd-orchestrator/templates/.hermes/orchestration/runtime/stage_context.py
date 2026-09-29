@@ -4,9 +4,10 @@
 The controller builds one manifest per dispatch: scoped excerpts (never whole
 documents or transcripts), the project-context-guardian outcome, recorded
 code/documentation divergences and, for IMPLEMENT/TEST/REVIEW, the slice
-contract — editable paths, the authoritative acceptance mapping and the
-observable verifiers each check needs. This module is pure: it reads JSON and
-returns findings. It never reads the repository, the vault or STATE.
+contract — editable paths, project-local playbooks, the authoritative acceptance
+mapping and the observable verifiers each check needs. It reads only the
+controller-owned JSON and the exact project-local playbook files named there;
+it never reads other repository files, the vault or STATE and never mutates state.
 """
 from __future__ import annotations
 
@@ -14,6 +15,8 @@ import argparse
 import copy
 import hashlib
 import json
+import re
+import subprocess
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -42,6 +45,13 @@ CONTEXT_ERROR_CODES = (
     "SLICE_EDITABLE_PATHS_REQUIRED",
     "SLICE_EDITABLE_PATH_UNSAFE",
     "ANALYSIS_STAGE_EDITABLE_PATHS",
+    "PLAYBOOK_CONTENT_MISMATCH",
+    "PLAYBOOK_DUPLICATED",
+    "PLAYBOOK_PATH_INVALID",
+    "PLAYBOOK_REQUIRED",
+    "PLAYBOOK_ROOT_INVALID",
+    "PLAYBOOK_UNDECLARED",
+    "PLAYBOOK_UNKNOWN_SLICE",
     "ACCEPTANCE_CHECK_UNVERIFIED",
     "INDEPENDENT_VERIFIER_REQUIRED",
     "VERIFIER_COMMAND_REQUIRED",
@@ -75,10 +85,27 @@ def slice_contract(value: dict[str, Any], slice_id: str) -> dict[str, Any]:
         bound = sorted(set(item["check_ids"]) & set(acceptance))
         if bound:
             verifiers.append({**item, "check_ids": bound})
+    required_names = {
+        item["name"]
+        for item in contract["required_playbooks"]
+        if slice_id in item["slice_ids"]
+    }
+    playbooks = [
+        {
+            **item,
+            "references": sorted(
+                item["references"],
+                key=lambda reference: (reference["path"], reference["sha256"]),
+            ),
+        }
+        for item in value["playbooks"]
+        if item["name"] in required_names
+    ]
     return {
         "ticket": value["ticket"],
         "slice_id": slice_id,
         "editable_paths": sorted(contract["editable_paths"]),
+        "required_playbooks": sorted(playbooks, key=lambda item: item["name"]),
         "acceptance": acceptance,
         "required_verification": sorted(verifiers, key=lambda item: item["id"]),
     }
@@ -136,6 +163,173 @@ def _check_project_context(value: dict[str, Any]) -> list[dict[str, str]]:
     if project["status"] == "PARTIAL" and not project["gaps"]:
         return [_finding("PROJECT_CONTEXT_GAPS_REQUIRED", "PARTIAL project context must name what was not examined")]
     return []
+
+
+def _frontmatter_identity(content: bytes) -> tuple[str, str] | None:
+    try:
+        lines = content.decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        return None
+    if not lines or lines[0].strip() != "---":
+        return None
+    identity: dict[str, str] = {}
+    closed = False
+    for line in lines[1:]:
+        if line.strip() == "---":
+            closed = True
+            break
+        if line[:1].isspace() or ":" not in line:
+            continue
+        key, raw = line.split(":", 1)
+        if key in {"name", "version"}:
+            if key in identity:
+                return None
+            value = raw.strip()
+            pattern = (
+                r"[a-z][a-z0-9-]{0,63}"
+                if key == "name"
+                else r"[0-9]+\.[0-9]+\.[0-9]+"
+            )
+            if re.fullmatch(pattern, value) is None:
+                return None
+            identity[key] = value
+    if not closed or set(identity) != {"name", "version"}:
+        return None
+    return identity["name"], identity["version"]
+
+
+def _verified_file(root: Path, relative: str, expected_hash: str, base: Path) -> bytes | None:
+    try:
+        unresolved = root / Path(*PurePosixPath(relative).parts)
+        cursor = unresolved
+        while cursor != root:
+            if cursor.is_symlink():
+                return None
+            if root not in cursor.parents:
+                return None
+            cursor = cursor.parent
+        candidate = unresolved.resolve(strict=True)
+        boundary = base.resolve(strict=True)
+        candidate.relative_to(boundary)
+        if not candidate.is_file():
+            return None
+        content = candidate.read_bytes()
+    except (OSError, ValueError):
+        return None
+    return content if hashlib.sha256(content).hexdigest() == expected_hash else None
+
+
+def _live_project_root() -> Path | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(Path.cwd()), "rev-parse", "--show-toplevel"],
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode:
+            return None
+        return Path(result.stdout.strip()).resolve(strict=True)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _check_playbooks(value: dict[str, Any]) -> list[dict[str, str]]:
+    errors: list[dict[str, str]] = []
+    loaded: dict[str, dict[str, Any]] = {}
+    root = Path(value["project_root"])
+    canonical_root: Path | None = None
+    if root.is_absolute() and root.is_dir() and not root.is_symlink():
+        try:
+            canonical_root = root.resolve(strict=True)
+        except OSError:
+            canonical_root = None
+    trusted_root = _live_project_root()
+    root_valid = canonical_root is not None and root == canonical_root and canonical_root == trusted_root
+    if value["playbooks"] and not root_valid:
+        errors.append(_finding(
+            "PLAYBOOK_ROOT_INVALID",
+            "project_root must be the canonical non-symlinked live Git workspace when playbooks are loaded",
+        ))
+
+    for item in value["playbooks"]:
+        name = item["name"]
+        if name in loaded:
+            errors.append(_finding("PLAYBOOK_DUPLICATED", f"{name} is loaded more than once"))
+        loaded[name] = item
+        expected = f".hermes/skills/{name}/SKILL.md"
+        path_valid = item["path"] == expected
+        if not path_valid:
+            errors.append(_finding("PLAYBOOK_PATH_INVALID", f"{name} must load from {expected}"))
+
+        reference_paths: set[str] = set()
+        reference_prefix = f".hermes/skills/{name}/references/"
+        for reference in item["references"]:
+            relative = reference["path"]
+            if relative in reference_paths:
+                errors.append(_finding("PLAYBOOK_DUPLICATED", f"{name} reference {relative} is loaded more than once"))
+            reference_paths.add(relative)
+            reference_path = PurePosixPath(relative)
+            reference_canonical = (
+                not reference_path.is_absolute()
+                and all(part not in {"", ".", ".."} for part in relative.split("/"))
+                and "//" not in relative
+            )
+            if (
+                not reference_canonical
+                or not relative.startswith(reference_prefix)
+                or not relative.endswith(".md")
+            ):
+                errors.append(_finding(
+                    "PLAYBOOK_PATH_INVALID",
+                    f"{name} reference must be a Markdown file under {reference_prefix}",
+                ))
+                continue
+            if root_valid:
+                base = root / ".hermes" / "skills" / name / "references"
+                if _verified_file(root, relative, reference["sha256"], base) is None:
+                    errors.append(_finding(
+                        "PLAYBOOK_CONTENT_MISMATCH",
+                        f"{name} reference content does not match its project-local descriptor",
+                    ))
+
+        if root_valid and path_valid:
+            base = root / ".hermes" / "skills" / name
+            content = _verified_file(root, item["path"], item["sha256"], base)
+            identity = _frontmatter_identity(content) if content is not None else None
+            if identity != (name, item["version"]):
+                errors.append(_finding(
+                    "PLAYBOOK_CONTENT_MISMATCH",
+                    f"{name} content/frontmatter does not match its project-local descriptor",
+                ))
+
+    contract = value.get("slice")
+    if contract is None:
+        return errors
+    known_slices = {check["slice_id"] for check in contract["acceptance"].values()}
+    seen_requirements: set[str] = set()
+    required_now: set[str] = set()
+    current = set(contract["current_slice_ids"]) if value["stage"] == "IMPLEMENT" else set()
+    for requirement in contract["required_playbooks"]:
+        name = requirement["name"]
+        if name in seen_requirements:
+            errors.append(_finding("PLAYBOOK_DUPLICATED", f"{name} is required more than once"))
+        seen_requirements.add(name)
+        unknown = sorted(set(requirement["slice_ids"]) - known_slices)
+        if unknown:
+            errors.append(_finding(
+                "PLAYBOOK_UNKNOWN_SLICE",
+                f"{name} names unknown slices: {', '.join(unknown)}",
+            ))
+        if current & set(requirement["slice_ids"]):
+            required_now.add(name)
+    for name in sorted(required_now - set(loaded)):
+        errors.append(_finding("PLAYBOOK_REQUIRED", f"{name} is required by the current slice but was not loaded"))
+    if value["stage"] == "IMPLEMENT":
+        for name in sorted(set(loaded) - required_now):
+            errors.append(_finding("PLAYBOOK_UNDECLARED", f"{name} is loaded but not required by the current slice"))
+    return errors
 
 
 def _check_slice(value: dict[str, Any]) -> list[dict[str, str]]:
@@ -207,7 +401,12 @@ def check(value: Any) -> dict[str, Any]:
             "approval": APPROVAL_REQUIRED,
             "slice_sha256": None,
         }
-    errors = [*_check_sources(value), *_check_project_context(value), *_check_slice(value)]
+    errors = [
+        *_check_sources(value),
+        *_check_project_context(value),
+        *_check_playbooks(value),
+        *_check_slice(value),
+    ]
     digest = slice_sha256(value)
     approval = value["approval"]
     if approval is None:
@@ -222,6 +421,8 @@ def check(value: Any) -> dict[str, Any]:
             "SCOPE_CHANGE_REQUIRED",
             "the slice contract differs from the approved one; this is a new scope and needs its own approval",
         ))
+    if errors and approval_state == APPROVAL_REUSED:
+        approval_state = APPROVAL_REQUIRED
     return {"valid": not errors, "errors": errors, "approval": approval_state, "slice_sha256": digest}
 
 
@@ -279,7 +480,7 @@ def verifier_context(value: dict[str, Any], role: str | None = None) -> dict[str
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Check a per-stage context manifest and slice contract without reading the repository.")
+    parser = argparse.ArgumentParser(description="Check a per-stage context manifest and its declared project-local playbooks.")
     commands = parser.add_subparsers(dest="command", required=True)
     for name in ("check", "hash", "verifier-context"):
         command = commands.add_parser(name)
@@ -294,7 +495,10 @@ def main(argv: list[str] | None = None) -> int:
             result = check(value)
             code = 0 if result["valid"] else 2
         elif args.command == "hash":
-            digest = slice_sha256(value)
+            checked = check(value)
+            if not checked["valid"]:
+                raise ContextError("; ".join(f"{item['code']}: {item['detail']}" for item in checked["errors"]))
+            digest = checked["slice_sha256"]
             result, code = {"slice_sha256": digest}, 0 if digest else 2
         else:
             result, code = verifier_context(value, role=args.role), 0

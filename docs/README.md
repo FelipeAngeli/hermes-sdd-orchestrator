@@ -20,13 +20,14 @@ Each page owns a set of files (see [doc-map.json](doc-map.json)) and is the sing
 | Page | Covers |
 | --- | --- |
 | [Skill and installer](components/skill-and-installer.md) | `SKILL.md`, `install_project.py`, the `.hermes.md` entry point, what is installed where |
+| [Project-local engineering skills](components/project-local-skills.md) | Backend, architecture and database playbooks; progressive loading; playbook-to-slice binding |
 | [FSM and bounded loop](components/fsm-and-loop.md) | The stage machine, modes (`MANUAL`, `PAUSED`, `BOUNDED_AUTO`, `LOCAL_DELIVERY`), budgets, planner and drivers |
 | [Harness: stage context and bounded correction](components/harness.md) | Per-dispatch context budget and slice contract, approval reuse, bounded execute → verify → correct loop |
 | [Action journal and recovery](components/action-journal.md) | Write-ahead journal, action lifecycle, rollover, recovery decisions |
 | [Contracts and schemas](components/contracts-and-schemas.md) | Executor and review result envelopes, their JSON Schemas and the protocol validator |
 | [Gates and stack detection](components/gates-and-stack-detection.md) | Validation gates, `GATES.md` configuration, `detect_stack.py` for any language |
 | [Stage agents](components/stage-agents.md) | One brief per FSM stage |
-| [Sub-agents and dispatch](components/sub-agents.md) | The 18 specialist briefs, including the global `pr-reviewer` and the "do not dispatch" default |
+| [Sub-agents and dispatch](components/sub-agents.md) | The 19 specialist briefs, including the global `pr-reviewer` and the "do not dispatch" default |
 | [Repository-local Hermes hooks](components/hooks.md) | Opt-in shell hooks for slice scope, verification evidence, bounded STATE context and sub-agent audit events |
 | [Obsidian vault](components/obsidian-vault.md) | Vault binding, write containment, worktree bootstrap and migrations |
 | [Testing](components/testing.md) | Both test suites and what each test file guarantees |
@@ -36,10 +37,12 @@ Each page owns a set of files (see [doc-map.json](doc-map.json)) and is the sing
 ```mermaid
 flowchart LR
     SK[Skill and installer] --> FSM[FSM and bounded loop]
+    SK --> PS[Project-local engineering skills]
     SK --> G[Gates and stack detection]
     SK --> OB[Obsidian vault]
     FSM --> H[Harness]
     H --> C
+    H --> PS
     H --> HK[Repository-local hooks]
     HK --> J
     HK --> OB
@@ -51,5 +54,5 @@ flowchart LR
     S --> C
     J --> C
     OB --> J
-    T[Testing] -.verifies.-> FSM & H & J & C & G & OB & SK
+    T[Testing] -.verifies.-> FSM & H & J & C & G & OB & SK & PS
 ```
