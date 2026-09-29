@@ -31,7 +31,9 @@ from pathlib import Path
 
 DOC_MAP = "docs/doc-map.json"
 CHANGELOG = "CHANGELOG.md"
-DEFAULT_SOURCE_PREFIXES = ("skills/", "tools/", ".githooks/", ".github/workflows/")
+DEFAULT_SOURCE_PREFIXES = (
+    "skills/", "tools/", ".githooks/", ".github/workflows/", "hermes-pack.yaml"
+)
 TRAILER = re.compile(r"^Docs-Impact:\s*none\s*[-–—:]\s*\S.*$", re.IGNORECASE | re.MULTILINE)
 TEST_FILE = re.compile(r"(^|/)tests/test_[^/]+\.py$")
 

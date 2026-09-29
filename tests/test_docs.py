@@ -196,7 +196,7 @@ def load_map() -> dict[str, list[str]]:
 def tracked_sources() -> list[str]:
     """Every file the documentation must cover, repo-relative."""
     roots = [SKILL_ROOT, ROOT / "tests", ROOT / "tools", ROOT / ".github" / "workflows", ROOT / ".githooks"]
-    files: list[str] = []
+    files = ["hermes-pack.yaml"] if (ROOT / "hermes-pack.yaml").is_file() else []
     for root in roots:
         files.extend(
             path.relative_to(ROOT).as_posix()
@@ -460,9 +460,11 @@ class DocsSyncCheckerTests(unittest.TestCase):
         self.write("docs/doc-map.json", json.dumps({"docs": {
             "docs/components/runtime.md": ["skills/o/runtime/*.py"],
             "docs/components/testing.md": ["skills/o/tests/*.py"],
+            "docs/components/obsidian.md": ["hermes-pack.yaml"],
         }}))
         self.write("docs/components/runtime.md", "runtime\n")
         self.write("docs/components/testing.md", "tests\n")
+        self.write("docs/components/obsidian.md", "pack\n")
         self.write("CHANGELOG.md", "# Changelog\n")
         self.write("skills/o/runtime/tool.py", "x = 1\n")
         self.write("skills/o/tests/test_tool.py", "y = 1\n")
@@ -482,6 +484,22 @@ class DocsSyncCheckerTests(unittest.TestCase):
             [sys.executable, str(CHECKER), "--repo", str(self.repo), "--source-prefix", "skills/", *args],
             text=True, capture_output=True, timeout=30,
         )
+
+    def check_default(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(CHECKER), "--repo", str(self.repo), *args],
+            text=True, capture_output=True, timeout=30,
+        )
+
+    def test_default_sources_include_repository_plugin_pack(self) -> None:
+        self.write("hermes-pack.yaml", "name: test-pack\n")
+        self.git("add", "-A")
+
+        result = self.check_default("--staged")
+
+        self.assertEqual(1, result.returncode)
+        self.assertIn("docs/components/obsidian.md", result.stdout)
+        self.assertIn("CHANGELOG.md", result.stdout)
 
     def test_orchestration_change_without_docs_is_rejected(self) -> None:
         self.write("skills/o/runtime/tool.py", "x = 2\n")

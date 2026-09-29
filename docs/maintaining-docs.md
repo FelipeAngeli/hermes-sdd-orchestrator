@@ -33,7 +33,7 @@ python3 tools/check_docs_sync.py --base origin/main
 | `--staged` | Check staged changes (used by the hook). |
 | `--base` | Check `<base>..HEAD` (used by CI). |
 | `--message-file` | Commit message to read a waiver trailer from. |
-| `--source-prefix` | Path prefix counted as orchestration source (repeatable). The defaults are `skills/`, `tools/`, `.githooks/` and `.github/workflows/`. |
+| `--source-prefix` | Path prefix counted as orchestration source (repeatable). The defaults are `skills/`, `tools/`, `.githooks/`, `.github/workflows/` and the repository-root `hermes-pack.yaml`. |
 | `--repo` | Repository root (default `.`). |
 
 Exit codes: `0` in sync, `1` documentation missing (each missing page is listed), `2` usage or Git error.

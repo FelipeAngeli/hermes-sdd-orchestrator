@@ -53,6 +53,7 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/skills/*"
     ],
     "docs/components/obsidian-vault.md": [
+      "hermes-pack.yaml",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/BOOTSTRAP.md",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/obsidian_binding.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/vault_guard.py",

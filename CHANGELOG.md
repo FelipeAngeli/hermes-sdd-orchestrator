@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- Documentation ownership and change enforcement now include the repository-root `hermes-pack.yaml`, so a new or changed second-brain plugin declaration must update its owning page and changelog instead of passing outside the default source prefixes.
+
 ## 6.2.0 - 2026-09-29
 
 ### Added
