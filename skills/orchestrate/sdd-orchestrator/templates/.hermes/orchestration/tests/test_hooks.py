@@ -198,6 +198,13 @@ class VerificationAndLifecycleHookTests(unittest.TestCase):
         result = hook_runtime.run_context_hook(payload, environ={})
         self.assertEqual("SDD state unavailable.", result["context"])
         self.assertNotIn(secret, result["context"])
+        (self.orchestration / "STATE.md").write_bytes(b"\xff")
+        completed = subprocess.run(
+            [sys.executable, str(HOOKS / "inject-state-summary.py")], input=json.dumps(payload),
+            text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertEqual({"context": "SDD state unavailable."}, json.loads(completed.stdout))
 
     def test_scope_and_verify_never_echo_malformed_state_details(self) -> None:
         self.install_live_binding()

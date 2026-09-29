@@ -399,7 +399,7 @@ def run_context_hook(payload: Mapping[str, Any], environ: Mapping[str, str] | No
         configured = environment.get("SDD_STATE")
         state_path = Path(configured).expanduser().resolve() if configured else default_state
         return {"context": summarize_state(state_path.read_text(encoding="utf-8"))}
-    except (HookInputError, OSError, obsidian_binding.BindingError, state_format.StateFormatError):
+    except (HookInputError, OSError, UnicodeError, obsidian_binding.BindingError, state_format.StateFormatError):
         return {"context": "SDD state unavailable."}
 
 
