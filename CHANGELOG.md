@@ -7,6 +7,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 ### Added
 - A repository-local `orchestration/hooks/` layer with opt-in Hermes shell hooks for exception-safe fail-closed, live-bound slice/vault file-tool scope, evidence-gated completion, bounded secret-safe STATE context, and immutable non-sensitive sub-agent audit events. Context and evidence are bound to workspace, HEAD, ticket, stage, slice, action and attempt; authoritative STATE/journal/history resolve repository-locally or through the bound per-worktree vault runtime. Wrong-shaped STATE never echoes parser details or values. Installation copies the hooks and quoted absolute-path example configuration without changing a Hermes profile, SOUL, global skills, or consent.
 
+### Fixed
+- Hook failure responses never echo malformed or non-UTF-8 STATE content, boolean budget values are rejected as wrong-shaped, and quoted absolute hook commands support checkout paths containing spaces.
+
 ## 5.0.0 - 2026-09-28
 
 ### Breaking
