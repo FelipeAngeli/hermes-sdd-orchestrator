@@ -55,6 +55,7 @@
     "docs/components/obsidian-vault.md": [
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/BOOTSTRAP.md",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/obsidian_binding.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/obsidian_connector.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/vault_guard.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/bootstrap_worktree.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/migrate_to_vault.py",

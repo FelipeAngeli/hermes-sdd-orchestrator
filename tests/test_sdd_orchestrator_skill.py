@@ -1060,6 +1060,8 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertIn("typesafe_ai: UNRESOLVED", setup)
             self.assertIn("project_tools: UNRESOLVED", setup)
             self.assertIn("Ask only about orchestrator connectivity", setup)
+            self.assertIn("obsidian_connector.py discover", setup)
+            self.assertIn("obsidian_connector.py preflight", setup)
 
     def test_repeated_run_asks_only_unresolved_onboarding_questions(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-onboarding-resume-") as temp:

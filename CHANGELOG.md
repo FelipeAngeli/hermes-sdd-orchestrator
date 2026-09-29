@@ -4,6 +4,21 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 6.2.2 - 2026-09-29
+
+### Fixed
+- Note-path validation now rejects embedded NUL before direct filesystem access or CLI search-result verification, preserving structured failure instead of exposing a raw `ValueError`.
+
+## 6.2.1 - 2026-09-29
+
+### Fixed
+- The guarded Obsidian connector now applies one Markdown-only note policy to direct reads and CLI search results, rejecting non-note files such as `.env` and returning the canonical container-relative spelling of every accepted note path.
+
+## 6.2.0 - 2026-09-29
+
+### Added
+- A stdlib-only, repository-local Obsidian connector uses the official CLI for read-only vault discovery, exact bound-vault preflight and project-scoped search, with root-anchored no-follow filesystem note reads/search/tag fallback when Obsidian is unavailable. It requires canonical symlink-free vault/container binding paths, returns only container-relative note paths, rejects runtime/control paths and invalid CLI input/output, refuses lexical CLI opening, exposes no write command, preserves `.hermes/obsidian.json` as the binding authority and leaves every mutation under `OBSIDIAN_WRITE`, `vault_guard` and baseline control. Project onboarding documents CLI discovery/preflight, while Obsidian Headless Sync remains optional deployment plumbing rather than a controller transport.
+
 ## 6.1.2 - 2026-09-29
 
 ### Fixed
