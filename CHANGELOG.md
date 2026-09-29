@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 6.0.0 - 2026-09-29
+
 ### Added
 - Three trusted project-local engineering skills under `.hermes/skills/` provide progressive, stack-neutral playbooks for backend services, architecture/DDD decisions, and database design/migrations without duplicating specialist reviewers. A new read-only `migration-safety-auditor` covers concrete rollout order, mixed-version compatibility, data preservation, locks, restartability and recovery.
 
