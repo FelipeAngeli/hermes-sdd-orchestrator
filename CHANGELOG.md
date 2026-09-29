@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 6.2.2 - 2026-09-29
+
 ### Fixed
 - Note-path validation now rejects embedded NUL before direct filesystem access or CLI search-result verification, preserving structured failure instead of exposing a raw `ValueError`.
 
