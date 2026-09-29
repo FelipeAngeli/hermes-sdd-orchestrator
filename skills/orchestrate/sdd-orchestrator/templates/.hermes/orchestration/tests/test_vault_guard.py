@@ -64,7 +64,7 @@ class WriteContainmentTests(GuardTestCase):
 
     def test_write_outside_the_vault_entirely_is_refused(self) -> None:
         with self.assertRaises(vault_guard.VaultWriteRefused):
-            vault_guard.assert_writable(self.binding, Path("/etc/passwd"))
+            vault_guard.assert_writable(self.binding, self.repo / "not-in-vault.md")
 
     def test_traversal_out_of_container_is_refused(self) -> None:
         target = self.container / ".." / "Other" / "note.md"

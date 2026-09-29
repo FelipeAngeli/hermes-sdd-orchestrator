@@ -13,6 +13,7 @@
 | Change check | A changed source file requires its owning page **and** `CHANGELOG.md` to change in the same diff. | `tools/check_docs_sync.py` |
 | Local hook | Runs the change check on every commit. | `.githooks/commit-msg` |
 | CI | Checks out the real PR `head.sha` (not GitHub's synthetic merge commit), runs both suites and checks docs against the base branch. | `.github/workflows/ci.yml` |
+| Skill security | `tools/check_skill_security.py` verifies the pinned hermes-agent commit and scanner version, scans the complete distributable skill as a community source, and fails unless the verdict is `SAFE`. CI checks out the pinned scanner before running it. | `tools/check_skill_security.py`, `.github/workflows/ci.yml` |
 
 Enable the hook once per clone:
 
@@ -36,6 +37,20 @@ python3 tools/check_docs_sync.py --base origin/main
 | `--repo` | Repository root (default `.`). |
 
 Exit codes: `0` in sync, `1` documentation missing (each missing page is listed), `2` usage or Git error.
+
+## `tools/check_skill_security.py`
+
+```text
+python3 tools/check_skill_security.py --hermes-root <pinned-hermes-agent-checkout>
+```
+
+The checker verifies hermes-agent commit `4e9d3c713a3e3d47319ab18a8d8dfade5665270d`, rejects ordinary tracked or untracked modifications, reads `tools/skills_guard.py` once, compares those bytes with the Git blob at the pinned commit, and executes those same verified bytes. The blob comparison remains authoritative when index flags hide a worktree change and removes a check/import time-of-check gap. It then verifies scanner version `skills-guard-v5` before scanning `skills/orchestrate/sdd-orchestrator` with community-source policy. The checker prints the complete finding report and provenance. Exit code `0` means `SAFE`, `1` means a valid scan returned `CAUTION` or `DANGEROUS`, and `2` means the scanner checkout, source bytes, pin, version, or skill path could not be verified. Update the commit and expected version together only after reviewing scanner-rule changes and confirming the bundle still passes.
+
+| Flag | Meaning |
+| --- | --- |
+| `--repo` | Repository root (default `.`). |
+| `--skill` | Skill directory, absolute or relative to `--repo` (default `skills/orchestrate/sdd-orchestrator`). |
+| `--hermes-root` | Pinned hermes-agent checkout; defaults to `HERMES_AGENT_ROOT` or the active profile's standard source checkout. |
 
 Editing or deleting an **existing** test needs no documentation. Adding a test file does, because [Testing](components/testing.md) lists every suite. A rename counts as deleting the old path and adding the new one, so a source file moved into `tests/` still needs its page.
 

@@ -15,6 +15,8 @@ hermes skills tap add FelipeAngeli/hermes-sdd-orchestrator
 hermes skills install FelipeAngeli/hermes-sdd-orchestrator/skills/orchestrate/sdd-orchestrator --yes
 ```
 
+The complete published bundle is scanned in CI with Hermes `skills-guard-v5` from pinned hermes-agent commit `4e9d3c713a3e3d47319ab18a8d8dfade5665270d`. CI requires a `SAFE` verdict, so the normal community-source installation needs neither `--force` nor a scanner bypass. Defensive fixtures construct synthetic paths and non-sensitive sentinels without weakening their traversal, containment, or non-disclosure assertions.
+
 ## `install_project.py`: per-project installer
 
 ```text
@@ -64,7 +66,7 @@ For TypeSafe, `--typesafe-ai install` is only a preview until combined with `--a
 
 ## `.hermes.md`: controller entry point
 
-`templates/.hermes.md` is installed at the project root and is what Hermes reads first in that project. It is kept under 8,000 characters (enforced by a test). It states the controller role, the [FSM](fsm-and-loop.md), the safety rules, the dispatch and context rules for [stage agents](stage-agents.md) and [sub-agents](sub-agents.md), the [result schemas](contracts-and-schemas.md), the opt-in [hook](hooks.md) state inputs, and the loop modes. The controller carries `context_assessment` and stable `acceptance_checks` through executor stages, routes material unknowns from SPECIFY to CLARIFY, requires TASKS to assign a non-empty set, and retains the complete authoritative mapping (ID, criterion, verification method, verifier and slice assignment). Workers change only status/evidence; IMPLEMENT, TEST and every REVIEW status are validated against that mapping plus the current/completed slice context. It also names the harness steps: `runtime/stage_context.py check` before each dispatch, exact project-local playbook descriptors bound to the approved slice hash, and `runtime/correction_loop.py decide` before any retry of a failed verification ([Harness](harness.md)). It links to policies instead of duplicating them.
+`templates/.hermes.md` is installed at the project root and is what Hermes reads first in that project. It is kept under 8,000 characters (enforced by a test). It states the controller role, the [FSM](fsm-and-loop.md), the safety rules, the dispatch and context rules for [stage agents](stage-agents.md) and [sub-agents](sub-agents.md), the [result schemas](contracts-and-schemas.md), the opt-in [hook](hooks.md) state inputs, and the loop modes. Each leaf worker receives only stage-scoped context; conversation history, transcripts, archives and state dumps are omitted while the controller retains transition and STATE authority. The controller carries `context_assessment` and stable `acceptance_checks` through executor stages, routes material unknowns from SPECIFY to CLARIFY, requires TASKS to assign a non-empty set, and retains the complete authoritative mapping (ID, criterion, verification method, verifier and slice assignment). Workers change only status/evidence; IMPLEMENT, TEST and every REVIEW status are validated against that mapping plus the current/completed slice context. It also names the harness steps: `runtime/stage_context.py check` before each dispatch, exact project-local playbook descriptors bound to the approved slice hash, and `runtime/correction_loop.py decide` before any retry of a failed verification ([Harness](harness.md)). It links to policies instead of duplicating them.
 
 ## Installed layout (`orchestration/README.md`)
 

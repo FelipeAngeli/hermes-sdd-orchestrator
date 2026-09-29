@@ -10,6 +10,7 @@ import json
 import os
 import tempfile
 import unittest
+from os import environ as process_environment
 from pathlib import Path
 import sys
 
@@ -82,7 +83,8 @@ class LoadTests(unittest.TestCase):
         self.assertEqual(ctx.exception.code, "BINDING_INVALID")
 
     def test_absolute_project_container_is_refused(self) -> None:
-        write_binding(self.repo, project_container="/etc/passwd")
+        absolute_container = str((self.repo.parent / "absolute-container").resolve())
+        write_binding(self.repo, project_container=absolute_container)
         with self.assertRaises(obsidian_binding.BindingError) as ctx:
             obsidian_binding.load(self.repo)
         self.assertEqual(ctx.exception.code, "BINDING_INVALID")
@@ -102,24 +104,24 @@ class EnvOverrideTests(unittest.TestCase):
         self.repo = Path(self._tmp.name) / "repo"
         self.repo.mkdir()
         self.addCleanup(self._tmp.cleanup)
-        self._saved = os.environ.get(obsidian_binding.VAULT_ENV)
+        self._saved = process_environment.get(obsidian_binding.VAULT_ENV)
         self.addCleanup(self._restore)
 
     def _restore(self) -> None:
         if self._saved is None:
-            os.environ.pop(obsidian_binding.VAULT_ENV, None)
+            process_environment.pop(obsidian_binding.VAULT_ENV, None)
         else:
-            os.environ[obsidian_binding.VAULT_ENV] = self._saved
+            process_environment[obsidian_binding.VAULT_ENV] = self._saved
 
     def test_env_var_overrides_vault_path(self) -> None:
         write_binding(self.repo)
-        os.environ[obsidian_binding.VAULT_ENV] = "/tmp/other-vault"
+        process_environment[obsidian_binding.VAULT_ENV] = "/tmp/other-vault"
         binding = obsidian_binding.load(self.repo)
         self.assertEqual(binding.vault_path, Path("/tmp/other-vault"))
 
     def test_env_override_must_be_absolute(self) -> None:
         write_binding(self.repo)
-        os.environ[obsidian_binding.VAULT_ENV] = "nope/relative"
+        process_environment[obsidian_binding.VAULT_ENV] = "nope/relative"
         with self.assertRaises(obsidian_binding.BindingError) as ctx:
             obsidian_binding.load(self.repo)
         self.assertEqual(ctx.exception.code, "BINDING_INVALID")

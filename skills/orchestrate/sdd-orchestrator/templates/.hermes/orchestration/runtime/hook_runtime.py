@@ -30,6 +30,12 @@ STATE_RELATIVE = Path(".hermes/orchestration/STATE.md")
 JOURNAL_RELATIVE = Path(".hermes/orchestration/ACTION_JOURNAL.json")
 SUBAGENT_HISTORY_RELATIVE = Path(".hermes/orchestration/action-journal-history/subagent-events")
 DIRECT_WRITE_TOOLS = {"write_file", "patch"}
+HOOK_ENVIRONMENT_KEYS = (
+    "SDD_STAGE_CONTEXT",
+    "SDD_HOOK_BINDING",
+    "SDD_VERIFICATION_EVIDENCE",
+    "SDD_STATE",
+)
 MAX_STATE_FIELD_CHARS = 48
 MAX_STATE_SUMMARY_CHARS = 240
 _V4A_FILE_RE = re.compile(r"^(\*\*\*\s*(?:Update|Add|Delete)\s+File:\s*)(.+)$", re.MULTILINE)
@@ -77,6 +83,17 @@ def _block(message: str) -> dict[str, str]:
 
 def _continue(message: str) -> dict[str, str]:
     return {"action": "continue", "message": message}
+
+
+def hook_environment(environ: Mapping[str, str] | None = None) -> Mapping[str, str]:
+    """Return explicit hook overrides without exposing unrelated process state."""
+    if environ is not None:
+        return environ
+    return {
+        key: value
+        for key in HOOK_ENVIRONMENT_KEYS
+        if (value := os.getenv(key)) is not None
+    }
 
 
 def _root(payload: Mapping[str, Any]) -> Path:
@@ -279,7 +296,7 @@ def scope_tool_call(payload: Mapping[str, Any], root: Path, context: dict[str, A
 
 
 def run_scope_hook(payload: Mapping[str, Any], environ: Mapping[str, str] | None = None) -> dict[str, str]:
-    environment = os.environ if environ is None else environ
+    environment = hook_environment(environ)
     try:
         root = _root(payload)
         path = _configured_path(root, environment, "SDD_STAGE_CONTEXT", CONTEXT_RELATIVE)
@@ -335,7 +352,7 @@ def verify_completion(payload: Mapping[str, Any], context: dict[str, Any], evide
 
 
 def run_verify_hook(payload: Mapping[str, Any], environ: Mapping[str, str] | None = None) -> dict[str, str]:
-    environment = os.environ if environ is None else environ
+    environment = hook_environment(environ)
     try:
         root = _root(payload)
         context_path = _configured_path(root, environment, "SDD_STAGE_CONTEXT", CONTEXT_RELATIVE)
@@ -392,7 +409,7 @@ def summarize_state(text: str) -> str:
 
 
 def run_context_hook(payload: Mapping[str, Any], environ: Mapping[str, str] | None = None) -> dict[str, str]:
-    environment = os.environ if environ is None else environ
+    environment = hook_environment(environ)
     try:
         root = _root(payload)
         default_state = runtime_locations(root).state

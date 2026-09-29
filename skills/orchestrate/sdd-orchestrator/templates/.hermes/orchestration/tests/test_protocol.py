@@ -648,7 +648,8 @@ class ProtocolValidationTests(unittest.TestCase):
                 )
 
     def test_rejects_absolute_or_escaping_written_paths(self) -> None:
-        for path in ("/etc/passwd", "src/../../outside.ext", "../outside.ext"):
+        outside = str(Path(tempfile.gettempdir()).resolve() / "sdd-outside.ext")
+        for path in (outside, "src/../../outside.ext", "../outside.ext"):
             with self.subTest(path=path):
                 fixture = successful_implementation()
                 fixture["executor_result"]["modified_paths"] = [{"path": path}]
