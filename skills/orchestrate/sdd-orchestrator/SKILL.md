@@ -1,7 +1,7 @@
 ---
 name: sdd-orchestrator
 description: Install and run safe project-local SDD orchestration.
-version: 6.1.1
+version: 6.1.2
 author: Felipe Angeli (FelipeAngeli), Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -49,7 +49,7 @@ python3 <installed-skill>/scripts/install_project.py --target <project-root> --t
 python3 <installed-skill>/scripts/install_project.py --target <project-root> --apply --json
 ```
 
-The dry run must return `READY` before `--apply`. Installation must return `applied: true` and create an untracked `.hermes/` tree. It refuses tracked, conflicting, symlinked, or partial existing SDD state. Project-local engineering skills land under `.hermes/skills/`; Hermes loads them only after the user runs `hermes skills trust` for that repository, normally in a new session. The installed `orchestration/hooks/` layer is also inactive by default: activation is an explicit dedicated-profile opt-in after replacing `<ABSOLUTE_PROJECT_ROOT>` in `hooks/hooks.example.yaml`. The installer never edits profile configuration, SOUL, global skills, trust or hook consent.
+The dry run must return `READY` before `--apply`. Installation must return `applied: true` and create an untracked `.hermes/` tree. If Python is older than 3.10, it returns `PYTHON_3_10_REQUIRED`; a target outside a Git worktree returns `GIT_REPOSITORY_REQUIRED`; and a repository without an initial commit returns `GIT_INITIAL_COMMIT_REQUIRED`. These are `BLOCKED` reports with an actionable `next_step`, produced before target writes. It also refuses tracked, conflicting, symlinked, or partial existing SDD state. Project-local engineering skills land under `.hermes/skills/`; Hermes loads them only after the user runs `hermes skills trust` for that repository, normally in a new session. The installed `orchestration/hooks/` layer is also inactive by default: activation is an explicit dedicated-profile opt-in after replacing `<ABSOLUTE_PROJECT_ROOT>` in `hooks/hooks.example.yaml`. The installer never edits profile configuration, SOUL, global skills, trust or hook consent.
 
 ## Procedure
 

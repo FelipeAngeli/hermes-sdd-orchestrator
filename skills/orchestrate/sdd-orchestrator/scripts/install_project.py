@@ -74,14 +74,26 @@ def require_root(value: str) -> tuple[Path, dict[str, str]]:
     target = Path(value).expanduser().resolve()
     if not target.is_dir():
         raise InstallError("TARGET_NOT_DIRECTORY")
+    worktree = subprocess.run(
+        ["git", "-C", str(target), "rev-parse", "--is-inside-work-tree"],
+        text=True, capture_output=True, timeout=20, check=False,
+    )
+    if worktree.returncode or worktree.stdout.strip() != "true":
+        raise InstallError("GIT_REPOSITORY_REQUIRED")
     root = Path(git(target, "rev-parse", "--show-toplevel")).resolve()
     if root != target:
         raise InstallError(f"TARGET_NOT_REPOSITORY_ROOT: use {root}")
     branch = git(root, "symbolic-ref", "--quiet", "--short", "HEAD")
+    head = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--verify", "HEAD"],
+        text=True, capture_output=True, timeout=20, check=False,
+    )
+    if head.returncode:
+        raise InstallError("GIT_INITIAL_COMMIT_REQUIRED")
     return root, {
         "path": str(root),
         "branch": branch,
-        "head": git(root, "rev-parse", "HEAD"),
+        "head": head.stdout.strip(),
         "git_common_dir": git(root, "rev-parse", "--path-format=absolute", "--git-common-dir"),
     }
 
@@ -789,6 +801,17 @@ def main() -> int:
     )
     parser.add_argument("--json", action="store_true", help="emit a machine-readable report")
     args = parser.parse_args()
+    if sys.version_info < (3, 10):
+        report = {
+            "status": "BLOCKED",
+            "reason": "PYTHON_3_10_REQUIRED",
+            "next_step": "Install or select Python 3.10 or newer, then rerun the installer.",
+        }
+        print(
+            json.dumps(report, ensure_ascii=False) if args.json else "BLOCKED: PYTHON_3_10_REQUIRED",
+            file=sys.stderr,
+        )
+        return 2
     try:
         target, workspace = require_root(args.target)
         planned: list[str] = []
@@ -881,6 +904,10 @@ def main() -> int:
         return 0
     except (InstallError, OSError, subprocess.TimeoutExpired) as error:
         report = {"status": "BLOCKED", "reason": str(error)}
+        if str(error) == "GIT_REPOSITORY_REQUIRED":
+            report["next_step"] = "Initialize and commit the target as a Git repository, then rerun the installer."
+        elif str(error) == "GIT_INITIAL_COMMIT_REQUIRED":
+            report["next_step"] = "Create the initial Git commit on an attached branch, then rerun the installer."
         print(json.dumps(report, ensure_ascii=False) if args.json else f'BLOCKED: {error}', file=sys.stderr)
         return 2
 
