@@ -2,7 +2,7 @@
 
 [Docs index](../README.md) · Related: [Action journal](action-journal.md), [Skill and installer](skill-and-installer.md), [FSM and bounded loop](fsm-and-loop.md)
 
-**Files:** `BOOTSTRAP.md`, `runtime/obsidian_binding.py`, `runtime/vault_guard.py`, `runtime/bootstrap_worktree.py`, `runtime/migrate_to_vault.py`, `runtime/migrate_all_worktrees.py`, `runtime/consolidate_runtime.py`, `runtime/state_format.py`.
+**Files:** `hermes-pack.yaml`, `BOOTSTRAP.md`, `runtime/obsidian_binding.py`, `runtime/vault_guard.py`, `runtime/bootstrap_worktree.py`, `runtime/migrate_to_vault.py`, `runtime/migrate_all_worktrees.py`, `runtime/consolidate_runtime.py`, `runtime/state_format.py`.
 
 Obsidian is **optional**. A project can bind its orchestration knowledge and runtime state to an Obsidian vault, which then acts as a second brain. During SPECIFY → TEST the vault is read-only. After REVIEW or DONE, Hermes may propose a write, and every write needs human approval (`OBSIDIAN_WRITE` is a [`HUMAN_REQUIRED` action](fsm-and-loop.md#actions)). The vault is never a condition for DONE.
 
@@ -19,6 +19,12 @@ The binding is the only place that decides vault paths. It is **versioned**, unl
 - Error codes: `BINDING_MISSING`, `BINDING_INVALID`, `BINDING_SCHEMA_UNSUPPORTED`.
 
 Public API: `load`, `binding_path`, `worktree_slug`, `runtime_dir`, `state_path`, `journal_path`, `is_inside_container`.
+
+### Optional dashboard companion
+
+The repository-root `hermes-pack.yaml` declares `kyssta-exe/hermes-obsidian-memory` at immutable commit `11239984e82caa6dbf02106ce315e3019368b5fc`. Review it with `hermes plugins pack show ./hermes-pack.yaml` and install it with `hermes plugins pack install ./hermes-pack.yaml`; Hermes still performs its normal plugin review and consent flow. The plugin adds an Obsidian dashboard tab, discovers local vaults, renders notes and their graph, and supports inline editing.
+
+This plugin is an optional operator UI, not SDD connectivity. It declares no agent tools, does not create `.hermes/obsidian.json`, does not select or enforce `project_container`, and does not participate in `vault_guard`, the vault baseline, or `OBSIDIAN_WRITE` approval. Its vault discovery and dashboard API can see and overwrite Markdown notes outside an SDD project container, so installing it must never be reported as an active binding or used to bypass the controller. Issue [#26](https://github.com/FelipeAngeli/hermes-sdd-orchestrator/issues/26) tracks guarded, read-only-assisted onboarding before any plugin-mediated write is integrated.
 
 ### Runtime location
 

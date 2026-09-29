@@ -1,0 +1,8 @@
+name: sdd-second-brain
+version: 1.0.0
+author: FelipeAngeli
+description: Optional dashboard companion for inspecting Obsidian vaults while developing the SDD second-brain onboarding flow.
+plugins:
+  - repo: kyssta-exe/hermes-obsidian-memory
+    ref: 11239984e82caa6dbf02106ce315e3019368b5fc
+skills: []
