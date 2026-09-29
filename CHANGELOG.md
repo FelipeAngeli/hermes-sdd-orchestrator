@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- The project installer now reports stable, actionable `BLOCKED` diagnostics before writing when Python 3.10+ is unavailable, the target is not a Git repository, or the repository has no initial commit, instead of continuing under an unsupported interpreter or exposing raw Git errors.
+
 ## 6.1.1 - 2026-09-29
 
 ### Fixed

@@ -6,6 +6,7 @@ frontmatter, safety boundaries, catalogues, and controller policy.
 """
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -521,6 +522,69 @@ class InstallerBehaviorTests(unittest.TestCase):
         report = json.loads(result.stderr)
         self.assertEqual("BLOCKED", report["status"])
         self.assertIn(reason, report["reason"])
+
+    def test_non_git_target_reports_actionable_blocker_without_writing(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-no-git-") as temp:
+            target = Path(temp)
+            (target / "README.md").write_text("fixture\n", encoding="utf-8")
+            before = self.filesystem_snapshot(target)
+
+            result = self.run_installer(target, apply=True)
+
+            self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+            report = json.loads(result.stderr)
+            self.assertEqual("BLOCKED", report["status"])
+            self.assertEqual("GIT_REPOSITORY_REQUIRED", report["reason"])
+            self.assertEqual(
+                "Initialize and commit the target as a Git repository, then rerun the installer.",
+                report["next_step"],
+            )
+            self.assertEqual(before, self.filesystem_snapshot(target))
+
+    def test_repository_without_commit_reports_actionable_blocker_without_writing(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-no-commit-") as temp:
+            target = Path(temp)
+            self.execute("git", "init", "-q", "-b", "main", str(target))
+            (target / "README.md").write_text("fixture\n", encoding="utf-8")
+            before = self.filesystem_snapshot(target)
+
+            result = self.run_installer(target, apply=True)
+
+            self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+            report = json.loads(result.stderr)
+            self.assertEqual("BLOCKED", report["status"])
+            self.assertEqual("GIT_INITIAL_COMMIT_REQUIRED", report["reason"])
+            self.assertEqual(
+                "Create the initial Git commit on an attached branch, then rerun the installer.",
+                report["next_step"],
+            )
+            self.assertEqual(before, self.filesystem_snapshot(target))
+
+    def test_python_3_9_reports_actionable_blocker_before_preflight(self) -> None:
+        source = INSTALLER.read_text(encoding="utf-8")
+        ast.parse(source, filename=str(INSTALLER), feature_version=(3, 9))
+        with tempfile.TemporaryDirectory(prefix="sdd-old-python-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            before = self.repository_snapshot(target)
+            program = (
+                "import runpy, sys; "
+                "sys.version_info = (3, 9, 6); "
+                f"sys.argv = [{str(INSTALLER)!r}, '--target', {str(target)!r}, '--apply', '--json']; "
+                f"runpy.run_path({str(INSTALLER)!r}, run_name='__main__')"
+            )
+
+            result = self.execute(sys.executable, "-c", program, check=False)
+
+            self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+            report = json.loads(result.stderr)
+            self.assertEqual("BLOCKED", report["status"])
+            self.assertEqual("PYTHON_3_10_REQUIRED", report["reason"])
+            self.assertEqual(
+                "Install or select Python 3.10 or newer, then rerun the installer.",
+                report["next_step"],
+            )
+            self.assertEqual(before, self.repository_snapshot(target))
 
     def test_dry_run_detects_stack_without_writing(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-dry-run-") as temp:
