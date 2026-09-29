@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 RUNTIME = Path(__file__).resolve().parents[1] / "runtime"
 sys.path.insert(0, str(RUNTIME))
@@ -20,7 +22,8 @@ SHA = "a" * 64
 
 def context(stage: str = "IMPLEMENT") -> dict:
     value = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "project_root": "/tmp/project",
         "ticket": "APP-1",
         "stage": stage,
         "limits": {"max_sources": 12, "max_lines_per_source": 250},
@@ -35,6 +38,7 @@ def context(stage: str = "IMPLEMENT") -> dict:
             {"kind": "RULES", "path": "AGENTS.md", "lines": [1, 40], "sha256": SHA},
             {"kind": "SPEC", "path": "docs/spec.md", "lines": [10, 60], "sha256": SHA},
         ],
+        "playbooks": [],
         "divergences": [],
         "slice": None,
         "approval": None,
@@ -44,6 +48,7 @@ def context(stage: str = "IMPLEMENT") -> dict:
             "current_slice_ids": ["S1"] if stage == "IMPLEMENT" else [],
             "completed_slice_ids": [] if stage == "IMPLEMENT" else ["S1"],
             "editable_paths": ["src/feature/*", "tests/feature/*"] if stage == "IMPLEMENT" else [],
+            "required_playbooks": [],
             "acceptance": {
                 "AC-1": {"criterion": "totals round half-up", "verification_method": "focused test",
                          "verifier": "AGENT", "slice_id": "S1"},
@@ -58,6 +63,44 @@ def context(stage: str = "IMPLEMENT") -> dict:
     return value
 
 
+def playbook(name: str = "sdd-database-design-migrations", sha256: str = SHA) -> dict:
+    return {
+        "name": name,
+        "version": "0.1.0",
+        "path": f".hermes/skills/{name}/SKILL.md",
+        "sha256": sha256,
+        "references": [],
+        "reason": "S1 changes persistent schema and existing rows",
+    }
+
+
+def materialize_playbook(value: dict, root: Path, *, reference: bool = False) -> dict:
+    root = root.resolve()
+    name = "sdd-database-design-migrations"
+    skill = root / ".hermes" / "skills" / name / "SKILL.md"
+    skill.parent.mkdir(parents=True, exist_ok=True)
+    content = f"---\nname: {name}\nversion: 0.1.0\n---\n# Database\n"
+    skill.write_text(content, encoding="utf-8")
+    descriptor = playbook(sha256=hashlib.sha256(content.encode()).hexdigest())
+    if reference:
+        references = {
+            "migrations.md": "# Migration procedure\n",
+            "recovery.md": "# Recovery procedure\n",
+        }
+        descriptor["references"] = []
+        for filename, ref_content in references.items():
+            ref = skill.parent / "references" / filename
+            ref.parent.mkdir(parents=True, exist_ok=True)
+            ref.write_text(ref_content, encoding="utf-8")
+            descriptor["references"].append({
+                "path": f".hermes/skills/{name}/references/{filename}",
+                "sha256": hashlib.sha256(ref_content.encode()).hexdigest(),
+            })
+    value["project_root"] = str(root)
+    value["playbooks"] = [descriptor]
+    return descriptor
+
+
 def errors_of(value: dict) -> list[str]:
     return [error["code"] for error in ctx.check(value)["errors"]]
 
@@ -67,6 +110,11 @@ class StageContextBudgetTests(unittest.TestCase):
         result = ctx.check(context())
         self.assertTrue(result["valid"], result["errors"])
         self.assertRegex(result["slice_sha256"], r"^[a-f0-9]{64}$")
+
+    def test_stage_context_v1_is_rejected_after_playbook_contract_upgrade(self) -> None:
+        value = context()
+        value["schema_version"] = 1
+        self.assertIn("SCHEMA_INVALID", errors_of(value))
 
     def test_whole_documents_and_oversized_excerpts_are_refused(self) -> None:
         value = context()
@@ -126,6 +174,110 @@ class SliceContractTests(unittest.TestCase):
         value = context("TEST")
         value["slice"]["editable_paths"] = ["src/*"]
         self.assertIn("ANALYSIS_STAGE_EDITABLE_PATHS", errors_of(value))
+
+    def test_required_playbook_must_be_loaded_for_current_slice(self) -> None:
+        value = context()
+        value["slice"]["required_playbooks"] = [
+            {"name": "sdd-database-design-migrations", "slice_ids": ["S1"]}
+        ]
+        self.assertIn("PLAYBOOK_REQUIRED", errors_of(value))
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            materialize_playbook(value, root)
+            with mock.patch.object(ctx, "_live_project_root", return_value=root):
+                result = ctx.check(value)
+            self.assertTrue(result["valid"], result["errors"])
+
+    def test_unrequired_playbook_is_rejected_for_current_implement_slice(self) -> None:
+        value = context()
+        value["playbooks"] = [playbook()]
+        self.assertIn("PLAYBOOK_UNDECLARED", errors_of(value))
+
+    def test_playbook_descriptor_must_match_project_local_files_and_frontmatter(self) -> None:
+        value = context()
+        value["slice"]["required_playbooks"] = [
+            {"name": "sdd-database-design-migrations", "slice_ids": ["S1"]}
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            descriptor = materialize_playbook(value, root, reference=True)
+            with mock.patch.object(ctx, "_live_project_root", return_value=root):
+                self.assertTrue(ctx.check(value)["valid"], ctx.check(value)["errors"])
+                descriptor["version"] = "99.99.99"
+                self.assertIn("PLAYBOOK_CONTENT_MISMATCH", errors_of(value))
+                descriptor["version"] = "0.1.0"
+                descriptor["sha256"] = "f" * 64
+                self.assertIn("PLAYBOOK_CONTENT_MISMATCH", errors_of(value))
+                descriptor["sha256"] = hashlib.sha256(
+                    (Path(temp) / descriptor["path"]).read_bytes()
+                ).hexdigest()
+                skill_path = Path(temp) / descriptor["path"]
+                original_skill = skill_path.read_bytes()
+                crafted = (
+                    "---\n"
+                    "name: '\"sdd-database-design-migrations\"'\n"
+                    "version: '\"0.1.0\"'\n"
+                    "---\n# Database\n"
+                ).encode()
+                skill_path.write_bytes(crafted)
+                descriptor["sha256"] = hashlib.sha256(crafted).hexdigest()
+                self.assertIn("PLAYBOOK_CONTENT_MISMATCH", errors_of(value))
+                skill_path.write_bytes(original_skill)
+                descriptor["sha256"] = hashlib.sha256(original_skill).hexdigest()
+                descriptor["references"][0]["sha256"] = "e" * 64
+                self.assertIn("PLAYBOOK_CONTENT_MISMATCH", errors_of(value))
+
+    def test_playbook_root_must_match_trusted_canonical_workspace(self) -> None:
+        value = context()
+        value["slice"]["required_playbooks"] = [
+            {"name": "sdd-database-design-migrations", "slice_ids": ["S1"]}
+        ]
+        with tempfile.TemporaryDirectory() as project_temp, tempfile.TemporaryDirectory() as other_temp:
+            project = Path(project_temp).resolve()
+            other = Path(other_temp).resolve()
+            materialize_playbook(value, project)
+            with mock.patch.object(ctx, "_live_project_root", return_value=other):
+                self.assertIn("PLAYBOOK_ROOT_INVALID", errors_of(value))
+
+            alias = other / "project-link"
+            alias.symlink_to(project, target_is_directory=True)
+            value["project_root"] = str(alias)
+            with mock.patch.object(ctx, "_live_project_root", return_value=project):
+                self.assertIn("PLAYBOOK_ROOT_INVALID", errors_of(value))
+
+    def test_playbooks_are_unique_project_local_and_bound_to_known_slices(self) -> None:
+        value = context()
+        value["playbooks"] = [playbook(), playbook()]
+        self.assertIn("PLAYBOOK_DUPLICATED", errors_of(value))
+        value = context()
+        value["playbooks"] = [playbook() | {"path": "../global/SKILL.md"}]
+        self.assertIn("PLAYBOOK_PATH_INVALID", errors_of(value))
+        value = context()
+        escaped = playbook()
+        escaped["references"] = [{
+            "path": ".hermes/skills/sdd-database-design-migrations/references/../SKILL.md",
+            "sha256": SHA,
+        }]
+        value["playbooks"] = [escaped]
+        self.assertIn("PLAYBOOK_PATH_INVALID", errors_of(value))
+        value = context()
+        value["slice"]["required_playbooks"] = [
+            {"name": "sdd-database-design-migrations", "slice_ids": ["S2"]}
+        ]
+        self.assertIn("PLAYBOOK_UNKNOWN_SLICE", errors_of(value))
+
+    def test_playbook_content_is_part_of_the_approved_slice_hash(self) -> None:
+        value = context()
+        value["slice"]["required_playbooks"] = [
+            {"name": "sdd-database-design-migrations", "slice_ids": ["S1"]}
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            descriptor = materialize_playbook(value, Path(temp), reference=True)
+            first = ctx.slice_sha256(value)
+            descriptor["references"].reverse()
+            self.assertEqual(first, ctx.slice_sha256(value))
+            descriptor["references"][0]["sha256"] = "c" * 64
+            self.assertNotEqual(first, ctx.slice_sha256(value))
 
     def test_every_agent_check_in_scope_is_bound_to_an_observable_verifier(self) -> None:
         value = context()
@@ -205,6 +357,14 @@ class ApprovalReuseTests(unittest.TestCase):
                 result = ctx.check(approve(two_slice_context(current, completed), approved))
                 self.assertEqual("APPROVAL_REUSED", result["approval"], result["errors"])
                 self.assertTrue(result["valid"], result["errors"])
+
+    def test_invalid_manifest_never_reports_reused_approval(self) -> None:
+        value = two_slice_context("S1", [])
+        approve(value, [ctx.slice_sha256(value)])
+        value["sources"][0]["lines"] = [1, 999]
+        result = ctx.check(value)
+        self.assertFalse(result["valid"])
+        self.assertEqual("APPROVAL_REQUIRED", result["approval"])
 
     def test_finishing_a_slice_does_not_change_the_hash_of_the_next(self) -> None:
         self.assertEqual(ctx.slice_sha256(two_slice_context("S2", [])),

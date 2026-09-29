@@ -51,6 +51,12 @@ SUB_AGENT_CONTRACTS = {
     "dependency-auditor.md": ("DEPENDENCY_AUDITOR", "[PLAN, REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
     "project-context-guardian.md": ("PROJECT_CONTEXT_GUARDIAN", "[SPECIFY, PLAN, IMPLEMENT]", "EXECUTOR_RESULT_SCHEMA.json"),
     "pr-reviewer.md": ("PR_REVIEWER", "[REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
+    "migration-safety-auditor.md": ("MIGRATION_SAFETY_AUDITOR", "[PLAN, REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
+}
+PROJECT_SKILLS = {
+    "sdd-backend-engineering",
+    "sdd-architecture-decisions",
+    "sdd-database-design-migrations",
 }
 FORBIDDEN_ACTIONS = (
     "commit",
@@ -93,6 +99,25 @@ class BundleContractTests(unittest.TestCase):
                 self.assertTrue((ORCHESTRATION / layer).is_dir())
         self.assertEqual([], list(ORCHESTRATION.glob("*.py")))
         self.assertEqual([], list(ORCHESTRATION.glob("*.json")))
+
+    def test_project_local_engineering_skills_are_complete_and_portable(self) -> None:
+        directory = TEMPLATES / ".hermes" / "skills"
+        self.assertEqual(PROJECT_SKILLS, {path.name for path in directory.iterdir() if path.is_dir()})
+        for name in sorted(PROJECT_SKILLS):
+            path = directory / name / "SKILL.md"
+            meta = frontmatter(path)
+            text = path.read_text(encoding="utf-8")
+            references = sorted((directory / name / "references").glob("*.md"))
+            with self.subTest(skill=name):
+                self.assertEqual(name, meta["name"])
+                self.assertLessEqual(len(meta["description"].strip('"')), 60)
+                self.assertRegex(meta["version"], r"^\d+\.\d+\.\d+$")
+                self.assertEqual("[linux, macos, windows]", meta["platforms"])
+                self.assertGreaterEqual(len(references), 3)
+                for heading in ("## When to Use", "## Procedure", "## Pitfalls", "## Verification"):
+                    self.assertIn(heading, text)
+                self.assertIn("project", normalized(text))
+                self.assertNotRegex(text, r"/(?:Users|home)/[^/\s]+")
 
     def test_stage_agent_metadata_and_safety_boundaries_are_complete(self) -> None:
         agents = ORCHESTRATION / "agents"
@@ -325,6 +350,11 @@ class PromptPolicyContractTests(unittest.TestCase):
             "undeclared but consistent convention as a question", "violation this change introduced",
             "never invent an architectural rule", "circular",
         ),
+        "migration-safety-auditor.md": (
+            "ordered rollout", "mixed-version compatibility", "unknown production properties",
+            "`no_findings`", "workspace is read-only", "never execute a migration",
+            "performance-auditor", "architecture-guardian", "api-contract-auditor", "security-reviewer",
+        ),
         "spec-consistency-guardian.md": (
             "never infer a requirement", "unauthorized scope", "return `no_findings`",
             "quote the requirement identifier", "not implemented", "incomplete task", "does not prove",
@@ -374,6 +404,7 @@ class PromptPolicyContractTests(unittest.TestCase):
         proof_roles = {
             "tdd-guardian.md", "regression-hunter.md", "api-contract-auditor.md",
             "security-reviewer.md", "performance-auditor.md", "architecture-guardian.md",
+            "migration-safety-auditor.md",
         }
         for path in sorted((ORCHESTRATION / "sub-agents").glob("*.md")):
             if path.name in writing_roles or path.name in executor_roles:
@@ -691,6 +722,28 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertTrue(onboarding["record_valid"])
             self.assertEqual("PENDING", onboarding["record_status"])
             self.assertEqual([], onboarding["record_issues"])
+
+    def test_install_does_not_hide_unrelated_project_skills(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-install-existing-skill-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            custom = target / ".hermes" / "skills" / "custom-user-skill" / "notes.txt"
+            custom.parent.mkdir(parents=True)
+            custom.write_text("user owned\n", encoding="utf-8")
+            before = self.execute("git", "-C", str(target), "status", "--porcelain").stdout
+            self.assertIn("?? .hermes/", before)
+
+            result = self.run_installer(target, apply=True)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            status = self.execute(
+                "git", "-C", str(target), "status", "--porcelain", "--untracked-files=all"
+            ).stdout
+            self.assertIn("?? .hermes/skills/custom-user-skill/notes.txt", status)
+            ignored = self.execute(
+                "git", "-C", str(target), "check-ignore", "-q", str(custom), check=False
+            )
+            self.assertNotEqual(0, ignored.returncode)
 
     def test_apply_installs_complete_bundle_initial_state_and_runnable_suite(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-install-") as temp:

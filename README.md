@@ -38,11 +38,19 @@ Hermes profile (once)                         Target Git project (per project)
                                                ├── PROJECT_SETUP.md (orchestrator connectivity)
                                                ├── ACTION_JOURNAL.json
                                                └── INCIDENTS.md
+                                              .hermes/skills/   # trusted project engineering playbooks
+                                               ├── sdd-backend-engineering/
+                                               ├── sdd-architecture-decisions/
+                                               └── sdd-database-design-migrations/
 ```
 
 `.hermes/obsidian.json` is the one exception to the untracked rule: it binds the project to its Obsidian vault and is versioned so connectivity survives a clone. When a worktree is bootstrapped against a vault, `STATE.md`, `ACTION_JOURNAL.json` and `INCIDENTS.md` move into that vault, keyed per worktree — see `templates/.hermes/orchestration/BOOTSTRAP.md`.
 
 The skill is reusable. The controller configuration, project setup, state, incident log, and journal are project-local and added only to the target repository's Git `info/exclude`. The installer never overwrites existing configuration or modifies tracked files.
+
+## Project-local engineering skills
+
+Every installation includes three repository-local, progressively loaded playbooks under `.hermes/skills/`: backend engineering, architecture decisions and database design/migrations. They guide planning and implementation while existing specialist sub-agents provide independent review. Stage-context schema 2 binds the canonical Git workspace and byte-verifies required `SKILL.md`/references before hashing their descriptors into slice approval; IMPLEMENT fails closed on extra, missing or changed guidance. Installation never changes global skills or trust. After inspecting the files, run `hermes skills trust` in the target repository and start a new session. See [Project-local engineering skills](docs/components/project-local-skills.md).
 
 ## Repository-local hooks (opt-in)
 
@@ -80,24 +88,26 @@ The installed entrypoint keeps worker context small and stage-specific, with one
 | `api-contract-auditor` | PLAN, REVIEW | Client models against the specification and the deployed server. |
 | `performance-auditor` | PLAN, REVIEW | Work the system does that it does not need to do. |
 | `architecture-guardian` | PLAN, REVIEW | Violations of the project's own declared architectural rules. |
+| `migration-safety-auditor` | PLAN, REVIEW | Concrete schema/data rollout: compatibility, backfills, locks, restartability and recovery. |
 | `spec-consistency-guardian` | TASKS, REVIEW | Breaks in the chain SPEC → PLAN → TASKS → CODE → TESTS. |
 | `dependency-auditor` | PLAN, REVIEW | Versions, duplication, compatibility and unmaintained packages. |
 | `release-readiness-auditor` | REVIEW | Whether this can ship: READY, BLOCKED or READY_WITH_RISK. |
 | `pr-reviewer` | REVIEW | One pull request as it will merge — scope, tests, checks, breaking changes, changelog, commits — plus an audit of every earlier review. Host-neutral; never posts on its own. |
 | `documentation-writer` | IMPLEMENT, REVIEW | Documentation, ADRs, README and diagrams realigned with the code. |
 
-The eight audit roles return findings only when evidence supports them, and each is bound by the failure mode specific to its domain:
+The nine audit roles return findings only when evidence supports them, and each is bound by the failure mode specific to its domain:
 
 - The **TDD guardian** proves a weak test by mutating production code and observing which tests stay green, because reading a test yields an opinion while mutating it yields a fact.
 - The **regression hunter** runs the suites of consumers the change did not touch; a consumer whose tests pass without exercising the affected path is reported as uncovered risk, not as safe.
 - The **API contract auditor** ranks its sources — deployed runtime over served specification over server source over committed spec, with client models last — instead of trusting whichever is nearest, and never invents a contract element to close a gap.
 - The **performance auditor** reports a cost only with a measurement or a counted operation behind it, states the input size at which it matters, and may conclude that nothing is worth changing; a role rewarded for findings will produce them.
 - The **architecture guardian** cites the project's declared rule behind every violation. An undeclared convention is raised as a question, never enforced, since every codebase violates someone's preferred architecture.
+- The **migration safety auditor** reconstructs the ordered rollout and intermediate application/schema combinations; green generated SQL does not prove data preservation, lock bounds, restartability or recovery.
 - The **spec consistency guardian** walks SPEC → PLAN → TASKS → CODE → TESTS in both directions and never infers a missing requirement: inferring one would turn unauthorized scope into retroactively justified scope, which is the failure it exists to catch.
 - The **dependency auditor** prefers what the project already depends on over anything new, and hands a vulnerability to the security reviewer and a layer violation to the architecture guardian instead of ruling on them; two roles over one domain let each assume the other checked it.
 - The **release readiness auditor** returns READY, BLOCKED or READY_WITH_RISK. An unverified item is BLOCKED, never READY_WITH_RISK — not knowing is not the same as knowing and accepting — and the risk verdict requires a named human who accepted it.
 
-All eight keep the workspace read-only, revert every temporary step, repair nothing, and report proven findings separately from unproven suspicions.
+All nine keep the workspace read-only, revert every temporary step, repair nothing, and report proven findings separately from unproven suspicions.
 
 `documentation-writer` is the only writing role among these, and its risk runs the other way: a read-only auditor produces a wrong finding that review can reject, while a writer produces fluent prose describing code that does not exist, which readers trust because it reads well. It verifies every symbol, command and path against the repository before writing it, deletes documentation whose subject is gone, and records an unexplained decision as an open question rather than inventing a rationale. Like the implementer, it writes only to paths the controller assigns.
 

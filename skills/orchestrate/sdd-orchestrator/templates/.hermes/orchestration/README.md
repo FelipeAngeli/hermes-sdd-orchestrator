@@ -35,6 +35,10 @@ python3 .hermes/orchestration/runtime/bounded_run_planner.py --help
 python3 .hermes/orchestration/runtime/bounded_run_driver.py --help
 ```
 
+## Project-local engineering skills
+
+The sibling `.hermes/skills/` directory contains three progressive playbooks: `sdd-backend-engineering`, `sdd-architecture-decisions` and `sdd-database-design-migrations`. They guide PLAN/IMPLEMENT; existing specialist sub-agents remain the independent auditors. Installation does not trust a repository or mutate global skills. After inspection, run `hermes skills trust` in the repository and start a new session so Hermes can discover them. Stage-context schema 2 binds `project_root` to the canonical live Git workspace and records every required `SKILL.md`/reference path and hash; `stage_context.py check` verifies actual bytes/frontmatter and refuses extra, missing or changed guidance. Regenerate schema-1 manifests.
+
 ## Opt-in Hermes hooks
 
 The installed `hooks/` directory mirrors the `agents/` and `sub-agents/` source layers. Its shell scripts connect Hermes events to the existing deterministic runtime: slice/vault scope at `pre_tool_call`, acceptance evidence at `pre_verify`, non-sensitive leaf-worker audit metadata at `subagent_stop`, and an optional bounded STATE summary at `pre_llm_call`.

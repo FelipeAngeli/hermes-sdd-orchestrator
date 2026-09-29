@@ -428,6 +428,24 @@ class PublicDocumentationContractTests(unittest.TestCase):
             with self.subTest(hook=name):
                 self.table_record(text, name)
 
+    def test_project_skill_catalogue_publishes_each_installed_file_exactly_once(self) -> None:
+        project_skills = ORCHESTRATION.parent / "skills"
+        first = project_skills / "sdd-backend-engineering" / "SKILL.md"
+        text = owning_page(first.relative_to(ROOT).as_posix())
+        installed = {
+            path.relative_to(SKILL_ROOT).as_posix()
+            for path in project_skills.rglob("*") if path.is_file()
+        }
+        documented = {
+            match.group(1)
+            for line in text.splitlines()
+            if (match := re.match(r"^\| `(?P<path>templates/\.hermes/skills/[^`]+)` \|", line))
+        }
+        self.assertEqual(installed, documented)
+        for name in sorted(installed):
+            with self.subTest(skill_file=name):
+                self.table_record(text, name)
+
 
 class DocsSyncCheckerTests(unittest.TestCase):
     """tools/check_docs_sync.py blocks orchestration changes without docs."""

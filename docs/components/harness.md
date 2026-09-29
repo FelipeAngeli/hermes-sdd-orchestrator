@@ -4,7 +4,7 @@
 
 **Files:** `runtime/stage_context.py`, `schemas/STAGE_CONTEXT_SCHEMA.json`, `runtime/correction_loop.py`, `schemas/CORRECTION_LOOP_SCHEMA.json`.
 
-These two tools add the harness around every worker dispatch. They do not replace the FSM, the planner or the drivers. The controller uses them to check that a worker gets the right context and a verifiable contract before it runs, and that a failed verification is corrected only within explicit limits. Both are **pure**: they read controller-owned JSON and return decisions. They never read the repository, the vault or STATE. They never dispatch a worker or run a verifier.
+These two tools add the harness around every worker dispatch. They do not replace the FSM, the planner or the drivers. The controller uses them to check that a worker gets the right context and a verifiable contract before it runs, and that a failed verification is corrected only within explicit limits. `correction_loop.py` is pure. `stage_context.py` reads controller-owned JSON plus only the declared project-local `SKILL.md` and reference files to verify their bytes/frontmatter; it never reads other repository files, the vault or STATE. Neither tool mutates state, dispatches a worker or runs a verifier.
 
 ```text
 stage_context.py check ──► dispatch one worker ──► validate_protocol.py ──► verified?
@@ -14,14 +14,15 @@ stage_context.py check ──► dispatch one worker ──► validate_protocol
                         CORRECT │ VERIFIED │ STOP (stop_reason, evidence, next_step)
 ```
 
-## Stage context manifest (`stage_context.py`)
+## Stage context manifest schema 2 (`stage_context.py`)
 
-Before each dispatch the controller writes one manifest that validates against `STAGE_CONTEXT_SCHEMA.json`. It holds:
+Before each dispatch the controller writes a schema-2 manifest that validates against `STAGE_CONTEXT_SCHEMA.json`. Schema 2 replaces schema 1: controllers regenerate the ephemeral manifest with canonical absolute `project_root`, top-level `playbooks` and slice `required_playbooks`. The runtime compares `project_root` to the canonical Git toplevel of its live working directory; a different, non-canonical or symlinked root is invalid. The root is then used only to contain and verify declared playbook files. The manifest also holds:
 
 - `sources`: scoped excerpts, each with `kind` (`RULES`, `ARCHITECTURE`, `SPEC`, `DECISION`, `EVIDENCE`, `CODE`, `CONTRACT`), path, line range and hash. `limits.max_sources` and `limits.max_lines_per_source` bound the list. The defaults the controller uses are those already in `.hermes.md`: 12 files and 250 lines per file. The check refuses excerpts longer than the per-source limit and any source path containing a controller runtime file (`FORBIDDEN_SOURCE_NAMES`: `STATE.md`, `ACTION_JOURNAL.json`, `INCIDENTS.md`, `action-journal-history`). The manifest does not record file lengths, so it cannot detect that a short file was sent in full, and it cannot detect a transcript pasted under another name. Keeping those out remains the controller's job under `.hermes.md`.
 - `project_context`: the outcome of `project-context-guardian`. The status is `CURRENT`, `REFRESHED`, `PARTIAL` or `MISSING`, and the record also holds the checked HEAD, the Obsidian binding (`BOUND`, `UNBOUND`, `NOT_CONFIGURED`), evidence and gaps. The guardian must have been consulted before stages in `PROJECT_CONTEXT_STAGES` (PLAN and IMPLEMENT). A `PARTIAL` result has to name what it did not examine. An unbound vault is allowed; missing context is not.
+- `playbooks`: project-local engineering skills loaded for the dispatch, each with exact name, semantic version, `.hermes/skills/<name>/SKILL.md` path, SHA-256, loaded `references` path/hash descriptors and reason. The checker resolves these paths under `project_root`, rejects symlinks/escapes, hashes the actual bytes and matches strict plain-scalar `name`/`version` frontmatter to the descriptor; quoted, tagged, commented, block or duplicate identity scalars fail closed. Ordinary source excerpts remain in `sources`.
 - `divergences`: code/documentation mismatches, each citing both sides. `authority` is always `CODE`, because the code describes what is implemented. The divergence is recorded; no decision is invented to settle it.
-- `slice`: required for `SLICE_STAGES` (IMPLEMENT, TEST, REVIEW). It declares `current_slice_ids`, `completed_slice_ids`, `editable_paths`, the authoritative `acceptance` mapping and `required_verification`.
+- `slice`: required for `SLICE_STAGES` (IMPLEMENT, TEST, REVIEW). It declares `current_slice_ids`, `completed_slice_ids`, `editable_paths`, project-local `required_playbooks` bound to slice IDs, the authoritative `acceptance` mapping and `required_verification`.
 - `approval`: `approved_slice_sha256s`, the per-slice hashes stored when a human approved PLAN/TASKS, and the evidence for that approval.
 
 ### Rules enforced by `check`
@@ -32,6 +33,7 @@ Before each dispatch the controller writes one manifest that validates against `
 | `PROJECT_CONTEXT_REQUIRED`, `PROJECT_CONTEXT_GAPS_REQUIRED` | PLAN and IMPLEMENT need a guardian result with evidence and HEAD; a partial result must list its gaps. |
 | `SLICE_REQUIRED`, `SLICE_CURRENT_INVALID` | IMPLEMENT/TEST/REVIEW carry a slice. IMPLEMENT has exactly one current slice, disjoint from the completed ones. |
 | `SLICE_EDITABLE_PATHS_REQUIRED`, `SLICE_EDITABLE_PATH_UNSAFE`, `ANALYSIS_STAGE_EDITABLE_PATHS` | Only IMPLEMENT declares editable paths; TEST and REVIEW declare none. A pattern must be a canonical repository-relative path: no leading `/` or `~`, no empty, `.` or `..` segment. Its first segment must also be literal. That rejects `*`, `*/*`, `?*`, `**/**`, `./**` and `.`. Matching is segment by segment: `*`, `?` and `[...]` never cross `/`, and only a whole `**` segment spans directories. `src/*` covers `src/a.py`, not `src/deep/a.py`; use `src/**` for the subtree. |
+| `PLAYBOOK_CONTENT_MISMATCH`, `PLAYBOOK_DUPLICATED`, `PLAYBOOK_PATH_INVALID`, `PLAYBOOK_REQUIRED`, `PLAYBOOK_ROOT_INVALID`, `PLAYBOOK_UNDECLARED`, `PLAYBOOK_UNKNOWN_SLICE` | `project_root` equals the canonical non-symlinked live Git workspace. A loaded playbook is unique, byte-verified from exact non-symlinked skill/reference paths and matches `SKILL.md` name/version; each requirement names a real acceptance slice; the current IMPLEMENT slice loads exactly its required playbooks, no more and no fewer. |
 | `ACCEPTANCE_CHECK_UNVERIFIED`, `VERIFIER_COMMAND_REQUIRED`, `VERIFIER_UNKNOWN_CHECK` | Every AGENT check in scope is bound to an observable verifier (`TEST`, `STATIC_ANALYSIS`, `SCHEMA_VALIDATION`, `STATE_INSPECTION`, `LOG_INSPECTION`) that has a command, and every HUMAN check is bound to a `HUMAN` verifier. |
 | `INDEPENDENT_VERIFIER_REQUIRED` | Each AGENT check in scope needs at least one bound verifier that predates the slice (`introduced_by_slice: false`). A test the slice has just written cannot be its only proof, and a pre-existing verifier bound to another check does not count. |
 | `SCOPE_CHANGE_REQUIRED` | The approved hash no longer matches the slice contract. |
@@ -41,12 +43,12 @@ The full list is published as `CONTEXT_ERROR_CODES`.
 
 ### Approval reuse
 
-`slice_sha256` hashes one slice's contract: the ticket, the slice ID, the editable paths, the checks assigned to that slice, and the verifiers bound to those checks. The stage and the completed-slice cursor are excluded, and lists are sorted. This makes the hash stable across the flow:
+`slice_sha256` hashes one slice's contract: the ticket, the slice ID, the editable paths, the byte-verified descriptors of project-local `SKILL.md` and reference files required by that slice, the checks assigned to that slice, and the verifiers bound to those checks. The stage, `project_root` and completed-slice cursor are excluded, and lists are sorted. This makes the hash stable across the flow:
 
 1. When the human approves PLAN/TASKS, the controller computes the hash of each planned slice (a manifest with `stage: IMPLEMENT` and that slice as current) and stores them as `approved_slice_sha256s`.
 2. Each IMPLEMENT dispatch checks its current slice against that list. A match gives `APPROVAL_REUSED`, so the controller does not ask again. Finishing S1 does not change S2's hash, and refreshing context sources does not change any hash.
 3. TEST and REVIEW authorize no writes and have no slice hash; with an approval present they report `APPROVAL_NOT_APPLICABLE`.
-4. Any change to the slice's editable paths, criteria or bound verifiers gives `APPROVAL_REQUIRED` plus `SCOPE_CHANGE_REQUIRED`: this is new scope that needs its own approval. With no approval recorded, the result is `APPROVAL_NOT_REQUESTED`. This check never authorizes commit, push, issue-tracker, Obsidian, backend or DEV E2E actions; those remain `HUMAN_REQUIRED` in the [planner](fsm-and-loop.md#actions).
+4. Any change to the slice's editable paths, criteria, canonicalized loaded skill/reference descriptors or bound verifiers gives `APPROVAL_REQUIRED` plus `SCOPE_CHANGE_REQUIRED`: this is new scope that needs its own approval. Any other invalid manifest also reports `APPROVAL_REQUIRED`, never a misleading reused approval. With no approval recorded, the result is `APPROVAL_NOT_REQUESTED`. This check never authorizes commit, push, issue-tracker, Obsidian, backend or DEV E2E actions; those remain `HUMAN_REQUIRED` in the [planner](fsm-and-loop.md#actions).
 
 ### Feeding the validator
 

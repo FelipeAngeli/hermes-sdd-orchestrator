@@ -13,7 +13,7 @@ Implement exactly one authorized vertical slice with strict RED → minimal impl
 
 ## Method
 
-1. Recheck the supplied `context_assessment` and controller-owned acceptance mapping (ID, criterion, verification method, verifier and slice assignment); stop if a material assumption is unvalidated, a material question is unresolved, or the mapping differs.
+1. Recheck the supplied `context_assessment`, controller-owned acceptance mapping (ID, criterion, verification method, verifier and slice assignment), and required project-local playbooks; stop if a material assumption is unvalidated, a material question is unresolved, the mapping differs, or a required playbook's project-local path/version/hash is absent from the manifest.
 2. Write or update the focused test first.
 3. Run the exact RED command and confirm an expected functional failure.
 4. Make the smallest owned-file change that satisfies the slice.

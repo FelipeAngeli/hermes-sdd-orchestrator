@@ -17,16 +17,18 @@ skills/orchestrate/sdd-orchestrator/
 │   └── install_project.py    # safe, idempotent project installer
 └── templates/
     ├── .hermes.md            # compact controller entry point
-    └── .hermes/orchestration/
-        ├── agents/           # stage-specific leaf-worker briefs
-        ├── contracts/        # worker and reviewer result contracts
-        ├── hooks/            # opt-in Hermes event adapters
-        ├── policies/         # FSM, gates, recovery and bounded automation
-        ├── runtime/          # deterministic executable controller tools
-        ├── schemas/          # JSON Schema validation boundaries
-        ├── sub-agents/       # specialized leaf-worker briefs
-        ├── tests/            # tests shipped with the installed controller
-        └── README.md         # installed layout guide
+    └── .hermes/
+        ├── skills/           # trusted project-local engineering playbooks
+        └── orchestration/
+            ├── agents/           # stage-specific leaf-worker briefs
+            ├── contracts/        # worker and reviewer result contracts
+            ├── hooks/            # opt-in Hermes event adapters
+            ├── policies/         # FSM, gates, recovery and bounded automation
+            ├── runtime/          # deterministic executable controller tools
+            ├── schemas/          # JSON Schema validation boundaries
+            ├── sub-agents/       # specialized leaf-worker briefs
+            ├── tests/            # tests shipped with the installed controller
+            └── README.md         # installed layout guide
 
 tests/
 └── test_sdd_orchestrator_skill.py  # packaging and installation acceptance tests
@@ -39,6 +41,12 @@ tests/
 Details: [Skill and installer](components/skill-and-installer.md).
 
 `SKILL.md` explains when and how Hermes should install and operate the controller. `scripts/install_project.py` owns installation preflight, conflict prevention, initial local state and Git exclusion. It copies the template without changing tracked files in the target repository.
+
+### Project-local engineering skills
+
+Details: [Project-local engineering skills](components/project-local-skills.md).
+
+`templates/.hermes/skills/` contains reusable backend, architecture and database procedure for PLAN/IMPLEMENT. These playbooks are trusted and discovered by Hermes at the project boundary; they do not dispatch, own state or replace evidence-driven specialist review. The controller records each required playbook descriptor in the stage manifest, and the harness binds it to slice approval.
 
 ### Agents
 
@@ -82,9 +90,9 @@ Details: [Contracts and schemas](components/contracts-and-schemas.md).
 
 Details: [Sub-agents and dispatch](components/sub-agents.md).
 
-`sub-agents/` contains specialized leaf-worker briefs for investigation, impact analysis, TDD implementation, focused test execution, security review, code review, test-suite auditing, regression hunting, API contract auditing, performance auditing, documentation maintenance and architectural conformance. They are dispatched directly by the controller, never by another agent, and do not own STATE or transitions.
+`sub-agents/` contains specialized leaf-worker briefs for investigation, impact analysis, TDD implementation, focused test execution, security review, code review, test-suite auditing, regression hunting, API contract auditing, performance auditing, migration safety, documentation maintenance and architectural conformance. They are dispatched directly by the controller, never by another agent, and do not own STATE or transitions.
 
-Five of them return findings only when evidence supports them. The TDD guardian decides whether a suite actually tests behavior by mutating production code and observing which tests stay green; the regression hunter decides whether a change broke existing behavior by running the suites of the consumers the change did not touch; the API contract auditor compares client models against the published specification and the deployed server, ranking the sources rather than choosing the convenient one; the performance auditor reports a cost only with a measurement or a counted operation behind it, and may conclude that nothing is worth changing; the architecture guardian reports a violation only by quoting the project's own declared rule, since every codebase violates someone's preferred architecture and a guardian reasoning from general principle would rewrite deliberate choices as defects. All five keep the workspace read-only, revert every temporary step, repair nothing, and separate proven findings from unproven suspicions — a suspicion presented as proof is worse than no report, because the controller cannot act on it.
+Six of them return findings only when evidence supports them. The TDD guardian decides whether a suite actually tests behavior by mutating production code and observing which tests stay green; the regression hunter decides whether a change broke existing behavior by running the suites of the consumers the change did not touch; the API contract auditor compares client models against the published specification and the deployed server, ranking the sources rather than choosing the convenient one; the performance auditor reports a cost only with a measurement or a counted operation behind it, and may conclude that nothing is worth changing; the architecture guardian reports a violation only by quoting the project's own declared rule; and the migration safety auditor reconstructs rollout order, mixed-version states, data conversion, locks, interruption and recovery instead of treating generated SQL as proof. All six keep the workspace read-only, repair nothing, and separate proven findings from unproven suspicions.
 
 The documentation writer is the exception that writes, and its risk runs the other way. A read-only auditor produces a wrong finding that review can reject; a writer produces fluent prose describing code that does not exist, which readers trust because it reads well. It therefore verifies every symbol, command and path against the repository before writing it, deletes documentation whose subject is gone, and records an unexplained decision as an open question rather than inventing a rationale. Like the implementer, it writes only to paths the controller assigns, and it never edits code to match the text.
 
@@ -97,6 +105,7 @@ The installed `tests/` suite validates protocol behavior against the exact runti
 ## Dependency direction
 
 ```text
+project skills ──scoped briefing──► agents
 .hermes.md / SKILL.md ─────► agents ─────► contracts ─────────► schemas
           │                    │                                  ▲
           └────► hooks ────────┼──────────────┐                   │
@@ -112,6 +121,7 @@ The installed `tests/` suite validates protocol behavior against the exact runti
 ## Change rules
 
 - Put stage-specific worker instructions in `agents/`; keep controller authority out of them.
+- Put reusable engineering procedure in project `skills/`, load references progressively, and bind required playbooks to slices; do not duplicate specialist auditors.
 - Put executable controller behavior in `runtime/` and cover it in installed `tests/`.
 - Keep `hooks/` as thin opt-in event adapters over `runtime/`; they never own policy, STATE transitions, profile configuration or consent.
 - Put JSON validation shapes in `schemas/`; do not embed duplicate schemas in Python.
