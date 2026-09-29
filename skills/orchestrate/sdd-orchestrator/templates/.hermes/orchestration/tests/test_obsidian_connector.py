@@ -293,6 +293,7 @@ class SearchTests(ConnectorTestCase):
             ".obsidian/private.md",
             ".trash/private.md",
             ".git/private.md",
+            ".env",
             "allowed.md",
         ]
         for relative_path in relative_paths:
@@ -345,6 +346,21 @@ class ReadTests(ConnectorTestCase):
             )
 
         self.assertEqual("NOTE_PATH_INVALID", raised.exception.code)
+
+    def test_direct_read_rejects_non_markdown_file(self) -> None:
+        (self.container / ".env").write_text("TOKEN=secret", encoding="utf-8")
+
+        with self.assertRaises(obsidian_connector.ConnectorError) as raised:
+            obsidian_connector.read_note(self.repo, ".env")
+
+        self.assertEqual("NOTE_PATH_INVALID", raised.exception.code)
+
+    def test_read_returns_canonical_relative_path(self) -> None:
+        (self.container / "note.md").write_text("body", encoding="utf-8")
+
+        result = obsidian_connector.read_note(self.repo, "./note.md")
+
+        self.assertEqual("note.md", result["path"])
 
     def test_filesystem_read_succeeds_with_obsidian_closed(self) -> None:
         (self.container / "note.md").write_text("offline body", encoding="utf-8")

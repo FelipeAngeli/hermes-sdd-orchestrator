@@ -307,6 +307,8 @@ def _validated_note_relative(
     relative = PurePosixPath(relative_path)
     if not relative.parts or relative.is_absolute() or ".." in relative.parts:
         raise ConnectorError("NOTE_PATH_INVALID", "Note path must be project-container-relative.")
+    if relative.suffix.lower() != ".md":
+        raise ConnectorError("NOTE_PATH_INVALID", "Connector reads are limited to Markdown notes.")
     if _is_excluded_relative(binding, relative):
         raise ConnectorError("NOTE_PATH_INVALID", "Note path is excluded from connector reads.")
     return relative
@@ -334,7 +336,7 @@ def read_note(
         raise ConnectorError("NOTE_UNAVAILABLE", "Note could not be read.") from exc
     return {
         "transport": "filesystem",
-        "path": relative_path,
+        "path": relative.as_posix(),
         "content": content,
         "diagnostics": [],
     }

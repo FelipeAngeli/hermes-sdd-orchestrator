@@ -38,7 +38,7 @@ These tests ship inside every project (`.hermes/orchestration/tests/`), so a tar
 | `tests/test_bounded_loop_driver.py` | Same-turn continuation and identity drift. |
 | `tests/test_detect_stack.py` | Evidence-based detection for every ecosystem, lockfile-driven package managers, monorepo members, ignored directories and the CLI ([Gates](gates-and-stack-detection.md)). |
 | `tests/test_obsidian_binding.py` | Binding validation, environment override, worktree slug stability ([Obsidian](obsidian-vault.md)). |
-| `tests/test_obsidian_connector.py` | Official-CLI discovery/preflight, exact bound-vault selection, timeout/malformed-output fallback, project-scoped CLI/filesystem search, no-follow note reads, excluded runtime paths, symlink/TOCTOU refusal, tag isolation, denied lexical UI opening and machine-readable commands ([Obsidian](obsidian-vault.md)). |
+| `tests/test_obsidian_connector.py` | Official-CLI discovery/preflight, exact bound-vault selection, timeout/malformed-output fallback, Markdown-only canonical project paths, project-scoped CLI/filesystem search, no-follow note reads, excluded runtime paths, symlink/TOCTOU refusal, tag isolation, denied lexical UI opening and machine-readable commands ([Obsidian](obsidian-vault.md)). |
 | `tests/test_vault_guard.py` | Write containment and baseline preservation. |
 | `tests/test_bootstrap_worktree.py` | Worktree bootstrap preflight, conflicts and idempotency. |
 | `tests/test_bootstrap_obsidian.py` | Bootstrap with a mandatory vault binding. |
