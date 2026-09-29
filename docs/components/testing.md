@@ -29,6 +29,7 @@ These tests ship inside every project (`.hermes/orchestration/tests/`), so a tar
 | --- | --- |
 | `tests/test_protocol.py` | Executor and review envelopes, schema selection, semantic rejection, analysis-only write scope, editable paths, cited evidence, TDD evidence ([Contracts](contracts-and-schemas.md)). |
 | `tests/test_stage_context.py` | Context budget, required project context, slice editable paths, observable/independent verifiers, approval reuse by slice hash, and the validator hand-off ([Harness](harness.md)). |
+| `tests/test_hooks.py` | Shell-hook JSON transport, exception-safe fail-closed behavior, live-bound slice/vault scope, V4A multi-target paths, repository-local and vault-backed runtime resolution, evidence-gated HUMAN/AGENT completion, secret-safe structurally bounded STATE context and descriptor-safe immutable sub-agent audit events ([Hooks](hooks.md)). |
 | `tests/test_correction_loop.py` | Every loop exit: verified, attempt/executor-call/cost limits, repeated hypothesis, unchanged evidence or change, escalation rules and the CLI ([Harness](harness.md)). |
 | `tests/test_action_journal.py` | Journal lifecycle, atomic writes, rollover, archives, recovery decisions, corrective retry ([Action journal](action-journal.md)). |
 | `tests/test_bounded_run_planner.py` | Plan determinism, classification, gate preconditions, schema 1 vs 2 authorization, the language-neutral action names and the legacy snapshot alias ([FSM](fsm-and-loop.md)). |
