@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+- Optional repository-local TypeSafe onboarding for Jev workflows: the installer detects an existing `typesafe-ai` skill, previews an explicit install or opt-out, verifies and copies a reviewed snapshot from a pinned TypeSafe commit without executing `npx` or downloading code, preserves unrelated lock data, commits skill/lock/onboarding transactionally, and fails closed on provenance, conflict or filesystem errors without modifying global Hermes configuration.
+
 ## 6.0.0 - 2026-09-29
 
 ### Added

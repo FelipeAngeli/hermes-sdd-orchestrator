@@ -4,6 +4,7 @@
     "docs/components/skill-and-installer.md": [
       "skills/orchestrate/sdd-orchestrator/SKILL.md",
       "skills/orchestrate/sdd-orchestrator/scripts/*",
+      "skills/orchestrate/sdd-orchestrator/vendor/typesafe-ai/*",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes.md",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/README.md"
     ],

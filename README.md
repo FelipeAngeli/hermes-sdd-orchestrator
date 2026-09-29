@@ -1,5 +1,7 @@
 # Hermes SDD Orchestrator
 
+[Português (Brasil)](README.pt-BR.md)
+
 A reusable, Hermes-native **SDD Orchestrator skill**. Install it through the Hermes skills registry; when needed, the skill installs a safety-first controller inside the current project.
 
 The architecture follows the skill-collection pattern used by [Ow1onp/hermes-agent-skills](https://github.com/Ow1onp/hermes-agent-skills): a discoverable `skills/` tree, a self-contained `SKILL.md` entry point, supporting scripts/templates co-located with the skill, and registry-based installation. The target project's orchestration state remains local and untracked.
@@ -25,11 +27,12 @@ Hermes profile (once)                         Target Git project (per project)
 ─────────────────────                         ──────────────────────────────
 ~/.hermes/skills/sdd-orchestrator/            .hermes.md
 ├── SKILL.md                                  .hermes/obsidian.json  # vault binding (versioned)
-├── scripts/install_project.py                .hermes/orchestration/
-└── templates/                                ├── agents/      # stage-specific worker briefs
-    └── .hermes/                              ├── contracts/   # worker/review interfaces
-                                               ├── hooks/       # opt-in Hermes event adapters
-                                               ├── policies/    # FSM, gates, recovery
+├── scripts/install_project.py                skills-lock.json       # optional TypeSafe lock
+├── vendor/typesafe-ai/                       .hermes/orchestration/
+│   ├── SKILL.md                              ├── agents/      # stage-specific worker briefs
+│   └── LICENSE                               ├── contracts/   # worker/review interfaces
+└── templates/                                ├── hooks/       # opt-in Hermes event adapters
+    └── .hermes/                              ├── policies/    # FSM, gates, recovery
                                                ├── runtime/     # executable controller tools
                                                ├── schemas/     # JSON validation contracts
                                                ├── sub-agents/  # specialized leaf-worker briefs
@@ -41,7 +44,8 @@ Hermes profile (once)                         Target Git project (per project)
                                               .hermes/skills/   # trusted project engineering playbooks
                                                ├── sdd-backend-engineering/
                                                ├── sdd-architecture-decisions/
-                                               └── sdd-database-design-migrations/
+                                               ├── sdd-database-design-migrations/
+                                               └── typesafe-ai/ # optional vetted Jev guidance
 ```
 
 `.hermes/obsidian.json` is the one exception to the untracked rule: it binds the project to its Obsidian vault and is versioned so connectivity survives a clone. When a worktree is bootstrapped against a vault, `STATE.md`, `ACTION_JOURNAL.json` and `INCIDENTS.md` move into that vault, keyed per worktree — see `templates/.hermes/orchestration/BOOTSTRAP.md`.
@@ -51,6 +55,22 @@ The skill is reusable. The controller configuration, project setup, state, incid
 ## Project-local engineering skills
 
 Every installation includes three repository-local, progressively loaded playbooks under `.hermes/skills/`: backend engineering, architecture decisions and database design/migrations. They guide planning and implementation while existing specialist sub-agents provide independent review. Stage-context schema 2 binds the canonical Git workspace and byte-verifies required `SKILL.md`/references before hashing their descriptors into slice approval; IMPLEMENT fails closed on extra, missing or changed guidance. Installation never changes global skills or trust. After inspecting the files, run `hermes skills trust` in the target repository and start a new session. See [Project-local engineering skills](docs/components/project-local-skills.md).
+
+## Optional TypeSafe/Jev integration
+
+[Jev](https://docs.typesafe.ai/concepts/system-one) is TypeSafe's flagship System One model. During project onboarding, the orchestrator asks whether this project should receive the repository-local `typesafe-ai` skill that teaches Hermes how to design typed judgments and probabilities around Jev and the TypeSafe API.
+
+Preview and apply the opt-in explicitly:
+
+```bash
+python3 <installed-skill>/scripts/install_project.py \
+  --target /absolute/path/to/project --typesafe-ai install --json
+
+python3 <installed-skill>/scripts/install_project.py \
+  --target /absolute/path/to/project --typesafe-ai install --apply --json
+```
+
+Use `--typesafe-ai none --apply` only when no TypeSafe skill is present. The installer does **not** execute the official `npx skills add typesafe-ai/skills --skill typesafe-ai` command and does not download code. It verifies and copies a reviewed snapshot pinned to an immutable upstream commit, writes `.hermes/skills/typesafe-ai`, safely merges `skills-lock.json`, preserves unrelated lock entries, and never changes global Hermes skills or configuration. Conflicting, tracked, symlinked, incomplete, tampered, or differently sourced installations fail closed. See [Skill and installer](docs/components/skill-and-installer.md#project-onboarding-project_setupmd).
 
 ## Repository-local hooks (opt-in)
 
@@ -121,6 +141,9 @@ skills/
     └── sdd-orchestrator/
         ├── SKILL.md                 # Hermes-native entry point
         ├── scripts/install_project.py
+        ├── vendor/typesafe-ai/      # reviewed optional TypeSafe/Jev snapshot
+        │   ├── SKILL.md
+        │   └── LICENSE
         └── templates/.hermes/       # project-local controller payload
             └── orchestration/
                 ├── agents/
@@ -146,11 +169,18 @@ python3 <installed-skill>/scripts/install_project.py \
 
 python3 <installed-skill>/scripts/install_project.py \
   --target /absolute/path/to/project --apply --json
+
+# Optional: preview and install the vetted TypeSafe/Jev skill snapshot.
+python3 <installed-skill>/scripts/install_project.py \
+  --target /absolute/path/to/project --typesafe-ai install --json
+
+python3 <installed-skill>/scripts/install_project.py \
+  --target /absolute/path/to/project --typesafe-ai install --apply --json
 ```
 
 First run is a dry run. Apply only when it returns `READY`. Re-running a complete installation returns `ALREADY_INITIALIZED`; partial, tracked, symlinked, or conflicting configuration is blocked.
 
-Before the first demand, Hermes resolves `.hermes/orchestration/PROJECT_SETUP.md`: it inspects repository evidence and asks only unanswered questions about issue tracker access, optional Obsidian binding, and other project-specific tools. `none` is valid; it never asks for credentials or product requirements. Then configure the target's `.hermes/orchestration/policies/GATES.md` with its real format, test, analysis, and CI commands.
+Before the first demand, Hermes resolves `.hermes/orchestration/PROJECT_SETUP.md`: it inspects repository evidence and asks only unanswered questions about issue tracker access, optional Obsidian binding, optional TypeSafe/Jev skill installation, and other project-specific tools. `none` is valid when the corresponding integration is absent; it never asks for credentials or product requirements. Then configure the target's `.hermes/orchestration/policies/GATES.md` with its real format, test, analysis, and CI commands.
 
 ## Any language, any project
 
@@ -171,10 +201,11 @@ cd /path/to/project && python3 .hermes/orchestration/runtime/detect_stack.py --t
 
 The dry run's `stack` field lists every ecosystem found (root and up to two levels deep, for monorepos), the manifest that proves it, the CI providers present, the instruction files to read first (`AGENTS.md`, `CLAUDE.md`, ADRs…) and a suggested command per gate. Supported ecosystems: Node/TypeScript (npm, pnpm, yarn, bun), Python, Go, Rust, Java/Kotlin (Gradle, Maven), .NET, Ruby, PHP, Elixir, Swift, C/C++ (CMake) and Dart/Flutter (with FVM). A gate without evidence is `null`, never guessed.
 
-4. Resolve the installer report's `onboarding.questions` in `PROJECT_SETUP.md`; ask only unresolved orchestrator connectivity questions and accept `none`.
-5. Copy the suggestions into `GATES.md` only after running each command once in the project; the project's own scripts and CI steps take precedence over the suggestions.
-6. If enabled during onboarding, bind the Obsidian vault with `.hermes/obsidian.json` (see `BOOTSTRAP.md`).
-7. Run the installed suite: `python3 -m unittest discover -s .hermes/orchestration/tests -p 'test_*.py'`.
+4. Resolve the installer report's `onboarding.questions` in `PROJECT_SETUP.md`; ask only unresolved orchestrator connectivity questions and accept `none` only when that integration is absent.
+5. If TypeSafe/Jev is enabled, preview and apply `--typesafe-ai install`; inspect `.hermes/skills/typesafe-ai` before trusting project skills.
+6. Copy the suggestions into `GATES.md` only after running each command once in the project; the project's own scripts and CI steps take precedence over the suggestions.
+7. If enabled during onboarding, bind the Obsidian vault with `.hermes/obsidian.json` (see `BOOTSTRAP.md`).
+8. Run the installed suite: `python3 -m unittest discover -s .hermes/orchestration/tests -p 'test_*.py'`.
 
 Requirements on the target are only Git and Python 3.10+ (plus `jsonschema` for the bounded-run tools); the project itself can be written in anything.
 

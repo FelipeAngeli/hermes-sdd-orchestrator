@@ -3,17 +3,30 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 TEMPLATE = ROOT.parent / "templates"
 CONFIG_ROOT = ".hermes/orchestration"
+TYPESAFE_SKILL_ROOT = ".hermes/skills/typesafe-ai"
+TYPESAFE_SKILL_PATH = f"{TYPESAFE_SKILL_ROOT}/SKILL.md"
+TYPESAFE_LOCK_PATH = "skills-lock.json"
+TYPESAFE_SOURCE_REF = "65a39f393687675ce170e6094757de20370365b9"
+TYPESAFE_UPSTREAM_HASH = "9cd84c5e535dec8dec59917c110f9c00b4a61faadb86b432ec7e41051170af12"
+TYPESAFE_TRUSTED_DIGEST = "5266f2a9acfb6ae5fd58717bdf366f38e224cb57a55824e2aa81a0922d5e6964"
+TYPESAFE_VENDOR = ROOT.parent / "vendor" / "typesafe-ai"
+TYPESAFE_OFFICIAL_COMMAND = (
+    "npx", "skills", "add", "typesafe-ai/skills", "--skill", "typesafe-ai",
+)
 PROJECT_SKILLS = (
     ".hermes/skills/sdd-backend-engineering",
     ".hermes/skills/sdd-architecture-decisions",
@@ -33,6 +46,19 @@ LOCAL_PATHS = (
 
 class InstallError(RuntimeError):
     pass
+
+
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate JSON key: {key}")
+        value[key] = item
+    return value
+
+
+def _load_unique_json(value: str) -> object:
+    return json.loads(value, object_pairs_hook=_unique_json_object)
 
 
 def git(target: Path, *args: str) -> str:
@@ -66,6 +92,16 @@ def is_tracked(target: Path, relative: str) -> bool:
         text=True, capture_output=True, timeout=20, check=False,
     )
     return result.returncode == 0
+
+
+def tracked_under(target: Path, relative: str) -> bool:
+    result = subprocess.run(
+        ["git", "-C", str(target), "ls-files", "--", relative],
+        text=True, capture_output=True, timeout=20, check=False,
+    )
+    if result.returncode:
+        raise InstallError((result.stderr or result.stdout).strip() or "Git preflight failed.")
+    return bool(result.stdout.strip())
 
 
 def reject_symlinks(target: Path, relative: str) -> None:
@@ -169,6 +205,117 @@ def detect_stack(target: Path) -> dict:
     return _load_template_module("sdd_detect_stack", "runtime/detect_stack.py").detect(target)
 
 
+def _typesafe_trusted_digest(skill_root: Path) -> str:
+    files: list[tuple[str, bytes]] = []
+    for path in sorted(skill_root.rglob("*")):
+        mode = path.lstat().st_mode
+        if not stat.S_ISREG(mode):
+            raise InstallError(f"TYPESAFE_SKILL_OBJECT_INVALID: {path.relative_to(skill_root)}")
+        relative = path.relative_to(skill_root).as_posix()
+        files.append((relative, path.read_bytes()))
+    if [relative for relative, _ in files] != ["LICENSE", "SKILL.md"]:
+        raise InstallError("TYPESAFE_SKILL_FILESET_INVALID")
+    digest = hashlib.sha256()
+    for relative, content in files:
+        encoded = relative.encode("utf-8")
+        digest.update(len(encoded).to_bytes(8, "big"))
+        digest.update(encoded)
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
+    return digest.hexdigest()
+
+
+def _valid_typesafe_lock_entry(entry: object) -> bool:
+    return (
+        isinstance(entry, dict)
+        and set(entry) == {"source", "ref", "sourceType", "skillPath", "computedHash"}
+        and entry.get("source") == "typesafe-ai/skills"
+        and entry.get("ref") == TYPESAFE_SOURCE_REF
+        and entry.get("sourceType") == "github"
+        and entry.get("skillPath") == "skills/typesafe-ai/SKILL.md"
+        and entry.get("computedHash") == TYPESAFE_UPSTREAM_HASH
+    )
+
+
+def typesafe_skill_status(target: Path) -> dict[str, object]:
+    """Detect and verify a project-local TypeSafe skill without mutation."""
+    skill_root = target / TYPESAFE_SKILL_ROOT
+    skill_path = target / TYPESAFE_SKILL_PATH
+    lock_path = target / TYPESAFE_LOCK_PATH
+    lock_entry: object | None = None
+    issue: str | None = None
+
+    try:
+        reject_symlinks(target, TYPESAFE_SKILL_PATH)
+        reject_symlinks(target, TYPESAFE_LOCK_PATH)
+    except InstallError:
+        issue = "SYMLINK_REJECTED"
+
+    if issue is None and lock_path.exists():
+        if not lock_path.is_file():
+            issue = "LOCK_INVALID"
+        else:
+            try:
+                lock = _load_unique_json(lock_path.read_text(encoding="utf-8"))
+                if (
+                    not isinstance(lock, dict)
+                    or type(lock.get("version")) is not int
+                    or lock["version"] != 1
+                    or not isinstance(lock.get("skills"), dict)
+                ):
+                    issue = "LOCK_INVALID"
+                else:
+                    lock_entry = lock["skills"].get("typesafe-ai")
+                    if lock_entry is not None and not _valid_typesafe_lock_entry(lock_entry):
+                        issue = "LOCK_ENTRY_INVALID"
+            except (UnicodeError, ValueError, OSError):
+                issue = "LOCK_INVALID"
+
+    skill_valid = False
+    if issue is None and skill_path.is_file():
+        try:
+            content = skill_path.read_text(encoding="utf-8")
+            if content.startswith("---\n"):
+                header = content.split("---\n", 2)[1]
+                skill_valid = any(line.strip() == "name: typesafe-ai" for line in header.splitlines())
+        except (IndexError, UnicodeError, OSError):
+            skill_valid = False
+
+    if issue is None and skill_valid and isinstance(lock_entry, dict):
+        try:
+            if _typesafe_trusted_digest(skill_root) != TYPESAFE_TRUSTED_DIGEST:
+                issue = "TRUSTED_DIGEST_MISMATCH"
+        except InstallError as error:
+            issue = str(error).split(":", 1)[0]
+        except OSError:
+            issue = "TRUSTED_DIGEST_MISMATCH"
+
+    if issue is not None:
+        status = "CONFLICT"
+    elif skill_valid and lock_entry is not None:
+        status = "INSTALLED"
+    elif skill_root.exists() or lock_entry is not None or skill_path.exists():
+        status = "CONFLICT"
+        issue = "LOCK_ENTRY_MISSING" if skill_valid else "SKILL_INVALID"
+    else:
+        status = "NOT_INSTALLED"
+
+    if status == "INSTALLED" and (
+        tracked_under(target, TYPESAFE_SKILL_ROOT) or is_tracked(target, TYPESAFE_LOCK_PATH)
+    ):
+        status = "CONFLICT"
+        issue = "TRACKED_DESTINATION_PATH"
+
+    return {
+        "status": status,
+        "skill_path": TYPESAFE_SKILL_PATH,
+        "lock_path": TYPESAFE_LOCK_PATH,
+        "lock_entry": "PRESENT" if lock_entry is not None else "ABSENT",
+        "issue": issue,
+        "official_command": list(TYPESAFE_OFFICIAL_COMMAND),
+    }
+
+
 def _answer_state(question_id: str, value: str) -> tuple[bool, bool]:
     normalized = value.strip()
     if normalized.casefold() in {"", "unresolved", "null", "~", "{}", "[]"}:
@@ -176,8 +323,8 @@ def _answer_state(question_id: str, value: str) -> tuple[bool, bool]:
     if normalized.casefold() == "none":
         return False, True
     try:
-        decoded = json.loads(normalized)
-    except (json.JSONDecodeError, TypeError):
+        decoded = _load_unique_json(normalized)
+    except (ValueError, TypeError):
         return True, False
     if isinstance(decoded, str):
         marker = decoded.strip().casefold()
@@ -206,6 +353,12 @@ def _answer_state(question_id: str, value: str) -> tuple[bool, bool]:
             and nonempty(decoded["project_container"])
             and not Path(decoded["project_container"]).is_absolute()
             and ".." not in Path(decoded["project_container"]).parts
+        )
+    elif question_id == "typesafe_ai":
+        valid = (
+            isinstance(decoded, dict)
+            and set(decoded) == {"install"}
+            and decoded["install"] is True
         )
     elif question_id == "project_tools":
         valid = isinstance(decoded, list) and bool(decoded) and all(
@@ -299,7 +452,7 @@ def _read_onboarding_record(target: Path, question_ids: set[str]) -> tuple[dict[
     return answers, not issues, metadata.get("status"), sorted(set(issues))
 
 
-def onboarding_questions(target: Path | None = None) -> dict[str, object]:
+def onboarding_questions(target: Path | None = None, typesafe_choice: str | None = None) -> dict[str, object]:
     """Return only unresolved project-local questions after installation."""
     questions = [
         {
@@ -313,11 +466,17 @@ def onboarding_questions(target: Path | None = None) -> dict[str, object]:
             "accepted_answers": ["JSON object with absolute vault and relative project_container", "none"],
         },
         {
+            "id": "typesafe_ai",
+            "prompt": "Should the orchestrator install the project-local TypeSafe skill for Hermes (including guidance for Jev)?",
+            "accepted_answers": ["JSON object with install set to true", "none"],
+        },
+        {
             "id": "project_tools",
             "prompt": "Which other project-specific tools must the orchestrator use, and with what permissions?",
             "accepted_answers": ["JSON array of tool, purpose, read, and write objects", "none"],
         },
     ]
+    all_questions = list(questions)
     answers: dict[str, str] = {}
     record_valid = False
     record_status: str | None = None
@@ -331,7 +490,45 @@ def onboarding_questions(target: Path | None = None) -> dict[str, object]:
             for question in questions
             if _unresolved_answer(str(question["id"]), answers.get(str(question["id"]), "UNRESOLVED"))
         ]
-    complete = record_valid and record_status == "COMPLETE" and not questions
+    typesafe = typesafe_skill_status(target) if target else {
+        "status": "NOT_CHECKED",
+        "skill_path": TYPESAFE_SKILL_PATH,
+        "lock_path": TYPESAFE_LOCK_PATH,
+        "lock_entry": "UNKNOWN",
+        "issue": None,
+        "official_command": list(TYPESAFE_OFFICIAL_COMMAND),
+    }
+    recorded_typesafe = answers.get("typesafe_ai", "")
+    try:
+        recorded_value = _load_unique_json(recorded_typesafe)
+    except (ValueError, TypeError):
+        recorded_value = None
+    recorded_install = recorded_value == {"install": True}
+    recorded_none = recorded_typesafe.strip().casefold() == "none"
+    integration_issues: list[str] = []
+    typesafe_healthy = (
+        (recorded_install and typesafe["status"] == "INSTALLED")
+        or (recorded_none and typesafe["status"] == "NOT_INSTALLED")
+        or (not recorded_install and not recorded_none)
+    )
+    if not typesafe_healthy:
+        integration_issues.append("TYPESAFE_INTEGRATION_STATE_MISMATCH")
+        unresolved = {str(question["id"]) for question in questions}
+        unresolved.add("typesafe_ai")
+        questions = [question for question in all_questions if str(question["id"]) in unresolved]
+    complete = record_valid and record_status == "COMPLETE" and not questions and not integration_issues
+    if typesafe_choice == "install":
+        if typesafe["status"] == "INSTALLED":
+            typesafe["planned_action"] = "NONE" if recorded_install else "RECORD"
+        else:
+            typesafe["planned_action"] = "INSTALL"
+    elif typesafe_choice == "none":
+        if typesafe["status"] == "NOT_INSTALLED":
+            typesafe["planned_action"] = "NONE" if recorded_none else "RECORD_NONE"
+        else:
+            typesafe["planned_action"] = "BLOCKED"
+    else:
+        typesafe["planned_action"] = "NONE"
     return {
         "status": "COMPLETE" if complete else "REQUIRED",
         "scope": "ORCHESTRATOR_ONLY",
@@ -339,7 +536,9 @@ def onboarding_questions(target: Path | None = None) -> dict[str, object]:
         "record_valid": record_valid,
         "record_status": record_status,
         "record_issues": record_issues,
+        "integration_issues": integration_issues,
         "questions": questions,
+        "integrations": {"typesafe_ai": typesafe},
     }
 
 
@@ -355,6 +554,7 @@ status: PENDING
 answers:
   issue_tracker: UNRESOLVED
   obsidian: UNRESOLVED
+  typesafe_ai: UNRESOLVED
   project_tools: UNRESOLVED
 ```
 
@@ -362,13 +562,193 @@ answers:
 
 - Ask only about orchestrator connectivity, never product requirements or implementation preferences.
 - Inspect repository evidence first and ask only questions whose answers remain unresolved.
-- Accept `none` as an explicit answer for every integration. Otherwise use compact JSON on the same line: issue tracker requires `provider`, `project`, `read`, and `write`; Obsidian requires an absolute `vault` and relative `project_container`; project tools require a non-empty array of objects with `tool`, `purpose`, `read`, and `write`.
+- Accept `none` as an explicit answer for every integration. Otherwise use compact JSON on the same line: issue tracker requires `provider`, `project`, `read`, and `write`; Obsidian requires an absolute `vault` and relative `project_container`; TypeSafe requires `{"install":true}`; project tools require a non-empty array of objects with `tool`, `purpose`, `read`, and `write`.
 - For an issue tracker, record the provider, project identifier, and separate read/write permission; verify connectivity read-only before any mutation.
 - For Obsidian, record whether it is enabled and, only when enabled, the vault and project container required by `BOOTSTRAP.md`.
+- Jev is a TypeSafe model, not the installed product. Use `--typesafe-ai install --apply` to copy the vetted project-local TypeSafe skill snapshot or `--typesafe-ai none --apply` to opt out only when no TypeSafe installation is discoverable; the official `npx` command is informational and is never executed by this installer.
 - For other project tools, record each tool's purpose and separate read/write permission.
 - Never request passwords, tokens, verification codes, or other secrets in chat. Use Hermes credential facilities when authentication is required.
-- Set `status: COMPLETE` only after all three answers are resolved, including explicit `none` answers.
+- Set `status: COMPLETE` only after all four answers are resolved, including explicit `none` answers.
 '''
+
+
+def _require_typesafe_record_target(target: Path) -> None:
+    question_ids = {"issue_tracker", "obsidian", "typesafe_ai", "project_tools"}
+    answers, valid, _, issues = _read_onboarding_record(target, question_ids)
+    if valid:
+        return
+    legacy_keys = question_ids - {"typesafe_ai"}
+    legacy_issues = {"ANSWERS_MISSING", "STATUS_ANSWER_MISMATCH"}
+    if set(answers) == legacy_keys and set(issues).issubset(legacy_issues):
+        return
+    reason = issues[0] if issues else "UNKNOWN"
+    raise InstallError(f"ONBOARDING_RECORD_INVALID: {reason}")
+
+
+def _render_onboarding_answer(target: Path, question_id: str, value: str) -> bytes:
+    path = target / CONFIG_ROOT / "PROJECT_SETUP.md"
+    reject_symlinks(target, f"{CONFIG_ROOT}/PROJECT_SETUP.md")
+    lines = path.read_text(encoding="utf-8").splitlines()
+    prefix = f"  {question_id}:"
+    matches = [index for index, line in enumerate(lines) if line.startswith(prefix)]
+    if len(matches) > 1:
+        raise InstallError(f"ONBOARDING_RECORD_INVALID: {question_id}")
+    if matches:
+        lines[matches[0]] = f"  {question_id}: {value}"
+    elif question_id == "typesafe_ai":
+        insertion_points = [index for index, line in enumerate(lines) if line.startswith("  project_tools:")]
+        if len(insertion_points) != 1:
+            raise InstallError(f"ONBOARDING_RECORD_INVALID: {question_id}")
+        lines.insert(insertion_points[0], f"  {question_id}: {value}")
+    else:
+        raise InstallError(f"ONBOARDING_RECORD_INVALID: {question_id}")
+
+    question_ids = {"issue_tracker", "obsidian", "typesafe_ai", "project_tools"}
+    answers: dict[str, str] = {}
+    for line in lines:
+        if line.startswith("  ") and not line.startswith("    ") and ":" in line:
+            key, answer = line.strip().split(":", 1)
+            if key in question_ids:
+                answers[key] = answer.strip()
+    resolved = set(answers) == question_ids and all(
+        not _unresolved_answer(key, answers[key]) for key in question_ids
+    )
+    status_lines = [index for index, line in enumerate(lines) if line.startswith("status:")]
+    if len(status_lines) != 1:
+        raise InstallError("ONBOARDING_RECORD_INVALID: status")
+    lines[status_lines[0]] = f"status: {'COMPLETE' if resolved else 'PENDING'}"
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+def _atomic_write(path: Path, content: bytes) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        if temporary.exists() or temporary.is_symlink():
+            temporary.unlink()
+        raise
+
+
+def _write_onboarding_answer(target: Path, question_id: str, value: str) -> None:
+    path = target / CONFIG_ROOT / "PROJECT_SETUP.md"
+    _atomic_write(path, _render_onboarding_answer(target, question_id, value))
+
+
+def _restore_typesafe_install(target: Path, lock_before: bytes | None, setup_before: bytes) -> None:
+    skill_root = target / TYPESAFE_SKILL_ROOT
+    try:
+        reject_symlinks(target, ".hermes/skills")
+        if skill_root.is_symlink() or skill_root.is_file():
+            skill_root.unlink()
+        elif skill_root.exists():
+            shutil.rmtree(skill_root)
+        lock_path = target / TYPESAFE_LOCK_PATH
+        if lock_path.exists() and lock_path.is_dir() and not lock_path.is_symlink():
+            raise InstallError("lock path became a directory")
+        if lock_before is None:
+            if lock_path.exists() or lock_path.is_symlink():
+                lock_path.unlink()
+        else:
+            _atomic_write(lock_path, lock_before)
+        setup_path = target / CONFIG_ROOT / "PROJECT_SETUP.md"
+        if setup_path.read_bytes() != setup_before:
+            _atomic_write(setup_path, setup_before)
+    except (InstallError, OSError) as error:
+        raise InstallError(f"TYPESAFE_ROLLBACK_FAILED: {error}") from error
+
+
+def _preflight_typesafe_install(target: Path) -> dict[str, object]:
+    current = typesafe_skill_status(target)
+    if current["status"] == "INSTALLED":
+        return current
+    if current["status"] != "NOT_INSTALLED" or current["issue"] is not None:
+        raise InstallError(f"TYPESAFE_SKILL_CONFLICT: {current['issue'] or current['status']}")
+    if tracked_under(target, TYPESAFE_SKILL_ROOT):
+        raise InstallError(f"TRACKED_DESTINATION_PATH: {TYPESAFE_SKILL_ROOT}")
+    if is_tracked(target, TYPESAFE_LOCK_PATH):
+        raise InstallError(f"TRACKED_DESTINATION_PATH: {TYPESAFE_LOCK_PATH}")
+    reject_symlinks(target, TYPESAFE_SKILL_PATH)
+    reject_symlinks(target, TYPESAFE_LOCK_PATH)
+    try:
+        if _typesafe_trusted_digest(TYPESAFE_VENDOR) != TYPESAFE_TRUSTED_DIGEST:
+            raise InstallError("TYPESAFE_VENDOR_DIGEST_MISMATCH")
+    except OSError as error:
+        raise InstallError(f"TYPESAFE_VENDOR_INVALID: {error}") from error
+    return current
+
+
+def _merged_typesafe_lock(lock_before: bytes | None, entry: dict[str, object]) -> bytes:
+    if lock_before is None:
+        lock: dict[str, object] = {"version": 1, "skills": {}}
+    else:
+        decoded = _load_unique_json(lock_before.decode("utf-8"))
+        if not isinstance(decoded, dict) or not isinstance(decoded.get("skills"), dict):
+            raise InstallError("TYPESAFE_LOCK_INVALID")
+        lock = decoded
+    skills = dict(lock["skills"])
+    skills["typesafe-ai"] = entry
+    lock["skills"] = {name: skills[name] for name in sorted(skills)}
+    return (json.dumps(lock, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+
+
+def install_typesafe_skill(target: Path, onboarding_after: bytes) -> str:
+    """Commit the vetted bundled skill, merged lock and onboarding answer."""
+    current = _preflight_typesafe_install(target)
+    if current["status"] == "INSTALLED":
+        _atomic_write(target / CONFIG_ROOT / "PROJECT_SETUP.md", onboarding_after)
+        return "RECORD"
+
+    lock_path = target / TYPESAFE_LOCK_PATH
+    setup_path = target / CONFIG_ROOT / "PROJECT_SETUP.md"
+    lock_before = lock_path.read_bytes() if lock_path.exists() else None
+    setup_before = setup_path.read_bytes()
+    entry: dict[str, object] = {
+        "source": "typesafe-ai/skills",
+        "ref": TYPESAFE_SOURCE_REF,
+        "sourceType": "github",
+        "skillPath": "skills/typesafe-ai/SKILL.md",
+        "computedHash": TYPESAFE_UPSTREAM_HASH,
+    }
+    merged_lock = _merged_typesafe_lock(lock_before, entry)
+
+    reject_symlinks(target, ".hermes/skills")
+    skill_root = target / TYPESAFE_SKILL_ROOT
+    try:
+        skill_root.mkdir()
+    except FileExistsError as error:
+        raise InstallError(f"TYPESAFE_SKILL_CONFLICT: {TYPESAFE_SKILL_ROOT}") from error
+
+    try:
+        for source in sorted(TYPESAFE_VENDOR.iterdir()):
+            shutil.copy2(source, skill_root / source.name)
+        _atomic_write(lock_path, merged_lock)
+        verified = typesafe_skill_status(target)
+        if verified["status"] != "INSTALLED":
+            raise InstallError(f"TYPESAFE_INSTALL_FAILED: target verification: {verified['issue']}")
+        if lock_before is not None:
+            before = _load_unique_json(lock_before.decode("utf-8"))
+            after = _load_unique_json(lock_path.read_text(encoding="utf-8"))
+            if not isinstance(before, dict) or not isinstance(after, dict):
+                raise InstallError("TYPESAFE_LOCK_PRESERVATION_FAILED")
+            before_skills = dict(before["skills"])
+            after_skills = dict(after["skills"])
+            before_skills.pop("typesafe-ai", None)
+            after_skills.pop("typesafe-ai", None)
+            before["skills"] = before_skills
+            after["skills"] = after_skills
+            if before != after:
+                raise InstallError("TYPESAFE_LOCK_PRESERVATION_FAILED")
+        _atomic_write(setup_path, onboarding_after)
+    except BaseException:
+        _restore_typesafe_install(target, lock_before, setup_before)
+        raise
+    return "INSTALL"
 
 
 def empty_journal(target: Path, workspace: dict[str, str]) -> str:
@@ -402,6 +782,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", default=".", help="existing Git worktree root (default: current directory)")
     parser.add_argument("--apply", action="store_true", help="write files after a successful dry run")
+    parser.add_argument(
+        "--typesafe-ai",
+        choices=("install", "none"),
+        help="explicitly install the project-local TypeSafe skill or record that it is not used",
+    )
     parser.add_argument("--json", action="store_true", help="emit a machine-readable report")
     args = parser.parse_args()
     try:
@@ -435,9 +820,28 @@ def main() -> int:
                 raise InstallError(f"LOCAL_STATE_REQUIRES_REVIEW: {', '.join(existing_state)}")
         else:
             planned.extend(state_paths)
+        if args.typesafe_ai and existing_state:
+            _require_typesafe_record_target(target)
+        onboarding = onboarding_questions(target, args.typesafe_ai)
+        onboarding_integrations = onboarding["integrations"]
+        if not isinstance(onboarding_integrations, dict) or not isinstance(
+            onboarding_integrations.get("typesafe_ai"), dict
+        ):
+            raise InstallError("TYPESAFE_REPORT_INVALID")
+        typesafe_action = onboarding_integrations["typesafe_ai"].get("planned_action")
+        if typesafe_action == "BLOCKED":
+            integration = onboarding_integrations["typesafe_ai"]
+            raise InstallError(f"TYPESAFE_SKILL_CONFLICT: {integration.get('issue') or integration.get('status')}")
+        if typesafe_action == "INSTALL":
+            _preflight_typesafe_install(target)
+        integration_planned = typesafe_action != "NONE"
         report = {
-            "status": "READY" if planned else "ALREADY_INITIALIZED", "target": str(target), "planned": planned,
-            "applied": False, "stack": detect_stack(target), "onboarding": onboarding_questions(target),
+            "status": "READY" if planned or integration_planned else "ALREADY_INITIALIZED",
+            "target": str(target),
+            "planned": planned,
+            "applied": False,
+            "stack": detect_stack(target),
+            "onboarding": onboarding,
             "next_step": "Resolve the project onboarding questions, then configure verified commands in GATES.md.",
         }
         if args.apply and planned:
@@ -453,6 +857,21 @@ def main() -> int:
             (target / CONFIG_ROOT / "ACTION_JOURNAL.json").write_text(empty_journal(target, workspace), encoding="utf-8")
             update_exclude(target)
             report["applied"] = True
+        if args.apply and args.typesafe_ai and typesafe_action != "NONE":
+            if args.typesafe_ai == "install":
+                onboarding_after = _render_onboarding_answer(target, "typesafe_ai", '{"install":true}')
+                applied_action = install_typesafe_skill(target, onboarding_after)
+            else:
+                applied_action = "RECORD_NONE"
+                _write_onboarding_answer(target, "typesafe_ai", "none")
+            report["applied"] = True
+            updated_onboarding = onboarding_questions(target)
+            integrations = updated_onboarding["integrations"]
+            if not isinstance(integrations, dict) or not isinstance(integrations.get("typesafe_ai"), dict):
+                raise InstallError("TYPESAFE_REPORT_INVALID")
+            integrations["typesafe_ai"]["applied_action"] = applied_action
+            report["onboarding"] = updated_onboarding
+        elif report["applied"]:
             report["onboarding"] = onboarding_questions(target)
         if args.json:
             print(json.dumps(report, ensure_ascii=False))
