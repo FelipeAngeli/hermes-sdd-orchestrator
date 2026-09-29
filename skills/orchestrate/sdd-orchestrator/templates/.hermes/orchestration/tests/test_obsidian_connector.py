@@ -314,6 +314,19 @@ class SearchTests(ConnectorTestCase):
         self.assertEqual("cli", result["transport"])
         self.assertEqual(["allowed.md"], result["paths"])
 
+    def test_cli_search_skips_nul_bearing_note_path(self) -> None:
+        cli = self.fake_cli(
+            "import json, sys\n"
+            f"vault = {str(self.vault)!r}\n"
+            "args = sys.argv[1:]\n"
+            "print('Knowledge\\t' + vault if args == ['vaults', 'verbose'] else json.dumps(['Projects/Demo/bad\\u0000.md']))\n"
+        )
+
+        result = obsidian_connector.search(self.repo, "needle", cli_path=cli)
+
+        self.assertEqual("cli", result["transport"])
+        self.assertEqual([], result["paths"])
+
 
 class ReadTests(ConnectorTestCase):
     def test_filesystem_read_refuses_symlink_escape(self) -> None:
@@ -352,6 +365,12 @@ class ReadTests(ConnectorTestCase):
 
         with self.assertRaises(obsidian_connector.ConnectorError) as raised:
             obsidian_connector.read_note(self.repo, ".env")
+
+        self.assertEqual("NOTE_PATH_INVALID", raised.exception.code)
+
+    def test_direct_read_rejects_nul_bearing_note_path(self) -> None:
+        with self.assertRaises(obsidian_connector.ConnectorError) as raised:
+            obsidian_connector.read_note(self.repo, "bad\x00.md")
 
         self.assertEqual("NOTE_PATH_INVALID", raised.exception.code)
 

@@ -305,6 +305,8 @@ def _validated_note_relative(
 ) -> PurePosixPath:
     """Apply the connector's shared project-note path policy."""
     relative = PurePosixPath(relative_path)
+    if "\x00" in relative_path:
+        raise ConnectorError("NOTE_PATH_INVALID", "Note path must not contain NUL.")
     if not relative.parts or relative.is_absolute() or ".." in relative.parts:
         raise ConnectorError("NOTE_PATH_INVALID", "Note path must be project-container-relative.")
     if relative.suffix.lower() != ".md":
