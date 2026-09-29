@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 6.1.1 - 2026-09-29
+
 ### Fixed
 - Hermes Skills Hub installation no longer receives a blocking `DANGEROUS` verdict from defensive test fixtures or negative controller prose. Hook execution now projects only supported SDD path overrides from process state, traversal and non-disclosure tests preserve their invariants with synthetic fixtures, and CI enforces a `SAFE` verdict by executing scanner bytes verified against a pinned real Hermes Git blob.
 
