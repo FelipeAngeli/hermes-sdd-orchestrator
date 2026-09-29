@@ -76,7 +76,7 @@ Details: [FSM and bounded loop](components/fsm-and-loop.md), [Action journal](co
 
 Details: [FSM and bounded loop](components/fsm-and-loop.md), [Harness](components/harness.md), [Action journal](components/action-journal.md), [Gates and stack detection](components/gates-and-stack-detection.md), [Obsidian vault](components/obsidian-vault.md).
 
-`runtime/` contains deterministic Python tools for planning, continuation decisions, per-dispatch context and slice-contract checks, bounded correction decisions, journal recovery, result validation and stack detection. Runtime modules may depend on `schemas/`; they must not import tests or mutate project source code.
+`runtime/` contains deterministic Python tools for planning, continuation decisions, per-dispatch context and slice-contract checks, bounded correction decisions, journal recovery, result validation and stack detection, plus narrowly scoped explicit connectors such as Obsidian and TypeSafe. Connectors are never invoked implicitly by the FSM: they expose local-only preflight separately from any authorized external read or evaluation. Runtime modules may depend on `schemas/`; they must not import tests or mutate project source code.
 
 The runtime is language-neutral: gate actions are named by role (`TEST_FOCUSED`, `FORMAT_CHANGED_FILES`, `ANALYZE`), never by toolchain, and the only project-specific data are the commands in `policies/GATES.md`. `detect_stack.py` is the single place that knows ecosystems; it is read-only and suggests commands only from manifest, lockfile or tool-configuration evidence. The legacy snapshot field `changed_dart_files_available` is still accepted as an alias of `changed_files_available` so older installations keep validating.
 
