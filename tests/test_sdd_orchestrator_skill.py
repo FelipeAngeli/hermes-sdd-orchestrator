@@ -22,6 +22,12 @@ SKILL_ROOT = ROOT / "skills" / "orchestrate" / "sdd-orchestrator"
 TEMPLATES = SKILL_ROOT / "templates"
 ORCHESTRATION = TEMPLATES / ".hermes" / "orchestration"
 INSTALLER = SKILL_ROOT / "scripts" / "install_project.py"
+TYPESAFE_SOURCE_REF_FOR_TESTS = "65a39f393687675ce170e6094757de20370365b9"
+TYPESAFE_UPSTREAM_HASH_FOR_TESTS = "9cd84c5e535dec8dec59917c110f9c00b4a61faadb86b432ec7e41051170af12"
+TYPESAFE_FIXTURE = SKILL_ROOT / "vendor" / "typesafe-ai"
+TYPESAFE_OFFICIAL_COMMAND_FOR_TESTS = (
+    "npx", "skills", "add", "typesafe-ai/skills", "--skill", "typesafe-ai",
+)
 
 STAGE_AGENTS = {
     "specify.md": "SPECIFY",
@@ -246,6 +252,8 @@ class BundleContractTests(unittest.TestCase):
             self.assertIn("ask only unresolved", policy)
             self.assertIn("issue tracker", policy)
             self.assertIn("obsidian", policy)
+            self.assertIn("typesafe", policy)
+            self.assertIn("jev", policy)
             self.assertIn("project-specific tools", policy)
             self.assertIn("never ask for credentials", policy)
             self.assertIn("before the first demand", policy)
@@ -423,8 +431,14 @@ class PromptPolicyContractTests(unittest.TestCase):
 
 
 class InstallerBehaviorTests(unittest.TestCase):
-    def execute(self, *args: str, check: bool = True, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-        result = subprocess.run(args, text=True, capture_output=True, timeout=120, cwd=cwd)
+    def execute(
+        self,
+        *args: str,
+        check: bool = True,
+        cwd: Path | None = None,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(args, text=True, capture_output=True, timeout=120, cwd=cwd, env=env)
         if check and result.returncode:
             self.fail(result.stdout + result.stderr)
         return result
@@ -437,12 +451,41 @@ class InstallerBehaviorTests(unittest.TestCase):
         self.execute("git", "-C", str(root), "add", "README.md")
         self.execute("git", "-C", str(root), "commit", "-qm", "fixture")
 
-    def run_installer(self, target: Path, *, installer: Path = INSTALLER, apply: bool = False) -> subprocess.CompletedProcess[str]:
+    def write_typesafe_install(self, root: Path) -> None:
+        skill = root / ".hermes/skills/typesafe-ai"
+        shutil.copytree(TYPESAFE_FIXTURE, skill)
+        (root / "skills-lock.json").write_text(
+            json.dumps({
+                "version": 1,
+                "skills": {
+                    "typesafe-ai": {
+                        "source": "typesafe-ai/skills",
+                        "ref": TYPESAFE_SOURCE_REF_FOR_TESTS,
+                        "sourceType": "github",
+                        "skillPath": "skills/typesafe-ai/SKILL.md",
+                        "computedHash": TYPESAFE_UPSTREAM_HASH_FOR_TESTS,
+                    }
+                },
+            }) + "\n",
+            encoding="utf-8",
+        )
+
+    def run_installer(
+        self,
+        target: Path,
+        *,
+        installer: Path = INSTALLER,
+        apply: bool = False,
+        typesafe_ai: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         arguments = [sys.executable, str(installer), "--target", str(target)]
         if apply:
             arguments.append("--apply")
+        if typesafe_ai:
+            arguments.extend(("--typesafe-ai", typesafe_ai))
         arguments.append("--json")
-        return self.execute(*arguments, check=False)
+        return self.execute(*arguments, check=False, env=env)
 
     def filesystem_snapshot(self, root: Path) -> dict[str, tuple[str, int, bytes | str | None]]:
         snapshot: dict[str, tuple[str, int, bytes | str | None]] = {}
@@ -511,10 +554,432 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertEqual("ORCHESTRATOR_ONLY", onboarding["scope"])
             self.assertTrue(onboarding["ask_only_unresolved"])
             self.assertEqual(
-                ["issue_tracker", "obsidian", "project_tools"],
+                ["issue_tracker", "obsidian", "typesafe_ai", "project_tools"],
                 [question["id"] for question in onboarding["questions"]],
             )
             self.assertTrue(all("none" in question["accepted_answers"] for question in onboarding["questions"]))
+            self.assertEqual("NOT_INSTALLED", onboarding["integrations"]["typesafe_ai"]["status"])
+            self.assertEqual(
+                list(TYPESAFE_OFFICIAL_COMMAND_FOR_TESTS),
+                onboarding["integrations"]["typesafe_ai"]["official_command"],
+            )
+
+    def test_typesafe_install_dry_run_plans_without_writing(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-plan-") as temp:
+            target = Path(temp) / "repo"
+            target.mkdir()
+            self.initialize_repository(target)
+            bin_dir = Path(temp) / "bin"
+            bin_dir.mkdir()
+            git_command = shutil.which("git")
+            self.assertIsNotNone(git_command)
+            (bin_dir / "git").symlink_to(str(git_command))
+            marker = Path(temp) / "npx-ran"
+            for name, body in (
+                ("node", "print('v22.20.0')\n"),
+                ("npx", f"from pathlib import Path\nPath({str(marker)!r}).write_text('ran')\n"),
+            ):
+                executable = bin_dir / name
+                executable.write_text(f"#!{sys.executable}\n{body}", encoding="utf-8")
+                executable.chmod(0o755)
+            env = os.environ.copy()
+            env["PATH"] = str(bin_dir)
+            before = self.repository_snapshot(target)
+
+            result = self.run_installer(target, typesafe_ai="install", env=env)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertEqual("READY", report["status"])
+            self.assertEqual("INSTALL", report["onboarding"]["integrations"]["typesafe_ai"]["planned_action"])
+            self.assertFalse(report["applied"])
+            self.assertFalse(marker.exists())
+            self.assertEqual(before, self.repository_snapshot(target))
+
+    def test_typesafe_install_apply_copies_vetted_snapshot_and_preserves_lock(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-apply-") as temp:
+            target = Path(temp) / "repo"
+            target.mkdir()
+            self.initialize_repository(target)
+            unrelated_entry = {"source": "owner/other", "sourceType": "github", "computedHash": "other"}
+            (target / "skills-lock.json").write_text(
+                json.dumps({"version": 1, "skills": {"other": unrelated_entry}, "metadata": {"keep": True}}) + "\n",
+                encoding="utf-8",
+            )
+
+            result = self.run_installer(target, apply=True, typesafe_ai="install")
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            report = json.loads(result.stdout)
+            integration = report["onboarding"]["integrations"]["typesafe_ai"]
+            self.assertTrue(report["applied"])
+            self.assertEqual("INSTALLED", integration["status"])
+            self.assertEqual("INSTALL", integration["applied_action"])
+            self.assertEqual("NONE", integration["planned_action"])
+            setup = (target / ".hermes/orchestration/PROJECT_SETUP.md").read_text(encoding="utf-8")
+            self.assertIn('typesafe_ai: {"install":true}', setup)
+            self.assertIn("status: PENDING", setup)
+            for source in TYPESAFE_FIXTURE.iterdir():
+                self.assertEqual(source.read_bytes(), (target / ".hermes/skills/typesafe-ai" / source.name).read_bytes())
+            lock = json.loads((target / "skills-lock.json").read_text(encoding="utf-8"))
+            self.assertEqual(unrelated_entry, lock["skills"]["other"])
+            self.assertEqual({"keep": True}, lock["metadata"])
+
+    def test_typesafe_opt_in_needs_no_node_or_npx(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-no-node-") as temp:
+            target = Path(temp) / "repo"
+            target.mkdir()
+            self.initialize_repository(target)
+            bin_dir = Path(temp) / "bin"
+            bin_dir.mkdir()
+            git_command = shutil.which("git")
+            self.assertIsNotNone(git_command)
+            (bin_dir / "git").symlink_to(str(git_command))
+            env = os.environ.copy()
+            env["PATH"] = str(bin_dir)
+
+            result = self.run_installer(target, apply=True, typesafe_ai="install", env=env)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertTrue((target / ".hermes/skills/typesafe-ai/SKILL.md").is_file())
+
+    def test_typesafe_install_refuses_a_malformed_existing_lock(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-conflict-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            skill = target / ".hermes/skills/typesafe-ai"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text("---\nname: typesafe-ai\n---\n", encoding="utf-8")
+            malformed_lock = b"{not-json\n"
+            (target / "skills-lock.json").write_bytes(malformed_lock)
+
+            result = self.run_installer(target, apply=True, typesafe_ai="install")
+
+            self.assert_blocked(result, "TYPESAFE_SKILL_CONFLICT: LOCK_INVALID")
+            self.assertEqual(malformed_lock, (target / "skills-lock.json").read_bytes())
+            setup = (target / ".hermes/orchestration/PROJECT_SETUP.md").read_text(encoding="utf-8")
+            self.assertIn("typesafe_ai: UNRESOLVED", setup)
+
+    def test_typesafe_dry_run_blocks_a_partial_installation(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-partial-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            conflict = target / ".hermes/skills/typesafe-ai/notes.txt"
+            conflict.parent.mkdir(parents=True)
+            conflict.write_text("user-owned\n", encoding="utf-8")
+
+            result = self.run_installer(target, typesafe_ai="install")
+
+            self.assert_blocked(result, "TYPESAFE_SKILL_CONFLICT: SKILL_INVALID")
+            self.assertEqual("user-owned\n", conflict.read_text(encoding="utf-8"))
+
+    def test_typesafe_dry_run_rejects_a_tracked_deleted_destination(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-tracked-deleted-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            tracked = target / ".hermes/skills/typesafe-ai/SKILL.md"
+            tracked.parent.mkdir(parents=True)
+            tracked.write_text("---\nname: typesafe-ai\n---\n", encoding="utf-8")
+            self.execute("git", "-C", str(target), "add", tracked.relative_to(target).as_posix())
+            self.execute("git", "-C", str(target), "commit", "-qm", "track typesafe skill")
+            shutil.rmtree(target / ".hermes")
+
+            result = self.run_installer(target, typesafe_ai="install")
+
+            self.assert_blocked(result, "TRACKED_DESTINATION_PATH: .hermes/skills/typesafe-ai")
+            self.assertFalse((target / ".hermes").exists())
+
+    def test_typesafe_dry_run_rejects_a_wrong_source_lock_entry(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-wrong-source-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            skill = target / ".hermes/skills/typesafe-ai"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text("---\nname: typesafe-ai\n---\n", encoding="utf-8")
+            (target / "skills-lock.json").write_text(
+                json.dumps({
+                    "version": 1,
+                    "skills": {
+                        "typesafe-ai": {
+                            "source": "attacker/skills",
+                            "sourceType": "github",
+                            "skillPath": "skills/typesafe-ai/SKILL.md",
+                            "computedHash": "fixture",
+                        }
+                    },
+                }) + "\n",
+                encoding="utf-8",
+            )
+
+            result = self.run_installer(target, typesafe_ai="install")
+
+            self.assert_blocked(result, "TYPESAFE_SKILL_CONFLICT: LOCK_ENTRY_INVALID")
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO test requires POSIX")
+    def test_typesafe_detection_rejects_special_files(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-special-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            self.write_typesafe_install(target)
+            os.mkfifo(target / ".hermes/skills/typesafe-ai/unverified.pipe")
+
+            result = self.run_installer(target, typesafe_ai="install")
+
+            self.assert_blocked(result, "TYPESAFE_SKILL_CONFLICT: TYPESAFE_SKILL_OBJECT_INVALID")
+
+    def test_typesafe_detection_rejects_duplicate_lock_version_keys(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-duplicate-version-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            self.write_typesafe_install(target)
+            lock_path = target / "skills-lock.json"
+            lock = json.loads(lock_path.read_text(encoding="utf-8"))
+            lock_path.write_text(
+                '{"version":1,"version":1,"skills":' + json.dumps(lock["skills"]) + '}\n',
+                encoding="utf-8",
+            )
+
+            result = self.run_installer(target, typesafe_ai="install")
+
+            self.assert_blocked(result, "TYPESAFE_SKILL_CONFLICT: LOCK_INVALID")
+
+    def test_typesafe_detection_rejects_duplicate_entry_keys(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-duplicate-entry-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            self.write_typesafe_install(target)
+            entry = (
+                '{"source":"typesafe-ai/skills","source":"typesafe-ai/skills",'
+                f'"ref":"{TYPESAFE_SOURCE_REF_FOR_TESTS}","sourceType":"github",'
+                '"skillPath":"skills/typesafe-ai/SKILL.md",'
+                f'"computedHash":"{TYPESAFE_UPSTREAM_HASH_FOR_TESTS}"}}'
+            )
+            (target / "skills-lock.json").write_text(
+                '{"version":1,"skills":{"typesafe-ai":' + entry + '}}\n',
+                encoding="utf-8",
+            )
+
+            result = self.run_installer(target, typesafe_ai="install")
+
+            self.assert_blocked(result, "TYPESAFE_SKILL_CONFLICT: LOCK_INVALID")
+
+    def test_typesafe_detection_rejects_tracked_existing_installation(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-tracked-existing-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            self.write_typesafe_install(target)
+            self.execute(
+                "git", "-C", str(target), "add", "-f",
+                ".hermes/skills/typesafe-ai/SKILL.md",
+                ".hermes/skills/typesafe-ai/LICENSE",
+                "skills-lock.json",
+            )
+            self.execute("git", "-C", str(target), "commit", "-qm", "track typesafe")
+
+            result = self.run_installer(target, typesafe_ai="install")
+
+            self.assert_blocked(result, "TYPESAFE_SKILL_CONFLICT: TRACKED_DESTINATION_PATH")
+
+    def test_typesafe_detection_requires_exact_lock_entry_schema(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-lock-schema-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            self.write_typesafe_install(target)
+            lock_path = target / "skills-lock.json"
+            lock = json.loads(lock_path.read_text(encoding="utf-8"))
+            lock["skills"]["typesafe-ai"]["unexpected"] = "value"
+            lock_path.write_text(json.dumps(lock) + "\n", encoding="utf-8")
+
+            result = self.run_installer(target, typesafe_ai="install")
+
+            self.assert_blocked(result, "TYPESAFE_SKILL_CONFLICT: LOCK_ENTRY_INVALID")
+
+    def test_typesafe_detection_requires_lock_version_one(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-lock-version-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            self.write_typesafe_install(target)
+            lock_path = target / "skills-lock.json"
+            lock = json.loads(lock_path.read_text(encoding="utf-8"))
+            lock["version"] = True
+            lock_path.write_text(json.dumps(lock) + "\n", encoding="utf-8")
+
+            result = self.run_installer(target, typesafe_ai="install")
+
+            self.assert_blocked(result, "TYPESAFE_SKILL_CONFLICT: LOCK_INVALID")
+
+    def test_typesafe_onboarding_rejects_duplicate_install_keys(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-duplicate-answer-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True, typesafe_ai="install").returncode)
+            setup_path = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            setup = setup_path.read_text(encoding="utf-8").replace("status: PENDING", "status: COMPLETE")
+            setup = setup.replace("issue_tracker: UNRESOLVED", "issue_tracker: none")
+            setup = setup.replace("obsidian: UNRESOLVED", "obsidian: none")
+            setup = setup.replace(
+                'typesafe_ai: {"install":true}',
+                'typesafe_ai: {"install":false,"install":true}',
+            )
+            setup = setup.replace("project_tools: UNRESOLVED", "project_tools: none")
+            setup_path.write_text(setup, encoding="utf-8")
+
+            result = self.run_installer(target)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            onboarding = json.loads(result.stdout)["onboarding"]
+            self.assertEqual("REQUIRED", onboarding["status"])
+            self.assertFalse(onboarding["record_valid"])
+            self.assertIn("ANSWER_VALUE_INVALID", onboarding["record_issues"])
+            self.assertEqual(["typesafe_ai"], [question["id"] for question in onboarding["questions"]])
+
+    def test_typesafe_tampering_reopens_completed_onboarding(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-tampered-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True, typesafe_ai="install").returncode)
+            setup_path = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            setup = setup_path.read_text(encoding="utf-8").replace("status: PENDING", "status: COMPLETE")
+            setup = setup.replace("issue_tracker: UNRESOLVED", "issue_tracker: none")
+            setup = setup.replace("obsidian: UNRESOLVED", "obsidian: none")
+            setup = setup.replace("project_tools: UNRESOLVED", "project_tools: none")
+            setup_path.write_text(setup, encoding="utf-8")
+            skill_path = target / ".hermes/skills/typesafe-ai/SKILL.md"
+            skill_path.write_text(skill_path.read_text(encoding="utf-8") + "\nchanged\n", encoding="utf-8")
+
+            result = self.run_installer(target)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            onboarding = json.loads(result.stdout)["onboarding"]
+            self.assertEqual("REQUIRED", onboarding["status"])
+            self.assertEqual(["typesafe_ai"], [question["id"] for question in onboarding["questions"]])
+            self.assertEqual(["TYPESAFE_INTEGRATION_STATE_MISMATCH"], onboarding["integration_issues"])
+            self.assertEqual("CONFLICT", onboarding["integrations"]["typesafe_ai"]["status"])
+
+    def test_typesafe_opt_out_refuses_a_discoverable_conflict(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-none-conflict-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            conflict = target / ".hermes/skills/typesafe-ai/notes.txt"
+            conflict.parent.mkdir(parents=True)
+            conflict.write_text("untrusted\n", encoding="utf-8")
+
+            result = self.run_installer(target, apply=True, typesafe_ai="none")
+
+            self.assert_blocked(result, "TYPESAFE_SKILL_CONFLICT: SKILL_INVALID")
+            setup = (target / ".hermes/orchestration/PROJECT_SETUP.md").read_text(encoding="utf-8")
+            self.assertIn("typesafe_ai: UNRESOLVED", setup)
+            self.assertEqual("untrusted\n", conflict.read_text(encoding="utf-8"))
+
+    def test_typesafe_vendor_digest_is_verified_before_target_writes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-vendor-") as temp:
+            copied_skill = Path(temp) / "skill"
+            shutil.copytree(SKILL_ROOT, copied_skill)
+            vendor = copied_skill / "vendor/typesafe-ai/SKILL.md"
+            vendor.write_text(vendor.read_text(encoding="utf-8") + "\ntampered\n", encoding="utf-8")
+            target = Path(temp) / "repo"
+            target.mkdir()
+            self.initialize_repository(target)
+
+            result = self.run_installer(
+                target,
+                installer=copied_skill / "scripts/install_project.py",
+                typesafe_ai="install",
+            )
+
+            self.assert_blocked(result, "TYPESAFE_VENDOR_DIGEST_MISMATCH")
+            self.assertFalse((target / ".hermes").exists())
+
+    def test_typesafe_opt_out_records_none_without_node_or_npx(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-none-") as temp:
+            target = Path(temp) / "repo"
+            target.mkdir()
+            self.initialize_repository(target)
+            bin_dir = Path(temp) / "bin"
+            bin_dir.mkdir()
+            git_command = shutil.which("git")
+            self.assertIsNotNone(git_command)
+            (bin_dir / "git").symlink_to(str(git_command))
+            env = os.environ.copy()
+            env["PATH"] = str(bin_dir)
+
+            result = self.run_installer(target, apply=True, typesafe_ai="none", env=env)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            report = json.loads(result.stdout)
+            integration = report["onboarding"]["integrations"]["typesafe_ai"]
+            self.assertEqual("RECORD_NONE", integration["applied_action"])
+            self.assertEqual("NONE", integration["planned_action"])
+            setup = (target / ".hermes/orchestration/PROJECT_SETUP.md").read_text(encoding="utf-8")
+            self.assertIn("typesafe_ai: none", setup)
+            self.assertFalse((target / ".hermes/skills/typesafe-ai").exists())
+
+    def test_typesafe_choice_migrates_a_legacy_setup_record(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-legacy-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            setup_path = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            setup = setup_path.read_text(encoding="utf-8")
+            setup = setup.replace("status: PENDING", "status: COMPLETE")
+            setup = setup.replace("issue_tracker: UNRESOLVED", "issue_tracker: none")
+            setup = setup.replace("obsidian: UNRESOLVED", "obsidian: none")
+            setup = setup.replace("  typesafe_ai: UNRESOLVED\n", "")
+            setup = setup.replace("project_tools: UNRESOLVED", "project_tools: none")
+            setup_path.write_text(setup, encoding="utf-8")
+            self.write_typesafe_install(target)
+
+            result = self.run_installer(target, apply=True, typesafe_ai="install")
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            migrated = setup_path.read_text(encoding="utf-8")
+            self.assertIn('typesafe_ai: {"install":true}', migrated)
+            self.assertIn("status: COMPLETE", migrated)
+            self.assertIn("issue_tracker: none", migrated)
+            self.assertIn("project_tools: none", migrated)
+
+    def test_typesafe_choice_refuses_a_structurally_invalid_setup_record(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-record-conflict-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            setup_path = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            invalid = setup_path.read_text(encoding="utf-8").replace("schema_version: 1", "schema_version: 99")
+            setup_path.write_text(invalid, encoding="utf-8")
+
+            result = self.run_installer(target, apply=True, typesafe_ai="none")
+
+            self.assert_blocked(result, "ONBOARDING_RECORD_INVALID: SCHEMA_VERSION_UNSUPPORTED")
+            self.assertEqual(invalid, setup_path.read_text(encoding="utf-8"))
+
+    def test_typesafe_repeated_apply_is_a_noop(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-idempotent-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            self.write_typesafe_install(target)
+            first = self.run_installer(target, apply=True, typesafe_ai="install")
+            self.assertEqual(0, first.returncode, first.stderr)
+            before = self.repository_snapshot(target)
+
+            repeated = self.run_installer(target, apply=True, typesafe_ai="install")
+
+            self.assertEqual(0, repeated.returncode, repeated.stderr)
+            report = json.loads(repeated.stdout)
+            self.assertEqual("ALREADY_INITIALIZED", report["status"])
+            self.assertFalse(report["applied"])
+            self.assertEqual("NONE", report["onboarding"]["integrations"]["typesafe_ai"]["planned_action"])
+            self.assertEqual(before, self.repository_snapshot(target))
 
     def test_apply_creates_pending_project_onboarding_record(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-onboarding-record-") as temp:
@@ -528,6 +993,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertIn("status: PENDING", setup)
             self.assertIn("issue_tracker: UNRESOLVED", setup)
             self.assertIn("obsidian: UNRESOLVED", setup)
+            self.assertIn("typesafe_ai: UNRESOLVED", setup)
             self.assertIn("project_tools: UNRESOLVED", setup)
             self.assertIn("Ask only about orchestrator connectivity", setup)
 
@@ -539,6 +1005,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             setup_path = target / ".hermes/orchestration/PROJECT_SETUP.md"
             setup = setup_path.read_text(encoding="utf-8")
             setup = setup.replace("issue_tracker: UNRESOLVED", "issue_tracker: none")
+            setup = setup.replace("typesafe_ai: UNRESOLVED", "typesafe_ai: none")
             setup = setup.replace("project_tools: UNRESOLVED", "project_tools: none")
             setup_path.write_text(setup, encoding="utf-8")
 
@@ -587,6 +1054,7 @@ class InstallerBehaviorTests(unittest.TestCase):
         incomplete = {
             "issue_tracker": "\"GitHub\"",
             "obsidian": "\"yes\"",
+            "typesafe_ai": '{"install":false}',
             "project_tools": "\"Jira\"",
         }
         with tempfile.TemporaryDirectory(prefix="sdd-onboarding-semantic-") as temp:
@@ -622,6 +1090,7 @@ class InstallerBehaviorTests(unittest.TestCase):
                 "obsidian: UNRESOLVED",
                 'obsidian: {"vault":"/vault","project_container":"Projects/App"}',
             )
+            setup = setup.replace("typesafe_ai: UNRESOLVED", "typesafe_ai: none")
             setup = setup.replace(
                 "project_tools: UNRESOLVED",
                 'project_tools: [{"tool":"Jira","purpose":"read demands","read":true,"write":false}]',
@@ -648,7 +1117,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertEqual("REQUIRED", onboarding["status"])
             self.assertFalse(onboarding["record_valid"])
             self.assertEqual(
-                ["issue_tracker", "obsidian", "project_tools"],
+                ["issue_tracker", "obsidian", "typesafe_ai", "project_tools"],
                 [question["id"] for question in onboarding["questions"]],
             )
 
@@ -662,6 +1131,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             setup = setup.replace("schema_version: 1", "schema_version: 99")
             setup = setup.replace("issue_tracker: UNRESOLVED", "issue_tracker: none")
             setup = setup.replace("obsidian: UNRESOLVED", "obsidian: none")
+            setup = setup.replace("typesafe_ai: UNRESOLVED", "typesafe_ai: none")
             setup = setup.replace("project_tools: UNRESOLVED", "project_tools: none")
             setup_path.write_text(setup, encoding="utf-8")
 
@@ -671,7 +1141,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             onboarding = json.loads(result.stdout)["onboarding"]
             self.assertFalse(onboarding["record_valid"])
             self.assertEqual(
-                ["issue_tracker", "obsidian", "project_tools"],
+                ["issue_tracker", "obsidian", "typesafe_ai", "project_tools"],
                 [question["id"] for question in onboarding["questions"]],
             )
 
@@ -684,6 +1154,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             pending = setup_path.read_text(encoding="utf-8")
             pending = pending.replace("issue_tracker: UNRESOLVED", "issue_tracker: none")
             pending = pending.replace("obsidian: UNRESOLVED", "obsidian: none")
+            pending = pending.replace("typesafe_ai: UNRESOLVED", "typesafe_ai: none")
             pending = pending.replace("project_tools: UNRESOLVED", "project_tools: none")
             setup_path.write_text(pending, encoding="utf-8")
 

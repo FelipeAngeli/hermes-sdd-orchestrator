@@ -2,7 +2,7 @@
 
 [Docs index](../README.md) · Next: [Gates and stack detection](gates-and-stack-detection.md) · Related: [Obsidian vault](obsidian-vault.md), [FSM and bounded loop](fsm-and-loop.md)
 
-**Files:** `SKILL.md`, `scripts/install_project.py`, `templates/.hermes.md`, `orchestration/README.md` (the installed layout guide, `templates/.hermes/orchestration/README.md`).
+**Files:** `SKILL.md`, `scripts/install_project.py`, `vendor/typesafe-ai/SKILL.md`, `vendor/typesafe-ai/LICENSE`, `templates/.hermes.md`, `orchestration/README.md` (the installed layout guide, `templates/.hermes/orchestration/README.md`).
 
 ## `SKILL.md`: Hermes entry point
 
@@ -18,27 +18,31 @@ hermes skills install FelipeAngeli/hermes-sdd-orchestrator/skills/orchestrate/sd
 ## `install_project.py`: per-project installer
 
 ```text
-python3 <skill>/scripts/install_project.py --target <repo-root> --json           # dry run
-python3 <skill>/scripts/install_project.py --target <repo-root> --apply --json   # write
+python3 <skill>/scripts/install_project.py --target <repo-root> --json                             # dry run
+python3 <skill>/scripts/install_project.py --target <repo-root> --apply --json                     # write
+python3 <skill>/scripts/install_project.py --target <repo-root> --typesafe-ai install --json       # preview opt-in
+python3 <skill>/scripts/install_project.py --target <repo-root> --typesafe-ai install --apply --json
 ```
 
 | Flag | Meaning |
 | --- | --- |
 | `--target` | Existing Git worktree root (default `.`). A subdirectory is rejected with `TARGET_NOT_REPOSITORY_ROOT`. |
-| `--apply` | Write files. Without it the command only plans. |
+| `--apply` | Write files and apply an explicitly selected TypeSafe action. Without it the command only plans. |
+| `--typesafe-ai install\|none` | Explicitly install/record the repository-local TypeSafe skill, or record an opt-out. Omit it to leave the onboarding answer unresolved. |
 | `--json` | Machine-readable report. |
 
-The report contains `status`, `planned`, `applied`, `next_step`, **`stack`**, and **`onboarding`**. `stack` is the read-only output of [`detect_stack.py`](gates-and-stack-detection.md#detect_stackpy) for the target. `onboarding` has scope `ORCHESTRATOR_ONLY` and lists only unresolved questions about issue-tracker access, optional Obsidian binding, and other project-specific tools; every integration accepts an explicit `none` answer. It also reports `record_valid`, `record_status`, and `record_issues` so malformed, unsupported, incomplete, or non-UTF-8 setup records remain visibly unresolved instead of failing open.
+The report contains `status`, `planned`, `applied`, `next_step`, **`stack`**, and **`onboarding`**. `stack` is the read-only output of [`detect_stack.py`](gates-and-stack-detection.md#detect_stackpy) for the target. `onboarding` has scope `ORCHESTRATOR_ONLY` and lists only unresolved questions about issue-tracker access, optional Obsidian binding, optional TypeSafe skill installation for Jev guidance, and other project-specific tools; every integration accepts an explicit `none` answer. Its `integrations.typesafe_ai` object reports `status`, `planned_action`, the official upstream command for reference, and the repository-local skill/lock paths. It also reports `record_valid`, `record_status`, `record_issues`, and `integration_issues`; malformed setup records or a mismatch between the recorded TypeSafe choice and the verified local installation remain visibly unresolved instead of failing open.
 
 | `status` | Meaning |
 | --- | --- |
 | `READY` | Files can be installed; rerun with `--apply`. |
 | `ALREADY_INITIALIZED` | Every template file is identical and state exists; nothing to do. |
-| `BLOCKED` | Exit code 2 with `reason`: `TRACKED_DESTINATION_PATH`, `CONFIG_CONFLICT`, `SYMLINK_REJECTED`, `LOCAL_STATE_REQUIRES_REVIEW`, `TARGET_NOT_DIRECTORY`, or a Git preflight error. |
+| `BLOCKED` | Exit code 2 with `reason`: the existing installer conflicts plus TypeSafe refusals such as `TYPESAFE_VENDOR_DIGEST_MISMATCH`, `TYPESAFE_VENDOR_INVALID`, `TYPESAFE_SKILL_CONFLICT`, `TYPESAFE_LOCK_PRESERVATION_FAILED`, or `TYPESAFE_ROLLBACK_FAILED`. |
 
 Guarantees, all covered by [the packaging tests](testing.md#skill-suite-tests):
 
 - It copies the distributable template tree, including the inactive-by-default repository-local `hooks/` layer and the project-local engineering skills, ignoring interpreter artifacts (`__pycache__`, `.pyc`, `.pyo`). It never overwrites a differing file, writes to a tracked path or through a symlink, edits a Hermes profile, modifies global skills/trust, or grants shell-hook consent.
+- TypeSafe installation is a separate explicit opt-in. The installer never executes `npx` or downloads code: the official `npx skills add typesafe-ai/skills --skill typesafe-ai` command is informational, while apply copies the reviewed snapshot in `vendor/typesafe-ai/` from immutable upstream commit `65a39f393687675ce170e6094757de20370365b9`. Preflight verifies the exact regular-file set and an independently trusted length-framed digest before any project write. The controller preserves unrelated lock metadata and commits the skill, merged pinned lock entry and onboarding answer as one rollback-covered operation; an unsafe replacement topology returns `TYPESAFE_ROLLBACK_FAILED` rather than touching an external target.
 - It creates a fresh `STATE.md` (schema 2, `ticket: IDLE`, `mode: MANUAL`), `PROJECT_SETUP.md` (pending project connectivity), `INCIDENTS.md` and an empty, schema-valid `ACTION_JOURNAL.json` (see [Action journal](action-journal.md)).
 - It adds only `.hermes.md`, `.hermes/orchestration` and the three bundled `.hermes/skills/<name>` paths to `.git/info/exclude`, never `.hermes/skills` as a whole and never `.gitignore`. Therefore it does not newly hide unrelated project skills. Pre-existing user-owned exclusion entries are preserved verbatim, including any broader rule the user already configured.
 - A second run returns `ALREADY_INITIALIZED`. A partially present state returns `LOCAL_STATE_REQUIRES_REVIEW`.
@@ -51,9 +55,12 @@ A fresh installation creates the untracked controller-owned `.hermes/orchestrati
 
 1. Which issue tracker and project it should read, plus separate permission to create or update issues.
 2. Whether to bind Obsidian and, only when enabled, which vault and project container to use.
-3. Which other project-specific tools it needs, why it needs each one, and whether access is read-only or writable.
+3. Whether to install the repository-local TypeSafe skill used for TypeSafe workflows, including its Jev model guidance.
+4. Which other project-specific tools it needs, why it needs each one, and whether access is read-only or writable.
 
-`none` is a valid explicit answer for every item. Otherwise the value is compact JSON on the same line: issue tracker requires exactly `provider` and `project` strings plus Boolean `read` and `write`; Obsidian requires exactly an absolute `vault` and a relative traversal-free `project_container`; project tools require a non-empty array whose objects contain exactly `tool`, `purpose`, `read`, and `write`. Generic strings such as `"GitHub"`, `"yes"`, or `"Jira"` are incomplete and remain unresolved. The onboarding must not ask product requirements, implementation preferences, passwords, tokens, or verification codes. Connectivity is verified read-only before it is recorded; any external mutation still requires explicit authorization. Hermes replaces each `UNRESOLVED` value with the answer and sets `status: COMPLETE` only after all three items are resolved. On later installer runs, the `onboarding.questions` array contains only values that remain unresolved; empty, comment-only, malformed/unterminated, YAML-null, quoted/case-variant unresolved markers and missing answers all remain unresolved. Invalid encoding, malformed structure, duplicate keys, unsupported schema versions, incomplete values, invalid record statuses, and status/answer mismatches fail closed with `record_valid: false`. A successful `--apply` reloads the new record before reporting it. When no questions remain **and** the record declares `status: COMPLETE`, the computed onboarding status is `COMPLETE`.
+`none` is a valid explicit answer for every item. Otherwise the value is compact JSON on the same line: issue tracker requires exactly `provider` and `project` strings plus Boolean `read` and `write`; Obsidian requires exactly an absolute `vault` and a relative traversal-free `project_container`; TypeSafe requires exactly `{"install":true}`; project tools require a non-empty array whose objects contain exactly `tool`, `purpose`, `read`, and `write`. Generic strings such as `"GitHub"`, `"yes"`, `"Jev"`, or `"Jira"` are incomplete and remain unresolved. Jev is the model name; the installed integration is the `typesafe-ai` skill. The onboarding must not ask product requirements, implementation preferences, passwords, tokens, or verification codes. Connectivity is verified read-only before it is recorded; any external mutation still requires explicit authorization. Hermes replaces each `UNRESOLVED` value with the answer and sets `status: COMPLETE` only after all four items are resolved. On later installer runs, the `onboarding.questions` array contains only values that remain unresolved; empty, comment-only, malformed/unterminated, YAML-null, quoted/case-variant unresolved markers and missing answers all remain unresolved. Invalid encoding, malformed structure, duplicate keys, unsupported schema versions, incomplete values, invalid record statuses, and status/answer mismatches fail closed with `record_valid: false`. A successful `--apply` reloads the new record before reporting it. When no questions remain **and** the record declares `status: COMPLETE`, the computed onboarding status is `COMPLETE`.
+
+For TypeSafe, `--typesafe-ai install` is only a preview until combined with `--apply`. A successful apply writes `{"install":true}` only after the vetted bundled snapshot and lock entry verify; `--typesafe-ai none --apply` records `none` only when no TypeSafe skill is discoverable; an existing valid or conflicting installation must be reviewed and removed explicitly before opting out. Repeating either resolved choice is a no-op; an explicit choice also inserts the missing TypeSafe key into a legacy schema-1 setup record while preserving its other answers. A valid existing `.hermes/skills/typesafe-ai/SKILL.md` installation with the same pinned lock entry and trusted content digest is recorded without overwrite. A malformed, partial, symlinked, tracked or differently sourced installation remains unresolved and returns `BLOCKED`. Updating the TypeSafe source commit requires reviewing the new bytes and updating the pinned lock hash, trusted digest and vendored snapshot together. The generated optional skill and `skills-lock.json` stay project-local and are not hidden by the orchestrator's Git excludes.
 
 ## `.hermes.md`: controller entry point
 
@@ -65,11 +72,13 @@ The installed `README.md` inside `.hermes/orchestration/` is the on-disk guide f
 
 ```text
 .hermes.md
+skills-lock.json                 # optional TypeSafe project lock
 .hermes/obsidian.json            # optional, versioned — see Obsidian vault
 .hermes/skills/                  → project-local-skills.md (explicit repository trust)
 ├── sdd-backend-engineering/
 ├── sdd-architecture-decisions/
-└── sdd-database-design-migrations/
+├── sdd-database-design-migrations/
+└── typesafe-ai/                 # optional external TypeSafe skill
 .hermes/orchestration/
 ├── agents/      → stage-agents.md
 ├── contracts/   → contracts-and-schemas.md
