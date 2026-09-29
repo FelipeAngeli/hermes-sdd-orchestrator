@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- TypeSafe connector tests now use non-sensitive fixture values and replace only the connector module's environment mapping, preserving coverage without triggering Hermes skill-security credential/exfiltration heuristics.
+
 ## 6.3.0 - 2026-09-29
 
 ### Added

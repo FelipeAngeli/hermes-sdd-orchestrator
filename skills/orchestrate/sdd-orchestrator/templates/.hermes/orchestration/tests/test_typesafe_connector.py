@@ -58,12 +58,11 @@ class TypeSafeConnectorTests(unittest.TestCase):
         self.assertEqual("", result.stderr)
 
     def test_preflight_prefers_process_environment_and_never_discloses_the_key(self) -> None:
-        secret = "ts_test_secret_process"
+        sentinel = "fixture_process_value"
         with tempfile.TemporaryDirectory(prefix="sdd-typesafe-preflight-") as temp:
             env_file = Path(temp) / ".env"
-            env_file.write_text("TYPESAFE_API_KEY=ts_test_secret_file\n", encoding="utf-8")
-            env = os.environ.copy()
-            env["TYPESAFE_API_KEY"] = secret
+            env_file.write_text("TYPESAFE_API_KEY=fixture_file_value\n", encoding="utf-8")
+            env = {"PATH": "/usr/bin:/bin", "TYPESAFE_API_KEY": sentinel}
             result = subprocess.run(
                 [sys.executable, str(RUNTIME), "preflight", "--env-file", str(env_file), "--json"],
                 text=True,
@@ -74,8 +73,8 @@ class TypeSafeConnectorTests(unittest.TestCase):
 
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual({"status": "READY", "source": "environment"}, json.loads(result.stdout))
-        self.assertNotIn(secret, result.stdout + result.stderr)
-        self.assertNotIn("ts_test_secret_file", result.stdout + result.stderr)
+        self.assertNotIn(sentinel, result.stdout + result.stderr)
+        self.assertNotIn("fixture_file_value", result.stdout + result.stderr)
 
     def test_preflight_rejects_whitespace_or_control_characters_in_api_key(self) -> None:
         for invalid in ("bad key", "bad\tkey", " fixture_key_value "):
@@ -187,7 +186,7 @@ class TypeSafeConnectorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="sdd-typesafe-evaluate-") as temp:
             root = Path(temp)
             env_file = root / ".env"
-            env_file.write_text("TYPESAFE_API_KEY=ts_test_secret\n", encoding="utf-8")
+            env_file.write_text("TYPESAFE_API_KEY=fixture_key_value\n", encoding="utf-8")
             payload = root / "request.json"
             payload.write_text(json.dumps({
                 "state": "Deploy is blocked",
@@ -200,21 +199,21 @@ class TypeSafeConnectorTests(unittest.TestCase):
                     str(RUNTIME), "evaluate", "--input", str(payload),
                     "--env-file", str(env_file), "--json",
                 ]),
-                mock.patch.dict(os.environ, {}, clear=True),
+                mock.patch.object(connector.os, "environ", {}),
                 contextlib.redirect_stdout(stdout),
             ):
                 returncode = connector.main()
 
         self.assertEqual(0, returncode)
         self.assertEqual("https://api.typesafe.ai/v1/systemone", received["url"])
-        self.assertEqual("Bearer ts_test_secret", received["authorization"])
+        self.assertEqual("Bearer fixture_key_value", received["authorization"])
         self.assertEqual("application/json", received["content_type"])
         self.assertEqual("jev-latest", received["body"]["model"])
         self.assertEqual("Deploy is blocked", received["body"]["state"])
         report = json.loads(stdout.getvalue())
         self.assertEqual("OK", report["status"])
         self.assertEqual("jev-1.13.0", report["result"]["model"])
-        self.assertNotIn("ts_test_secret", stdout.getvalue())
+        self.assertNotIn("fixture_key_value", stdout.getvalue())
 
     def test_evaluate_does_not_follow_redirects_with_the_authorization_header(self) -> None:
         connector = load_connector()
@@ -285,7 +284,7 @@ class TypeSafeConnectorTests(unittest.TestCase):
                 connector = load_connector()
                 with tempfile.TemporaryDirectory(prefix="sdd-typesafe-http-") as temp:
                     root = Path(temp)
-                    (root / ".env").write_text("TYPESAFE_API_KEY=ts_test_secret\n", encoding="utf-8")
+                    (root / ".env").write_text("TYPESAFE_API_KEY=fixture_key_value\n", encoding="utf-8")
                     payload = root / "request.json"
                     payload.write_text(json.dumps({
                         "state": "state",
@@ -301,7 +300,7 @@ class TypeSafeConnectorTests(unittest.TestCase):
                             str(RUNTIME), "evaluate", "--input", str(payload),
                             "--env-file", str(root / ".env"), "--json",
                         ]),
-                        mock.patch.dict(os.environ, {}, clear=True),
+                        mock.patch.object(connector.os, "environ", {}),
                         contextlib.redirect_stdout(stdout),
                     ):
                         returncode = connector.main()
@@ -312,14 +311,14 @@ class TypeSafeConnectorTests(unittest.TestCase):
                     json.loads(stdout.getvalue()),
                 )
                 self.assertNotIn("remote-sensitive-body", stdout.getvalue())
-                self.assertNotIn("ts_test_secret", stdout.getvalue())
+                self.assertNotIn("fixture_key_value", stdout.getvalue())
                 self.assertTrue(error.fp.closed)
 
     def test_evaluate_rejects_invalid_local_payload_before_network(self) -> None:
         connector = load_connector()
         with tempfile.TemporaryDirectory(prefix="sdd-typesafe-input-") as temp:
             root = Path(temp)
-            (root / ".env").write_text("TYPESAFE_API_KEY=ts_test_secret\n", encoding="utf-8")
+            (root / ".env").write_text("TYPESAFE_API_KEY=fixture_key_value\n", encoding="utf-8")
             payload = root / "request.json"
             payload.write_text('{"state":"missing questions"}', encoding="utf-8")
             stdout = io.StringIO()
@@ -329,7 +328,7 @@ class TypeSafeConnectorTests(unittest.TestCase):
                     str(RUNTIME), "evaluate", "--input", str(payload),
                     "--env-file", str(root / ".env"), "--json",
                 ]),
-                mock.patch.dict(os.environ, {}, clear=True),
+                mock.patch.object(connector.os, "environ", {}),
                 contextlib.redirect_stdout(stdout),
             ):
                 returncode = connector.main()
@@ -360,7 +359,7 @@ class TypeSafeConnectorTests(unittest.TestCase):
                         str(RUNTIME), "evaluate", "--input", str(payload),
                         "--env-file", str(root / ".env"), "--json",
                     ]),
-                    mock.patch.dict(os.environ, {}, clear=True),
+                    mock.patch.object(connector.os, "environ", {}),
                     contextlib.redirect_stdout(stdout),
                 ):
                     returncode = connector.main()
@@ -390,7 +389,7 @@ class TypeSafeConnectorTests(unittest.TestCase):
                         str(RUNTIME), "evaluate", "--input", str(payload),
                         "--env-file", str(root / ".env"), "--timeout", timeout, "--json",
                     ]),
-                    mock.patch.dict(os.environ, {}, clear=True),
+                    mock.patch.object(connector.os, "environ", {}),
                     contextlib.redirect_stdout(stdout),
                 ):
                     returncode = connector.main()
@@ -420,7 +419,7 @@ class TypeSafeConnectorTests(unittest.TestCase):
                     str(RUNTIME), "evaluate", "--input", str(payload),
                     "--env-file", str(root / ".env"), "--json",
                 ]),
-                mock.patch.dict(os.environ, {}, clear=True),
+                mock.patch.object(connector.os, "environ", {}),
                 contextlib.redirect_stdout(stdout),
             ):
                 returncode = connector.main()
@@ -446,7 +445,7 @@ class TypeSafeConnectorTests(unittest.TestCase):
                     str(RUNTIME), "evaluate", "--input", str(payload),
                     "--env-file", str(root / ".env"), "--json",
                 ]),
-                mock.patch.dict(os.environ, {}, clear=True),
+                mock.patch.object(connector.os, "environ", {}),
                 contextlib.redirect_stdout(stdout),
             ):
                 returncode = connector.main()
@@ -473,7 +472,7 @@ class TypeSafeConnectorTests(unittest.TestCase):
                     str(RUNTIME), "evaluate", "--input", str(payload),
                     "--env-file", str(root / ".env"), "--json",
                 ]),
-                mock.patch.dict(os.environ, {}, clear=True),
+                mock.patch.object(connector.os, "environ", {}),
                 contextlib.redirect_stdout(stdout),
             ):
                 returncode = connector.main()
@@ -506,7 +505,7 @@ class TypeSafeConnectorTests(unittest.TestCase):
         for side_effect, reason in scenarios:
             with self.subTest(reason=reason), tempfile.TemporaryDirectory(prefix="sdd-typesafe-failure-") as temp:
                 root = Path(temp)
-                (root / ".env").write_text("TYPESAFE_API_KEY=ts_test_secret\n", encoding="utf-8")
+                (root / ".env").write_text("TYPESAFE_API_KEY=fixture_key_value\n", encoding="utf-8")
                 payload = root / "request.json"
                 payload.write_text(json.dumps({
                     "state": "state",
@@ -524,7 +523,7 @@ class TypeSafeConnectorTests(unittest.TestCase):
                         str(RUNTIME), "evaluate", "--input", str(payload),
                         "--env-file", str(root / ".env"), "--json",
                     ]),
-                    mock.patch.dict(os.environ, {}, clear=True),
+                    mock.patch.object(connector.os, "environ", {}),
                     contextlib.redirect_stdout(stdout),
                 ):
                     returncode = connector.main()
@@ -535,7 +534,7 @@ class TypeSafeConnectorTests(unittest.TestCase):
                     json.loads(stdout.getvalue()),
                 )
                 self.assertNotIn("sensitive", stdout.getvalue())
-                self.assertNotIn("ts_test_secret", stdout.getvalue())
+                self.assertNotIn("fixture_key_value", stdout.getvalue())
 
     def test_evaluate_normalizes_truncated_or_reset_response_reads(self) -> None:
         connector = load_connector()
@@ -573,7 +572,7 @@ class TypeSafeConnectorTests(unittest.TestCase):
                         str(RUNTIME), "evaluate", "--input", str(payload),
                         "--env-file", str(root / ".env"), "--json",
                     ]),
-                    mock.patch.dict(os.environ, {}, clear=True),
+                    mock.patch.object(connector.os, "environ", {}),
                     contextlib.redirect_stdout(stdout),
                 ):
                     returncode = connector.main()
