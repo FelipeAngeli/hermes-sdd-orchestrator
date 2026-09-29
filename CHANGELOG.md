@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 6.2.1 - 2026-09-29
+
 ### Fixed
 - The guarded Obsidian connector now applies one Markdown-only note policy to direct reads and CLI search results, rejecting non-note files such as `.env` and returning the canonical container-relative spelling of every accepted note path.
 
