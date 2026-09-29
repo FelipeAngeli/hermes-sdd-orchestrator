@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 6.2.0 - 2026-09-29
+
 ### Added
 - A repository-local `hermes-pack.yaml` pins the optional `kyssta-exe/hermes-obsidian-memory` dashboard companion to a reviewed immutable commit for reproducible evaluation of Obsidian vault discovery and navigation. Documentation keeps this operator UI separate from an active SDD binding and records that it does not enforce project-container scope or controller write approval.
 
