@@ -25,6 +25,10 @@ Project rules, code, accepted decisions and authoritative contracts override eve
 | `templates/.hermes/skills/sdd-database-design-migrations/references/migrations-and-backfills.md` | Expand/contract ordering, bounded backfills and mixed-version compatibility. |
 | `templates/.hermes/skills/sdd-database-design-migrations/references/transactions-locking-recovery.md` | Transaction scope, lock evidence, interruption and recovery. |
 | `templates/.hermes/skills/sdd-database-design-migrations/references/query-and-index-evidence.md` | Query plans, pagination and evidence required for index decisions. |
+| `templates/.hermes/skills/sdd-frontend-engineering/SKILL.md` | Guides React, Next.js, UI and Vercel-oriented performance work using project-local evidence. |
+| `templates/.hermes/skills/sdd-frontend-engineering/references/react-and-next-boundaries.md` | React state/effects/compiler guidance and Next.js rendering/data boundaries. |
+| `templates/.hermes/skills/sdd-frontend-engineering/references/composition-and-accessibility.md` | Component composition, design-token reuse, interaction states and accessibility floor. |
+| `templates/.hermes/skills/sdd-frontend-engineering/references/performance-and-delivery.md` | Evidence-led waterfall, bundle, render and client-performance decisions. |
 
 ## Selection
 
@@ -73,7 +77,7 @@ The default remains **do not dispatch**. A migration specialist runs only when t
 
 ## Verification
 
-- Packaging tests require exactly these three skill directories, valid portable frontmatter, required sections and at least three references each.
+- Packaging tests require exactly these four skill directories, valid portable frontmatter, required sections and at least three references each.
 - Documentation tests require this catalogue to match every installed project-skill file in both directions.
 - Stage-context tests cover missing, extra, duplicate, unsafe, unknown-slice and byte/frontmatter-mismatched playbooks/references and prove loaded guidance changes the approved slice hash.
 - Installer regression tests prove the installer adds exclusions only for bundled skill directories, does not newly hide unrelated project skills and preserves user-owned exclusion entries.

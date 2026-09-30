@@ -69,6 +69,7 @@ PROJECT_SKILLS = {
     "sdd-backend-engineering",
     "sdd-architecture-decisions",
     "sdd-database-design-migrations",
+    "sdd-frontend-engineering",
 }
 FORBIDDEN_ACTIONS = (
     "commit",
