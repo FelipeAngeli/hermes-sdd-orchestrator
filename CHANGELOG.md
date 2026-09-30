@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 6.5.0 - 2026-09-30
+
 ### Changed
 - The project installer now reports `APPLIED` after a successful write, exposes `exclude_update_planned`, requires `jsonschema` up front, and returns stable actionable diagnostics for detached HEAD.
 
