@@ -4,6 +4,15 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Changed
+- The project installer now reports `APPLIED` after a successful write, exposes `exclude_update_planned`, requires `jsonschema` up front, and returns stable actionable diagnostics for detached HEAD.
+
+### Fixed
+- Harden base and combined TypeSafe installation against real filesystem races and partial success: descriptor-anchored nonblocking no-follow reads reject FIFOs and special files, exclusive mode-controlled writes run under the Git index lock, failed applies restore exclusion bytes and remove still-owned paths, TypeSafe rollback preserves concurrent skill/lock replacements by inode, and Git exclusions are binary-preserving, symlink-safe, repairable, root-anchored per owned file, and no longer hide unrelated orchestration content.
+- Restore concurrent rollback replacements portably: regular files use atomic no-overwrite hard links, non-empty parents remain in place, and expected bytes prevent immediate Linux inode reuse from authorizing deletion.
+- Track installer-created TypeSafe credential placeholders by identity/content and remove them if any later integration verification fails.
+- Route integration-only TypeSafe mutations through the Git-index-locked transaction so a concurrent `git add` cannot turn an approved untracked destination into a tracked overwrite.
+
 ## 6.4.0 - 2026-09-30
 
 ### Changed

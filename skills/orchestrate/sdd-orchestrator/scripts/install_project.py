@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import errno
 import hashlib
 import importlib.util
@@ -13,7 +14,6 @@ import shutil
 import stat
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -36,17 +36,11 @@ PROJECT_SKILLS = (
     ".hermes/skills/sdd-architecture-decisions",
     ".hermes/skills/sdd-database-design-migrations",
 )
-LOCAL_PATHS = (
-    ".hermes.md",
-    *PROJECT_SKILLS,
-    ".hermes/.env",
-    ".hermes/.env.example",
-    CONFIG_ROOT,
+STATE_PATHS = (
     f"{CONFIG_ROOT}/STATE.md",
     f"{CONFIG_ROOT}/PROJECT_SETUP.md",
     f"{CONFIG_ROOT}/INCIDENTS.md",
     f"{CONFIG_ROOT}/ACTION_JOURNAL.json",
-    f"{CONFIG_ROOT}/action-journal-history/",
 )
 
 
@@ -89,17 +83,23 @@ def require_root(value: str) -> tuple[Path, dict[str, str]]:
     root = Path(git(target, "rev-parse", "--show-toplevel")).resolve()
     if root != target:
         raise InstallError(f"TARGET_NOT_REPOSITORY_ROOT: use {root}")
-    branch = git(root, "symbolic-ref", "--quiet", "--short", "HEAD")
     head = subprocess.run(
         ["git", "-C", str(root), "rev-parse", "--verify", "HEAD"],
         text=True, capture_output=True, timeout=20, check=False,
     )
     if head.returncode:
         raise InstallError("GIT_INITIAL_COMMIT_REQUIRED")
+    branch_result = subprocess.run(
+        ["git", "-C", str(root), "symbolic-ref", "--quiet", "--short", "HEAD"],
+        text=True, capture_output=True, timeout=20, check=False,
+    )
+    if branch_result.returncode:
+        raise InstallError("ATTACHED_BRANCH_REQUIRED")
     return root, {
         "path": str(root),
-        "branch": branch,
+        "branch": branch_result.stdout.strip(),
         "head": head.stdout.strip(),
+        "git_dir": git(root, "rev-parse", "--path-format=absolute", "--git-dir"),
         "git_common_dir": git(root, "rev-parse", "--path-format=absolute", "--git-common-dir"),
     }
 
@@ -139,6 +139,380 @@ def template_files() -> list[Path]:
         and "__pycache__" not in path.parts
         and path.suffix not in {".pyc", ".pyo"}
     )
+
+
+def managed_exclude_entries() -> tuple[str, ...]:
+    """Return root-anchored files owned by the installer, not broad trees."""
+    relative_paths = [
+        *(path.relative_to(TEMPLATE).as_posix() for path in template_files()),
+        *STATE_PATHS,
+        TYPESAFE_ENV_PATH,
+        f"{CONFIG_ROOT}/action-journal-history/",
+    ]
+    return tuple(dict.fromkeys(f"/{relative}" for relative in relative_paths))
+
+
+def _identity(metadata: os.stat_result) -> tuple[int, int]:
+    return metadata.st_dev, metadata.st_ino
+
+
+def _identity_at(parent: int, name: str) -> tuple[int, int] | None:
+    try:
+        return _identity(os.stat(name, dir_fd=parent, follow_symlinks=False))
+    except FileNotFoundError:
+        return None
+
+
+def _rename_noreplace_at(parent: int, source: str, destination: str) -> bool:
+    source_bytes = os.fsencode(source)
+    destination_bytes = os.fsencode(destination)
+    libc = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin":
+        rename = libc.renameatx_np
+        rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+        rename.restype = ctypes.c_int
+        result = rename(parent, source_bytes, parent, destination_bytes, 0x00000004)
+    elif sys.platform.startswith("linux"):
+        rename = libc.renameat2
+        rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+        rename.restype = ctypes.c_int
+        result = rename(parent, source_bytes, parent, destination_bytes, 0x00000001)
+    else:
+        return False
+    if result == 0:
+        return True
+    error = ctypes.get_errno()
+    if error in {errno.EEXIST, errno.ENOTEMPTY}:
+        return False
+    raise OSError(error, os.strerror(error))
+
+
+def _quarantine_name(name: str) -> str:
+    return f".{name}.sdd-remove-{os.getpid()}-{secrets.token_hex(16)}"
+
+
+def _unlink_owned_at(parent: int, name: str, owned: tuple[int, int], reason: str) -> None:
+    current = _identity_at(parent, name)
+    if current is None:
+        return
+    if current != owned:
+        raise InstallError(f"{reason}: preserved as {name}")
+    quarantine = _quarantine_name(name)
+    try:
+        os.rename(name, quarantine, src_dir_fd=parent, dst_dir_fd=parent)
+    except FileNotFoundError:
+        return
+    moved = _identity_at(parent, quarantine)
+    if moved != owned:
+        try:
+            os.link(
+                quarantine,
+                name,
+                src_dir_fd=parent,
+                dst_dir_fd=parent,
+                follow_symlinks=False,
+            )
+            os.unlink(quarantine, dir_fd=parent)
+            restored = True
+        except FileExistsError:
+            restored = False
+        location = name if restored else quarantine
+        raise InstallError(f"{reason}: preserved as {location}")
+    os.unlink(quarantine, dir_fd=parent)
+
+
+def _path_identity(path: Path) -> tuple[int, int] | None:
+    try:
+        return _identity(path.lstat())
+    except FileNotFoundError:
+        return None
+
+
+def _unlink_owned_path(path: Path, owned: tuple[int, int], reason: str) -> None:
+    if os.name == "posix":
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        parent = os.open(path.parent, flags)
+        try:
+            _unlink_owned_at(parent, path.name, owned, reason)
+        finally:
+            _close_descriptor(parent)
+        return
+    quarantine = path.with_name(_quarantine_name(path.name))
+    try:
+        os.rename(path, quarantine)
+    except FileNotFoundError:
+        return
+    if _path_identity(quarantine) != owned:
+        try:
+            os.rename(quarantine, path)
+        except OSError:
+            pass
+        raise InstallError(reason)
+    quarantine.unlink()
+
+
+def _remove_owned_directory_path(
+    path: Path,
+    owned: tuple[int, int],
+    reason: str,
+    *,
+    recursive: bool = False,
+) -> None:
+    quarantine = path.with_name(_quarantine_name(path.name))
+    if not recursive:
+        if os.name == "posix":
+            flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            try:
+                descriptor = os.open(path, flags)
+            except FileNotFoundError:
+                return
+            try:
+                if _identity(os.fstat(descriptor)) != owned:
+                    raise InstallError(reason)
+                if os.listdir(descriptor):
+                    raise InstallError(f"{reason}: non-empty directory preserved as {path.name}")
+            finally:
+                _close_descriptor(descriptor)
+        elif path.exists() and any(path.iterdir()):
+            raise InstallError(f"{reason}: non-empty directory preserved as {path.name}")
+    if os.name == "posix":
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        parent = os.open(path.parent, flags)
+        try:
+            try:
+                os.rename(path.name, quarantine.name, src_dir_fd=parent, dst_dir_fd=parent)
+            except FileNotFoundError:
+                return
+            moved = _identity_at(parent, quarantine.name)
+            if moved != owned:
+                restored = _rename_noreplace_at(parent, quarantine.name, path.name)
+                location = path.name if restored else quarantine.name
+                raise InstallError(f"{reason}: preserved as {location}")
+            if not recursive:
+                try:
+                    os.rmdir(quarantine.name, dir_fd=parent)
+                    return
+                except OSError as error:
+                    if error.errno not in {errno.ENOTEMPTY, errno.EEXIST}:
+                        raise
+                    restored = _rename_noreplace_at(parent, quarantine.name, path.name)
+                    location = path.name if restored else quarantine.name
+                    raise InstallError(f"{reason}: non-empty directory preserved as {location}")
+        finally:
+            _close_descriptor(parent)
+    else:
+        try:
+            os.rename(path, quarantine)
+        except FileNotFoundError:
+            return
+        if _path_identity(quarantine) != owned:
+            try:
+                os.rename(quarantine, path)
+            except OSError:
+                pass
+            raise InstallError(reason)
+        if not recursive:
+            try:
+                quarantine.rmdir()
+                return
+            except OSError:
+                try:
+                    os.rename(quarantine, path)
+                except OSError:
+                    pass
+                raise InstallError(f"{reason}: non-empty directory preserved")
+    if _path_identity(quarantine) != owned:
+        raise InstallError(f"{reason}: quarantine ownership changed")
+    shutil.rmtree(quarantine)
+
+
+def _open_project_parent_nofollow(
+    target: Path,
+    relative: str,
+    *,
+    create: bool,
+    created_directories: list[tuple[str, tuple[int, int]]] | None = None,
+) -> int:
+    path = Path(relative)
+    if path.is_absolute() or not path.name or any(part in {"", ".", ".."} for part in path.parts):
+        raise InstallError(f"CONFIG_DESTINATION_INVALID: {relative}")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    descriptor = os.open(target, flags)
+    traversed: list[str] = []
+    try:
+        for part in path.parent.parts:
+            traversed.append(part)
+            try:
+                next_descriptor = os.open(part, flags, dir_fd=descriptor)
+            except FileNotFoundError:
+                if not create:
+                    raise
+                os.mkdir(part, 0o755, dir_fd=descriptor)
+                created_identity = _identity(os.stat(part, dir_fd=descriptor, follow_symlinks=False))
+                if created_directories is not None:
+                    created_directories.append(("/".join(traversed), created_identity))
+                next_descriptor = None
+                try:
+                    next_descriptor = os.open(part, flags, dir_fd=descriptor)
+                    if _identity(os.fstat(next_descriptor)) != created_identity:
+                        raise InstallError(f"CONFIG_DESTINATION_CHANGED: {'/'.join(traversed)}")
+                    if _identity_at(descriptor, part) != created_identity:
+                        raise InstallError(f"CONFIG_DESTINATION_CHANGED: {'/'.join(traversed)}")
+                    if hasattr(os, "fchmod"):
+                        os.fchmod(next_descriptor, 0o755)
+                except BaseException:
+                    if next_descriptor is not None:
+                        _close_descriptor(next_descriptor)
+                    raise
+            os.close(descriptor)
+            descriptor = next_descriptor
+        return descriptor
+    except BaseException:
+        _close_descriptor(descriptor)
+        raise
+
+
+def _read_project_file_nofollow(target: Path, relative: str) -> bytes | None:
+    if os.name != "posix":
+        reject_symlinks(target, relative)
+        path = target / relative
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            return None
+        if not stat.S_ISREG(metadata.st_mode):
+            raise InstallError(f"CONFIG_DESTINATION_INVALID: {relative}")
+        return path.read_bytes()
+
+    parent: int | None = None
+    descriptor: int | None = None
+    try:
+        parent = _open_project_parent_nofollow(target, relative, create=False)
+        descriptor = os.open(
+            Path(relative).name,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+            dir_fd=parent,
+        )
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise InstallError(f"CONFIG_DESTINATION_INVALID: {relative}")
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = None
+            return stream.read()
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        if error.errno in {errno.ELOOP, errno.ENOTDIR}:
+            raise InstallError(f"SYMLINK_REJECTED: {target / relative}") from error
+        raise
+    finally:
+        if descriptor is not None:
+            _close_descriptor(descriptor)
+        if parent is not None:
+            _close_descriptor(parent)
+
+
+def _create_project_file_nofollow(
+    target: Path,
+    relative: str,
+    content: bytes,
+    created_files: list[tuple[str, tuple[int, int], bytes]],
+    created_directories: list[tuple[str, tuple[int, int]]],
+) -> None:
+    if is_tracked(target, relative):
+        raise InstallError(f"TRACKED_DESTINATION_PATH: {relative}")
+    if os.name != "posix":
+        reject_symlinks(target, relative)
+        destination = target / relative
+        current = target
+        traversed: list[str] = []
+        for part in Path(relative).parent.parts:
+            traversed.append(part)
+            current /= part
+            try:
+                metadata = current.lstat()
+            except FileNotFoundError:
+                current.mkdir(mode=0o755)
+                metadata = current.lstat()
+                created_directories.append(("/".join(traversed), _identity(metadata)))
+                current.chmod(0o755)
+            if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+                raise InstallError(f"SYMLINK_REJECTED: {current}")
+        descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    else:
+        parent = _open_project_parent_nofollow(
+            target,
+            relative,
+            create=True,
+            created_directories=created_directories,
+        )
+        try:
+            descriptor = os.open(
+                Path(relative).name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o644,
+                dir_fd=parent,
+            )
+        finally:
+            _close_descriptor(parent)
+    try:
+        owned_identity = _identity(os.fstat(descriptor))
+        created_files.append((relative, owned_identity, content))
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, 0o644)
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = -1
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+    finally:
+        if descriptor >= 0:
+            _close_descriptor(descriptor)
+
+
+def _rollback_created_paths(
+    target: Path,
+    files: list[tuple[str, tuple[int, int], bytes]],
+    directories: list[tuple[str, tuple[int, int]]],
+) -> None:
+    errors: list[str] = []
+    for relative, owned, expected_content in reversed(files):
+        try:
+            current_content = _read_project_file_nofollow(target, relative)
+            if current_content is None:
+                continue
+            if current_content != expected_content:
+                raise InstallError(f"ROLLBACK_DESTINATION_STATE_CHANGED: {relative}")
+            if os.name == "posix":
+                parent = _open_project_parent_nofollow(target, relative, create=False)
+                try:
+                    _unlink_owned_at(
+                        parent,
+                        Path(relative).name,
+                        owned,
+                        f"ROLLBACK_DESTINATION_OWNERSHIP_LOST: {relative}",
+                    )
+                finally:
+                    _close_descriptor(parent)
+            else:
+                _unlink_owned_path(
+                    target / relative,
+                    owned,
+                    f"ROLLBACK_DESTINATION_OWNERSHIP_LOST: {relative}",
+                )
+        except (InstallError, OSError) as error:
+            errors.append(f"{relative}: {error}")
+    for relative, owned in reversed(directories):
+        try:
+            _remove_owned_directory_path(
+                target / relative,
+                owned,
+                f"ROLLBACK_DESTINATION_OWNERSHIP_LOST: {relative}",
+            )
+        except (InstallError, OSError) as error:
+            errors.append(f"{relative}: {error}")
+    if errors:
+        raise InstallError(f"INSTALL_ROLLBACK_FAILED: {'; '.join(errors)}")
 
 
 def state(workspace: dict[str, str]) -> str:
@@ -731,10 +1105,16 @@ def _require_typesafe_record_target(target: Path) -> None:
     raise InstallError(f"ONBOARDING_RECORD_INVALID: {reason}")
 
 
-def _render_onboarding_answer(target: Path, question_id: str, value: str) -> bytes:
+def _render_onboarding_answer(
+    target: Path,
+    question_id: str,
+    value: str,
+    source: bytes | None = None,
+) -> bytes:
     path = target / CONFIG_ROOT / "PROJECT_SETUP.md"
     reject_symlinks(target, f"{CONFIG_ROOT}/PROJECT_SETUP.md")
-    lines = path.read_text(encoding="utf-8").splitlines()
+    raw = path.read_bytes() if source is None else source
+    lines = raw.decode("utf-8").splitlines()
     prefix = f"  {question_id}:"
     matches = [index for index, line in enumerate(lines) if line.startswith(prefix)]
     if len(matches) > 1:
@@ -766,51 +1146,306 @@ def _render_onboarding_answer(target: Path, question_id: str, value: str) -> byt
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
-def _atomic_write(path: Path, content: bytes) -> None:
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    temporary = Path(temporary_name)
+def _read_project_regular_snapshot(
+    target: Path,
+    relative: str,
+) -> tuple[bytes, tuple[int, int]] | None:
+    if os.name != "posix":
+        reject_symlinks(target, relative)
+        path = target / relative
+        try:
+            descriptor = os.open(path, os.O_RDONLY)
+        except FileNotFoundError:
+            return None
+        parent = None
+    else:
+        try:
+            parent = _open_project_parent_nofollow(target, relative, create=False)
+        except FileNotFoundError:
+            return None
+        try:
+            descriptor = os.open(
+                Path(relative).name,
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                dir_fd=parent,
+            )
+        except FileNotFoundError:
+            _close_descriptor(parent)
+            return None
+        except BaseException:
+            _close_descriptor(parent)
+            raise
     try:
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise InstallError(f"CONFIG_DESTINATION_INVALID: {relative}")
+        owned = _identity(metadata)
+        current = (
+            _identity_at(parent, Path(relative).name)
+            if parent is not None
+            else _path_identity(target / relative)
+        )
+        if current != owned:
+            raise InstallError(f"CONFIG_DESTINATION_CHANGED: {relative}")
+        return _read_all(descriptor), owned
+    finally:
+        _close_descriptor(descriptor)
+        if parent is not None:
+            _close_descriptor(parent)
+
+
+def _create_project_regular_owned(
+    target: Path,
+    relative: str,
+    content: bytes,
+    mode: int = 0o644,
+) -> tuple[int, int]:
+    parent: int | None = None
+    descriptor: int | None = None
+    owned: tuple[int, int] | None = None
+    try:
+        if os.name == "posix":
+            parent = _open_project_parent_nofollow(target, relative, create=False)
+            descriptor = os.open(
+                Path(relative).name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                mode,
+                dir_fd=parent,
+            )
+        else:
+            reject_symlinks(target, relative)
+            descriptor = os.open(target / relative, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+        owned = _identity(os.fstat(descriptor))
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, mode)
+        _write_all(descriptor, content)
+        os.fsync(descriptor)
+        current = (
+            _identity_at(parent, Path(relative).name)
+            if parent is not None
+            else _path_identity(target / relative)
+        )
+        if current != owned:
+            raise InstallError(f"DESTINATION_OWNERSHIP_LOST: {relative}")
+        return owned
     except BaseException:
-        if temporary.exists() or temporary.is_symlink():
-            temporary.unlink()
+        if descriptor is not None:
+            _close_descriptor(descriptor)
+            descriptor = None
+        if owned is not None:
+            if parent is not None:
+                _unlink_owned_at(
+                    parent,
+                    Path(relative).name,
+                    owned,
+                    f"DESTINATION_OWNERSHIP_LOST: {relative}",
+                )
+            else:
+                _unlink_owned_path(
+                    target / relative,
+                    owned,
+                    f"DESTINATION_OWNERSHIP_LOST: {relative}",
+                )
         raise
+    finally:
+        if descriptor is not None:
+            _close_descriptor(descriptor)
+        if parent is not None:
+            _close_descriptor(parent)
+
+
+def _create_project_directory_owned(
+    target: Path,
+    relative: str,
+    mode: int = 0o755,
+) -> tuple[int | None, tuple[int, int]]:
+    path = Path(relative)
+    if os.name != "posix":
+        reject_symlinks(target, str(path.parent))
+        destination = target / path
+        destination.mkdir(mode=mode)
+        destination.chmod(mode)
+        return None, _identity(destination.lstat())
+    parent = _open_project_parent_nofollow(target, relative, create=False)
+    parent_metadata = os.fstat(parent)
+    if stat.S_IMODE(parent_metadata.st_mode) & 0o022:
+        _close_descriptor(parent)
+        raise InstallError(f"INSECURE_PARENT_PERMISSIONS: {path.parent}")
+    descriptor: int | None = None
+    owned: tuple[int, int] | None = None
+    try:
+        os.mkdir(path.name, mode, dir_fd=parent)
+        owned = _identity(os.stat(path.name, dir_fd=parent, follow_symlinks=False))
+        descriptor = os.open(
+            path.name,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            dir_fd=parent,
+        )
+        if _identity(os.fstat(descriptor)) != owned:
+            raise InstallError(f"DESTINATION_OWNERSHIP_LOST: {relative}")
+        if _identity_at(parent, path.name) != owned:
+            raise InstallError(f"DESTINATION_OWNERSHIP_LOST: {relative}")
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, mode)
+        return descriptor, owned
+    except BaseException:
+        if descriptor is not None:
+            _close_descriptor(descriptor)
+        if owned is not None:
+            _remove_owned_directory_path(
+                target / relative,
+                owned,
+                f"DESTINATION_OWNERSHIP_LOST: {relative}",
+            )
+        raise
+    finally:
+        _close_descriptor(parent)
+
+
+def _overwrite_project_file_nofollow(
+    target: Path,
+    relative: str,
+    owned: tuple[int, int],
+    content: bytes,
+    *,
+    expected: bytes | None = None,
+) -> None:
+    if os.name != "posix":
+        path = target / relative
+        if _path_identity(path) != owned:
+            raise InstallError(f"DESTINATION_OWNERSHIP_LOST: {relative}")
+        descriptor = os.open(path, os.O_RDWR)
+        parent = None
+    else:
+        parent = _open_project_parent_nofollow(target, relative, create=False)
+        descriptor = os.open(
+            Path(relative).name,
+            os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK,
+            dir_fd=parent,
+        )
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or _identity(metadata) != owned:
+            raise InstallError(f"DESTINATION_OWNERSHIP_LOST: {relative}")
+        if os.name == "posix" and parent is not None:
+            if _identity_at(parent, Path(relative).name) != owned:
+                raise InstallError(f"DESTINATION_OWNERSHIP_LOST: {relative}")
+        elif _path_identity(target / relative) != owned:
+            raise InstallError(f"DESTINATION_OWNERSHIP_LOST: {relative}")
+        before = _read_all(descriptor)
+        if expected is not None and before != expected:
+            raise InstallError(f"DESTINATION_CONTENT_CHANGED: {relative}")
+        try:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            os.ftruncate(descriptor, 0)
+            _write_all(descriptor, content)
+            os.fsync(descriptor)
+            current = (
+                _identity_at(parent, Path(relative).name)
+                if parent is not None
+                else _path_identity(target / relative)
+            )
+            if current != owned:
+                raise InstallError(f"DESTINATION_OWNERSHIP_LOST: {relative}")
+        except BaseException as error:
+            try:
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                os.ftruncate(descriptor, 0)
+                _write_all(descriptor, before)
+                os.fsync(descriptor)
+            except BaseException as rollback:
+                raise InstallError(f"DESTINATION_ROLLBACK_FAILED: {relative}: {rollback}") from error
+            raise
+    finally:
+        _close_descriptor(descriptor)
+        if parent is not None:
+            _close_descriptor(parent)
 
 
 def _write_onboarding_answer(target: Path, question_id: str, value: str) -> None:
-    path = target / CONFIG_ROOT / "PROJECT_SETUP.md"
-    _atomic_write(path, _render_onboarding_answer(target, question_id, value))
+    relative = f"{CONFIG_ROOT}/PROJECT_SETUP.md"
+    snapshot = _read_project_regular_snapshot(target, relative)
+    if snapshot is None:
+        raise InstallError("ONBOARDING_RECORD_MISSING")
+    before, owned = snapshot
+    content = _render_onboarding_answer(target, question_id, value, source=before)
+    _overwrite_project_file_nofollow(target, relative, owned, content, expected=before)
 
 
 def _restore_typesafe_install(
     target: Path,
     lock_before: bytes | None,
+    lock_after: bytes | None,
     setup_before: bytes,
+    setup_after: bytes,
+    skill_identity: tuple[int, int],
+    lock_identity: tuple[int, int] | None,
+    setup_identity: tuple[int, int],
 ) -> None:
     skill_root = target / TYPESAFE_SKILL_ROOT
+    lock_path = target / TYPESAFE_LOCK_PATH
+    errors: list[BaseException] = []
     try:
         reject_symlinks(target, ".hermes/skills")
-        if skill_root.is_symlink() or skill_root.is_file():
-            skill_root.unlink()
-        elif skill_root.exists():
-            shutil.rmtree(skill_root)
-        lock_path = target / TYPESAFE_LOCK_PATH
-        if lock_path.exists() and lock_path.is_dir() and not lock_path.is_symlink():
-            raise InstallError("lock path became a directory")
-        if lock_before is None:
-            if lock_path.exists() or lock_path.is_symlink():
-                lock_path.unlink()
-        else:
-            _atomic_write(lock_path, lock_before)
-        setup_path = target / CONFIG_ROOT / "PROJECT_SETUP.md"
-        if setup_path.read_bytes() != setup_before:
-            _atomic_write(setup_path, setup_before)
+        _remove_owned_directory_path(
+            skill_root,
+            skill_identity,
+            "TYPESAFE_SKILL_ROLLBACK_OWNERSHIP_LOST",
+            recursive=True,
+        )
     except (InstallError, OSError) as error:
-        raise InstallError(f"TYPESAFE_ROLLBACK_FAILED: {error}") from error
+        errors.append(error)
+    try:
+        if lock_identity is not None:
+            lock_snapshot = _read_project_regular_snapshot(target, TYPESAFE_LOCK_PATH)
+            if lock_snapshot is None or lock_snapshot[1] != lock_identity:
+                raise InstallError("TYPESAFE_LOCK_ROLLBACK_OWNERSHIP_LOST")
+            current_lock = lock_snapshot[0]
+            if lock_before is None:
+                if lock_after is None or current_lock != lock_after:
+                    raise InstallError("TYPESAFE_LOCK_ROLLBACK_STATE_CHANGED")
+                _unlink_owned_path(
+                    lock_path,
+                    lock_identity,
+                    "TYPESAFE_LOCK_ROLLBACK_OWNERSHIP_LOST",
+                )
+            elif current_lock == lock_before:
+                pass
+            elif lock_after is not None and current_lock == lock_after:
+                _overwrite_project_file_nofollow(
+                    target,
+                    TYPESAFE_LOCK_PATH,
+                    lock_identity,
+                    lock_before,
+                    expected=lock_after,
+                )
+            else:
+                raise InstallError("TYPESAFE_LOCK_ROLLBACK_STATE_CHANGED")
+    except (InstallError, OSError) as error:
+        errors.append(error)
+    try:
+        setup_relative = f"{CONFIG_ROOT}/PROJECT_SETUP.md"
+        setup_snapshot = _read_project_regular_snapshot(target, setup_relative)
+        if setup_snapshot is None or setup_snapshot[1] != setup_identity:
+            raise InstallError("ONBOARDING_ROLLBACK_OWNERSHIP_LOST")
+        current_setup = setup_snapshot[0]
+        if current_setup == setup_before:
+            pass
+        elif current_setup == setup_after:
+            _overwrite_project_file_nofollow(
+                target,
+                setup_relative,
+                setup_identity,
+                setup_before,
+                expected=setup_after,
+            )
+        else:
+            raise InstallError("ONBOARDING_ROLLBACK_STATE_CHANGED")
+    except (InstallError, OSError) as error:
+        errors.append(error)
+    if errors:
+        details = "; ".join(str(item) for item in errors)
+        raise InstallError(f"TYPESAFE_ROLLBACK_FAILED: {details}")
 
 
 def _preflight_typesafe_install(target: Path) -> dict[str, object]:
@@ -850,11 +1485,11 @@ def _merged_typesafe_lock(lock_before: bytes | None, entry: dict[str, object]) -
     return (json.dumps(lock, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
 
 
-def _ensure_typesafe_env(target: Path) -> bool:
+def _ensure_typesafe_env(target: Path) -> tuple[bool, tuple[int, int] | None]:
     """Create a private empty credential file without touching an existing one."""
     environment = typesafe_env_status(target)
     if environment["env_status"] == "PRESENT":
-        return False
+        return False, None
     if environment["env_status"] == "CONFLICT":
         raise InstallError(f"TYPESAFE_ENV_CONFLICT: {environment['env_issue']}")
     path = Path(TYPESAFE_ENV_PATH)
@@ -906,28 +1541,95 @@ def _ensure_typesafe_env(target: Path) -> bool:
         finally:
             if parent is not None:
                 _close_descriptor(parent)
-    return True
+    identity = _path_identity(target / path)
+    if identity is None:
+        raise InstallError("TYPESAFE_ENV_CREATION_FAILED")
+    return True, identity
+
+
+def _rollback_typesafe_env(target: Path, identity: tuple[int, int] | None) -> None:
+    if identity is None:
+        return
+    snapshot = _read_project_regular_snapshot(target, TYPESAFE_ENV_PATH)
+    if snapshot is None:
+        return
+    content, current_identity = snapshot
+    if current_identity != identity or content != TYPESAFE_ENV_CONTENT:
+        raise InstallError("TYPESAFE_ENV_ROLLBACK_STATE_CHANGED")
+    _unlink_owned_path(
+        target / TYPESAFE_ENV_PATH,
+        identity,
+        "TYPESAFE_ENV_ROLLBACK_OWNERSHIP_LOST",
+    )
 
 
 def install_typesafe_skill(target: Path, onboarding_after: bytes) -> str:
     """Commit the vetted bundled skill, merged lock and onboarding answer."""
     current = _preflight_typesafe_install(target)
     if current["status"] == "INSTALLED":
-        setup_path = target / CONFIG_ROOT / "PROJECT_SETUP.md"
-        setup_before = setup_path.read_bytes()
+        setup_relative = f"{CONFIG_ROOT}/PROJECT_SETUP.md"
+        setup_snapshot = _read_project_regular_snapshot(target, setup_relative)
+        if setup_snapshot is None:
+            raise InstallError("ONBOARDING_RECORD_MISSING")
+        setup_before, setup_identity = setup_snapshot
+        onboarding_after = _render_onboarding_answer(
+            target,
+            "typesafe_ai",
+            '{"install":true}',
+            source=setup_before,
+        )
+        env_identity: tuple[int, int] | None = None
         try:
-            _atomic_write(setup_path, onboarding_after)
-            _ensure_typesafe_env(target)
-        except BaseException:
-            if setup_path.read_bytes() != setup_before:
-                _atomic_write(setup_path, setup_before)
+            _overwrite_project_file_nofollow(
+                target,
+                setup_relative,
+                setup_identity,
+                onboarding_after,
+                expected=setup_before,
+            )
+            _, env_identity = _ensure_typesafe_env(target)
+            if _path_identity(target / setup_relative) != setup_identity:
+                raise InstallError("ONBOARDING_RECORD_CHANGED_DURING_APPLY")
+        except BaseException as error:
+            rollback_errors: list[BaseException] = []
+            try:
+                current_setup = _read_project_regular_snapshot(target, setup_relative)
+                if current_setup is None or current_setup[1] != setup_identity:
+                    raise InstallError("ONBOARDING_RECORD_CHANGED_DURING_APPLY")
+                if current_setup[0] != setup_before:
+                    _overwrite_project_file_nofollow(
+                        target,
+                        setup_relative,
+                        setup_identity,
+                        setup_before,
+                        expected=onboarding_after,
+                    )
+            except (InstallError, OSError) as rollback:
+                rollback_errors.append(rollback)
+            try:
+                _rollback_typesafe_env(target, env_identity)
+            except (InstallError, OSError) as rollback:
+                rollback_errors.append(rollback)
+            if rollback_errors:
+                details = "; ".join(str(item) for item in rollback_errors)
+                raise InstallError(f"TYPESAFE_ROLLBACK_FAILED: {details}") from error
             raise
         return "RECORD"
 
     lock_path = target / TYPESAFE_LOCK_PATH
-    setup_path = target / CONFIG_ROOT / "PROJECT_SETUP.md"
-    lock_before = lock_path.read_bytes() if lock_path.exists() else None
-    setup_before = setup_path.read_bytes()
+    lock_snapshot = _read_project_regular_snapshot(target, TYPESAFE_LOCK_PATH)
+    lock_before = lock_snapshot[0] if lock_snapshot is not None else None
+    lock_identity_before = lock_snapshot[1] if lock_snapshot is not None else None
+    setup_snapshot = _read_project_regular_snapshot(target, f"{CONFIG_ROOT}/PROJECT_SETUP.md")
+    if setup_snapshot is None:
+        raise InstallError("ONBOARDING_RECORD_MISSING")
+    setup_before, setup_identity = setup_snapshot
+    onboarding_after = _render_onboarding_answer(
+        target,
+        "typesafe_ai",
+        '{"install":true}',
+        source=setup_before,
+    )
     entry: dict[str, object] = {
         "source": "typesafe-ai/skills",
         "ref": TYPESAFE_SOURCE_REF,
@@ -938,22 +1640,65 @@ def install_typesafe_skill(target: Path, onboarding_after: bytes) -> str:
     merged_lock = _merged_typesafe_lock(lock_before, entry)
 
     reject_symlinks(target, ".hermes/skills")
-    skill_root = target / TYPESAFE_SKILL_ROOT
     try:
-        skill_root.mkdir()
+        skill_descriptor, skill_identity = _create_project_directory_owned(
+            target,
+            TYPESAFE_SKILL_ROOT,
+        )
     except FileExistsError as error:
         raise InstallError(f"TYPESAFE_SKILL_CONFLICT: {TYPESAFE_SKILL_ROOT}") from error
+    lock_identity: tuple[int, int] | None = None
+    env_identity: tuple[int, int] | None = None
 
     try:
         for source in sorted(TYPESAFE_VENDOR.iterdir()):
-            shutil.copy2(source, skill_root / source.name)
-        _atomic_write(lock_path, merged_lock)
-        verified = typesafe_skill_status(target)
-        if verified["status"] != "INSTALLED":
-            raise InstallError(f"TYPESAFE_INSTALL_FAILED: target verification: {verified['issue']}")
+            content = source.read_bytes()
+            if skill_descriptor is not None:
+                descriptor = os.open(
+                    source.name,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    0o644,
+                    dir_fd=skill_descriptor,
+                )
+                try:
+                    if hasattr(os, "fchmod"):
+                        os.fchmod(descriptor, 0o644)
+                    _write_all(descriptor, content)
+                    os.fsync(descriptor)
+                finally:
+                    _close_descriptor(descriptor)
+            else:
+                _create_project_regular_owned(
+                    target,
+                    f"{TYPESAFE_SKILL_ROOT}/{source.name}",
+                    content,
+                )
+        if skill_descriptor is not None:
+            if _identity(os.fstat(skill_descriptor)) != skill_identity:
+                raise InstallError("TYPESAFE_SKILL_OWNERSHIP_LOST")
+            _close_descriptor(skill_descriptor)
+            skill_descriptor = None
+        if _path_identity(target / TYPESAFE_SKILL_ROOT) != skill_identity:
+            raise InstallError("TYPESAFE_SKILL_OWNERSHIP_LOST")
+        if lock_before is None:
+            lock_identity = _create_project_regular_owned(target, TYPESAFE_LOCK_PATH, merged_lock)
+        else:
+            if lock_identity_before is None:
+                raise InstallError("TYPESAFE_LOCK_CHANGED_DURING_APPLY")
+            lock_identity = lock_identity_before
+            _overwrite_project_file_nofollow(
+                target,
+                TYPESAFE_LOCK_PATH,
+                lock_identity,
+                merged_lock,
+                expected=lock_before,
+            )
         if lock_before is not None:
             before = _load_unique_json(lock_before.decode("utf-8"))
-            after = _load_unique_json(lock_path.read_text(encoding="utf-8"))
+            lock_after_snapshot = _read_project_regular_snapshot(target, TYPESAFE_LOCK_PATH)
+            if lock_after_snapshot is None or lock_after_snapshot[1] != lock_identity:
+                raise InstallError("TYPESAFE_LOCK_CHANGED_DURING_APPLY")
+            after = _load_unique_json(lock_after_snapshot[0].decode("utf-8"))
             if not isinstance(before, dict) or not isinstance(after, dict):
                 raise InstallError("TYPESAFE_LOCK_PRESERVATION_FAILED")
             before_skills = dict(before["skills"])
@@ -964,39 +1709,593 @@ def install_typesafe_skill(target: Path, onboarding_after: bytes) -> str:
             after["skills"] = after_skills
             if before != after:
                 raise InstallError("TYPESAFE_LOCK_PRESERVATION_FAILED")
-        _atomic_write(setup_path, onboarding_after)
-        _ensure_typesafe_env(target)
-    except BaseException:
-        _restore_typesafe_install(target, lock_before, setup_before)
+        _overwrite_project_file_nofollow(
+            target,
+            f"{CONFIG_ROOT}/PROJECT_SETUP.md",
+            setup_identity,
+            onboarding_after,
+            expected=setup_before,
+        )
+        _, env_identity = _ensure_typesafe_env(target)
+        verified = typesafe_skill_status(target)
+        if verified["status"] != "INSTALLED":
+            raise InstallError(f"TYPESAFE_INSTALL_FAILED: target verification: {verified['issue']}")
+        if _path_identity(target / TYPESAFE_SKILL_ROOT) != skill_identity:
+            raise InstallError("TYPESAFE_SKILL_OWNERSHIP_LOST")
+        if _path_identity(lock_path) != lock_identity:
+            raise InstallError("TYPESAFE_LOCK_CHANGED_DURING_APPLY")
+        if _path_identity(target / CONFIG_ROOT / "PROJECT_SETUP.md") != setup_identity:
+            raise InstallError("ONBOARDING_RECORD_CHANGED_DURING_APPLY")
+    except BaseException as error:
+        if skill_descriptor is not None:
+            _close_descriptor(skill_descriptor)
+            skill_descriptor = None
+        rollback_errors: list[BaseException] = []
+        try:
+            _restore_typesafe_install(
+                target,
+                lock_before,
+                merged_lock,
+                setup_before,
+                onboarding_after,
+                skill_identity,
+                lock_identity,
+                setup_identity,
+            )
+        except (InstallError, OSError) as rollback:
+            rollback_errors.append(rollback)
+        try:
+            _rollback_typesafe_env(target, env_identity)
+        except (InstallError, OSError) as rollback:
+            rollback_errors.append(rollback)
+        if rollback_errors:
+            details = "; ".join(str(item) for item in rollback_errors)
+            raise InstallError(f"TYPESAFE_ROLLBACK_FAILED: {details}") from error
         raise
     return "INSTALL"
 
 
 def empty_journal(target: Path, workspace: dict[str, str]) -> str:
-    module_path = target / CONFIG_ROOT / "runtime" / "action_journal.py"
+    module_path = TEMPLATE / CONFIG_ROOT / "runtime" / "action_journal.py"
     spec = importlib.util.spec_from_file_location("sdd_action_journal", module_path)
     if spec is None or spec.loader is None:
         raise InstallError("ACTION_JOURNAL_MODULE_UNAVAILABLE")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    journal = module.empty_journal(workspace)
+    previous_dont_write_bytecode = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous_dont_write_bytecode
+    journal_workspace = {
+        key: workspace[key]
+        for key in ("path", "branch", "head", "git_common_dir")
+    }
+    journal = module.empty_journal(journal_workspace)
     module.validate_journal(journal)
     return json.dumps(journal, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
 
 
-def update_exclude(target: Path) -> None:
-    path = Path(git(target, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"))
-    if path.is_symlink():
+def _plan_base_files(target: Path) -> tuple[list[str], list[str]]:
+    planned: list[str] = []
+    for source in template_files():
+        relative = source.relative_to(TEMPLATE).as_posix()
+        if is_tracked(target, relative):
+            raise InstallError(f"TRACKED_DESTINATION_PATH: {relative}")
+        existing = _read_project_file_nofollow(target, relative)
+        if existing is not None and existing != source.read_bytes():
+            raise InstallError(f"CONFIG_CONFLICT: {relative}")
+        if existing is None:
+            planned.append(relative)
+
+    existing_state: list[str] = []
+    for relative in STATE_PATHS:
+        if is_tracked(target, relative):
+            raise InstallError(f"TRACKED_DESTINATION_PATH: {relative}")
+        if _read_project_file_nofollow(target, relative) is not None:
+            existing_state.append(relative)
+    if existing_state:
+        if len(existing_state) != len(STATE_PATHS) or planned:
+            raise InstallError(f"LOCAL_STATE_REQUIRES_REVIEW: {', '.join(existing_state)}")
+    else:
+        planned.extend(STATE_PATHS)
+    return planned, existing_state
+
+
+def _open_git_info(workspace: dict[str, str]) -> int:
+    flags = os.O_RDONLY | os.O_DIRECTORY
+    if os.name == "posix":
+        flags |= os.O_NOFOLLOW
+    common: int | None = None
+    try:
+        common = os.open(workspace["git_common_dir"], flags)
+        info = os.open("info", flags, dir_fd=common)
+        return info
+    except OSError as error:
+        if error.errno in {errno.ELOOP, errno.ENOTDIR}:
+            raise InstallError("EXCLUDE_SYMLINK_REJECTED") from error
+        raise InstallError(f"EXCLUDE_INVALID: {error}") from error
+    finally:
+        if common is not None:
+            _close_descriptor(common)
+
+
+def _read_exclude(info: int) -> bytes | None:
+    descriptor: int | None = None
+    try:
+        flags = os.O_RDONLY
+        if os.name == "posix":
+            flags |= os.O_NOFOLLOW | os.O_NONBLOCK
+        descriptor = os.open("exclude", flags, dir_fd=info)
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise InstallError("EXCLUDE_INVALID")
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = None
+            return stream.read()
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        if error.errno in {errno.ELOOP, errno.ENOTDIR}:
+            raise InstallError("EXCLUDE_SYMLINK_REJECTED") from error
+        raise InstallError(f"EXCLUDE_INVALID: {error}") from error
+    finally:
+        if descriptor is not None:
+            _close_descriptor(descriptor)
+
+
+def _render_exclude(existing: bytes | None) -> bytes:
+    content = existing or b""
+    entries = set(content.splitlines())
+    additions = []
+    for item in managed_exclude_entries():
+        encoded = item.encode("utf-8")
+        if encoded not in entries and encoded.lstrip(b"/") not in entries:
+            additions.append(encoded)
+    if not additions:
+        return content
+    separator = b"" if not content or content.endswith(b"\n") else b"\n"
+    return content + separator + b"\n".join(additions) + b"\n"
+
+
+def _portable_exclude_path(workspace: dict[str, str]) -> Path:
+    common = Path(workspace["git_common_dir"])
+    info = common / "info"
+    if common.is_symlink() or info.is_symlink():
         raise InstallError("EXCLUDE_SYMLINK_REJECTED")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    existing = path.read_text(encoding="utf-8") if path.exists() else ""
-    entries = existing.splitlines()
-    additions = [item for item in LOCAL_PATHS if item not in entries]
-    if additions:
-        path.write_text(
-            existing + ("" if not existing or existing.endswith("\n") else "\n") + "\n".join(additions) + "\n",
-            encoding="utf-8",
+    if not info.is_dir():
+        raise InstallError("EXCLUDE_INVALID")
+    path = info / "exclude"
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return path
+    if stat.S_ISLNK(metadata.st_mode):
+        raise InstallError("EXCLUDE_SYMLINK_REJECTED")
+    if not stat.S_ISREG(metadata.st_mode):
+        raise InstallError("EXCLUDE_INVALID")
+    return path
+
+
+def _read_portable_exclude(workspace: dict[str, str]) -> bytes | None:
+    path = _portable_exclude_path(workspace)
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
+        return None
+
+
+def exclude_update_planned(workspace: dict[str, str]) -> bool:
+    if os.name != "posix":
+        existing = _read_portable_exclude(workspace)
+        return _render_exclude(existing) != (existing or b"")
+    info = _open_git_info(workspace)
+    try:
+        existing = _read_exclude(info)
+        return _render_exclude(existing) != (existing or b"")
+    finally:
+        _close_descriptor(info)
+
+
+def _read_all(descriptor: int) -> bytes:
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    chunks: list[bytes] = []
+    while True:
+        chunk = os.read(descriptor, 65536)
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+
+
+def _write_all(descriptor: int, content: bytes) -> None:
+    view = memoryview(content)
+    while view:
+        written = os.write(descriptor, view)
+        if written <= 0:
+            raise OSError("short write")
+        view = view[written:]
+
+
+def _acquire_lock(
+    parent: int,
+    name: str,
+    reason: str,
+) -> tuple[int, tuple[int, int]]:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if os.name == "posix":
+        flags |= os.O_NOFOLLOW
+    descriptor: int | None = None
+    owned: tuple[int, int] | None = None
+    try:
+        descriptor = os.open(name, flags, 0o600, dir_fd=parent)
+        owned = _identity(os.fstat(descriptor))
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, 0o600)
+        return descriptor, owned
+    except FileExistsError as error:
+        raise InstallError(reason) from error
+    except BaseException:
+        if descriptor is not None:
+            _close_descriptor(descriptor)
+        if owned is not None:
+            _unlink_owned_at(parent, name, owned, f"{reason}_OWNERSHIP_LOST")
+        raise
+
+
+def _acquire_portable_lock(path: Path, reason: str) -> tuple[int, tuple[int, int]]:
+    descriptor: int | None = None
+    owned: tuple[int, int] | None = None
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        owned = _identity(os.fstat(descriptor))
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, 0o600)
+        else:
+            path.chmod(0o600)
+        return descriptor, owned
+    except FileExistsError as error:
+        raise InstallError(reason) from error
+    except BaseException:
+        if descriptor is not None:
+            _close_descriptor(descriptor)
+        if owned is not None:
+            _unlink_owned_path(path, owned, f"{reason}_OWNERSHIP_LOST")
+        raise
+
+
+def _apply_base_install_portable(
+    target: Path,
+    workspace: dict[str, str],
+    expected_planned: list[str],
+    after_base,
+) -> list[str]:
+    index_path = Path(workspace["git_dir"]) / "index.lock"
+    exclude_path = _portable_exclude_path(workspace)
+    exclude_lock_path = exclude_path.with_name("exclude.sdd-orchestrator.lock")
+    index_lock: int | None = None
+    index_lock_identity: tuple[int, int] | None = None
+    exclude_lock: int | None = None
+    exclude_lock_identity: tuple[int, int] | None = None
+    exclude_descriptor: int | None = None
+    exclude_identity: tuple[int, int] | None = None
+    exclude_before: bytes | None = None
+    exclude_after = b""
+    exclude_changed = False
+    exclude_created = False
+    created_files: list[tuple[str, tuple[int, int], bytes]] = []
+    created_directories: list[tuple[str, tuple[int, int]]] = []
+    try:
+        index_lock, index_lock_identity = _acquire_portable_lock(index_path, "GIT_INDEX_LOCKED")
+        exclude_lock, exclude_lock_identity = _acquire_portable_lock(exclude_lock_path, "EXCLUDE_LOCKED")
+        exclude_before = _read_portable_exclude(workspace)
+        exclude_after = _render_exclude(exclude_before)
+        exclude_changed = exclude_after != (exclude_before or b"")
+        locked_planned, _ = _plan_base_files(target)
+        if locked_planned != expected_planned:
+            raise InstallError("INSTALL_STATE_CHANGED")
+
+        if exclude_changed:
+            flags = os.O_RDWR
+            if exclude_before is None:
+                flags |= os.O_CREAT | os.O_EXCL
+            exclude_descriptor = os.open(exclude_path, flags, 0o644)
+            metadata = os.fstat(exclude_descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise InstallError("EXCLUDE_INVALID")
+            exclude_identity = _identity(metadata)
+            exclude_created = exclude_before is None
+            if _read_all(exclude_descriptor) != (exclude_before or b""):
+                raise InstallError("EXCLUDE_CHANGED_DURING_APPLY")
+            if _path_identity(exclude_path) != exclude_identity:
+                raise InstallError("EXCLUDE_CHANGED_DURING_APPLY")
+            if _read_all(exclude_descriptor) != (exclude_before or b""):
+                raise InstallError("EXCLUDE_CHANGED_DURING_APPLY")
+            os.lseek(exclude_descriptor, 0, os.SEEK_SET)
+            os.ftruncate(exclude_descriptor, 0)
+            _write_all(exclude_descriptor, exclude_after)
+            os.fsync(exclude_descriptor)
+            if _path_identity(exclude_path) != exclude_identity:
+                raise InstallError("EXCLUDE_CHANGED_DURING_APPLY")
+
+        planned_set = set(expected_planned)
+        for source in template_files():
+            relative = source.relative_to(TEMPLATE).as_posix()
+            if relative in planned_set:
+                _create_project_file_nofollow(
+                    target,
+                    relative,
+                    source.read_bytes(),
+                    created_files,
+                    created_directories,
+                )
+        generated = {
+            f"{CONFIG_ROOT}/STATE.md": state(workspace).encode("utf-8"),
+            f"{CONFIG_ROOT}/PROJECT_SETUP.md": project_setup().encode("utf-8"),
+            f"{CONFIG_ROOT}/INCIDENTS.md": b"# SDD Orchestration Incidents\n\nNo incidents recorded.\n",
+            f"{CONFIG_ROOT}/ACTION_JOURNAL.json": empty_journal(target, workspace).encode("utf-8"),
+        }
+        for relative in STATE_PATHS:
+            if relative in planned_set:
+                _create_project_file_nofollow(
+                    target,
+                    relative,
+                    generated[relative],
+                    created_files,
+                    created_directories,
+                )
+        if exclude_changed and exclude_descriptor is not None:
+            if _path_identity(exclude_path) != exclude_identity:
+                raise InstallError("EXCLUDE_CHANGED_DURING_APPLY")
+            if _read_all(exclude_descriptor) != exclude_after:
+                raise InstallError("EXCLUDE_CHANGED_DURING_APPLY")
+        if after_base is not None:
+            after_base()
+    except BaseException as error:
+        rollback_errors: list[BaseException] = []
+        try:
+            _rollback_created_paths(target, created_files, created_directories)
+        except BaseException as rollback:
+            rollback_errors.append(rollback)
+        try:
+            if exclude_changed and exclude_identity is not None:
+                if _path_identity(exclude_path) != exclude_identity:
+                    raise InstallError("EXCLUDE_ROLLBACK_OWNERSHIP_LOST")
+                if exclude_created:
+                    if exclude_descriptor is not None:
+                        _close_descriptor(exclude_descriptor)
+                        exclude_descriptor = None
+                    _unlink_owned_path(
+                        exclude_path,
+                        exclude_identity,
+                        "EXCLUDE_ROLLBACK_OWNERSHIP_LOST",
+                    )
+                elif exclude_descriptor is not None and exclude_before is not None:
+                    if _read_all(exclude_descriptor) != exclude_after:
+                        raise InstallError("EXCLUDE_ROLLBACK_STATE_CHANGED")
+                    os.lseek(exclude_descriptor, 0, os.SEEK_SET)
+                    os.ftruncate(exclude_descriptor, 0)
+                    _write_all(exclude_descriptor, exclude_before)
+                    os.fsync(exclude_descriptor)
+        except BaseException as rollback:
+            rollback_errors.append(rollback)
+        if rollback_errors:
+            details = "; ".join(str(item) for item in rollback_errors)
+            raise InstallError(f"INSTALL_ROLLBACK_FAILED: {details}") from error
+        raise
+    finally:
+        active_error = sys.exc_info()[1]
+        cleanup_errors: list[BaseException] = []
+        if exclude_descriptor is not None:
+            _close_descriptor(exclude_descriptor)
+        if exclude_lock is not None:
+            _close_descriptor(exclude_lock)
+            if exclude_lock_identity is not None:
+                try:
+                    _unlink_owned_path(
+                        exclude_lock_path,
+                        exclude_lock_identity,
+                        "EXCLUDE_LOCK_OWNERSHIP_LOST",
+                    )
+                except InstallError as cleanup:
+                    if "_OWNERSHIP_LOST" not in str(cleanup):
+                        cleanup_errors.append(cleanup)
+                except BaseException as cleanup:
+                    cleanup_errors.append(cleanup)
+        if index_lock is not None:
+            _close_descriptor(index_lock)
+            if index_lock_identity is not None:
+                try:
+                    _unlink_owned_path(
+                        index_path,
+                        index_lock_identity,
+                        "GIT_INDEX_LOCK_OWNERSHIP_LOST",
+                    )
+                except InstallError as cleanup:
+                    if "_OWNERSHIP_LOST" not in str(cleanup):
+                        cleanup_errors.append(cleanup)
+                except BaseException as cleanup:
+                    cleanup_errors.append(cleanup)
+        if cleanup_errors and active_error is not None:
+            details = "; ".join(str(item) for item in cleanup_errors)
+            raise InstallError(
+                f"{active_error}; INSTALL_LOCK_CLEANUP_FAILED: {details}"
+            ) from active_error
+    return [str(item) for item in cleanup_errors]
+
+
+def _apply_base_install(
+    target: Path,
+    workspace: dict[str, str],
+    expected_planned: list[str],
+    after_base=None,
+) -> list[str]:
+    if os.name != "posix":
+        return _apply_base_install_portable(target, workspace, expected_planned, after_base)
+
+    git_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    git_directory = os.open(workspace["git_dir"], git_flags)
+    index_lock: int | None = None
+    index_lock_identity: tuple[int, int] | None = None
+    info: int | None = None
+    exclude_lock: int | None = None
+    exclude_lock_identity: tuple[int, int] | None = None
+    exclude_descriptor: int | None = None
+    exclude_identity: tuple[int, int] | None = None
+    exclude_before: bytes | None = None
+    exclude_after = b""
+    exclude_changed = False
+    exclude_created = False
+    created_files: list[tuple[str, tuple[int, int], bytes]] = []
+    created_directories: list[tuple[str, tuple[int, int]]] = []
+    try:
+        index_lock, index_lock_identity = _acquire_lock(git_directory, "index.lock", "GIT_INDEX_LOCKED")
+        info = _open_git_info(workspace)
+        exclude_lock, exclude_lock_identity = _acquire_lock(
+            info,
+            "exclude.sdd-orchestrator.lock",
+            "EXCLUDE_LOCKED",
         )
+        exclude_before = _read_exclude(info)
+        exclude_after = _render_exclude(exclude_before)
+        exclude_changed = exclude_after != (exclude_before or b"")
+
+        locked_planned, _ = _plan_base_files(target)
+        if locked_planned != expected_planned:
+            raise InstallError("INSTALL_STATE_CHANGED")
+
+        if exclude_changed:
+            flags = os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK
+            if exclude_before is None:
+                flags |= os.O_CREAT | os.O_EXCL
+            exclude_descriptor = os.open("exclude", flags, 0o644, dir_fd=info)
+            metadata = os.fstat(exclude_descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise InstallError("EXCLUDE_INVALID")
+            exclude_identity = _identity(metadata)
+            exclude_created = exclude_before is None
+            if _read_all(exclude_descriptor) != (exclude_before or b""):
+                raise InstallError("EXCLUDE_CHANGED_DURING_APPLY")
+            if _identity_at(info, "exclude") != exclude_identity:
+                raise InstallError("EXCLUDE_CHANGED_DURING_APPLY")
+            if _read_all(exclude_descriptor) != (exclude_before or b""):
+                raise InstallError("EXCLUDE_CHANGED_DURING_APPLY")
+            os.lseek(exclude_descriptor, 0, os.SEEK_SET)
+            os.ftruncate(exclude_descriptor, 0)
+            _write_all(exclude_descriptor, exclude_after)
+            os.fsync(exclude_descriptor)
+            if _identity_at(info, "exclude") != exclude_identity:
+                raise InstallError("EXCLUDE_CHANGED_DURING_APPLY")
+
+        planned_set = set(expected_planned)
+        for source in template_files():
+            relative = source.relative_to(TEMPLATE).as_posix()
+            if relative in planned_set:
+                _create_project_file_nofollow(
+                    target,
+                    relative,
+                    source.read_bytes(),
+                    created_files,
+                    created_directories,
+                )
+        generated = {
+            f"{CONFIG_ROOT}/STATE.md": state(workspace).encode("utf-8"),
+            f"{CONFIG_ROOT}/PROJECT_SETUP.md": project_setup().encode("utf-8"),
+            f"{CONFIG_ROOT}/INCIDENTS.md": b"# SDD Orchestration Incidents\n\nNo incidents recorded.\n",
+            f"{CONFIG_ROOT}/ACTION_JOURNAL.json": empty_journal(target, workspace).encode("utf-8"),
+        }
+        for relative in STATE_PATHS:
+            if relative in planned_set:
+                _create_project_file_nofollow(
+                    target,
+                    relative,
+                    generated[relative],
+                    created_files,
+                    created_directories,
+                )
+        if exclude_changed and info is not None and exclude_descriptor is not None:
+            if _identity_at(info, "exclude") != exclude_identity:
+                raise InstallError("EXCLUDE_CHANGED_DURING_APPLY")
+            if _read_all(exclude_descriptor) != exclude_after:
+                raise InstallError("EXCLUDE_CHANGED_DURING_APPLY")
+        if after_base is not None:
+            after_base()
+    except BaseException as error:
+        rollback_errors: list[BaseException] = []
+        try:
+            _rollback_created_paths(target, created_files, created_directories)
+        except BaseException as rollback:
+            rollback_errors.append(rollback)
+        try:
+            if exclude_changed and info is not None and exclude_identity is not None:
+                if _identity_at(info, "exclude") != exclude_identity:
+                    raise InstallError("EXCLUDE_ROLLBACK_OWNERSHIP_LOST")
+                if exclude_created:
+                    if exclude_descriptor is not None:
+                        _close_descriptor(exclude_descriptor)
+                        exclude_descriptor = None
+                    _unlink_owned_at(
+                        info,
+                        "exclude",
+                        exclude_identity,
+                        "EXCLUDE_ROLLBACK_OWNERSHIP_LOST",
+                    )
+                elif exclude_descriptor is not None and exclude_before is not None:
+                    if _read_all(exclude_descriptor) != exclude_after:
+                        raise InstallError("EXCLUDE_ROLLBACK_STATE_CHANGED")
+                    os.lseek(exclude_descriptor, 0, os.SEEK_SET)
+                    os.ftruncate(exclude_descriptor, 0)
+                    _write_all(exclude_descriptor, exclude_before)
+                    os.fsync(exclude_descriptor)
+        except BaseException as rollback:
+            rollback_errors.append(rollback)
+        if rollback_errors:
+            details = "; ".join(str(item) for item in rollback_errors)
+            raise InstallError(f"INSTALL_ROLLBACK_FAILED: {details}") from error
+        raise
+    finally:
+        active_error = sys.exc_info()[1]
+        cleanup_errors: list[BaseException] = []
+        if exclude_descriptor is not None:
+            _close_descriptor(exclude_descriptor)
+        if exclude_lock is not None:
+            _close_descriptor(exclude_lock)
+            if info is not None and exclude_lock_identity is not None:
+                try:
+                    _unlink_owned_at(
+                        info,
+                        "exclude.sdd-orchestrator.lock",
+                        exclude_lock_identity,
+                        "EXCLUDE_LOCK_OWNERSHIP_LOST",
+                    )
+                except InstallError as cleanup:
+                    if "_OWNERSHIP_LOST" not in str(cleanup):
+                        cleanup_errors.append(cleanup)
+                except BaseException as cleanup:
+                    cleanup_errors.append(cleanup)
+        if info is not None:
+            _close_descriptor(info)
+        if index_lock is not None:
+            _close_descriptor(index_lock)
+            if index_lock_identity is not None:
+                try:
+                    _unlink_owned_at(
+                        git_directory,
+                        "index.lock",
+                        index_lock_identity,
+                        "GIT_INDEX_LOCK_OWNERSHIP_LOST",
+                    )
+                except InstallError as cleanup:
+                    if "_OWNERSHIP_LOST" not in str(cleanup):
+                        cleanup_errors.append(cleanup)
+                except BaseException as cleanup:
+                    cleanup_errors.append(cleanup)
+        _close_descriptor(git_directory)
+        if cleanup_errors and active_error is not None:
+            details = "; ".join(str(item) for item in cleanup_errors)
+            raise InstallError(
+                f"{active_error}; INSTALL_LOCK_CLEANUP_FAILED: {details}"
+            ) from active_error
+    return [str(item) for item in cleanup_errors]
 
 
 def main() -> int:
@@ -1021,37 +2320,21 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
+    if importlib.util.find_spec("jsonschema") is None:
+        report = {
+            "status": "BLOCKED",
+            "reason": "JSONSCHEMA_REQUIRED",
+            "next_step": "Install the jsonschema package for this Python interpreter, then rerun the installer.",
+        }
+        print(
+            json.dumps(report, ensure_ascii=False) if args.json else "BLOCKED: JSONSCHEMA_REQUIRED",
+            file=sys.stderr,
+        )
+        return 2
     try:
         target, workspace = require_root(args.target)
-        planned: list[str] = []
-        for source in template_files():
-            relative = source.relative_to(TEMPLATE).as_posix()
-            reject_symlinks(target, relative)
-            destination = target / relative
-            if is_tracked(target, relative):
-                raise InstallError(f"TRACKED_DESTINATION_PATH: {relative}")
-            if destination.exists() and destination.read_bytes() != source.read_bytes():
-                raise InstallError(f"CONFIG_CONFLICT: {relative}")
-            if not destination.exists():
-                planned.append(relative)
-        state_paths = (
-            f"{CONFIG_ROOT}/STATE.md",
-            f"{CONFIG_ROOT}/PROJECT_SETUP.md",
-            f"{CONFIG_ROOT}/INCIDENTS.md",
-            f"{CONFIG_ROOT}/ACTION_JOURNAL.json",
-        )
-        existing_state: list[str] = []
-        for relative in state_paths:
-            reject_symlinks(target, relative)
-            if is_tracked(target, relative):
-                raise InstallError(f"TRACKED_DESTINATION_PATH: {relative}")
-            if (target / relative).exists():
-                existing_state.append(relative)
-        if existing_state:
-            if len(existing_state) != len(state_paths) or planned:
-                raise InstallError(f"LOCAL_STATE_REQUIRES_REVIEW: {', '.join(existing_state)}")
-        else:
-            planned.extend(state_paths)
+        planned, existing_state = _plan_base_files(target)
+        exclude_planned = exclude_update_planned(workspace)
         if args.typesafe_ai and existing_state:
             _require_typesafe_record_target(target)
         onboarding = onboarding_questions(target, args.typesafe_ai)
@@ -1070,43 +2353,53 @@ def main() -> int:
             _preflight_typesafe_install(target)
         integration_planned = typesafe_action != "NONE"
         report = {
-            "status": "READY" if planned or integration_planned else "ALREADY_INITIALIZED",
+            "status": "READY" if planned or exclude_planned or integration_planned else "ALREADY_INITIALIZED",
             "target": str(target),
             "planned": planned,
+            "exclude_update_planned": exclude_planned,
             "applied": False,
             "stack": detect_stack(target),
             "onboarding": onboarding,
             "next_step": "Resolve the project onboarding questions, then configure verified commands in GATES.md.",
         }
-        if args.apply and planned:
-            for source in template_files():
-                relative = source.relative_to(TEMPLATE)
-                destination = target / relative
-                if not destination.exists():
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(source, destination)
-            (target / CONFIG_ROOT / "STATE.md").write_text(state(workspace), encoding="utf-8")
-            (target / CONFIG_ROOT / "PROJECT_SETUP.md").write_text(project_setup(), encoding="utf-8")
-            (target / CONFIG_ROOT / "INCIDENTS.md").write_text("# SDD Orchestration Incidents\n\nNo incidents recorded.\n", encoding="utf-8")
-            (target / CONFIG_ROOT / "ACTION_JOURNAL.json").write_text(empty_journal(target, workspace), encoding="utf-8")
-            update_exclude(target)
-            report["applied"] = True
-        if args.apply and args.typesafe_ai and typesafe_action != "NONE":
+        integration_requested = bool(
+            args.apply and args.typesafe_ai and typesafe_action != "NONE"
+        )
+        integration_result: dict[str, str] = {}
+
+        def apply_integration() -> None:
             if args.typesafe_ai == "install":
                 onboarding_after = _render_onboarding_answer(target, "typesafe_ai", '{"install":true}')
-                applied_action = install_typesafe_skill(target, onboarding_after)
+                integration_result["applied_action"] = install_typesafe_skill(target, onboarding_after)
             else:
-                applied_action = "RECORD_NONE"
                 _write_onboarding_answer(target, "typesafe_ai", "none")
+                integration_result["applied_action"] = "RECORD_NONE"
+
+        if args.apply and (planned or exclude_planned or integration_requested):
+            cleanup_warnings = _apply_base_install(
+                target,
+                workspace,
+                planned,
+                apply_integration if integration_requested else None,
+            )
+            if cleanup_warnings:
+                report["warnings"] = [
+                    f"LOCK_CLEANUP_REQUIRES_REVIEW: {warning}"
+                    for warning in cleanup_warnings
+                ]
             report["applied"] = True
+            report["exclude_update_planned"] = False
+        if integration_result:
             updated_onboarding = onboarding_questions(target)
             integrations = updated_onboarding["integrations"]
             if not isinstance(integrations, dict) or not isinstance(integrations.get("typesafe_ai"), dict):
                 raise InstallError("TYPESAFE_REPORT_INVALID")
-            integrations["typesafe_ai"]["applied_action"] = applied_action
+            integrations["typesafe_ai"]["applied_action"] = integration_result["applied_action"]
             report["onboarding"] = updated_onboarding
         elif report["applied"]:
             report["onboarding"] = onboarding_questions(target)
+        if report["applied"]:
+            report["status"] = "APPLIED"
         if args.json:
             print(json.dumps(report, ensure_ascii=False))
         else:
@@ -1119,6 +2412,8 @@ def main() -> int:
             report["next_step"] = "Initialize and commit the target as a Git repository, then rerun the installer."
         elif str(error) == "GIT_INITIAL_COMMIT_REQUIRED":
             report["next_step"] = "Create the initial Git commit on an attached branch, then rerun the installer."
+        elif str(error) == "ATTACHED_BRANCH_REQUIRED":
+            report["next_step"] = "Switch the target worktree to an attached branch, then rerun the installer."
         print(json.dumps(report, ensure_ascii=False) if args.json else f'BLOCKED: {error}', file=sys.stderr)
         return 2
 

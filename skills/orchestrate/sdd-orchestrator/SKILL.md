@@ -27,7 +27,7 @@ Do not use it to bypass a target project's `AGENTS.md`, `CLAUDE.md`, existing tr
 ## Prerequisites
 
 - Hermes Agent and Git are installed.
-- Python 3.10+ is available.
+- Python 3.10+ and the `jsonschema` package are available to the same interpreter.
 - The target is an existing Git worktree root with an attached branch.
 - The target owner authorizes adding local `.hermes/` configuration.
 
@@ -49,7 +49,7 @@ python3 <installed-skill>/scripts/install_project.py --target <project-root> --t
 python3 <installed-skill>/scripts/install_project.py --target <project-root> --apply --json
 ```
 
-The dry run must return `READY` before `--apply`. Installation must return `applied: true` and create an untracked `.hermes/` tree. If Python is older than 3.10, it returns `PYTHON_3_10_REQUIRED`; a target outside a Git worktree returns `GIT_REPOSITORY_REQUIRED`; and a repository without an initial commit returns `GIT_INITIAL_COMMIT_REQUIRED`. These are `BLOCKED` reports with an actionable `next_step`, produced before target writes. It also refuses tracked, conflicting, symlinked, or partial existing SDD state. Project-local engineering skills land under `.hermes/skills/`; Hermes loads them only after the user runs `hermes skills trust` for that repository, normally in a new session. TypeSafe opt-in also creates a private ignored `.hermes/.env` placeholder without overwriting an existing regular file; `runtime/typesafe_connector.py preflight` is local-only and `evaluate` contacts Jev only when explicitly invoked. The installed `orchestration/hooks/` layer is inactive by default: activation is an explicit dedicated-profile opt-in after replacing `<ABSOLUTE_PROJECT_ROOT>` in `hooks/hooks.example.yaml`. The installer never edits profile configuration, SOUL, global skills, trust or hook consent.
+The dry run must return `READY` before `--apply`. A successful write returns `status: APPLIED` with `applied: true` and creates an untracked `.hermes/` tree; a later no-op returns `ALREADY_INITIALIZED`. If Python is older than 3.10, it returns `PYTHON_3_10_REQUIRED`; if the interpreter lacks `jsonschema`, it returns `JSONSCHEMA_REQUIRED`; a target outside a Git worktree returns `GIT_REPOSITORY_REQUIRED`; a repository without an initial commit returns `GIT_INITIAL_COMMIT_REQUIRED`; and detached HEAD returns `ATTACHED_BRANCH_REQUIRED`. These are `BLOCKED` reports with an actionable `next_step`, produced before target writes. It also refuses tracked, conflicting, symlinked, special-file, or partial existing SDD state. Apply uses descriptor-anchored no-follow exclusive writes, safe file modes, a Git index lock, exact root-anchored exclusions, and rollback of newly created paths and exclusion edits on failure. Missing managed exclusions are repaired on a later apply without rewriting installed controller files. Project-local engineering skills land under `.hermes/skills/`; Hermes loads them only after the user runs `hermes skills trust` for that repository, normally in a new session. TypeSafe opt-in also creates a private ignored `.hermes/.env` placeholder without overwriting an existing regular file; `runtime/typesafe_connector.py preflight` is local-only and `evaluate` contacts Jev only when explicitly invoked. The installed `orchestration/hooks/` layer is inactive by default: activation is an explicit dedicated-profile opt-in after replacing `<ABSOLUTE_PROJECT_ROOT>` in `hooks/hooks.example.yaml`. The installer never edits profile configuration, SOUL, global skills, trust or hook consent.
 
 ## Procedure
 
