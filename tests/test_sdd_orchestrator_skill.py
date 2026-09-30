@@ -7,9 +7,13 @@ frontmatter, safety boundaries, catalogues, and controller policy.
 from __future__ import annotations
 
 import ast
+import contextlib
+import importlib.util
+import io
 import json
 import os
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -17,6 +21,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOT = ROOT / "skills" / "orchestrate" / "sdd-orchestrator"
@@ -432,6 +437,14 @@ class PromptPolicyContractTests(unittest.TestCase):
 
 
 class InstallerBehaviorTests(unittest.TestCase):
+    def load_installer_module(self):
+        spec = importlib.util.spec_from_file_location(f"sdd_installer_test_{id(self)}", INSTALLER)
+        if spec is None or spec.loader is None:
+            self.fail("installer module is not loadable")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
     def execute(
         self,
         *args: str,
@@ -584,6 +597,44 @@ class InstallerBehaviorTests(unittest.TestCase):
                 "Install or select Python 3.10 or newer, then rerun the installer.",
                 report["next_step"],
             )
+            self.assertEqual(before, self.repository_snapshot(target))
+
+    def test_missing_jsonschema_reports_actionable_blocker_before_target_writes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-no-jsonschema-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            before = self.repository_snapshot(target)
+
+            result = self.execute(
+                sys.executable,
+                "-S",
+                str(INSTALLER),
+                "--target",
+                str(target),
+                "--apply",
+                "--json",
+                check=False,
+            )
+
+            self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+            report = json.loads(result.stderr)
+            self.assertEqual("JSONSCHEMA_REQUIRED", report["reason"])
+            self.assertIn("jsonschema", report["next_step"])
+            self.assertEqual(before, self.repository_snapshot(target))
+
+    def test_detached_head_reports_actionable_blocker_without_writing(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-detached-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.execute("git", "-C", str(target), "switch", "--detach", "-q")
+            before = self.repository_snapshot(target)
+
+            result = self.run_installer(target, apply=True)
+
+            self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+            report = json.loads(result.stderr)
+            self.assertEqual("ATTACHED_BRANCH_REQUIRED", report["reason"])
+            self.assertIn("attached branch", report["next_step"])
             self.assertEqual(before, self.repository_snapshot(target))
 
     def test_dry_run_detects_stack_without_writing(self) -> None:
@@ -1150,6 +1201,47 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertEqual("NONE", report["onboarding"]["integrations"]["typesafe_ai"]["planned_action"])
             self.assertEqual(before, self.repository_snapshot(target))
 
+    def test_typesafe_integration_only_apply_holds_the_git_index_lock(self) -> None:
+        module = self.load_installer_module()
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-index-lock-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            installed = self.run_installer(target, apply=True)
+            self.assertEqual(0, installed.returncode, installed.stderr)
+            git_dir = Path(
+                self.execute(
+                    "git", "-C", str(target), "rev-parse", "--path-format=absolute", "--git-dir"
+                ).stdout.strip()
+            )
+            real_install = module.install_typesafe_skill
+            observed_lock: list[bool] = []
+
+            def assert_locked(install_target: Path, onboarding_after: bytes) -> str:
+                observed_lock.append((git_dir / "index.lock").is_file())
+                return real_install(install_target, onboarding_after)
+
+            stdout = io.StringIO()
+            argv = [
+                str(INSTALLER),
+                "--target",
+                str(target),
+                "--typesafe-ai",
+                "install",
+                "--apply",
+                "--json",
+            ]
+            with (
+                mock.patch.object(module, "install_typesafe_skill", side_effect=assert_locked),
+                mock.patch.object(module.sys, "argv", argv),
+                contextlib.redirect_stdout(stdout),
+            ):
+                result = module.main()
+
+            self.assertEqual(0, result, stdout.getvalue())
+            self.assertEqual([True], observed_lock)
+            self.assertFalse((git_dir / "index.lock").exists())
+            self.assertEqual("APPLIED", json.loads(stdout.getvalue())["status"])
+
     def test_typesafe_repeated_apply_repairs_a_missing_private_env_file(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-typesafe-env-repair-") as temp:
             target = Path(temp)
@@ -1407,6 +1499,506 @@ class InstallerBehaviorTests(unittest.TestCase):
             )
             self.assertNotEqual(0, ignored.returncode)
 
+    def test_install_does_not_hide_unrelated_orchestration_files(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-install-existing-orchestration-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            custom = target / ".hermes/orchestration/user-owned.txt"
+            custom.parent.mkdir(parents=True)
+            custom.write_text("user owned\n", encoding="utf-8")
+
+            result = self.run_installer(target, apply=True)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            ignored = self.execute(
+                "git", "-C", str(target), "check-ignore", "-q", str(custom), check=False
+            )
+            self.assertNotEqual(0, ignored.returncode)
+            self.assertIn(
+                "?? .hermes/orchestration/user-owned.txt",
+                self.execute(
+                    "git", "-C", str(target), "status", "--porcelain", "--untracked-files=all"
+                ).stdout,
+            )
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO test requires POSIX")
+    def test_dry_run_rejects_a_fifo_template_destination_without_blocking(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-install-fifo-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            os.mkfifo(target / ".hermes.md", 0o600)
+
+            result = self.run_installer(target)
+
+            self.assert_blocked(result, "CONFIG_DESTINATION_INVALID: .hermes.md")
+
+    @unittest.skipUnless(os.name == "posix", "transaction race tests require POSIX")
+    def test_failed_apply_restores_git_exclude_bytes_exactly(self) -> None:
+        module = self.load_installer_module()
+        with tempfile.TemporaryDirectory(prefix="sdd-install-rollback-exclude-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            exclude = target / ".git/info/exclude"
+            original = b"user-entry\nsecond-entry\n"
+            exclude.write_bytes(original)
+            resolved_target, workspace = module.require_root(str(target))
+            planned, _ = module._plan_base_files(resolved_target)
+            real_create = module._create_project_file_nofollow
+            calls = 0
+
+            def fail_after_first_create(*args, **kwargs):
+                nonlocal calls
+                real_create(*args, **kwargs)
+                calls += 1
+                if calls == 1:
+                    raise OSError("injected apply failure")
+
+            with mock.patch.object(module, "_create_project_file_nofollow", side_effect=fail_after_first_create):
+                with self.assertRaises(OSError):
+                    module._apply_base_install(resolved_target, workspace, planned)
+
+            self.assertEqual(original, exclude.read_bytes())
+            self.assertFalse((target / ".hermes.md").exists())
+
+    @unittest.skipUnless(os.name == "posix", "transaction race tests require POSIX")
+    def test_rollback_preserves_a_concurrent_destination_replacement(self) -> None:
+        module = self.load_installer_module()
+        with tempfile.TemporaryDirectory(prefix="sdd-install-rollback-owner-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            resolved_target, workspace = module.require_root(str(target))
+            planned, _ = module._plan_base_files(resolved_target)
+            real_create = module._create_project_file_nofollow
+            replacement = b"concurrent owner\n"
+            replaced_paths: list[Path] = []
+
+            def replace_first_created(*args, **kwargs):
+                real_create(*args, **kwargs)
+                if not replaced_paths:
+                    created_path = resolved_target / args[1]
+                    replaced_paths.append(created_path)
+                    created_path.unlink()
+                    created_path.write_bytes(replacement)
+                    raise OSError("injected apply failure")
+
+            with mock.patch.object(module, "_create_project_file_nofollow", side_effect=replace_first_created):
+                with self.assertRaises((OSError, module.InstallError)):
+                    module._apply_base_install(resolved_target, workspace, planned)
+
+            self.assertEqual(1, len(replaced_paths))
+            self.assertEqual(replacement, replaced_paths[0].read_bytes())
+
+    @unittest.skipUnless(os.name == "posix", "transaction race tests require POSIX")
+    def test_apply_detects_an_exclude_inode_swap(self) -> None:
+        module = self.load_installer_module()
+        with tempfile.TemporaryDirectory(prefix="sdd-install-exclude-swap-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            exclude = target / ".git/info/exclude"
+            original = b"user-entry\n"
+            exclude.write_bytes(original)
+            resolved_target, workspace = module.require_root(str(target))
+            planned, _ = module._plan_base_files(resolved_target)
+            real_ftruncate = module.os.ftruncate
+            swapped = False
+
+            def swap_before_truncate(descriptor: int, length: int) -> None:
+                nonlocal swapped
+                if not swapped:
+                    swapped = True
+                    displaced = exclude.with_name("exclude.displaced")
+                    os.replace(exclude, displaced)
+                    exclude.write_bytes(original)
+                real_ftruncate(descriptor, length)
+
+            with mock.patch.object(module.os, "ftruncate", side_effect=swap_before_truncate):
+                with self.assertRaises(module.InstallError):
+                    module._apply_base_install(resolved_target, workspace, planned)
+
+            self.assertEqual(original, exclude.read_bytes())
+
+    @unittest.skipUnless(os.name == "posix", "transaction race tests require POSIX")
+    def test_exclude_rollback_preserves_concurrent_same_inode_updates(self) -> None:
+        module = self.load_installer_module()
+        with tempfile.TemporaryDirectory(prefix="sdd-install-exclude-concurrent-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            exclude = target / ".git/info/exclude"
+            resolved_target, workspace = module.require_root(str(target))
+            planned, _ = module._plan_base_files(resolved_target)
+            concurrent = b"concurrent-entry\n"
+
+            def append_then_fail() -> None:
+                with exclude.open("ab") as stream:
+                    stream.write(concurrent)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                raise module.InstallError("injected integration failure")
+
+            with self.assertRaises(module.InstallError):
+                module._apply_base_install(resolved_target, workspace, planned, append_then_fail)
+
+            self.assertTrue(exclude.read_bytes().endswith(concurrent))
+            self.assertFalse((target / ".hermes.md").exists())
+
+    @unittest.skipUnless(os.name == "posix", "transaction race tests require POSIX")
+    def test_post_base_failure_rolls_back_the_whole_base_transaction(self) -> None:
+        module = self.load_installer_module()
+        with tempfile.TemporaryDirectory(prefix="sdd-install-post-base-rollback-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            exclude = target / ".git/info/exclude"
+            original = exclude.read_bytes()
+            resolved_target, workspace = module.require_root(str(target))
+            planned, _ = module._plan_base_files(resolved_target)
+
+            def fail_after_base() -> None:
+                raise module.InstallError("injected integration failure")
+
+            with self.assertRaises(module.InstallError):
+                module._apply_base_install(resolved_target, workspace, planned, fail_after_base)
+
+            self.assertEqual(original, exclude.read_bytes())
+            self.assertFalse((target / ".hermes.md").exists())
+            self.assertFalse((target / ".hermes").exists())
+
+    @unittest.skipUnless(os.name == "posix", "transaction race tests require POSIX")
+    def test_fresh_base_and_typesafe_failure_roll_back_together(self) -> None:
+        module = self.load_installer_module()
+        with tempfile.TemporaryDirectory(prefix="sdd-install-typesafe-rollback-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            exclude = target / ".git/info/exclude"
+            original_exclude = exclude.read_bytes()
+            resolved_target, workspace = module.require_root(str(target))
+            planned, _ = module._plan_base_files(resolved_target)
+
+            def fail_typesafe_env(_target: Path) -> bool:
+                raise module.InstallError("injected TypeSafe env failure")
+
+            def install_typesafe() -> None:
+                onboarding_after = module._render_onboarding_answer(
+                    resolved_target,
+                    "typesafe_ai",
+                    '{"install":true}',
+                )
+                module.install_typesafe_skill(resolved_target, onboarding_after)
+
+            with mock.patch.object(module, "_ensure_typesafe_env", side_effect=fail_typesafe_env):
+                with self.assertRaises(module.InstallError):
+                    module._apply_base_install(resolved_target, workspace, planned, install_typesafe)
+
+            self.assertEqual(original_exclude, exclude.read_bytes())
+            self.assertFalse((target / ".hermes").exists())
+            self.assertFalse((target / ".hermes.md").exists())
+            self.assertFalse((target / "skills-lock.json").exists())
+
+    @unittest.skipUnless(os.name == "posix", "transaction failure test requires POSIX")
+    def test_typesafe_failure_after_env_creation_removes_owned_env(self) -> None:
+        module = self.load_installer_module()
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-post-env-failure-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            installed = self.run_installer(target, apply=True)
+            self.assertEqual(0, installed.returncode, installed.stderr)
+            setup = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            setup_before = setup.read_bytes()
+            onboarding_after = module._render_onboarding_answer(target, "typesafe_ai", '{"install":true}')
+            real_status = module.typesafe_skill_status
+            calls = 0
+
+            def fail_after_env(status_target: Path):
+                nonlocal calls
+                calls += 1
+                result = real_status(status_target)
+                if calls >= 2 and (status_target / ".hermes/.env").exists():
+                    result = dict(result)
+                    result["status"] = "CONFLICT"
+                    result["issue"] = "INJECTED_POST_ENV_FAILURE"
+                return result
+
+            with mock.patch.object(module, "typesafe_skill_status", side_effect=fail_after_env):
+                with self.assertRaises(module.InstallError):
+                    module.install_typesafe_skill(target, onboarding_after)
+
+            self.assertFalse((target / ".hermes/.env").exists())
+            self.assertFalse((target / ".hermes/skills/typesafe-ai").exists())
+            self.assertFalse((target / "skills-lock.json").exists())
+            self.assertEqual(setup_before, setup.read_bytes())
+
+    @unittest.skipUnless(os.name == "posix", "transaction race tests require POSIX")
+    def test_typesafe_rollback_preserves_concurrent_skill_and_lock_replacements(self) -> None:
+        module = self.load_installer_module()
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-owner-race-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            installed = self.run_installer(target, apply=True)
+            self.assertEqual(0, installed.returncode, installed.stderr)
+            onboarding_after = module._render_onboarding_answer(target, "typesafe_ai", '{"install":true}')
+            skill_root = target / ".hermes/skills/typesafe-ai"
+            skill_owner = target / "skill-owner"
+            lock_path = target / "skills-lock.json"
+            lock_owner = target / "lock-owner.json"
+            replacement_skill = b"concurrent skill\n"
+            replacement_lock = b"concurrent lock\n"
+
+            def replace_owned_paths(_target: Path) -> bool:
+                os.replace(skill_root, skill_owner)
+                skill_root.mkdir()
+                (skill_root / "sentinel").write_bytes(replacement_skill)
+                os.replace(lock_path, lock_owner)
+                lock_path.write_bytes(replacement_lock)
+                raise module.InstallError("injected TypeSafe env failure")
+
+            with mock.patch.object(module, "_ensure_typesafe_env", side_effect=replace_owned_paths):
+                with self.assertRaises(module.InstallError):
+                    module.install_typesafe_skill(target, onboarding_after)
+
+            self.assertEqual(replacement_skill, (skill_root / "sentinel").read_bytes())
+            self.assertTrue(skill_owner.is_dir())
+            self.assertEqual(replacement_lock, lock_path.read_bytes())
+            self.assertTrue(lock_owner.is_file())
+
+    @unittest.skipUnless(os.name == "posix", "transaction race tests require POSIX")
+    def test_typesafe_skill_copy_uses_the_retained_directory_descriptor(self) -> None:
+        module = self.load_installer_module()
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-skill-race-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            installed = self.run_installer(target, apply=True)
+            self.assertEqual(0, installed.returncode, installed.stderr)
+            onboarding_after = module._render_onboarding_answer(target, "typesafe_ai", '{"install":true}')
+            external = Path(temp) / "external.txt"
+            external.write_bytes(b"external sentinel\n")
+            skill_root = target / ".hermes/skills/typesafe-ai"
+            displaced = target / "displaced-skill"
+            real_create = module._create_project_directory_owned
+
+            def replace_skill_root(*args, **kwargs):
+                descriptor, owned = real_create(*args, **kwargs)
+                os.replace(skill_root, displaced)
+                skill_root.mkdir()
+                (skill_root / "LICENSE").symlink_to(external)
+                return descriptor, owned
+
+            with mock.patch.object(module, "_create_project_directory_owned", side_effect=replace_skill_root):
+                with self.assertRaises(module.InstallError):
+                    module.install_typesafe_skill(target, onboarding_after)
+
+            self.assertEqual(b"external sentinel\n", external.read_bytes())
+            self.assertTrue((skill_root / "LICENSE").is_symlink())
+
+    @unittest.skipUnless(os.name == "posix", "transaction race tests require POSIX")
+    def test_typesafe_rejects_setup_replacement_after_snapshot(self) -> None:
+        module = self.load_installer_module()
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-setup-race-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            installed = self.run_installer(target, apply=True)
+            self.assertEqual(0, installed.returncode, installed.stderr)
+            onboarding_after = module._render_onboarding_answer(target, "typesafe_ai", '{"install":true}')
+            setup = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            setup_owner = target / "setup-owner.md"
+            replacement = b"concurrent setup\n"
+            real_snapshot = module._read_project_regular_snapshot
+            replaced = False
+
+            def replace_after_snapshot(snapshot_target: Path, relative: str):
+                nonlocal replaced
+                result = real_snapshot(snapshot_target, relative)
+                if relative.endswith("PROJECT_SETUP.md") and not replaced:
+                    replaced = True
+                    os.replace(setup, setup_owner)
+                    setup.write_bytes(replacement)
+                return result
+
+            with mock.patch.object(module, "_read_project_regular_snapshot", side_effect=replace_after_snapshot):
+                with self.assertRaises(module.InstallError):
+                    module.install_typesafe_skill(target, onboarding_after)
+
+            self.assertEqual(replacement, setup.read_bytes())
+            self.assertTrue(setup_owner.is_file())
+
+    @unittest.skipUnless(os.name == "posix", "descriptor failure test requires POSIX")
+    def test_onboarding_partial_write_restores_original_bytes(self) -> None:
+        module = self.load_installer_module()
+        with tempfile.TemporaryDirectory(prefix="sdd-onboarding-partial-write-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            installed = self.run_installer(target, apply=True)
+            self.assertEqual(0, installed.returncode, installed.stderr)
+            setup = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            original = setup.read_bytes()
+            real_write_all = module._write_all
+            injected = False
+
+            def fail_once(descriptor: int, content: bytes) -> None:
+                nonlocal injected
+                if not injected:
+                    injected = True
+                    os.write(descriptor, content[: max(1, len(content) // 2)])
+                    raise OSError("injected partial write")
+                real_write_all(descriptor, content)
+
+            with mock.patch.object(module, "_write_all", side_effect=fail_once):
+                with self.assertRaises(OSError):
+                    module._write_onboarding_answer(target, "typesafe_ai", "none")
+
+            self.assertEqual(original, setup.read_bytes())
+
+    @unittest.skipUnless(os.name == "posix", "transaction race tests require POSIX")
+    def test_lock_cleanup_preserves_a_concurrent_replacement(self) -> None:
+        module = self.load_installer_module()
+        with tempfile.TemporaryDirectory(prefix="sdd-install-lock-owner-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            resolved_target, workspace = module.require_root(str(target))
+            planned, _ = module._plan_base_files(resolved_target)
+            real_create = module._create_project_file_nofollow
+            replacement = b"other process lock\n"
+
+            def replace_lock_then_fail(*args, **kwargs):
+                real_create(*args, **kwargs)
+                lock = Path(workspace["git_dir"]) / "index.lock"
+                lock.unlink()
+                lock.write_bytes(replacement)
+                raise OSError("injected apply failure")
+
+            with mock.patch.object(module, "_create_project_file_nofollow", side_effect=replace_lock_then_fail):
+                with self.assertRaises((OSError, module.InstallError)):
+                    module._apply_base_install(resolved_target, workspace, planned)
+
+            lock = Path(workspace["git_dir"]) / "index.lock"
+            self.assertEqual(replacement, lock.read_bytes())
+            lock.unlink()
+
+    @unittest.skipUnless(os.name == "posix", "transaction race tests require POSIX")
+    def test_successful_apply_preserves_a_foreign_replacement_lock(self) -> None:
+        module = self.load_installer_module()
+        with tempfile.TemporaryDirectory(prefix="sdd-install-lock-success-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            resolved_target, workspace = module.require_root(str(target))
+            planned, _ = module._plan_base_files(resolved_target)
+            replacement = b"other process lock\n"
+
+            def replace_lock_after_base() -> None:
+                lock = Path(workspace["git_dir"]) / "index.lock"
+                lock.unlink()
+                lock.write_bytes(replacement)
+
+            module._apply_base_install(resolved_target, workspace, planned, replace_lock_after_base)
+
+            lock = Path(workspace["git_dir"]) / "index.lock"
+            self.assertEqual(replacement, lock.read_bytes())
+            self.assertTrue((target / ".hermes.md").is_file())
+            lock.unlink()
+
+    @unittest.skipUnless(os.name == "posix", "descriptor lock test requires POSIX")
+    def test_lock_creation_cleans_up_when_permission_hardening_fails(self) -> None:
+        module = self.load_installer_module()
+        with tempfile.TemporaryDirectory(prefix="sdd-install-lock-cleanup-") as temp:
+            root = Path(temp)
+            parent = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                with mock.patch.object(module.os, "fchmod", side_effect=OSError("injected chmod failure")):
+                    with self.assertRaises(OSError):
+                        module._acquire_lock(parent, "installer.lock", "LOCKED")
+            finally:
+                os.close(parent)
+
+            self.assertFalse((root / "installer.lock").exists())
+
+    def test_apply_rejects_a_symlinked_git_exclude_without_touching_its_target(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-install-exclude-symlink-") as temp:
+            target = Path(temp) / "repo"
+            target.mkdir()
+            self.initialize_repository(target)
+            external = Path(temp) / "external.txt"
+            external.write_text("outside sentinel\n", encoding="utf-8")
+            exclude = target / ".git/info/exclude"
+            exclude.unlink()
+            exclude.symlink_to(external)
+            before = self.repository_snapshot(target)
+
+            result = self.run_installer(target, apply=True)
+
+            self.assert_blocked(result, "EXCLUDE_SYMLINK_REJECTED")
+            self.assertEqual("outside sentinel\n", external.read_text(encoding="utf-8"))
+            self.assertEqual(before, self.repository_snapshot(target))
+
+    def test_apply_failure_before_exclude_update_leaves_no_partial_install(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-install-exclude-invalid-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            exclude = target / ".git/info/exclude"
+            exclude.unlink()
+            exclude.mkdir()
+            head_before = self.execute("git", "-C", str(target), "rev-parse", "HEAD").stdout
+            index_before = self.execute("git", "-C", str(target), "ls-files", "--stage").stdout
+            readme_before = (target / "README.md").read_bytes()
+
+            result = self.run_installer(target, apply=True)
+
+            self.assert_blocked(result, "EXCLUDE_INVALID")
+            self.assertEqual(head_before, self.execute("git", "-C", str(target), "rev-parse", "HEAD").stdout)
+            self.assertEqual(index_before, self.execute("git", "-C", str(target), "ls-files", "--stage").stdout)
+            self.assertEqual(readme_before, (target / "README.md").read_bytes())
+            self.assertTrue(exclude.is_dir())
+            self.assertFalse((target / ".hermes.md").exists())
+
+    def test_apply_repairs_missing_managed_exclusions(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-install-exclude-repair-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            installed = self.run_installer(target, apply=True)
+            self.assertEqual(0, installed.returncode, installed.stderr)
+            exclude = target / ".git/info/exclude"
+            exclude.write_text("user-entry\n", encoding="utf-8")
+
+            repaired = self.run_installer(target, apply=True)
+
+            self.assertEqual(0, repaired.returncode, repaired.stderr)
+            report = json.loads(repaired.stdout)
+            self.assertEqual("APPLIED", report["status"])
+            self.assertTrue(report["applied"])
+            self.assertEqual([], report["planned"])
+            self.assertFalse(report["exclude_update_planned"])
+            self.assertIn("user-entry\n", exclude.read_text(encoding="utf-8"))
+            self.assertEqual("", self.execute("git", "-C", str(target), "status", "--porcelain").stdout)
+
+    def test_apply_preserves_non_utf8_git_exclude_bytes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-install-exclude-bytes-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            exclude = target / ".git/info/exclude"
+            original = b"user-entry-\xff\n"
+            exclude.write_bytes(original)
+
+            result = self.run_installer(target, apply=True)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertTrue(exclude.read_bytes().startswith(original))
+            self.assertEqual("APPLIED", json.loads(result.stdout)["status"])
+
+    @unittest.skipUnless(os.name == "posix", "permission-mode test requires POSIX")
+    def test_apply_uses_safe_modes_under_a_permissive_umask(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-install-modes-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            command = (
+                "umask 000; exec "
+                f"{shlex.quote(sys.executable)} {shlex.quote(str(INSTALLER))} "
+                f"--target {shlex.quote(str(target))} --apply --json"
+            )
+
+            result = self.execute("/bin/sh", "-c", command, check=False)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual(0o644, stat.S_IMODE((target / ".hermes.md").stat().st_mode))
+            self.assertEqual(0o644, stat.S_IMODE((target / ".hermes/orchestration/STATE.md").stat().st_mode))
+            self.assertEqual(0o755, stat.S_IMODE((target / ".hermes/orchestration/runtime").stat().st_mode))
+
     def test_apply_installs_complete_bundle_initial_state_and_runnable_suite(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-install-") as temp:
             target = Path(temp)
@@ -1421,7 +2013,9 @@ class InstallerBehaviorTests(unittest.TestCase):
             result = self.run_installer(target, apply=True)
 
             self.assertEqual(0, result.returncode, result.stderr)
-            self.assertTrue(json.loads(result.stdout)["applied"])
+            report = json.loads(result.stdout)
+            self.assertEqual("APPLIED", report["status"])
+            self.assertTrue(report["applied"])
             expected_files = {
                 path.relative_to(TEMPLATES).as_posix(): path
                 for path in TEMPLATES.rglob("*")

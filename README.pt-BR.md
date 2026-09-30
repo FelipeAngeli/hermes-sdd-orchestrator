@@ -170,7 +170,7 @@ tests/
 
 ## Instalação local ao projeto
 
-A skill executa o instalador incluído. Ele exige a raiz de uma worktree Git existente e com branch anexada:
+A skill executa o instalador incluído. Ele exige Python 3.10+ com `jsonschema` e a raiz de uma worktree Git existente e com branch anexada:
 
 ```bash
 python3 <skill-instalada>/scripts/install_project.py \
@@ -187,7 +187,7 @@ python3 <skill-instalada>/scripts/install_project.py \
   --target /caminho/absoluto/do/projeto --typesafe-ai install --apply --json
 ```
 
-A primeira execução é um dry run. Use apply somente quando o resultado for `READY`. Reexecutar uma instalação completa retorna `ALREADY_INITIALIZED`; configurações parciais, rastreadas, com symlink ou conflitantes são bloqueadas.
+A primeira execução é um dry run. Use apply somente quando o resultado for `READY`; uma escrita bem-sucedida retorna `APPLIED`. Reexecutar uma instalação completa retorna `ALREADY_INITIALIZED`; exclusões gerenciadas ausentes são reparadas por um novo apply, enquanto configurações parciais, rastreadas, com symlink, arquivo especial ou conflitantes são bloqueadas antes de qualquer escrita.
 
 Antes da primeira demanda, o Hermes resolve `.hermes/orchestration/PROJECT_SETUP.md`: ele inspeciona evidências do repositório e faz somente perguntas ainda não respondidas sobre acesso ao issue tracker, vínculo opcional com Obsidian, instalação opcional da skill TypeSafe/Jev e outras ferramentas específicas do projeto. `none` é válido quando a integração correspondente está ausente; credenciais e requisitos do produto nunca são solicitados. Depois, configure `.hermes/orchestration/policies/GATES.md` com os comandos reais de formatação, teste, análise e CI do projeto.
 
