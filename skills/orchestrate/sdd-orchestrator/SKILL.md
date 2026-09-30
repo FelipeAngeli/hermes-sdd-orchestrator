@@ -1,7 +1,7 @@
 ---
 name: sdd-orchestrator
 description: Install and run safe project-local SDD orchestration.
-version: 6.3.1
+version: 6.4.0
 author: Felipe Angeli (FelipeAngeli), Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
