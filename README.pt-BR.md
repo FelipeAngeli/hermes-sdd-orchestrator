@@ -70,7 +70,16 @@ python3 <skill-instalada>/scripts/install_project.py \
   --target /caminho/absoluto/do/projeto --typesafe-ai install --apply --json
 ```
 
-Use `--typesafe-ai none --apply` somente quando não houver uma skill TypeSafe presente. O instalador **não** executa o comando oficial `npx skills add typesafe-ai/skills --skill typesafe-ai` e não baixa código. Em vez disso, verifica e copia um snapshot revisado, fixado em um commit imutável do upstream, grava `.hermes/skills/typesafe-ai`, mescla `skills-lock.json` com segurança, preserva entradas não relacionadas e nunca altera skills nem configurações globais do Hermes. Instalações conflitantes, rastreadas, com symlink, incompletas, adulteradas ou de outra origem falham de forma fechada. Veja [Skill e instalador](docs/components/skill-and-installer.md#project-onboarding-project_setupmd).
+Use `--typesafe-ai none --apply` somente quando não houver uma skill TypeSafe presente. O instalador **não** executa o comando oficial `npx skills add typesafe-ai/skills --skill typesafe-ai` e não baixa código. Em vez disso, verifica e copia um snapshot revisado, fixado em um commit imutável do upstream, grava `.hermes/skills/typesafe-ai`, mescla `skills-lock.json` com segurança, preserva entradas não relacionadas e nunca altera skills nem configurações globais do Hermes. O opt-in também cria `.hermes/.env` privado e ignorado, com `TYPESAFE_API_KEY=` vazio, sem sobrescrever um arquivo existente; `.hermes/.env.example` documenta a variável. Instalações conflitantes, rastreadas, com symlink, incompletas, adulteradas ou de outra origem falham de forma fechada.
+
+O conector instalado, feito somente com a biblioteca padrão, verifica a configuração sem rede e envia dados ao Jev apenas por um comando `evaluate` explícito:
+
+```bash
+python3 .hermes/orchestration/runtime/typesafe_connector.py preflight --json
+python3 .hermes/orchestration/runtime/typesafe_connector.py evaluate --input request.json --json
+```
+
+`request.json` contém `state`, um mapa `questions` não vazio e, opcionalmente, `model` (padrão `jev-latest`). `evaluate` sempre usa `https://api.typesafe.ai/v1/systemone`; nunca roda automaticamente, e seus relatórios JSON nunca exibem a credencial nem corpos de erro remotos. Veja [Skill e instalador](docs/components/skill-and-installer.md#typesafejev-runtime-connector).
 
 ## Hooks locais ao repositório (opt-in)
 

@@ -655,7 +655,11 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertEqual(0, result.returncode, result.stderr)
             report = json.loads(result.stdout)
             self.assertEqual("READY", report["status"])
-            self.assertEqual("INSTALL", report["onboarding"]["integrations"]["typesafe_ai"]["planned_action"])
+            integration = report["onboarding"]["integrations"]["typesafe_ai"]
+            self.assertEqual("INSTALL", integration["planned_action"])
+            self.assertEqual("ABSENT", integration["env_status"])
+            self.assertEqual("CREATE", integration["planned_env_action"])
+            self.assertEqual(".hermes/.env", integration["env_path"])
             self.assertFalse(report["applied"])
             self.assertFalse(marker.exists())
             self.assertEqual(before, self.repository_snapshot(target))
@@ -680,6 +684,8 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertEqual("INSTALLED", integration["status"])
             self.assertEqual("INSTALL", integration["applied_action"])
             self.assertEqual("NONE", integration["planned_action"])
+            self.assertEqual("PRESENT", integration["env_status"])
+            self.assertEqual("NONE", integration["planned_env_action"])
             setup = (target / ".hermes/orchestration/PROJECT_SETUP.md").read_text(encoding="utf-8")
             self.assertIn('typesafe_ai: {"install":true}', setup)
             self.assertIn("status: PENDING", setup)
@@ -688,6 +694,13 @@ class InstallerBehaviorTests(unittest.TestCase):
             lock = json.loads((target / "skills-lock.json").read_text(encoding="utf-8"))
             self.assertEqual(unrelated_entry, lock["skills"]["other"])
             self.assertEqual({"keep": True}, lock["metadata"])
+            env_example = target / ".hermes/.env.example"
+            env_file = target / ".hermes/.env"
+            self.assertEqual("TYPESAFE_API_KEY=\n", env_example.read_text(encoding="utf-8"))
+            self.assertEqual("TYPESAFE_API_KEY=\n", env_file.read_text(encoding="utf-8"))
+            self.assertEqual(0o600, stat.S_IMODE(env_file.stat().st_mode))
+            ignored = self.execute("git", "-C", str(target), "check-ignore", "-q", str(env_file), check=False)
+            self.assertEqual(0, ignored.returncode)
 
     def test_typesafe_opt_in_needs_no_node_or_npx(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-typesafe-no-node-") as temp:
@@ -706,6 +719,77 @@ class InstallerBehaviorTests(unittest.TestCase):
 
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertTrue((target / ".hermes/skills/typesafe-ai/SKILL.md").is_file())
+
+    def test_typesafe_install_preserves_an_existing_private_env_file(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-env-preserve-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            self.write_typesafe_install(target)
+            env_path = target / ".hermes/.env"
+            original = b"TYPESAFE_API_KEY=fixture_only\nOTHER_LOCAL=value\n"
+            env_path.write_bytes(original)
+            env_path.chmod(0o600)
+
+            result = self.run_installer(target, apply=True, typesafe_ai="install")
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual(original, env_path.read_bytes())
+            self.assertEqual(0o600, stat.S_IMODE(env_path.stat().st_mode))
+
+    def test_typesafe_install_dry_run_rejects_a_symlinked_env_file(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-env-symlink-") as temp:
+            target = Path(temp) / "repo"
+            target.mkdir()
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            external = Path(temp) / "external.env"
+            external.write_text("TYPESAFE_API_KEY=fixture_only\n", encoding="utf-8")
+            env_path = target / ".hermes/.env"
+            env_path.symlink_to(external)
+
+            result = self.run_installer(target, typesafe_ai="install")
+
+            self.assert_blocked(result, "TYPESAFE_ENV_CONFLICT: SYMLINK_REJECTED")
+            self.assertEqual("TYPESAFE_API_KEY=fixture_only\n", external.read_text(encoding="utf-8"))
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO test requires POSIX")
+    def test_typesafe_install_dry_run_rejects_a_fifo_env_file_without_blocking(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-env-fifo-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            env_path = target / ".hermes/.env"
+            os.mkfifo(env_path, 0o600)
+
+            result = self.run_installer(target, typesafe_ai="install")
+
+            self.assert_blocked(result, "TYPESAFE_ENV_CONFLICT: ENV_INVALID")
+
+    @unittest.skipUnless(os.name == "posix", "permission-mode test requires POSIX")
+    def test_typesafe_insecure_env_reopens_onboarding_and_blocks_reinstall(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-env-mode-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            installed = self.run_installer(target, apply=True, typesafe_ai="install")
+            self.assertEqual(0, installed.returncode, installed.stderr)
+            setup_path = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            setup = setup_path.read_text(encoding="utf-8").replace("status: PENDING", "status: COMPLETE")
+            setup = setup.replace("issue_tracker: UNRESOLVED", "issue_tracker: none")
+            setup = setup.replace("obsidian: UNRESOLVED", "obsidian: none")
+            setup = setup.replace("project_tools: UNRESOLVED", "project_tools: none")
+            setup_path.write_text(setup, encoding="utf-8")
+            env_path = target / ".hermes/.env"
+            env_path.chmod(0o644)
+
+            report = json.loads(self.run_installer(target).stdout)
+            integration = report["onboarding"]["integrations"]["typesafe_ai"]
+            self.assertEqual("REQUIRED", report["onboarding"]["status"])
+            self.assertEqual("CONFLICT", integration["env_status"])
+            self.assertIn("TYPESAFE_INTEGRATION_STATE_MISMATCH", report["onboarding"]["integration_issues"])
+
+            repeated = self.run_installer(target, typesafe_ai="install")
+            self.assert_blocked(repeated, "TYPESAFE_ENV_CONFLICT: INSECURE_PERMISSIONS")
 
     def test_typesafe_install_refuses_a_malformed_existing_lock(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-typesafe-conflict-") as temp:
@@ -988,6 +1072,27 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertIn("typesafe_ai: none", setup)
             self.assertFalse((target / ".hermes/skills/typesafe-ai").exists())
 
+    def test_typesafe_opt_out_ignores_an_irrelevant_conflicting_env_file(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-none-env-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            self.assertEqual(0, self.run_installer(target, apply=True).returncode)
+            env_path = target / ".hermes/.env"
+            env_path.write_text("TYPESAFE_API_KEY=fixture_only\n", encoding="utf-8")
+            env_path.chmod(0o644)
+
+            result = self.run_installer(target, apply=True, typesafe_ai="none")
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            onboarding = json.loads(result.stdout)["onboarding"]
+            self.assertNotIn("typesafe_ai", [question["id"] for question in onboarding["questions"]])
+            self.assertEqual([], onboarding["integration_issues"])
+            self.assertEqual("CONFLICT", onboarding["integrations"]["typesafe_ai"]["env_status"])
+            repeated = self.run_installer(target, apply=True, typesafe_ai="none")
+            self.assertEqual(0, repeated.returncode, repeated.stderr)
+            self.assertEqual("ALREADY_INITIALIZED", json.loads(repeated.stdout)["status"])
+            self.assertEqual("TYPESAFE_API_KEY=fixture_only\n", env_path.read_text(encoding="utf-8"))
+
     def test_typesafe_choice_migrates_a_legacy_setup_record(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-typesafe-legacy-") as temp:
             target = Path(temp)
@@ -1044,6 +1149,26 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertFalse(report["applied"])
             self.assertEqual("NONE", report["onboarding"]["integrations"]["typesafe_ai"]["planned_action"])
             self.assertEqual(before, self.repository_snapshot(target))
+
+    def test_typesafe_repeated_apply_repairs_a_missing_private_env_file(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-env-repair-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            installed = self.run_installer(target, apply=True, typesafe_ai="install")
+            self.assertEqual(0, installed.returncode, installed.stderr)
+            env_path = target / ".hermes/.env"
+            env_path.unlink()
+
+            repaired = self.run_installer(target, apply=True, typesafe_ai="install")
+
+            self.assertEqual(0, repaired.returncode, repaired.stderr)
+            report = json.loads(repaired.stdout)
+            integration = report["onboarding"]["integrations"]["typesafe_ai"]
+            self.assertTrue(report["applied"])
+            self.assertEqual("RECORD", integration["applied_action"])
+            self.assertEqual("PRESENT", integration["env_status"])
+            self.assertEqual("TYPESAFE_API_KEY=\n", env_path.read_text(encoding="utf-8"))
+            self.assertEqual(0o600, stat.S_IMODE(env_path.stat().st_mode))
 
     def test_apply_creates_pending_project_onboarding_record(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-onboarding-record-") as temp:

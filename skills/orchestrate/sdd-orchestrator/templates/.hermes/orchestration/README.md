@@ -3,20 +3,23 @@
 This directory separates controller concerns while keeping mutable local state at one predictable root.
 
 ```text
-orchestration/
-├── agents/      # stage-specific leaf-worker briefs
-├── contracts/   # executor and reviewer interfaces
-├── hooks/       # opt-in Hermes shell-hook adapters
-├── policies/    # FSM, gates, recovery and bounded automation
-├── runtime/     # deterministic Python tools
-├── schemas/     # JSON Schema documents
-├── sub-agents/  # specialized leaf-worker briefs
-├── tests/       # installed protocol tests
-├── STATE.md
-├── PROJECT_SETUP.md
-├── ACTION_JOURNAL.json
-├── INCIDENTS.md
-└── action-journal-history/  # created on demand
+.hermes/
+├── .env         # created on TypeSafe opt-in; ignored and private
+├── .env.example # TypeSafe variable name; contains no credential
+└── orchestration/
+    ├── agents/      # stage-specific leaf-worker briefs
+    ├── contracts/   # executor and reviewer interfaces
+    ├── hooks/       # opt-in Hermes shell-hook adapters
+    ├── policies/    # FSM, gates, recovery and bounded automation
+    ├── runtime/     # deterministic Python tools and explicit connectors
+    ├── schemas/     # JSON Schema documents
+    ├── sub-agents/  # specialized leaf-worker briefs
+    ├── tests/       # installed protocol tests
+    ├── STATE.md
+    ├── PROJECT_SETUP.md
+    ├── ACTION_JOURNAL.json
+    ├── INCIDENTS.md
+    └── action-journal-history/  # created on demand
 ```
 
 ## Commands
@@ -47,9 +50,11 @@ Installation only copies these files. It never edits a Hermes profile or grants 
 
 Before the first demand, resolve `.hermes/orchestration/PROJECT_SETUP.md`. Inspect project evidence first, then ask only unresolved questions about issue tracker access, optional Obsidian binding, optional TypeSafe skill installation for Jev guidance, and other project-specific tools. Accept `none`, never ask for credentials or product requirements, and validate connectivity read-only before recording it.
 
-## Optional TypeSafe skill
+## Optional TypeSafe skill and Jev connector
 
-Jev is TypeSafe's flagship System One model; the installable project integration is the `typesafe-ai` skill. Preview with the project installer using `--target <repo-root> --typesafe-ai install --json`, then apply only after explicit opt-in by adding `--apply`. The installer does not execute the official `npx skills add typesafe-ai/skills --skill typesafe-ai` command or download code. Instead it verifies and copies a reviewed snapshot from an immutable upstream commit, preserves unrelated lock data, and commits the skill, merged pinned lock entry and onboarding answer as one rollback-covered operation. An existing installation is recorded without overwrite only when the same pinned lock and trusted digest verification passes; a conflict fails closed. Use `--typesafe-ai none --apply` to record an explicit opt-out only when no TypeSafe installation is discoverable. The generated skill and lock remain repository-local and are not added to global Hermes configuration.
+Jev is TypeSafe's flagship System One model; the installable project integration is the `typesafe-ai` skill. Preview with the project installer using `--target <repo-root> --typesafe-ai install --json`, then apply only after explicit opt-in by adding `--apply`. The installer does not execute the official `npx skills add typesafe-ai/skills --skill typesafe-ai` command or download code. Instead it verifies and copies a reviewed snapshot from an immutable upstream commit, preserves unrelated lock data, and commits the skill, merged pinned lock entry, onboarding answer and a private `.env` placeholder as one rollback-covered operation. An existing regular `.env` is never overwritten. An existing skill installation is recorded without overwrite only when the same pinned lock and trusted digest verification passes; a conflict fails closed. Use `--typesafe-ai none --apply` to record an explicit opt-out only when no TypeSafe installation is discoverable. The generated skill and lock remain repository-local and are not added to global Hermes configuration.
+
+Set `TYPESAFE_API_KEY` in the owner-only mode-`0600` `.hermes/.env` or the process environment, then check it locally with `python3 .hermes/orchestration/runtime/typesafe_connector.py preflight --json`. To make an explicit API call, prepare strict JSON with `state`, non-empty `questions`, and optional `model`, then run `python3 .hermes/orchestration/runtime/typesafe_connector.py evaluate --input request.json --json`. The default model is `jev-latest`; `--timeout` accepts a finite value greater than 0 through 300 seconds. Evaluation always targets the TypeSafe System One endpoint, refuses redirects, never runs automatically, and never prints the key or a remote error body.
 
 Configure project-specific validation in `policies/GATES.md` before starting a demand. `runtime/detect_stack.py` is a read-only helper for that step: it reports each ecosystem (Node, Python, Go, Rust, JVM, .NET, Ruby, PHP, Elixir, Swift, C/C++, Dart…) with the manifest that proves it, the CI providers present and a suggested command per gate, leaving a gate `null` when nothing supports it. The FSM gate names (`TEST_FOCUSED`, `FORMAT_CHANGED_FILES`, `ANALYZE`) are identical for every language. The mutable state files are controller-owned and must not be moved into a source layer.
 

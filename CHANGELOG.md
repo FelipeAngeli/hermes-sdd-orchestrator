@@ -4,6 +4,21 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 6.4.0 - 2026-09-30
+
+### Changed
+- TypeSafe opt-in now places the private credential file and its example directly under `.hermes/` as `.hermes/.env` and `.hermes/.env.example`; the connector default and installer exclusions follow the same project-local path.
+
+## 6.3.1 - 2026-09-29
+
+### Fixed
+- TypeSafe connector tests now use non-sensitive fixture values and replace only the connector module's environment mapping, preserving coverage without triggering Hermes skill-security credential/exfiltration heuristics.
+
+## 6.3.0 - 2026-09-29
+
+### Added
+- Optional TypeSafe/Jev runtime connector: explicit stdlib-only System One evaluation against the fixed non-redirecting TypeSafe endpoint with `jev-latest` by default, descriptor-anchored no-follow credential reads, strict finite/depth-safe JSON and bounded/truncated-response checks, validated timeouts and stable secret-safe error reports. TypeSafe opt-in now creates or repairs an owner-only ignored `.hermes/orchestration/.env` placeholder through verified directory descriptors without overwriting existing credentials, fails closed on unsafe files and ships `.env.example`.
+
 ## 6.2.2 - 2026-09-29
 
 ### Fixed

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import importlib.util
 import json
 import os
+import secrets
 import shutil
 import stat
 import subprocess
@@ -20,6 +22,8 @@ CONFIG_ROOT = ".hermes/orchestration"
 TYPESAFE_SKILL_ROOT = ".hermes/skills/typesafe-ai"
 TYPESAFE_SKILL_PATH = f"{TYPESAFE_SKILL_ROOT}/SKILL.md"
 TYPESAFE_LOCK_PATH = "skills-lock.json"
+TYPESAFE_ENV_PATH = ".hermes/.env"
+TYPESAFE_ENV_CONTENT = b"TYPESAFE_API_KEY=\n"
 TYPESAFE_SOURCE_REF = "65a39f393687675ce170e6094757de20370365b9"
 TYPESAFE_UPSTREAM_HASH = "9cd84c5e535dec8dec59917c110f9c00b4a61faadb86b432ec7e41051170af12"
 TYPESAFE_TRUSTED_DIGEST = "5266f2a9acfb6ae5fd58717bdf366f38e224cb57a55824e2aa81a0922d5e6964"
@@ -35,6 +39,8 @@ PROJECT_SKILLS = (
 LOCAL_PATHS = (
     ".hermes.md",
     *PROJECT_SKILLS,
+    ".hermes/.env",
+    ".hermes/.env.example",
     CONFIG_ROOT,
     f"{CONFIG_ROOT}/STATE.md",
     f"{CONFIG_ROOT}/PROJECT_SETUP.md",
@@ -249,6 +255,118 @@ def _valid_typesafe_lock_entry(entry: object) -> bool:
     )
 
 
+def _open_project_directory_nofollow(target: Path, relative: Path) -> int:
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    descriptor = os.open(target, flags)
+    try:
+        for part in relative.parts:
+            if part in {"", ".", ".."}:
+                raise InstallError(f"TYPESAFE_ENV_CONFLICT: INVALID_PATH")
+            next_descriptor = os.open(part, flags, dir_fd=descriptor)
+            previous_descriptor = descriptor
+            try:
+                os.close(previous_descriptor)
+            except OSError:
+                try:
+                    os.close(next_descriptor)
+                except OSError:
+                    pass
+                descriptor = -1
+                raise
+            descriptor = next_descriptor
+        return descriptor
+    except BaseException:
+        if descriptor >= 0:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        raise
+
+
+def _open_typesafe_env_descriptor(target: Path, flags: int, mode: int = 0o600) -> int:
+    path = Path(TYPESAFE_ENV_PATH)
+    if os.name != "posix":
+        reject_symlinks(target, TYPESAFE_ENV_PATH)
+        return os.open(target / path, flags, mode)
+    parent = _open_project_directory_nofollow(target, path.parent)
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            path.name,
+            flags | os.O_NOFOLLOW | os.O_NONBLOCK,
+            mode,
+            dir_fd=parent,
+        )
+        try:
+            os.close(parent)
+        except OSError:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+            descriptor = None
+            parent = -1
+            raise
+        parent = -1
+        return descriptor
+    finally:
+        if parent >= 0:
+            try:
+                os.close(parent)
+            except OSError:
+                pass
+
+
+def _close_descriptor(descriptor: int) -> None:
+    try:
+        os.close(descriptor)
+    except OSError:
+        pass
+
+
+def typesafe_env_status(target: Path) -> dict[str, object]:
+    issue: str | None = None
+    status = "CONFLICT"
+    if issue is None and is_tracked(target, TYPESAFE_ENV_PATH):
+        issue = "TRACKED_DESTINATION_PATH"
+    if issue is not None:
+        status = "CONFLICT"
+    else:
+        descriptor: int | None = None
+        try:
+            descriptor = _open_typesafe_env_descriptor(target, os.O_RDONLY)
+        except FileNotFoundError:
+            status = "ABSENT"
+        except (InstallError, OSError) as error:
+            status = "CONFLICT"
+            issue = "SYMLINK_REJECTED" if isinstance(error, OSError) and error.errno in {errno.ELOOP, errno.ENOTDIR} else "ENV_INVALID"
+        else:
+            try:
+                try:
+                    metadata = os.fstat(descriptor)
+                except OSError:
+                    status = "CONFLICT"
+                    issue = "ENV_INVALID"
+                    metadata = None
+                if metadata is None:
+                    pass
+                elif not stat.S_ISREG(metadata.st_mode):
+                    status = "CONFLICT"
+                    issue = "ENV_INVALID"
+                elif os.name == "posix" and (
+                    stat.S_IMODE(metadata.st_mode) & 0o077
+                    or (hasattr(os, "getuid") and metadata.st_uid != os.getuid())
+                ):
+                    status = "CONFLICT"
+                    issue = "INSECURE_PERMISSIONS"
+                else:
+                    status = "PRESENT"
+            finally:
+                _close_descriptor(descriptor)
+    return {"env_path": TYPESAFE_ENV_PATH, "env_status": status, "env_issue": issue}
+
+
 def typesafe_skill_status(target: Path) -> dict[str, object]:
     """Detect and verify a project-local TypeSafe skill without mutation."""
     skill_root = target / TYPESAFE_SKILL_ROOT
@@ -325,6 +443,7 @@ def typesafe_skill_status(target: Path) -> dict[str, object]:
         "lock_entry": "PRESENT" if lock_entry is not None else "ABSENT",
         "issue": issue,
         "official_command": list(TYPESAFE_OFFICIAL_COMMAND),
+        **typesafe_env_status(target),
     }
 
 
@@ -509,6 +628,9 @@ def onboarding_questions(target: Path | None = None, typesafe_choice: str | None
         "lock_entry": "UNKNOWN",
         "issue": None,
         "official_command": list(TYPESAFE_OFFICIAL_COMMAND),
+        "env_path": TYPESAFE_ENV_PATH,
+        "env_status": "NOT_CHECKED",
+        "env_issue": None,
     }
     recorded_typesafe = answers.get("typesafe_ai", "")
     try:
@@ -518,20 +640,27 @@ def onboarding_questions(target: Path | None = None, typesafe_choice: str | None
     recorded_install = recorded_value == {"install": True}
     recorded_none = recorded_typesafe.strip().casefold() == "none"
     integration_issues: list[str] = []
-    typesafe_healthy = (
-        (recorded_install and typesafe["status"] == "INSTALLED")
-        or (recorded_none and typesafe["status"] == "NOT_INSTALLED")
-        or (not recorded_install and not recorded_none)
-    )
+    if recorded_install:
+        typesafe_healthy = typesafe["status"] == "INSTALLED" and typesafe["env_status"] == "PRESENT"
+    elif recorded_none:
+        typesafe_healthy = typesafe["status"] == "NOT_INSTALLED"
+    else:
+        typesafe_healthy = True
     if not typesafe_healthy:
         integration_issues.append("TYPESAFE_INTEGRATION_STATE_MISMATCH")
         unresolved = {str(question["id"]) for question in questions}
         unresolved.add("typesafe_ai")
         questions = [question for question in all_questions if str(question["id"]) in unresolved]
     complete = record_valid and record_status == "COMPLETE" and not questions and not integration_issues
-    if typesafe_choice == "install":
+    if typesafe_choice == "install" and typesafe["env_status"] == "CONFLICT":
+        typesafe["planned_action"] = "BLOCKED"
+    elif typesafe_choice == "install":
         if typesafe["status"] == "INSTALLED":
-            typesafe["planned_action"] = "NONE" if recorded_install else "RECORD"
+            typesafe["planned_action"] = (
+                "NONE"
+                if recorded_install and typesafe["env_status"] == "PRESENT"
+                else "RECORD"
+            )
         else:
             typesafe["planned_action"] = "INSTALL"
     elif typesafe_choice == "none":
@@ -541,6 +670,11 @@ def onboarding_questions(target: Path | None = None, typesafe_choice: str | None
             typesafe["planned_action"] = "BLOCKED"
     else:
         typesafe["planned_action"] = "NONE"
+    typesafe["planned_env_action"] = (
+        "CREATE"
+        if typesafe_choice == "install" and typesafe["env_status"] == "ABSENT"
+        else "NONE"
+    )
     return {
         "status": "COMPLETE" if complete else "REQUIRED",
         "scope": "ORCHESTRATOR_ONLY",
@@ -652,7 +786,11 @@ def _write_onboarding_answer(target: Path, question_id: str, value: str) -> None
     _atomic_write(path, _render_onboarding_answer(target, question_id, value))
 
 
-def _restore_typesafe_install(target: Path, lock_before: bytes | None, setup_before: bytes) -> None:
+def _restore_typesafe_install(
+    target: Path,
+    lock_before: bytes | None,
+    setup_before: bytes,
+) -> None:
     skill_root = target / TYPESAFE_SKILL_ROOT
     try:
         reject_symlinks(target, ".hermes/skills")
@@ -676,6 +814,9 @@ def _restore_typesafe_install(target: Path, lock_before: bytes | None, setup_bef
 
 
 def _preflight_typesafe_install(target: Path) -> dict[str, object]:
+    environment = typesafe_env_status(target)
+    if environment["env_status"] == "CONFLICT":
+        raise InstallError(f"TYPESAFE_ENV_CONFLICT: {environment['env_issue']}")
     current = typesafe_skill_status(target)
     if current["status"] == "INSTALLED":
         return current
@@ -709,11 +850,78 @@ def _merged_typesafe_lock(lock_before: bytes | None, entry: dict[str, object]) -
     return (json.dumps(lock, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
 
 
+def _ensure_typesafe_env(target: Path) -> bool:
+    """Create a private empty credential file without touching an existing one."""
+    environment = typesafe_env_status(target)
+    if environment["env_status"] == "PRESENT":
+        return False
+    if environment["env_status"] == "CONFLICT":
+        raise InstallError(f"TYPESAFE_ENV_CONFLICT: {environment['env_issue']}")
+    path = Path(TYPESAFE_ENV_PATH)
+    temporary_name = f".{path.name}.{os.getpid()}.{secrets.token_hex(8)}.tmp"
+    parent: int | None = None
+    descriptor: int | None = None
+    try:
+        if os.name == "posix":
+            parent = _open_project_directory_nofollow(target, path.parent)
+            descriptor = os.open(
+                temporary_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=parent,
+            )
+        else:
+            reject_symlinks(target, str(path.parent))
+            descriptor = os.open(target / path.parent / temporary_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, 0o600)
+        stream = os.fdopen(descriptor, "wb")
+        descriptor = None
+        with stream:
+            stream.write(TYPESAFE_ENV_CONTENT)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if os.name == "posix":
+            os.link(
+                temporary_name,
+                path.name,
+                src_dir_fd=parent,
+                dst_dir_fd=parent,
+                follow_symlinks=False,
+            )
+        else:
+            os.link(target / path.parent / temporary_name, target / path)
+    except FileExistsError as error:
+        raise InstallError(f"TYPESAFE_ENV_CONFLICT: DESTINATION_EXISTS") from error
+    finally:
+        if descriptor is not None:
+            _close_descriptor(descriptor)
+        try:
+            if os.name == "posix" and parent is not None:
+                os.unlink(temporary_name, dir_fd=parent)
+            elif os.name != "posix":
+                (target / path.parent / temporary_name).unlink(missing_ok=True)
+        except OSError:
+            pass
+        finally:
+            if parent is not None:
+                _close_descriptor(parent)
+    return True
+
+
 def install_typesafe_skill(target: Path, onboarding_after: bytes) -> str:
     """Commit the vetted bundled skill, merged lock and onboarding answer."""
     current = _preflight_typesafe_install(target)
     if current["status"] == "INSTALLED":
-        _atomic_write(target / CONFIG_ROOT / "PROJECT_SETUP.md", onboarding_after)
+        setup_path = target / CONFIG_ROOT / "PROJECT_SETUP.md"
+        setup_before = setup_path.read_bytes()
+        try:
+            _atomic_write(setup_path, onboarding_after)
+            _ensure_typesafe_env(target)
+        except BaseException:
+            if setup_path.read_bytes() != setup_before:
+                _atomic_write(setup_path, setup_before)
+            raise
         return "RECORD"
 
     lock_path = target / TYPESAFE_LOCK_PATH
@@ -757,6 +965,7 @@ def install_typesafe_skill(target: Path, onboarding_after: bytes) -> str:
             if before != after:
                 raise InstallError("TYPESAFE_LOCK_PRESERVATION_FAILED")
         _atomic_write(setup_path, onboarding_after)
+        _ensure_typesafe_env(target)
     except BaseException:
         _restore_typesafe_install(target, lock_before, setup_before)
         raise
@@ -854,6 +1063,8 @@ def main() -> int:
         typesafe_action = onboarding_integrations["typesafe_ai"].get("planned_action")
         if typesafe_action == "BLOCKED":
             integration = onboarding_integrations["typesafe_ai"]
+            if integration.get("env_status") == "CONFLICT":
+                raise InstallError(f"TYPESAFE_ENV_CONFLICT: {integration.get('env_issue')}")
             raise InstallError(f"TYPESAFE_SKILL_CONFLICT: {integration.get('issue') or integration.get('status')}")
         if typesafe_action == "INSTALL":
             _preflight_typesafe_install(target)

@@ -70,7 +70,16 @@ python3 <installed-skill>/scripts/install_project.py \
   --target /absolute/path/to/project --typesafe-ai install --apply --json
 ```
 
-Use `--typesafe-ai none --apply` only when no TypeSafe skill is present. The installer does **not** execute the official `npx skills add typesafe-ai/skills --skill typesafe-ai` command and does not download code. It verifies and copies a reviewed snapshot pinned to an immutable upstream commit, writes `.hermes/skills/typesafe-ai`, safely merges `skills-lock.json`, preserves unrelated lock entries, and never changes global Hermes skills or configuration. Conflicting, tracked, symlinked, incomplete, tampered, or differently sourced installations fail closed. See [Skill and installer](docs/components/skill-and-installer.md#project-onboarding-project_setupmd).
+Use `--typesafe-ai none --apply` only when no TypeSafe skill is present. The installer does **not** execute the official `npx skills add typesafe-ai/skills --skill typesafe-ai` command and does not download code. It verifies and copies a reviewed snapshot pinned to an immutable upstream commit, writes `.hermes/skills/typesafe-ai`, safely merges `skills-lock.json`, preserves unrelated lock entries, and never changes global Hermes skills or configuration. The opt-in also creates a private, ignored `.hermes/.env` containing an empty `TYPESAFE_API_KEY=` without overwriting an existing file; `.hermes/.env.example` documents the variable. Conflicting, tracked, symlinked, incomplete, tampered, or differently sourced installations fail closed.
+
+The installed stdlib-only connector checks configuration without network access and sends data to Jev only through an explicit `evaluate` command:
+
+```bash
+python3 .hermes/orchestration/runtime/typesafe_connector.py preflight --json
+python3 .hermes/orchestration/runtime/typesafe_connector.py evaluate --input request.json --json
+```
+
+`request.json` contains `state`, a non-empty `questions` map, and optionally `model` (default `jev-latest`). `evaluate` always targets `https://api.typesafe.ai/v1/systemone`; it never runs automatically, and its JSON reports never echo the credential or remote error bodies. See [Skill and installer](docs/components/skill-and-installer.md#typesafejev-runtime-connector).
 
 ## Repository-local hooks (opt-in)
 
