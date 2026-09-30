@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 API_KEY_NAME = "TYPESAFE_API_KEY"
-DEFAULT_ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
+DEFAULT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 DEFAULT_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 DEFAULT_MODEL = "jev-latest"
 MAX_TIMEOUT_SECONDS = 300.0

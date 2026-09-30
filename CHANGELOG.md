@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Changed
+- TypeSafe opt-in now places the private credential file and its example directly under `.hermes/` as `.hermes/.env` and `.hermes/.env.example`; the connector default and installer exclusions follow the same project-local path.
+
 ## 6.3.1 - 2026-09-29
 
 ### Fixed

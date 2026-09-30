@@ -2,7 +2,7 @@
 
 [Docs index](../README.md) · Next: [Gates and stack detection](gates-and-stack-detection.md) · Related: [Obsidian vault](obsidian-vault.md), [FSM and bounded loop](fsm-and-loop.md)
 
-**Files:** `SKILL.md`, `scripts/install_project.py`, `vendor/typesafe-ai/SKILL.md`, `vendor/typesafe-ai/LICENSE`, `templates/.hermes.md`, `orchestration/.env.example`, `orchestration/runtime/typesafe_connector.py`, and `orchestration/README.md` (the installed layout guide, `templates/.hermes/orchestration/README.md`).
+**Files:** `SKILL.md`, `scripts/install_project.py`, `vendor/typesafe-ai/SKILL.md`, `vendor/typesafe-ai/LICENSE`, `templates/.hermes.md`, `templates/.hermes/.env.example`, `orchestration/runtime/typesafe_connector.py`, and `orchestration/README.md` (the installed layout guide, `templates/.hermes/orchestration/README.md`).
 
 ## `SKILL.md`: Hermes entry point
 
@@ -45,9 +45,9 @@ Guarantees, all covered by [the packaging tests](testing.md#skill-suite-tests):
 
 - It copies the distributable template tree, including the inactive-by-default repository-local `hooks/` layer and the project-local engineering skills, ignoring interpreter artifacts (`__pycache__`, `.pyc`, `.pyo`). It never overwrites a differing file, writes to a tracked path or through a symlink, edits a Hermes profile, modifies global skills/trust, or grants shell-hook consent.
 - The installer source remains parseable by Python 3.9 solely so it can stop immediately with `PYTHON_3_10_REQUIRED`; installation and the runtime still require Python 3.10+. A directory outside a Git worktree stops with `GIT_REPOSITORY_REQUIRED`; an initialized repository without a commit stops with `GIT_INITIAL_COMMIT_REQUIRED`. Both direct the caller to complete the missing Git prerequisite before retrying.
-- TypeSafe installation is a separate explicit opt-in. The installer never executes `npx` or downloads code: the official `npx skills add typesafe-ai/skills --skill typesafe-ai` command is informational, while apply copies the reviewed snapshot in `vendor/typesafe-ai/` from immutable upstream commit `65a39f393687675ce170e6094757de20370365b9`. Preflight verifies the exact regular-file set, an independently trusted length-framed digest, and a safe untracked `.hermes/orchestration/.env` destination before any project write. The controller preserves unrelated lock metadata and commits the skill, merged pinned lock entry, private mode-`0600` empty credential file and onboarding answer as one rollback-covered operation; it never overwrites an existing regular `.env`. An unsafe replacement topology returns `TYPESAFE_ROLLBACK_FAILED` rather than touching an external target.
+- TypeSafe installation is a separate explicit opt-in. The installer never executes `npx` or downloads code: the official `npx skills add typesafe-ai/skills --skill typesafe-ai` command is informational, while apply copies the reviewed snapshot in `vendor/typesafe-ai/` from immutable upstream commit `65a39f393687675ce170e6094757de20370365b9`. Preflight verifies the exact regular-file set, an independently trusted length-framed digest, and a safe untracked `.hermes/.env` destination before any project write. The controller preserves unrelated lock metadata and commits the skill, merged pinned lock entry, private mode-`0600` empty credential file and onboarding answer as one rollback-covered operation; it never overwrites an existing regular `.env`. An unsafe replacement topology returns `TYPESAFE_ROLLBACK_FAILED` rather than touching an external target.
 - It creates a fresh `STATE.md` (schema 2, `ticket: IDLE`, `mode: MANUAL`), `PROJECT_SETUP.md` (pending project connectivity), `INCIDENTS.md` and an empty, schema-valid `ACTION_JOURNAL.json` (see [Action journal](action-journal.md)).
-- It adds only `.hermes.md`, `.hermes/orchestration` and the three bundled `.hermes/skills/<name>` paths to `.git/info/exclude`, never `.hermes/skills` as a whole and never `.gitignore`. Therefore it does not newly hide unrelated project skills. Pre-existing user-owned exclusion entries are preserved verbatim, including any broader rule the user already configured.
+- It adds only `.hermes.md`, `.hermes/.env`, `.hermes/.env.example`, `.hermes/orchestration` and the three bundled `.hermes/skills/<name>` paths to `.git/info/exclude`, never `.hermes/skills` as a whole and never `.gitignore`. Therefore it does not newly hide unrelated project skills. Pre-existing user-owned exclusion entries are preserved verbatim, including any broader rule the user already configured.
 - A second run returns `ALREADY_INITIALIZED`. A partially present state returns `LOCAL_STATE_REQUIRES_REVIEW`.
 
 An existing installation is **never upgraded automatically**. To pick up new template files, review and copy them by hand, or reinstall into a clean worktree.
@@ -67,7 +67,7 @@ For TypeSafe, `--typesafe-ai install` is only a preview until combined with `--a
 
 ## TypeSafe/Jev runtime connector
 
-`runtime/typesafe_connector.py` is a stdlib-only, explicit client for `POST https://api.typesafe.ai/v1/systemone`. It reads `TYPESAFE_API_KEY` from the process environment first, then `.hermes/orchestration/.env`; `preflight --json` validates only local configuration and never contacts TypeSafe. On POSIX, credential paths are opened root-first with a directory descriptor per component plus `O_NOFOLLOW|O_NONBLOCK`, then ownership, regular-file type and mode are checked with `fstat()` on the opened descriptor before reading. Malformed, non-UTF-8, duplicate-key, symlinked, special-file, non-owner or group/world-accessible credential files fail closed without blocking. Keys containing leading, trailing or embedded whitespace, control characters or non-ASCII bytes are rejected, and neither keys nor remote error bodies appear in output.
+`runtime/typesafe_connector.py` is a stdlib-only, explicit client for `POST https://api.typesafe.ai/v1/systemone`. It reads `TYPESAFE_API_KEY` from the process environment first, then `.hermes/.env`; `preflight --json` validates only local configuration and never contacts TypeSafe. On POSIX, credential paths are opened root-first with a directory descriptor per component plus `O_NOFOLLOW|O_NONBLOCK`, then ownership, regular-file type and mode are checked with `fstat()` on the opened descriptor before reading. Malformed, non-UTF-8, duplicate-key, symlinked, special-file, non-owner or group/world-accessible credential files fail closed without blocking. Keys containing leading, trailing or embedded whitespace, control characters or non-ASCII bytes are rejected, and neither keys nor remote error bodies appear in output.
 
 `evaluate --input <json> --json` opens the input through the same descriptor-anchored nonblocking no-follow traversal and requires a regular file, so FIFOs and other special files fail before reading. It accepts at most 4 MiB of strict finite JSON with no more than 64 container levels, containing exactly `state`, a non-empty `questions` map, and optional `model`; the default is `jev-latest`. It has no configurable endpoint and refuses redirects, so a credential cannot be redirected by CLI input or an HTTP response. The command is never invoked automatically: running it is the explicit decision to send the supplied state/questions to TypeSafe. Responses are limited to 4 MiB and 64 levels, and HTTP error handles are closed without reading their bodies. Success returns `{"status":"OK","result":...}`. Local configuration/input failures exit 2 as `BLOCKED`; HTTP 401/422/429/529, timeouts, transport failures, oversized or truncated responses and malformed remote responses exit 3 as stable `ERROR` reasons without returning response bodies.
 
@@ -75,12 +75,12 @@ For TypeSafe, `--typesafe-ai install` is only a preview until combined with `--a
 | --- | --- |
 | `preflight` | Validate local credential configuration without network access. |
 | `evaluate` | Send one explicitly supplied System One request. |
-| `--env-file` | Override the local credential-file path; the default is the orchestration `.env`. |
+| `--env-file` | Override the local credential-file path; the default is `.hermes/.env`. |
 | `--input` | JSON request file required by `evaluate`. |
 | `--timeout` | Finite network timeout in seconds from greater than 0 through 300 for `evaluate` (default 30). |
 | `--json` | Emit the stable machine-readable report. |
 
-The tracked `.env.example` contains only `TYPESAFE_API_KEY=`. TypeSafe opt-in writes and fsyncs a private random temporary file under the verified parent directory, then hard-links it into the absent `.env` name without overwrite and removes the temporary name. Because the final credential path is never deleted during rollback, a concurrent replacement cannot be mistaken for the installer-created file and removed. An existing owner-only regular file is preserved byte-for-byte; a tracked, symlinked, special, wrong-owner or group/world-accessible file reopens a recorded install and blocks install/reinstall. If the placeholder is deleted from an otherwise valid installation, repeating `--typesafe-ai install --apply` recreates it transactionally. A verified `none` opt-out depends only on the TypeSafe skill being absent and leaves any unrelated `.env` conflict untouched without reopening the TypeSafe question. Put the real key there or export it in the process environment; never commit it.
+The tracked `.hermes/.env.example` contains only `TYPESAFE_API_KEY=`. TypeSafe opt-in writes and fsyncs a private random temporary file under the verified `.hermes` parent directory, then hard-links it into the absent `.env` name without overwrite and removes the temporary name. Because the final credential path is never deleted during rollback, a concurrent replacement cannot be mistaken for the installer-created file and removed. An existing owner-only regular file is preserved byte-for-byte; a tracked, symlinked, special, wrong-owner or group/world-accessible file reopens a recorded install and blocks install/reinstall. If the placeholder is deleted from an otherwise valid installation, repeating `--typesafe-ai install --apply` recreates it transactionally. A verified `none` opt-out depends only on the TypeSafe skill being absent and leaves any unrelated `.env` conflict untouched without reopening the TypeSafe question. Put the real key there or export it in the process environment; never commit it.
 
 ## `.hermes.md`: controller entry point
 
@@ -93,6 +93,8 @@ The installed `README.md` inside `.hermes/orchestration/` is the on-disk guide f
 ```text
 .hermes.md
 skills-lock.json                 # optional TypeSafe project lock
+.hermes/.env                    # created only by TypeSafe opt-in, ignored, mode 0600
+.hermes/.env.example            # TypeSafe variable name; no secret
 .hermes/obsidian.json            # optional, versioned — see Obsidian vault
 .hermes/skills/                  → project-local-skills.md (explicit repository trust)
 ├── sdd-backend-engineering/
@@ -100,8 +102,6 @@ skills-lock.json                 # optional TypeSafe project lock
 ├── sdd-database-design-migrations/
 └── typesafe-ai/                 # optional external TypeSafe skill
 .hermes/orchestration/
-├── .env.example  # TypeSafe variable name; no secret
-├── .env          # created only by TypeSafe opt-in, ignored, mode 0600
 ├── agents/      → stage-agents.md
 ├── contracts/   → contracts-and-schemas.md
 ├── hooks/       → hooks.md (installed but inactive until explicit profile opt-in)

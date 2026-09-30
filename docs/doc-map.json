@@ -6,7 +6,7 @@
       "skills/orchestrate/sdd-orchestrator/scripts/*",
       "skills/orchestrate/sdd-orchestrator/vendor/typesafe-ai/*",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes.md",
-      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/.env.example",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes*/.env.example",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/typesafe_connector.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/README.md"
     ],

@@ -659,7 +659,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertEqual("INSTALL", integration["planned_action"])
             self.assertEqual("ABSENT", integration["env_status"])
             self.assertEqual("CREATE", integration["planned_env_action"])
-            self.assertEqual(".hermes/orchestration/.env", integration["env_path"])
+            self.assertEqual(".hermes/.env", integration["env_path"])
             self.assertFalse(report["applied"])
             self.assertFalse(marker.exists())
             self.assertEqual(before, self.repository_snapshot(target))
@@ -694,8 +694,8 @@ class InstallerBehaviorTests(unittest.TestCase):
             lock = json.loads((target / "skills-lock.json").read_text(encoding="utf-8"))
             self.assertEqual(unrelated_entry, lock["skills"]["other"])
             self.assertEqual({"keep": True}, lock["metadata"])
-            env_example = target / ".hermes/orchestration/.env.example"
-            env_file = target / ".hermes/orchestration/.env"
+            env_example = target / ".hermes/.env.example"
+            env_file = target / ".hermes/.env"
             self.assertEqual("TYPESAFE_API_KEY=\n", env_example.read_text(encoding="utf-8"))
             self.assertEqual("TYPESAFE_API_KEY=\n", env_file.read_text(encoding="utf-8"))
             self.assertEqual(0o600, stat.S_IMODE(env_file.stat().st_mode))
@@ -726,7 +726,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.initialize_repository(target)
             self.assertEqual(0, self.run_installer(target, apply=True).returncode)
             self.write_typesafe_install(target)
-            env_path = target / ".hermes/orchestration/.env"
+            env_path = target / ".hermes/.env"
             original = b"TYPESAFE_API_KEY=fixture_only\nOTHER_LOCAL=value\n"
             env_path.write_bytes(original)
             env_path.chmod(0o600)
@@ -745,7 +745,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertEqual(0, self.run_installer(target, apply=True).returncode)
             external = Path(temp) / "external.env"
             external.write_text("TYPESAFE_API_KEY=fixture_only\n", encoding="utf-8")
-            env_path = target / ".hermes/orchestration/.env"
+            env_path = target / ".hermes/.env"
             env_path.symlink_to(external)
 
             result = self.run_installer(target, typesafe_ai="install")
@@ -759,7 +759,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             target = Path(temp)
             self.initialize_repository(target)
             self.assertEqual(0, self.run_installer(target, apply=True).returncode)
-            env_path = target / ".hermes/orchestration/.env"
+            env_path = target / ".hermes/.env"
             os.mkfifo(env_path, 0o600)
 
             result = self.run_installer(target, typesafe_ai="install")
@@ -779,7 +779,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             setup = setup.replace("obsidian: UNRESOLVED", "obsidian: none")
             setup = setup.replace("project_tools: UNRESOLVED", "project_tools: none")
             setup_path.write_text(setup, encoding="utf-8")
-            env_path = target / ".hermes/orchestration/.env"
+            env_path = target / ".hermes/.env"
             env_path.chmod(0o644)
 
             report = json.loads(self.run_installer(target).stdout)
@@ -1077,7 +1077,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             target = Path(temp)
             self.initialize_repository(target)
             self.assertEqual(0, self.run_installer(target, apply=True).returncode)
-            env_path = target / ".hermes/orchestration/.env"
+            env_path = target / ".hermes/.env"
             env_path.write_text("TYPESAFE_API_KEY=fixture_only\n", encoding="utf-8")
             env_path.chmod(0o644)
 
@@ -1156,7 +1156,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.initialize_repository(target)
             installed = self.run_installer(target, apply=True, typesafe_ai="install")
             self.assertEqual(0, installed.returncode, installed.stderr)
-            env_path = target / ".hermes/orchestration/.env"
+            env_path = target / ".hermes/.env"
             env_path.unlink()
 
             repaired = self.run_installer(target, apply=True, typesafe_ai="install")

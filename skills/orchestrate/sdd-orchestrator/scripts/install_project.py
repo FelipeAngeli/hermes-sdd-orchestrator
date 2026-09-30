@@ -22,7 +22,7 @@ CONFIG_ROOT = ".hermes/orchestration"
 TYPESAFE_SKILL_ROOT = ".hermes/skills/typesafe-ai"
 TYPESAFE_SKILL_PATH = f"{TYPESAFE_SKILL_ROOT}/SKILL.md"
 TYPESAFE_LOCK_PATH = "skills-lock.json"
-TYPESAFE_ENV_PATH = f"{CONFIG_ROOT}/.env"
+TYPESAFE_ENV_PATH = ".hermes/.env"
 TYPESAFE_ENV_CONTENT = b"TYPESAFE_API_KEY=\n"
 TYPESAFE_SOURCE_REF = "65a39f393687675ce170e6094757de20370365b9"
 TYPESAFE_UPSTREAM_HASH = "9cd84c5e535dec8dec59917c110f9c00b4a61faadb86b432ec7e41051170af12"
@@ -39,6 +39,8 @@ PROJECT_SKILLS = (
 LOCAL_PATHS = (
     ".hermes.md",
     *PROJECT_SKILLS,
+    ".hermes/.env",
+    ".hermes/.env.example",
     CONFIG_ROOT,
     f"{CONFIG_ROOT}/STATE.md",
     f"{CONFIG_ROOT}/PROJECT_SETUP.md",

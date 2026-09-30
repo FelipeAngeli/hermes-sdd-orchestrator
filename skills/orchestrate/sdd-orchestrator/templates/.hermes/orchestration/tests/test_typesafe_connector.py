@@ -38,6 +38,11 @@ class TypeSafeConnectorTests(unittest.TestCase):
         tempfile.tempdir = self.previous_tempdir
         os.umask(self.previous_umask)
 
+    def test_default_env_file_is_directly_under_project_hermes_directory(self) -> None:
+        connector = load_connector()
+
+        self.assertEqual(RUNTIME.resolve().parents[2] / ".env", connector.DEFAULT_ENV_PATH)
+
     def test_preflight_without_api_key_fails_before_network_without_disclosure(self) -> None:
         self.assertTrue(RUNTIME.is_file(), "TypeSafe connector is not shipped")
         with tempfile.TemporaryDirectory(prefix="sdd-typesafe-preflight-") as temp:
