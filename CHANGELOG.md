@@ -4,6 +4,11 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 6.6.0 - 2026-09-30
+
+### Added
+- A repository-local frontend engineering skill guides React, Next.js, component composition, accessibility, design-token reuse and Vercel-oriented performance work. It provides progressive references distilled from the reviewed Pedro Nauck skills snapshot, retaining project code, installed framework versions and accepted SDD decisions as the authority.
+
 ## 6.5.0 - 2026-09-30
 
 ### Changed
