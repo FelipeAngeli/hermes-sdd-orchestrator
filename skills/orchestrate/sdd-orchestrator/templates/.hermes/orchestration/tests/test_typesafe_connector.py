@@ -489,6 +489,117 @@ class TypeSafeConnectorTests(unittest.TestCase):
         )
         open_request.assert_not_called()
 
+    def test_evaluate_accepts_every_documented_question_shape(self) -> None:
+        connector = load_connector()
+        accepted = (
+            {"type": "noul", "instructions": "Ready to declare DONE?"},
+            {"type": "noul", "instructions": "Ready?", "criteria": {"true": "Gates green", "false": "Gates unrun"}},
+            {"type": "choice", "instructions": "Which risk?", "criteria": {"low": "Isolated", "high": None}},
+            {"type": "score", "instructions": "How risky?", "criteria": ["Calm", "Tense", "Severe"]},
+            # Structured criteria: the docs give each option or level an object
+            # (or array) of caller-named fields. These must not be refused.
+            {
+                "type": "choice",
+                "instructions": {"question": "Which returns topic?", "focus": "What the customer wants"},
+                "criteria": {
+                    "return_policy": {"what": "Whether an item can be returned", "examples": ["Can I return these?"]},
+                    "return_status": {"what": "Progress of a return already sent"},
+                    "other": None,
+                },
+            },
+            {
+                "type": "score",
+                "instructions": "How severe?",
+                "criteria": [
+                    {"what": "Cosmetic", "examples": ["typo in a label"]},
+                    {"what": "Workaround exists"},
+                    {"what": "Blocking"},
+                ],
+            },
+            {"type": "choice", "instructions": "Which?", "criteria": {"a": ["covers this", "not that"], "b": "plain"}},
+            {"type": "score", "instructions": "Rate", "criteria": [["low end"], ["high end"]]},
+            {"type": "score", "instructions": "Ten levels", "criteria": [f"level {n}" for n in range(10)]},
+            {"type": "choice", "instructions": "Many", "criteria": {f"o{n}": None for n in range(255)}},
+            {"type": "noul", "instructions": {"question": "Ready?", "note": "structured instructions"}},
+            {"type": "noul", "instructions": "Ready?", "unknown_future_field": "left to the API"},
+        )
+        for question in accepted:
+            with self.subTest(question=question), tempfile.TemporaryDirectory(prefix="sdd-typesafe-ok-") as temp:
+                payload = Path(temp) / "request.json"
+                payload.write_text(
+                    json.dumps({"state": "state", "questions": {"q": question}}), encoding="utf-8"
+                )
+                normalized = connector._request_payload(payload)
+                self.assertEqual(question, normalized["questions"]["q"])
+
+    def test_evaluate_rejects_malformed_questions_naming_the_offending_id(self) -> None:
+        connector = load_connector()
+        rejected = (
+            # A bare string is the shape the typed contract most often loses.
+            "pode declarar DONE?",
+            {"instructions": "Missing type"},
+            {"type": "guess", "instructions": "Unknown type"},
+            {"type": "noul"},
+            {"type": "noul", "instructions": "   "},
+            {"type": "choice", "instructions": "No criteria"},
+            {"type": "choice", "instructions": "Empty criteria", "criteria": {}},
+            {"type": "choice", "instructions": "Array criteria", "criteria": ["low", "high"]},
+            {"type": "choice", "instructions": "Non-string option", "criteria": {"low": 1}},
+            {"type": "choice", "instructions": "Empty object option", "criteria": {"low": {}}},
+            {"type": "choice", "instructions": "Blank option text", "criteria": {"low": "  "}},
+            {"type": "choice", "instructions": "Too many options", "criteria": {f"o{n}": None for n in range(256)}},
+            {"type": "score", "instructions": "No criteria"},
+            {"type": "score", "instructions": "One level", "criteria": ["Calm"]},
+            {"type": "score", "instructions": "Eleven levels", "criteria": [f"l{n}" for n in range(11)]},
+            {"type": "score", "instructions": "Null level", "criteria": ["Calm", None]},
+            {"type": "score", "instructions": "Empty list level", "criteria": ["Calm", []]},
+            {"type": "score", "instructions": "Map criteria", "criteria": {"0": "Calm", "1": "Tense"}},
+            {"type": "noul", "instructions": "Array noul criteria", "criteria": ["yes", "no"]},
+        )
+        for question in rejected:
+            with self.subTest(question=question), tempfile.TemporaryDirectory(prefix="sdd-typesafe-bad-") as temp:
+                payload = Path(temp) / "request.json"
+                payload.write_text(
+                    json.dumps({"state": "state", "questions": {"pronto_para_done": question}}), encoding="utf-8"
+                )
+                with self.assertRaises(ValueError) as caught:
+                    connector._request_payload(payload)
+                self.assertEqual("TYPESAFE_QUESTION_INVALID: pronto_para_done", str(caught.exception))
+
+    def test_evaluate_blocks_malformed_questions_before_network(self) -> None:
+        connector = load_connector()
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-contract-") as temp:
+            root = Path(temp)
+            (root / ".env").write_text("TYPESAFE_API_KEY=fixture_key_value\n", encoding="utf-8")
+            payload = root / "request.json"
+            payload.write_text(
+                json.dumps({"state": "state", "questions": {"risco": "alto ou baixo?"}}), encoding="utf-8"
+            )
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(connector, "_open_request") as open_request,
+                mock.patch.object(sys, "argv", [
+                    str(RUNTIME), "evaluate", "--input", str(payload),
+                    "--env-file", str(root / ".env"), "--json",
+                ]),
+                mock.patch.object(connector.os, "environ", {}),
+                contextlib.redirect_stdout(stdout),
+            ):
+                returncode = connector.main()
+
+        self.assertEqual(2, returncode)
+        self.assertEqual(
+            {"status": "BLOCKED", "reason": "TYPESAFE_QUESTION_INVALID: risco"},
+            json.loads(stdout.getvalue()),
+        )
+        open_request.assert_not_called()
+
+    def test_question_reason_omits_unprintable_or_overlong_ids(self) -> None:
+        connector = load_connector()
+        for question_id in ("bad\nid", "\u0000", "x" * 65):
+            with self.subTest(question_id=question_id):
+                self.assertEqual("TYPESAFE_QUESTION_INVALID", connector._question_reason(question_id))
+
     def test_evaluate_normalizes_timeout_transport_and_invalid_response(self) -> None:
         connector = load_connector()
 
