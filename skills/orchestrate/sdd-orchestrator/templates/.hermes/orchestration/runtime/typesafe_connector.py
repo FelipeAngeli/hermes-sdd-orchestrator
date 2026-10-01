@@ -72,6 +72,12 @@ JEV_HTTP_REASONS = {
 }
 PROVIDERS["typesafe"]["http_reasons"] = HTTP_REASONS
 PROVIDERS["jev-ai"]["http_reasons"] = JEV_HTTP_REASONS
+QUESTION_TYPES = ("noul", "choice", "score")
+# Documented validator limits: a Score takes 2 to 10 ordered levels and a
+# Choice up to 255 options. Refusing these locally avoids a billed round trip.
+MIN_SCORE_LEVELS = 2
+MAX_SCORE_LEVELS = 10
+MAX_CHOICE_OPTIONS = 255
 RETRY_AFTER_PATTERN = re.compile(r"[0-9]{1,6}", re.ASCII)
 # Failures after which a POST may or may not have run (and been billed).
 # Check usage before sending the request again; never replay automatically.
@@ -275,6 +281,8 @@ def _request_payload(path: Path, provider: str = DEFAULT_PROVIDER) -> dict[str, 
     if not isinstance(model, str) or not model.strip():
         raise ValueError("TYPESAFE_INPUT_INVALID")
     normalized = {"state": payload["state"], "model": model, "questions": payload["questions"]}
+    for question_id, question in normalized["questions"].items():
+        _validate_question(question_id, question)
     try:
         encoded = _encoded_json(normalized)
     except (UnicodeError, ValueError, RecursionError) as error:
@@ -289,6 +297,63 @@ def _request_payload(path: Path, provider: str = DEFAULT_PROVIDER) -> dict[str, 
     ):
         raise ValueError("TYPESAFE_INPUT_OVER_LIMIT")
     return normalized
+
+
+def _question_reason(question_id: str) -> str:
+    # The question ID is caller-supplied local input, never a remote body. It is
+    # echoed only when short and printable so a malformed ID cannot garble output.
+    if len(question_id) <= 64 and question_id.isprintable():
+        return f"TYPESAFE_QUESTION_INVALID: {question_id}"
+    return "TYPESAFE_QUESTION_INVALID"
+
+
+def _valid_description(value: Any, *, allow_null: bool) -> bool:
+    """A rubric description: text, or a structured object/array of fields.
+
+    The docs' structured criteria give each option or level an object (or array)
+    of caller-named fields, so only blank text and empty containers are refused.
+    """
+    if value is None:
+        return allow_null
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (dict, list)):
+        return bool(value)
+    return False
+
+
+def _validate_question(question_id: str, question: Any) -> None:
+    """Check one question against the documented Question contract.
+
+    Unknown fields are left to the API so a future field is not refused here.
+    """
+    reason = _question_reason(question_id)
+    if not isinstance(question, dict):
+        raise ValueError(reason)
+    if question.get("type") not in QUESTION_TYPES:
+        raise ValueError(reason)
+    # Every type requires instructions; a string, object or array is accepted.
+    if not _valid_description(question.get("instructions"), allow_null=False):
+        raise ValueError(reason)
+    criteria = question.get("criteria")
+    if question["type"] == "choice":
+        # Required: a non-empty map of option to description; null means
+        # "no extra detail" and a structured description is also documented.
+        if not isinstance(criteria, dict) or not criteria:
+            raise ValueError(reason)
+        if len(criteria) > MAX_CHOICE_OPTIONS:
+            raise ValueError(reason)
+        if any(not _valid_description(value, allow_null=True) for value in criteria.values()):
+            raise ValueError(reason)
+    elif question["type"] == "score":
+        # Required: an ordered array of 2 to 10 level descriptions.
+        if not isinstance(criteria, list) or not MIN_SCORE_LEVELS <= len(criteria) <= MAX_SCORE_LEVELS:
+            raise ValueError(reason)
+        if any(not _valid_description(level, allow_null=False) for level in criteria):
+            raise ValueError(reason)
+    elif criteria is not None and not isinstance(criteria, dict):
+        # Noul criteria are optional; when present they describe true/false.
+        raise ValueError(reason)
 
 
 def _read_json_response(response: Any) -> Any:

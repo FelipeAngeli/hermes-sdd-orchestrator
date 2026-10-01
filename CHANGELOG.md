@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+- The TypeSafe/Jev connector validates every `questions` entry against the documented Question contract before sending a request: `type` must be `noul`, `choice` or `score`, `instructions` must be a non-blank string or non-empty object/array, `choice` requires a non-empty map of at most 255 options to a text, structured object/array or `null` description, and `score` an ordered array of 2 to 10 level descriptions that are text or structured objects/arrays, while `noul` `criteria` stay optional and unknown question fields are forwarded untouched. A violation exits 2 as `TYPESAFE_QUESTION_INVALID: <question id>` with no network call and no billing, naming the offending question (printable IDs up to 64 characters) so a contract error is diagnosable without the remote 422 body, which continues to be discarded unread. Documented that `evaluate --input` rejects any path with a symlinked component, so macOS `/tmp` must be given as a canonical path.
+
 ## 6.7.0 - 2026-10-01
 
 ### Added
