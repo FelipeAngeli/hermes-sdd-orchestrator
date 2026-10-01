@@ -4,8 +4,6 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
-## 6.7.0 - 2026-10-01
-
 ### Added
 - The TypeSafe/Jev connector gains `--provider jev-ai`, which pairs `JEV_AI_API_KEY` exclusively with the independent Jev AI compatible endpoint `https://jev-ai.pro/api` (no fallback to TypeSafe), plus a `models` command for an authenticated `GET /v1/models` lookup without inference. `preflight` reports the resolved Jev destination; `evaluate` enforces Jev's 256000-byte/64-question/64-character-ID limits locally, reports `X-Jev-*` billing headers, maps 402/404/502/503/504 to stable reasons, surfaces numeric `Retry-After`, and marks timeouts, lost connections and 504 as an uncertain outcome without retrying.
 
