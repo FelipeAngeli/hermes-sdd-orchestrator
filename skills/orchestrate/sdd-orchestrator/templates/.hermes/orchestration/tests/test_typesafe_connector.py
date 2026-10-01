@@ -768,6 +768,58 @@ class JevAIProviderTests(unittest.TestCase):
         )
         self.assertEqual(1, open_request.call_count)
 
+    def test_non_ascii_or_malformed_retry_after_is_ignored_without_crashing(self) -> None:
+        payload = self.write_payload({"state": "s", "questions": {"q": {"type": "noul", "instructions": "Q?"}}})
+        for value in ("\u00b2", "\u0663", "7.5", "-1", "1234567", "Wed, 21 Oct 2026 07:28:00 GMT"):
+            with self.subTest(value=value):
+                connector = load_connector()
+                error = connector.urllib.error.HTTPError(
+                    "https://jev-ai.pro/api/v1/systemone", 429, "failure", {"Retry-After": value}, io.BytesIO(b"")
+                )
+                returncode, report = self.run_main(
+                    connector, ["evaluate", "--provider", "jev-ai", "--input", str(payload)], side_effect=error
+                )
+                self.assertEqual(3, returncode)
+                self.assertEqual("TYPESAFE_RATE_LIMITED", report["reason"])
+                self.assertNotIn("retry_after_seconds", report)
+
+    def test_default_typesafe_provider_keeps_its_original_error_contract(self) -> None:
+        payload = self.write_payload({"state": "s", "questions": {"q": {"type": "noul", "instructions": "Q?"}}})
+        for status in (402, 404, 502, 503, 504):
+            with self.subTest(status=status):
+                connector = load_connector()
+                error = connector.urllib.error.HTTPError(
+                    connector.DEFAULT_ENDPOINT, status, "failure", {"Retry-After": "7"}, io.BytesIO(b"")
+                )
+                returncode, report = self.run_main(connector, ["evaluate", "--input", str(payload)], side_effect=error)
+                self.assertEqual(3, returncode)
+                self.assertEqual({"status": "ERROR", "reason": "TYPESAFE_HTTP_ERROR", "http_status": status}, report)
+
+    def test_default_typesafe_request_headers_are_unchanged(self) -> None:
+        connector = load_connector()
+        received: dict[str, Any] = {}
+
+        def open_request(request: Any, timeout: float) -> _FakeResponse:
+            received.update(headers=dict(request.header_items()))
+            return _FakeResponse(json.dumps({"model": "m", "answers": {}, "usage": {}}).encode("utf-8"))
+
+        payload = self.write_payload({"state": "s", "questions": {"q": {"type": "noul", "instructions": "Q?"}}})
+        returncode, _ = self.run_main(connector, ["evaluate", "--input", str(payload)], side_effect=open_request)
+        self.assertEqual(0, returncode)
+        self.assertEqual({"Authorization", "Content-type"}, set(received["headers"]))
+
+    def test_malformed_jev_success_body_is_uncertain_and_keeps_billing_headers(self) -> None:
+        connector = load_connector()
+        payload = self.write_payload({"state": "s", "questions": {"q": {"type": "noul", "instructions": "Q?"}}})
+        response = _FakeResponse(b"not-json", {"X-Jev-Run-Id": "run_fixture", "X-Jev-Credits-Charged": "1"})
+        returncode, report = self.run_main(
+            connector, ["evaluate", "--provider", "jev-ai", "--input", str(payload)], return_value=response
+        )
+        self.assertEqual(3, returncode)
+        self.assertEqual("TYPESAFE_RESPONSE_INVALID", report["reason"])
+        self.assertEqual("UNCERTAIN", report["outcome"])
+        self.assertEqual({"run_id": "run_fixture", "credits_charged": "1"}, report["billing"])
+
 
 if __name__ == "__main__":
     unittest.main()

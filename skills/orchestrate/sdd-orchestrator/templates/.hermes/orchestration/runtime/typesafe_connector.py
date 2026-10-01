@@ -8,6 +8,7 @@ import http.client
 import json
 import math
 import os
+import re
 import stat
 import sys
 import urllib.error
@@ -56,15 +57,22 @@ JEV_BILLING_HEADERS = {
 }
 HTTP_REASONS = {
     401: "TYPESAFE_AUTHENTICATION_FAILED",
-    402: "TYPESAFE_PAYMENT_REQUIRED",
-    404: "TYPESAFE_ENDPOINT_NOT_FOUND",
     422: "TYPESAFE_REQUEST_REJECTED",
     429: "TYPESAFE_RATE_LIMITED",
+    529: "TYPESAFE_OVERLOADED",
+}
+# Jev AI documents additional statuses; the TypeSafe mapping above is unchanged.
+JEV_HTTP_REASONS = {
+    **HTTP_REASONS,
+    402: "TYPESAFE_PAYMENT_REQUIRED",
+    404: "TYPESAFE_ENDPOINT_NOT_FOUND",
     502: "TYPESAFE_UNAVAILABLE",
     503: "TYPESAFE_UNAVAILABLE",
     504: "TYPESAFE_UPSTREAM_TIMEOUT",
-    529: "TYPESAFE_OVERLOADED",
 }
+PROVIDERS["typesafe"]["http_reasons"] = HTTP_REASONS
+PROVIDERS["jev-ai"]["http_reasons"] = JEV_HTTP_REASONS
+RETRY_AFTER_PATTERN = re.compile(r"[0-9]{1,6}", re.ASCII)
 # Failures after which a POST may or may not have run (and been billed).
 # Check usage before sending the request again; never replay automatically.
 UNCERTAIN_OUTCOME_STATUSES = {504}
@@ -314,17 +322,22 @@ def _evaluate(
     payload: dict[str, Any],
     timeout: float,
     billing: dict[str, str] | None = None,
+    accept_json: bool = False,
 ) -> dict[str, Any]:
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    if accept_json:
+        headers["Accept"] = "application/json"
     request = urllib.request.Request(
         endpoint,
         data=_encoded_json(payload),
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "Accept": "application/json"},
+        headers=headers,
         method="POST",
     )
     with _open_request(request, timeout=timeout) as response:
-        decoded = _read_json_response(response)
+        # Capture billing before parsing: a malformed 200 may still have been billed.
         if billing is not None:
             billing.update(_billing_headers(response))
+        decoded = _read_json_response(response)
     if (
         not isinstance(decoded, dict)
         or not isinstance(decoded.get("model"), str)
@@ -365,12 +378,13 @@ def _http_error_report(error: urllib.error.HTTPError, provider: str) -> dict[str
     try:
         report: dict[str, Any] = {
             "status": "ERROR",
-            "reason": HTTP_REASONS.get(error.code, "TYPESAFE_HTTP_ERROR"),
+            "reason": PROVIDERS[provider]["http_reasons"].get(error.code, "TYPESAFE_HTTP_ERROR"),
             "http_status": error.code,
         }
-        retry_after = error.headers.get("Retry-After") if error.headers is not None else None
-        if isinstance(retry_after, str) and retry_after.strip().isdigit() and len(retry_after.strip()) <= 6:
-            report["retry_after_seconds"] = int(retry_after.strip())
+        if provider != DEFAULT_PROVIDER:
+            retry_after = error.headers.get("Retry-After") if error.headers is not None else None
+            if isinstance(retry_after, str) and RETRY_AFTER_PATTERN.fullmatch(retry_after.strip()):
+                report["retry_after_seconds"] = int(retry_after.strip())
     finally:
         error.close()
     if provider != DEFAULT_PROVIDER:
@@ -459,7 +473,9 @@ def main() -> int:
                 listed = _list_models(urls["models"], key, timeout)
             else:
                 payload = _request_payload(args.input, provider)
-                result = _evaluate(urls["systemone"], key, payload, timeout, billing)
+                result = _evaluate(
+                    urls["systemone"], key, payload, timeout, billing, accept_json=provider != DEFAULT_PROVIDER
+                )
         except urllib.error.HTTPError as error:
             report = _http_error_report(error, provider)
             if args.command == "evaluate" and provider != DEFAULT_PROVIDER and error.code in UNCERTAIN_OUTCOME_STATUSES:
@@ -467,7 +483,10 @@ def main() -> int:
             _emit(report, args.json, f"ERROR: {report['reason']}")
             return 3
         except TypeSafeResponseError as error:
-            report = {"status": "ERROR", "reason": str(error)}
+            report: dict[str, Any] = {"status": "ERROR", "reason": str(error)}
+            if args.command == "evaluate" and provider != DEFAULT_PROVIDER:
+                # A 2xx body that cannot be parsed may still have run and been billed.
+                report.update({"provider": provider, "outcome": "UNCERTAIN", "billing": billing})
             _emit(report, args.json, f"ERROR: {error}")
             return 3
         except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
