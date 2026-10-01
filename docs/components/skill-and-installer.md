@@ -68,20 +68,45 @@ For TypeSafe, `--typesafe-ai install` is only a preview until combined with `--a
 
 ## TypeSafe/Jev runtime connector
 
-`runtime/typesafe_connector.py` is a stdlib-only, explicit client for `POST https://api.typesafe.ai/v1/systemone`. It reads `TYPESAFE_API_KEY` from the process environment first, then `.hermes/.env`; `preflight --json` validates only local configuration and never contacts TypeSafe. On POSIX, credential paths are opened root-first with a directory descriptor per component plus `O_NOFOLLOW|O_NONBLOCK`, then ownership, regular-file type and mode are checked with `fstat()` on the opened descriptor before reading. Malformed, non-UTF-8, duplicate-key, symlinked, special-file, non-owner or group/world-accessible credential files fail closed without blocking. Keys containing leading, trailing or embedded whitespace, control characters or non-ASCII bytes are rejected, and neither keys nor remote error bodies appear in output.
+`runtime/typesafe_connector.py` is a stdlib-only, explicit System One client with two fixed credential/destination pairs selected by `--provider`. Each provider reads only its own key, from the process environment first and then `.hermes/.env`; a key is never sent to the other provider and there is no automatic fallback.
 
-`evaluate --input <json> --json` opens the input through the same descriptor-anchored nonblocking no-follow traversal and requires a regular file, so FIFOs and other special files fail before reading. It accepts at most 4 MiB of strict finite JSON with no more than 64 container levels, containing exactly `state`, a non-empty `questions` map, and optional `model`; the default is `jev-latest`. It has no configurable endpoint and refuses redirects, so a credential cannot be redirected by CLI input or an HTTP response. The command is never invoked automatically: running it is the explicit decision to send the supplied state/questions to TypeSafe. Responses are limited to 4 MiB and 64 levels, and HTTP error handles are closed without reading their bodies. Success returns `{"status":"OK","result":...}`. Local configuration/input failures exit 2 as `BLOCKED`; HTTP 401/422/429/529, timeouts, transport failures, oversized or truncated responses and malformed remote responses exit 3 as stable `ERROR` reasons without returning response bodies.
+| `--provider` | Key | Base URL | Decision endpoint | Model lookup |
+| --- | --- | --- | --- | --- |
+| `typesafe` (default) | `TYPESAFE_API_KEY` | `https://api.typesafe.ai` | `POST https://api.typesafe.ai/v1/systemone` | not offered |
+| `jev-ai` | `JEV_AI_API_KEY` | `https://jev-ai.pro/api` | `POST https://jev-ai.pro/api/v1/systemone` | `GET https://jev-ai.pro/api/v1/models` |
+
+Jev AI is an independent hosted endpoint compatible with TypeSafe's System One API; a Jev AI key and balance belong to Jev AI. `preflight --json` validates only local configuration and never contacts a provider; with `--provider jev-ai` it also reports `key_name`, `base_url`, `systemone` and `models` so the resolved destination can be checked before any request. On POSIX, credential paths are opened root-first with a directory descriptor per component plus `O_NOFOLLOW|O_NONBLOCK`, then ownership, regular-file type and mode are checked with `fstat()` on the opened descriptor before reading. Malformed, non-UTF-8, duplicate-key, symlinked, special-file, non-owner or group/world-accessible credential files fail closed without blocking. Keys containing leading, trailing or embedded whitespace, control characters or non-ASCII bytes are rejected, and neither keys nor remote error bodies appear in output. Missing or invalid keys report `<KEY_NAME>_MISSING` or `<KEY_NAME>_INVALID`.
+
+`models --provider jev-ai --json` performs an authenticated `GET` without a body and returns `{"status":"OK","provider","endpoint","models":[{"name","description"?}]}`. It never runs inference; it checks connectivity and authentication but does not guarantee that a later decision call will succeed. With the `typesafe` provider it returns `BLOCKED` `MODELS_UNSUPPORTED` before network access.
+
+`evaluate --input <json> --json` opens the input through the same descriptor-anchored nonblocking no-follow traversal and requires a regular file, so FIFOs and other special files fail before reading. It accepts at most 4 MiB of strict finite JSON with no more than 64 container levels, containing exactly `state`, a non-empty `questions` map, and optional `model`; the default is `jev-latest`. For `jev-ai` the normalized body must also respect the documented API validator limits — at most 256000 bytes, 64 questions and 64-character question IDs — or it is refused locally as `TYPESAFE_INPUT_OVER_LIMIT`. Endpoints are not configurable from the CLI and redirects are refused, so a credential cannot be redirected by CLI input or an HTTP response. The command is never invoked automatically: running it is the explicit decision to send the supplied state/questions to the selected provider, and with `jev-ai` it is billed to the Jev AI balance. Each invocation sends exactly one request and never retries. Responses are limited to 4 MiB and 64 levels, and HTTP error handles are closed without reading their bodies. Success returns `{"status":"OK","result":...}`; `jev-ai` adds `provider`, `endpoint` and a `billing` object built from the documented `X-Jev-Run-Id`, `X-Jev-Billing`, `X-Jev-Paid-Input-Tokens-Used`, `X-Jev-Credits-Charged`, `X-Jev-Tokens-Remaining` and `X-Jev-Credits-Remaining` response headers. Local configuration/input failures exit 2 as `BLOCKED`. Remote failures exit 3 as stable `ERROR` reasons without returning response bodies:
+
+| HTTP | Reason | Caller action |
+| --- | --- | --- |
+| 401 | `TYPESAFE_AUTHENTICATION_FAILED` | Check the destination host and the key. |
+| 402 | `TYPESAFE_PAYMENT_REQUIRED` | Insufficient balance or paused spending; check billing. |
+| 404 | `TYPESAFE_ENDPOINT_NOT_FOUND` | Check the base URL and final path. |
+| 422 | `TYPESAFE_REQUEST_REJECTED` | Correct the request; do not retry unchanged. |
+| 429 | `TYPESAFE_RATE_LIMITED` | Back off; `retry_after_seconds` is reported when the server sends a numeric `Retry-After`. |
+| 502/503 | `TYPESAFE_UNAVAILABLE` | Retry later with bounded backoff. |
+| 504 | `TYPESAFE_UPSTREAM_TIMEOUT` | Outcome may be uncertain; check usage first. |
+| 529 | `TYPESAFE_OVERLOADED` | Retry later with bounded backoff. |
+| other | `TYPESAFE_HTTP_ERROR` | Inspect `http_status`. |
+
+Timeouts report `TYPESAFE_TIMEOUT`; connection, reset and other transport failures report `TYPESAFE_TRANSPORT_ERROR`; oversized, truncated or malformed remote responses report `TYPESAFE_RESPONSE_INVALID`. For a `jev-ai` evaluation, a 504, timeout or transport failure also reports `"outcome":"UNCERTAIN"`: the request may have run and been billed, so check Jev AI usage before sending it again.
 
 | Command/option | Meaning |
 | --- | --- |
-| `preflight` | Validate local credential configuration without network access. |
+| `preflight` | Validate local credential configuration and report the resolved destination without network access. |
+| `models` | Authenticated model lookup without inference (`jev-ai` only). |
 | `evaluate` | Send one explicitly supplied System One request. |
+| `--provider` | `typesafe` (default) or `jev-ai`; selects the fixed key/destination pair. |
 | `--env-file` | Override the local credential-file path; the default is `.hermes/.env`. |
 | `--input` | JSON request file required by `evaluate`. |
-| `--timeout` | Finite network timeout in seconds from greater than 0 through 300 for `evaluate` (default 30). |
+| `--timeout` | Finite network timeout in seconds from greater than 0 through 300 for `models` and `evaluate` (default 30). |
 | `--json` | Emit the stable machine-readable report. |
 
-The tracked `.hermes/.env.example` contains only `TYPESAFE_API_KEY=`. TypeSafe opt-in writes and fsyncs a private random temporary file under the verified `.hermes` parent directory, then hard-links it into the absent `.env` name without overwrite and removes the temporary name. Because the final credential path is never deleted during rollback, a concurrent replacement cannot be mistaken for the installer-created file and removed. An existing owner-only regular file is preserved byte-for-byte; a tracked, symlinked, special, wrong-owner or group/world-accessible file reopens a recorded install and blocks install/reinstall. If the placeholder is deleted from an otherwise valid installation, repeating `--typesafe-ai install --apply` recreates it transactionally. A verified `none` opt-out depends only on the TypeSafe skill being absent and leaves any unrelated `.env` conflict untouched without reopening the TypeSafe question. Put the real key there or export it in the process environment; never commit it.
+The tracked `.hermes/.env.example` contains only `TYPESAFE_API_KEY=`. TypeSafe opt-in writes and fsyncs a private random temporary file under the verified `.hermes` parent directory, then hard-links it into the absent `.env` name without overwrite and removes the temporary name. Because the final credential path is never deleted during rollback, a concurrent replacement cannot be mistaken for the installer-created file and removed. An existing owner-only regular file is preserved byte-for-byte; a tracked, symlinked, special, wrong-owner or group/world-accessible file reopens a recorded install and blocks install/reinstall. If the placeholder is deleted from an otherwise valid installation, repeating `--typesafe-ai install --apply` recreates it transactionally. A verified `none` opt-out depends only on the TypeSafe skill being absent and leaves any unrelated `.env` conflict untouched without reopening the TypeSafe question. Put the real key there or export it in the process environment; never commit it. `JEV_AI_API_KEY` for the `jev-ai` provider goes in the same owner-only `.hermes/.env` (one line, never committed) or in the deployment's server-side secret store.
 
 ## `.hermes.md`: controller entry point
 

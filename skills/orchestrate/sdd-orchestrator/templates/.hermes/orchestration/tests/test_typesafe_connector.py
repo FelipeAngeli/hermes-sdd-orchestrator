@@ -587,5 +587,187 @@ class TypeSafeConnectorTests(unittest.TestCase):
                 self.assertNotIn("sensitive", stdout.getvalue())
 
 
+class _FakeResponse:
+    def __init__(self, body: bytes, headers: dict[str, str] | None = None) -> None:
+        self.body = body
+        self.headers = headers or {}
+
+    def __enter__(self) -> "_FakeResponse":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        pass
+
+    def read(self, amount: int = -1) -> bytes:
+        return self.body
+
+
+class JevAIProviderTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.previous_umask = os.umask(0o077)
+        self.temp = tempfile.TemporaryDirectory(prefix="sdd-jev-ai-", dir=str(Path(tempfile.gettempdir()).resolve()))
+        self.root = Path(self.temp.name).resolve()
+        self.env_file = self.root / ".env"
+        self.env_file.write_text(
+            "TYPESAFE_API_KEY=fixture_typesafe_value\nJEV_AI_API_KEY=fixture_jev_value\n", encoding="utf-8"
+        )
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+        os.umask(self.previous_umask)
+
+    def run_main(self, connector: Any, argv: list[str], **patch: Any) -> tuple[int, dict[str, Any]]:
+        stdout = io.StringIO()
+        with (
+            mock.patch.object(connector, "_open_request", **patch),
+            mock.patch.object(sys, "argv", [str(RUNTIME), *argv, "--env-file", str(self.env_file), "--json"]),
+            mock.patch.object(connector.os, "environ", {}),
+            contextlib.redirect_stdout(stdout),
+        ):
+            returncode = connector.main()
+        output = stdout.getvalue()
+        self.assertNotIn("fixture_jev_value", output)
+        self.assertNotIn("fixture_typesafe_value", output)
+        return returncode, json.loads(output)
+
+    def write_payload(self, payload: dict[str, Any]) -> Path:
+        path = self.root / "request.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path
+
+    def test_preflight_reports_the_fixed_jev_destination_without_network(self) -> None:
+        connector = load_connector()
+        returncode, report = self.run_main(
+            connector, ["preflight", "--provider", "jev-ai"], side_effect=AssertionError("network used")
+        )
+        self.assertEqual(0, returncode)
+        self.assertEqual("https://jev-ai.pro/api", report["base_url"])
+        self.assertEqual("https://jev-ai.pro/api/v1/systemone", report["systemone"])
+        self.assertEqual("https://jev-ai.pro/api/v1/models", report["models"])
+        self.assertEqual("JEV_AI_API_KEY", report["key_name"])
+
+    def test_jev_provider_never_falls_back_to_the_typesafe_key(self) -> None:
+        connector = load_connector()
+        self.env_file.write_text("TYPESAFE_API_KEY=fixture_typesafe_value\n", encoding="utf-8")
+        returncode, report = self.run_main(
+            connector, ["preflight", "--provider", "jev-ai"], side_effect=AssertionError("network used")
+        )
+        self.assertEqual(2, returncode)
+        self.assertEqual({"status": "BLOCKED", "reason": "JEV_AI_API_KEY_MISSING"}, report)
+
+    def test_models_lookup_is_an_authenticated_get_without_a_body(self) -> None:
+        connector = load_connector()
+        received: dict[str, Any] = {}
+
+        def open_request(request: Any, timeout: float) -> _FakeResponse:
+            received.update(url=request.full_url, method=request.get_method(),
+                            auth=request.get_header("Authorization"), data=request.data)
+            return _FakeResponse(json.dumps({"models": [
+                {"name": "jev-latest", "description": "Stable alias"}, {"name": "jev-1.13.0"},
+            ]}).encode("utf-8"))
+
+        returncode, report = self.run_main(connector, ["models", "--provider", "jev-ai"], side_effect=open_request)
+        self.assertEqual(0, returncode)
+        self.assertEqual("https://jev-ai.pro/api/v1/models", received["url"])
+        self.assertEqual("GET", received["method"])
+        self.assertEqual("Bearer fixture_jev_value", received["auth"])
+        self.assertIsNone(received["data"])
+        self.assertEqual(["jev-latest", "jev-1.13.0"], [model["name"] for model in report["models"]])
+
+    def test_models_lookup_is_refused_for_typesafe_before_network(self) -> None:
+        connector = load_connector()
+        returncode, report = self.run_main(connector, ["models"], side_effect=AssertionError("network used"))
+        self.assertEqual(2, returncode)
+        self.assertEqual("MODELS_UNSUPPORTED", report["reason"])
+
+    def test_evaluate_posts_to_jev_with_the_jev_key_and_reports_billing_headers(self) -> None:
+        connector = load_connector()
+        received: dict[str, Any] = {}
+
+        def open_request(request: Any, timeout: float) -> _FakeResponse:
+            received.update(url=request.full_url, auth=request.get_header("Authorization"), body=json.loads(request.data))
+            return _FakeResponse(
+                json.dumps({"model": "jev-1.13.0", "answers": {"q": {"type": "noul", "noul": 0.9}},
+                            "usage": {"input_tokens": 10, "output_tokens": 2}}).encode("utf-8"),
+                {"X-Jev-Run-Id": "run_fixture", "X-Jev-Billing": "credits", "X-Jev-Credits-Charged": "1"},
+            )
+
+        payload = self.write_payload({"state": "s", "questions": {"q": {"type": "noul", "instructions": "Q?"}}})
+        returncode, report = self.run_main(
+            connector, ["evaluate", "--provider", "jev-ai", "--input", str(payload)], side_effect=open_request
+        )
+        self.assertEqual(0, returncode)
+        self.assertEqual("https://jev-ai.pro/api/v1/systemone", received["url"])
+        self.assertEqual("Bearer fixture_jev_value", received["auth"])
+        self.assertEqual("jev-latest", received["body"]["model"])
+        self.assertEqual("jev-1.13.0", report["result"]["model"])
+        self.assertEqual({"run_id": "run_fixture", "billing": "credits", "credits_charged": "1"}, report["billing"])
+
+    def test_jev_limits_are_enforced_before_network(self) -> None:
+        connector = load_connector()
+        noul = {"type": "noul", "instructions": "Q?"}
+        cases = (
+            {"state": "s", "questions": {f"q{i}": noul for i in range(65)}},
+            {"state": "s", "questions": {"q" * 65: noul}},
+            {"state": "x" * 256001, "questions": {"q": noul}},
+        )
+        for payload in cases:
+            with self.subTest(size=len(json.dumps(payload))):
+                path = self.write_payload(payload)
+                returncode, report = self.run_main(
+                    connector, ["evaluate", "--provider", "jev-ai", "--input", str(path)],
+                    side_effect=AssertionError("network used"),
+                )
+                self.assertEqual(2, returncode)
+                self.assertEqual("TYPESAFE_INPUT_OVER_LIMIT", report["reason"])
+
+    def test_documented_jev_errors_map_to_stable_reasons_and_honor_retry_after(self) -> None:
+        expected = {
+            401: "TYPESAFE_AUTHENTICATION_FAILED", 402: "TYPESAFE_PAYMENT_REQUIRED",
+            404: "TYPESAFE_ENDPOINT_NOT_FOUND", 422: "TYPESAFE_REQUEST_REJECTED",
+            429: "TYPESAFE_RATE_LIMITED", 502: "TYPESAFE_UNAVAILABLE", 503: "TYPESAFE_UNAVAILABLE",
+            504: "TYPESAFE_UPSTREAM_TIMEOUT",
+        }
+        payload = self.write_payload({"state": "s", "questions": {"q": {"type": "noul", "instructions": "Q?"}}})
+        for status, reason in expected.items():
+            with self.subTest(status=status):
+                connector = load_connector()
+                headers = {"Retry-After": "7"} if status == 429 else {}
+                error = connector.urllib.error.HTTPError(
+                    "https://jev-ai.pro/api/v1/systemone", status, "failure", headers,
+                    io.BytesIO(b'{"error":{"code":0,"message":"remote-sensitive-body"}}'),
+                )
+                returncode, report = self.run_main(
+                    connector, ["evaluate", "--provider", "jev-ai", "--input", str(payload)], side_effect=error
+                )
+                self.assertEqual(3, returncode)
+                self.assertEqual(reason, report["reason"])
+                self.assertEqual(status, report["http_status"])
+                self.assertNotIn("remote-sensitive-body", json.dumps(report))
+                self.assertEqual(7 if status == 429 else None, report.get("retry_after_seconds"))
+                self.assertEqual("UNCERTAIN" if status == 504 else None, report.get("outcome"))
+                self.assertTrue(error.fp.closed)
+
+    def test_lost_connection_marks_the_jev_outcome_uncertain_and_never_retries(self) -> None:
+        connector = load_connector()
+        payload = self.write_payload({"state": "s", "questions": {"q": {"type": "noul", "instructions": "Q?"}}})
+        open_request = mock.Mock(side_effect=TimeoutError("sensitive"))
+        stdout = io.StringIO()
+        with (
+            mock.patch.object(connector, "_open_request", open_request),
+            mock.patch.object(sys, "argv", [str(RUNTIME), "evaluate", "--provider", "jev-ai", "--input", str(payload),
+                                            "--env-file", str(self.env_file), "--json"]),
+            mock.patch.object(connector.os, "environ", {}),
+            contextlib.redirect_stdout(stdout),
+        ):
+            returncode = connector.main()
+        self.assertEqual(3, returncode)
+        self.assertEqual(
+            {"status": "ERROR", "reason": "TYPESAFE_TIMEOUT", "provider": "jev-ai", "outcome": "UNCERTAIN"},
+            json.loads(stdout.getvalue()),
+        )
+        self.assertEqual(1, open_request.call_count)
+
+
 if __name__ == "__main__":
     unittest.main()
