@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 6.9.1 - 2026-10-03
+
 ### Fixed
 - Context-graph hardening from review: a symlinked graph root now reports the containment failure `GRAPH_ROOT_UNSAFE` instead of the misleading `GRAPH_SOURCE_UNAVAILABLE`, because containment is checked before existence. A decision proposal's reason is checked against `LINE_BREAKS`, the parser's own line definition (U+2028, U+2029, U+0085, `\v`, `\f` and the file separators, not only `\n`), so rendered `CREATE` content always reparses through `parse_frontmatter`. A `GRAPH_DEPENDENCY_CYCLE` finding names at most `MAX_NAMED_CYCLE_MEMBERS` members plus a count, so a large cyclic group cannot put a 450 000-character detail into a dispatch manifest. A proposal note path must also be literal: glob characters are refused, because a note path is one file and never a pattern.
 
