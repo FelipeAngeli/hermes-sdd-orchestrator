@@ -344,6 +344,21 @@ def read_note(
     }
 
 
+def project_notes(repo_root: Path) -> list[str]:
+    """List the readable Markdown notes of the bound project container.
+
+    Paths are canonical container-relative and already filtered through the
+    shared project-note policy, so a caller can hand each one back to
+    ``read_note``. Unreadable notes, runtime state, ``.obsidian``, ``.trash``,
+    ``.git`` and symlinks are skipped rather than reported as notes.
+    """
+    binding = obsidian_binding.load(Path(repo_root))
+    _assert_binding_path_safe(binding)
+    if not binding.container_path.is_dir():
+        raise ConnectorError("CONTAINER_UNAVAILABLE", "Bound project container is unavailable.")
+    return [relative.as_posix() for relative, _ in _project_notes(binding)]
+
+
 def search(
     repo_root: Path,
     query: str,

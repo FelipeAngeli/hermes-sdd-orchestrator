@@ -65,6 +65,9 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/consolidate_runtime.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/state_format.py"
     ],
+    "docs/components/context-graph.md": [
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/context_graph.py"
+    ],
     "docs/components/testing.md": [
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/tests/*",
       "tests/*"

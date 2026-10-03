@@ -27,3 +27,5 @@
 **Human checkpoint.** Any action classified `HUMAN_REQUIRED`, for example commit, push, a protected-file change or an Obsidian write.
 
 **Vault binding.** `.hermes/obsidian.json`, which links a repository to its Obsidian project container. See [Obsidian vault](components/obsidian-vault.md).
+
+**Context graph.** The project's connected notes — modules, rules, tests, decisions and docs — that record what relates to what and why a decision was taken, so a dispatch can carry the context attached to the work. Optional, read-only, no graph database. See [Context graph](components/context-graph.md).
