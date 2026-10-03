@@ -224,6 +224,122 @@
         }
       }
     },
+    "context_graph": {
+      "description": "Optional. The result of runtime/context_graph.py query for this dispatch: which graph nodes, rules, tests and prior decisions are connected to the work. Absent means the project keeps no context graph.",
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "source",
+            "selectors",
+            "nodes",
+            "decisions",
+            "unresolved",
+            "findings"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "CURRENT",
+                "REFRESHED",
+                "PARTIAL",
+                "MISSING",
+                "NOT_CONFIGURED"
+              ]
+            },
+            "source": {
+              "enum": [
+                "OBSIDIAN",
+                "REPOSITORY"
+              ]
+            },
+            "selectors": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/text"
+              }
+            },
+            "nodes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "kind",
+                  "note",
+                  "distance"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,63}$"
+                  },
+                  "kind": {
+                    "enum": [
+                      "MODULE",
+                      "RULE",
+                      "TEST",
+                      "DECISION",
+                      "DOC"
+                    ]
+                  },
+                  "note": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "distance": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            },
+            "decisions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "reason",
+                  "date"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,63}$"
+                  },
+                  "reason": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "date": {
+                    "type": "string",
+                    "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+                  }
+                }
+              }
+            },
+            "unresolved": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/text"
+              }
+            },
+            "findings": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/text"
+              }
+            }
+          }
+        }
+      ]
+    },
     "slice": {
       "anyOf": [
         {

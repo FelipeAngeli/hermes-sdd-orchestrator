@@ -4,6 +4,39 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 6.9.5 - 2026-10-03
+
+### Fixed
+- The context-graph `APPEND` size gate reads the existing note's recorded size defensively, so a graph a caller assembled itself (rather than through `build`, which always records it) gets the normal refusal path instead of an uncaught `KeyError`. An absent size counts as zero, which only ever makes the gate more permissive for a record that never came from a note.
+
+## 6.9.4 - 2026-10-03
+
+### Fixed
+- The context-graph note-size gate now covers `APPEND`, not only `CREATE`: the limit applies to the resulting note, so a 1 027-byte fragment appended to a 261 977-byte note is refused with the existing and added sizes instead of being accepted and making the node disappear from the graph. `build` records each node's `note_bytes` so a proposal knows the room left. A fitting append is still accepted and the merged note still loads clean.
+
+## 6.9.3 - 2026-10-03
+
+### Fixed
+- An accepted `CREATE` context-graph proposal must now also be *loadable*, not merely reparseable: the rendered note is refused as `GRAPH_PROPOSAL_INVALID` when it exceeds `MAX_NOTE_BYTES`, the same bound the read path already enforced, because approving a larger note produced a note that loaded as nothing and reported the failure against the note instead of the proposal. The exact boundary size is accepted and loads clean.
+- A `GRAPH_PROPOSAL_INVALID` round-trip refusal excerpts both readings to `MAX_DETAIL_EXCERPT` instead of embedding the full field value twice: a 200 000-character reason produced a 400 101-character detail inside a dispatch manifest, reintroducing the unbounded detail the cycle finding had just been fixed to avoid. The detail is now constant-size (375 characters for the same input).
+
+## 6.9.2 - 2026-10-03
+
+### Fixed
+- A `CREATE` context-graph proposal is now verified by round trip: `propose` parses its own rendered content back with `parse_frontmatter` and refuses a mismatch as `GRAPH_PROPOSAL_INVALID`, naming the field and both readings. Enumerating forbidden spellings had already missed `\n`, then the rest of `LINE_BREAKS`, then a reason like `[deferred]` that a human reads as text and the parser reads as a one-item list — which would have made the approved note load as a different node, or vanish from the graph as `GRAPH_FIELD_INVALID`. The guarantee is the round trip, so no accepted proposal can read back as something other than what the report described; verified over every Unicode code point and 8799 accepted prefix/infix/suffix shapes, and end to end by loading an accepted proposal as a note. The `LINE_BREAKS` and single-trimmed-line rules stay because they name the common mistake precisely.
+- Corrected the 6.9.0 entry's claim that a cyclic group is named "with all of its members": since the same release it names at most `MAX_NAMED_CYCLE_MEMBERS` plus a count.
+
+## 6.9.1 - 2026-10-03
+
+### Fixed
+- Context-graph hardening from review: a symlinked graph root now reports the containment failure `GRAPH_ROOT_UNSAFE` instead of the misleading `GRAPH_SOURCE_UNAVAILABLE`, because containment is checked before existence. A decision proposal's reason is checked against `LINE_BREAKS`, the parser's own line definition (U+2028, U+2029, U+0085, `\v`, `\f` and the file separators, not only `\n`), so rendered `CREATE` content always reparses through `parse_frontmatter`. A `GRAPH_DEPENDENCY_CYCLE` finding names at most `MAX_NAMED_CYCLE_MEMBERS` members plus a count, so a large cyclic group cannot put a 450 000-character detail into a dispatch manifest. A proposal note path must also be literal: glob characters are refused, because a note path is one file and never a pattern.
+
+## 6.9.0 - 2026-10-02
+
+### Added
+- Optional project **context graph**: `runtime/context_graph.py` reads modules, rules, tests, decisions and docs as connected Markdown notes with declarative frontmatter, either from the bound Obsidian project container or from a repository-local directory, with no graph database. `validate` reports stable findings (`GRAPH_*`) for malformed frontmatter, invalid ids/kinds/fields, duplicate nodes, unsafe `code_paths`, dangling or wrongly typed relations, `depends_on` cycles and decisions without a recorded reason or ISO date. Cycles are found as strongly connected components with an iterative pass, so a cycle reachable only through an already-finished node is still reported, each cyclic group is named once, and a long dependency chain cannot exhaust the stack. A repository-local `--root` goes through the same canonical repository-relative path rule as a slice's editable paths: an absolute, escaping, non-canonical or symlink-traversing root is refused as `GRAPH_ROOT_UNSAFE` before any note is read, so the graph cannot be pointed at notes outside the project. `query --node/--path --depth` resolves a repository path to the module that declares it, follows the typed relations outward to a bounded depth, and returns the nodes by kind with the edges that justify them, each in-scope decision with its reason and date, unresolved selectors and selected modules with no test. `propose` renders the note content for a new decision or an appended outcome and writes nothing: the report always carries `written: false`, `action: OBSIDIAN_WRITE` and `approval: HUMAN_REQUIRED`; its note path uses the same path rule (backslash spellings included) and a decision reason must be a single trimmed line so rendered content always reparses. Notes are read through no-follow traversal and refuse symlinks, non-UTF-8 content, special files and notes over 256 KiB; `obsidian_connector.py` gains the read-only `project_notes` enumeration the vault-backed graph reads through.
+- The stage context manifest accepts an optional `context_graph` record (`status`, `source`, `selectors`, `nodes`, `decisions`, `unresolved`, `findings`). A project without a graph omits it and is never blocked. When present, `stage_context.py check` requires that it carry no unresolved findings (`CONTEXT_GRAPH_FINDINGS_PRESENT`), that PLAN and IMPLEMENT record what was queried and what came back unless the status is `MISSING` (`CONTEXT_GRAPH_SELECTION_REQUIRED`), that a `PARTIAL` graph name its unresolved selectors while no other status leaves one (`CONTEXT_GRAPH_GAPS_REQUIRED`, `CONTEXT_GRAPH_STATUS_INCONSISTENT`), that an `OBSIDIAN` source pair with a `BOUND` vault, that `NOT_CONFIGURED` carry no content, and that every `DECISION` node in scope carry its reason and date (`CONTEXT_GRAPH_DECISION_UNRECORDED`). The record is excluded from the slice hash, so refreshing the graph never invalidates an approval.
+
 ## 6.8.0 - 2026-10-01
 
 ### Added

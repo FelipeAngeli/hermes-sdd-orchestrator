@@ -40,6 +40,11 @@ CONTEXT_ERROR_CODES = (
     "CONTEXT_SOURCE_FORBIDDEN",
     "PROJECT_CONTEXT_REQUIRED",
     "PROJECT_CONTEXT_GAPS_REQUIRED",
+    "CONTEXT_GRAPH_FINDINGS_PRESENT",
+    "CONTEXT_GRAPH_SELECTION_REQUIRED",
+    "CONTEXT_GRAPH_GAPS_REQUIRED",
+    "CONTEXT_GRAPH_STATUS_INCONSISTENT",
+    "CONTEXT_GRAPH_DECISION_UNRECORDED",
     "SLICE_REQUIRED",
     "SLICE_CURRENT_INVALID",
     "SLICE_EDITABLE_PATHS_REQUIRED",
@@ -163,6 +168,67 @@ def _check_project_context(value: dict[str, Any]) -> list[dict[str, str]]:
     if project["status"] == "PARTIAL" and not project["gaps"]:
         return [_finding("PROJECT_CONTEXT_GAPS_REQUIRED", "PARTIAL project context must name what was not examined")]
     return []
+
+
+def _check_context_graph(value: dict[str, Any]) -> list[dict[str, str]]:
+    """Check the optional context-graph record attached to this dispatch.
+
+    The graph is never a condition for a dispatch: a project without one omits
+    the key or declares `NOT_CONFIGURED`. But a graph that *is* declared must be
+    structurally sound, must say which work it was queried for, and must carry
+    the reason behind every prior decision it brings into scope. A graph with
+    findings is worse than no graph, because it looks like evidence.
+    """
+    graph = value.get("context_graph")
+    if graph is None:
+        return []
+    errors: list[dict[str, str]] = []
+    status = graph["status"]
+    if status == "NOT_CONFIGURED":
+        if graph["selectors"] or graph["nodes"] or graph["decisions"] or graph["unresolved"] or graph["findings"]:
+            errors.append(_finding(
+                "CONTEXT_GRAPH_STATUS_INCONSISTENT",
+                "NOT_CONFIGURED cannot carry selectors, nodes, decisions, gaps or findings",
+            ))
+        return errors
+    if graph["findings"]:
+        errors.append(_finding(
+            "CONTEXT_GRAPH_FINDINGS_PRESENT",
+            f"the graph reports {len(graph['findings'])} unresolved finding(s); repair the notes before citing them",
+        ))
+    if graph["source"] == "OBSIDIAN" and value["project_context"]["obsidian"] != "BOUND":
+        errors.append(_finding(
+            "CONTEXT_GRAPH_STATUS_INCONSISTENT",
+            "an Obsidian-sourced graph requires a BOUND vault in project_context",
+        ))
+    if status == "PARTIAL" and not graph["unresolved"]:
+        errors.append(_finding(
+            "CONTEXT_GRAPH_GAPS_REQUIRED",
+            "a PARTIAL graph must name the selectors it could not resolve",
+        ))
+    if status != "PARTIAL" and graph["unresolved"]:
+        errors.append(_finding(
+            "CONTEXT_GRAPH_STATUS_INCONSISTENT",
+            f"{status} cannot leave selectors unresolved; report PARTIAL instead",
+        ))
+    if status != "MISSING" and value["stage"] in PROJECT_CONTEXT_STAGES and not (graph["selectors"] and graph["nodes"]):
+        errors.append(_finding(
+            "CONTEXT_GRAPH_SELECTION_REQUIRED",
+            f"{value['stage']} must record which modules or paths the graph was queried for, and what it returned",
+        ))
+    recorded = {decision["id"] for decision in graph["decisions"]}
+    for node in graph["nodes"]:
+        if node["kind"] == "DECISION" and node["id"] not in recorded:
+            errors.append(_finding(
+                "CONTEXT_GRAPH_DECISION_UNRECORDED",
+                f"{node['id']} is in scope but its reason and date are not carried",
+            ))
+    for decision_id in sorted(recorded - {node["id"] for node in graph["nodes"] if node["kind"] == "DECISION"}):
+        errors.append(_finding(
+            "CONTEXT_GRAPH_STATUS_INCONSISTENT",
+            f"{decision_id} is recorded as a decision but is not a DECISION node in scope",
+        ))
+    return errors
 
 
 def _frontmatter_identity(content: bytes) -> tuple[str, str] | None:
@@ -404,6 +470,7 @@ def check(value: Any) -> dict[str, Any]:
     errors = [
         *_check_sources(value),
         *_check_project_context(value),
+        *_check_context_graph(value),
         *_check_playbooks(value),
         *_check_slice(value),
     ]

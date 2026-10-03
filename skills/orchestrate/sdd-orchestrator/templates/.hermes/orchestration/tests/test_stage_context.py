@@ -158,6 +158,122 @@ class StageContextBudgetTests(unittest.TestCase):
         self.assertFalse(ctx.check(value)["valid"])
 
 
+def graph_record(**overrides: object) -> dict:
+    record = {
+        "status": "CURRENT",
+        "source": "OBSIDIAN",
+        "selectors": ["src/payments/checkout"],
+        "nodes": [
+            {"id": "payments", "kind": "MODULE", "note": "payments.md", "distance": 0},
+            {"id": "refund-window", "kind": "RULE", "note": "refund-window.md", "distance": 1},
+            {"id": "payments-suite", "kind": "TEST", "note": "payments-suite.md", "distance": 1},
+            {"id": "use-bloc-for-checkout", "kind": "DECISION", "note": "decisions/bloc.md", "distance": 1},
+        ],
+        "decisions": [
+            {"id": "use-bloc-for-checkout", "reason": "Checkout needs replayable state", "date": "2026-09-14"},
+        ],
+        "unresolved": [],
+        "findings": [],
+    }
+    record.update(overrides)
+    return record
+
+
+class ContextGraphRecordTests(unittest.TestCase):
+    """The graph is optional, but a declared graph must be sound and cited."""
+
+    def test_a_dispatch_without_a_graph_remains_valid(self) -> None:
+        value = context("PLAN")
+        self.assertTrue(ctx.check(value)["valid"], ctx.check(value)["errors"])
+        value["context_graph"] = None
+        self.assertTrue(ctx.check(value)["valid"], ctx.check(value)["errors"])
+
+    def test_a_valid_graph_record_is_accepted(self) -> None:
+        value = context("PLAN")
+        value["context_graph"] = graph_record()
+        self.assertTrue(ctx.check(value)["valid"], ctx.check(value)["errors"])
+
+    def test_a_graph_with_findings_is_refused_rather_than_cited(self) -> None:
+        value = context("PLAN")
+        value["context_graph"] = graph_record(findings=["GRAPH_EDGE_DANGLING: payments.depends_on -> ghost"])
+        self.assertIn("CONTEXT_GRAPH_FINDINGS_PRESENT", errors_of(value))
+
+    def test_plan_and_implement_require_a_recorded_selection(self) -> None:
+        for stage in ("PLAN", "IMPLEMENT"):
+            with self.subTest(stage=stage):
+                value = context(stage)
+                value["context_graph"] = graph_record(selectors=[], nodes=[], decisions=[])
+                self.assertIn("CONTEXT_GRAPH_SELECTION_REQUIRED", errors_of(value))
+        value = context("SPECIFY")
+        value["context_graph"] = graph_record(selectors=[], nodes=[], decisions=[])
+        self.assertNotIn("CONTEXT_GRAPH_SELECTION_REQUIRED", errors_of(value))
+
+    def test_a_missing_graph_does_not_demand_a_selection(self) -> None:
+        value = context("PLAN")
+        value["context_graph"] = graph_record(status="MISSING", selectors=[], nodes=[], decisions=[])
+        self.assertNotIn("CONTEXT_GRAPH_SELECTION_REQUIRED", errors_of(value))
+
+    def test_a_partial_graph_must_name_its_unresolved_selectors(self) -> None:
+        value = context("PLAN")
+        value["context_graph"] = graph_record(status="PARTIAL")
+        self.assertIn("CONTEXT_GRAPH_GAPS_REQUIRED", errors_of(value))
+        value["context_graph"]["unresolved"] = ["lib/legacy/transfer"]
+        self.assertTrue(ctx.check(value)["valid"], ctx.check(value)["errors"])
+
+    def test_an_unresolved_selector_outside_partial_is_inconsistent(self) -> None:
+        value = context("PLAN")
+        value["context_graph"] = graph_record(unresolved=["lib/legacy/transfer"])
+        self.assertIn("CONTEXT_GRAPH_STATUS_INCONSISTENT", errors_of(value))
+
+    def test_a_decision_in_scope_must_carry_its_reason_and_date(self) -> None:
+        value = context("PLAN")
+        value["context_graph"] = graph_record(decisions=[])
+        self.assertIn("CONTEXT_GRAPH_DECISION_UNRECORDED", errors_of(value))
+
+    def test_a_recorded_decision_must_be_a_decision_node_in_scope(self) -> None:
+        value = context("PLAN")
+        record = graph_record()
+        record["decisions"].append({"id": "ghost-decision", "reason": "unknown", "date": "2026-01-01"})
+        value["context_graph"] = record
+        self.assertIn("CONTEXT_GRAPH_STATUS_INCONSISTENT", errors_of(value))
+
+    def test_an_obsidian_sourced_graph_requires_a_bound_vault(self) -> None:
+        value = context("PLAN")
+        value["project_context"]["obsidian"] = "UNBOUND"
+        value["context_graph"] = graph_record()
+        self.assertIn("CONTEXT_GRAPH_STATUS_INCONSISTENT", errors_of(value))
+        value["context_graph"]["source"] = "REPOSITORY"
+        self.assertTrue(ctx.check(value)["valid"], ctx.check(value)["errors"])
+
+    def test_not_configured_carries_no_content(self) -> None:
+        value = context("PLAN")
+        value["context_graph"] = graph_record(
+            status="NOT_CONFIGURED", selectors=[], nodes=[], decisions=[]
+        )
+        self.assertTrue(ctx.check(value)["valid"], ctx.check(value)["errors"])
+        value["context_graph"]["selectors"] = ["src/payments/**"]
+        self.assertIn("CONTEXT_GRAPH_STATUS_INCONSISTENT", errors_of(value))
+
+    def test_a_malformed_graph_record_is_a_schema_error(self) -> None:
+        for overrides in (
+            {"status": "STALE"},
+            {"source": "GRAPHDB"},
+            {"nodes": [{"id": "Payments", "kind": "MODULE", "note": "a.md", "distance": 0}]},
+            {"nodes": [{"id": "payments", "kind": "SERVICE", "note": "a.md", "distance": 0}]},
+            {"decisions": [{"id": "use-bloc-for-checkout", "reason": "x", "date": "14/09/2026"}]},
+        ):
+            with self.subTest(**overrides):
+                value = context("PLAN")
+                value["context_graph"] = graph_record(**overrides)
+                self.assertIn("SCHEMA_INVALID", errors_of(value))
+
+    def test_refreshing_the_graph_does_not_change_the_approved_slice_hash(self) -> None:
+        bare = context()
+        enriched = context()
+        enriched["context_graph"] = graph_record()
+        self.assertEqual(ctx.check(bare)["slice_sha256"], ctx.check(enriched)["slice_sha256"])
+
+
 class SliceContractTests(unittest.TestCase):
     def test_implement_requires_one_current_slice_and_editable_paths(self) -> None:
         value = context()
