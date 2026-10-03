@@ -64,16 +64,17 @@ Every refusal carries a stable code from `GRAPH_ERROR_CODES`:
 
 | Code | Rule |
 | --- | --- |
-| `GRAPH_SOURCE_UNAVAILABLE` | The graph root is absent, is not a real directory, or a note is symlinked, non-UTF-8, not a regular file or larger than 256 KiB. Symlinked notes and subdirectories are never followed. |
+| `GRAPH_SOURCE_UNAVAILABLE` | The graph root is absent or is not a real directory, or a note is symlinked, non-UTF-8, not a regular file or larger than 256 KiB. Symlinked notes and subdirectories are never followed. |
+| `GRAPH_ROOT_UNSAFE` | `--root` is absolute, escapes the repository, is not canonical, or any component up to the repository root is a symlink. The root goes through the same path rule as a slice's editable paths, so a caller cannot point the graph at notes outside the project. |
 | `GRAPH_FRONTMATTER_INVALID` | The frontmatter is outside the supported subset, has a duplicate key or is unclosed. |
 | `GRAPH_NODE_ID_INVALID`, `GRAPH_KIND_INVALID`, `GRAPH_FIELD_INVALID` | The node ID is not lowercase-dashed, the kind is not a `NODE_KINDS` member, or a field has the wrong shape (a scalar where a list is required, or a relation target that is not a node ID). |
 | `GRAPH_NODE_DUPLICATED` | Two notes declare the same node ID; the finding names both. |
 | `GRAPH_CODE_PATH_UNSAFE` | A `code_paths` pattern is absolute, escapes the repository or matches everything. |
 | `GRAPH_EDGE_DANGLING`, `GRAPH_EDGE_KIND_INVALID` | A relation points at an unknown node, or the relation is not allowed between those two kinds. |
-| `GRAPH_DEPENDENCY_CYCLE` | `depends_on` forms a cycle. Each cycle is reported once, as the route starting from its smallest member. |
-| `GRAPH_DECISION_REASON_REQUIRED`, `GRAPH_DECISION_DATE_INVALID` | A `DECISION` lacks a reason or a valid ISO date. |
+| `GRAPH_DEPENDENCY_CYCLE` | `depends_on` forms a cycle. Cycles are found as strongly connected components with an iterative pass, so a cycle reachable only through an already-finished node is still reported, a long dependency chain cannot exhaust the stack, and each cyclic group is named once with all of its members. |
+| `GRAPH_DECISION_REASON_REQUIRED`, `GRAPH_DECISION_DATE_INVALID` | A `DECISION` lacks a reason or a valid ISO date. A proposal's reason must also be a single trimmed line, because it is rendered as a frontmatter scalar; detail belongs in the body. |
 | `GRAPH_SELECTOR_REQUIRED` | A query names no node and no path, or its depth is outside `0`–`MAX_DEPTH`. |
-| `GRAPH_PROPOSAL_INVALID`, `GRAPH_PROPOSAL_PATH_UNSAFE` | A proposal has an unsupported shape/operation, or its note path is absolute, non-canonical or not Markdown. |
+| `GRAPH_PROPOSAL_INVALID`, `GRAPH_PROPOSAL_PATH_UNSAFE` | A proposal has an unsupported shape/operation, or its note path is absolute, non-canonical, backslash-bearing or not Markdown. The note path uses the same path rule as the graph root and a slice's editable paths. |
 
 ## Querying before acting
 
@@ -83,7 +84,7 @@ context_graph.py query --repo . [--root <dir>] --node payments --path src/paymen
 context_graph.py propose --repo . [--root <dir>] --record record.json --json
 ```
 
-Subcommands `validate`, `query` and `propose`. Flags: `--repo`, `--root`, `--json`, plus `--node`, `--path`, `--depth` for `query` and `--record` for `propose`. With `--root` the graph is repository-local (for example `.hermes/orchestration/context-graph`); without it, the bound Obsidian project container is read through the connector's guarded no-follow reads. `validate` exits `2` on any finding; `query` exits `2` when a finding or an unresolved selector remains.
+Subcommands `validate`, `query` and `propose`. Flags: `--repo`, `--root`, `--json`, plus `--node`, `--path`, `--depth` for `query` and `--record` for `propose`. With `--root` the graph is repository-local (for example `.hermes/orchestration/context-graph`); the root must be a canonical repository-relative directory with no symlinked component, or it is refused as `GRAPH_ROOT_UNSAFE` before any note is read. Without `--root`, the bound Obsidian project container is read through the connector's guarded no-follow reads. `validate` exits `2` on any finding; `query` exits `2` when a finding or an unresolved selector remains.
 
 `query` starts from the named nodes plus every node whose `code_paths` cover a named repository path, then follows relations outward up to `--depth` (default `DEFAULT_DEPTH` = 2, maximum `MAX_DEPTH`; depth `0` is the selection itself). The result groups nodes by kind with their `distance`, lists the `edges` it traversed, returns each in-scope decision with its reason and date, reports `unresolved` selectors instead of silently returning less, and names `unverified_modules`: selected modules with no `verified_by` test. The edges are part of the answer so the controller can cite *why* a rule or decision is in scope rather than trust an opaque bundle.
 
@@ -97,7 +98,7 @@ Subcommands `validate`, `query` and `propose`. Flags: `--repo`, `--root`, `--jso
  "body": "Refund handlers key on the provider event id.", "relations": {"documented_by": ["checkout-doc"]}}
 ```
 
-`PROPOSAL_OPERATIONS` are `CREATE` (renders frontmatter plus body; blocked when the node already exists) and `APPEND` (renders only a dated section; blocked unless that node is already declared by that exact note). The report always carries `written: false`, `action: OBSIDIAN_WRITE` and `approval: HUMAN_REQUIRED`, and a blocked proposal still creates no file. Dangling or wrongly typed relations and a duplicate node become findings; a malformed proposal is refused outright.
+`PROPOSAL_OPERATIONS` are `CREATE` (renders frontmatter plus body; blocked when the node already exists) and `APPEND` (renders only a dated section; blocked unless that node is already declared by that exact note). The report always carries `written: false`, `action: OBSIDIAN_WRITE` and `approval: HUMAN_REQUIRED`, and a blocked proposal still creates no file. Dangling or wrongly typed relations and a duplicate node become findings; a malformed proposal is refused outright. Rendered `CREATE` content always reparses through this module's own `parse_frontmatter`, which is why a multiline or untrimmed reason is refused rather than turned into a note the parser would reject.
 
 ## In the dispatch manifest
 

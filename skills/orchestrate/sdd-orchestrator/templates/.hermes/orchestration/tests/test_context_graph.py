@@ -170,7 +170,7 @@ class StructureTests(GraphTestCase):
                 findings = self.graph()["findings"]
                 self.assertEqual(["GRAPH_CODE_PATH_UNSAFE"], [finding["code"] for finding in findings])
 
-    def test_a_dependency_cycle_is_reported_once_with_its_route(self) -> None:
+    def test_a_dependency_cycle_is_reported_once_with_its_members(self) -> None:
         self.write("a.md", note("alpha", "MODULE", depends_on=["beta"]))
         self.write("b.md", note("beta", "MODULE", depends_on=["gamma"]))
         self.write("c.md", note("gamma", "MODULE", depends_on=["alpha"]))
@@ -178,7 +178,48 @@ class StructureTests(GraphTestCase):
         findings = [finding for finding in self.graph()["findings"] if finding["code"] == "GRAPH_DEPENDENCY_CYCLE"]
 
         self.assertEqual(1, len(findings))
-        self.assertEqual("alpha -> beta -> gamma -> alpha", findings[0]["detail"])
+        self.assertIn("alpha, beta, gamma", findings[0]["detail"])
+
+    def test_overlapping_cycles_in_one_group_are_reported_once_naming_every_member(self) -> None:
+        """A cycle reachable only through a finished node must not be lost."""
+        self.write("a.md", note("alpha", "MODULE", depends_on=["beta", "gamma"]))
+        self.write("b.md", note("beta", "MODULE", depends_on=["gamma"]))
+        self.write("c.md", note("gamma", "MODULE", depends_on=["alpha"]))
+
+        findings = [finding for finding in self.graph()["findings"] if finding["code"] == "GRAPH_DEPENDENCY_CYCLE"]
+
+        self.assertEqual(1, len(findings))
+        for member in ("alpha", "beta", "gamma"):
+            self.assertIn(member, findings[0]["detail"])
+
+    def test_two_independent_cycles_are_reported_separately(self) -> None:
+        self.write("a.md", note("alpha", "MODULE", depends_on=["beta"]))
+        self.write("b.md", note("beta", "MODULE", depends_on=["alpha"]))
+        self.write("c.md", note("gamma", "MODULE", depends_on=["delta"]))
+        self.write("d.md", note("delta", "MODULE", depends_on=["gamma"]))
+
+        findings = [finding for finding in self.graph()["findings"] if finding["code"] == "GRAPH_DEPENDENCY_CYCLE"]
+
+        self.assertEqual(2, len(findings))
+
+    def test_an_acyclic_diamond_is_not_a_cycle(self) -> None:
+        self.write("a.md", note("alpha", "MODULE", depends_on=["beta", "gamma"]))
+        self.write("b.md", note("beta", "MODULE", depends_on=["delta"]))
+        self.write("c.md", note("gamma", "MODULE", depends_on=["delta"]))
+        self.write("d.md", note("delta", "MODULE"))
+
+        self.assertEqual([], self.graph()["findings"])
+
+    def test_a_long_dependency_chain_does_not_exhaust_the_stack(self) -> None:
+        length = 3000
+        for position in range(length):
+            depends = [f"node-{position + 1}"] if position + 1 < length else []
+            self.write(f"n{position}.md", note(f"node-{position}", "MODULE", depends_on=depends))
+
+        graph = self.graph()
+
+        self.assertEqual(length, len(graph["nodes"]))
+        self.assertEqual([], graph["findings"])
 
     def test_a_self_dependency_is_a_cycle(self) -> None:
         self.write("a.md", note("alpha", "MODULE", depends_on=["alpha"]))
@@ -207,6 +248,49 @@ class SourceTests(GraphTestCase):
             context_graph.load_notes(self.repo, "missing-dir")
 
         self.assertEqual("GRAPH_SOURCE_UNAVAILABLE", raised.exception.code)
+
+    def test_an_absolute_graph_root_cannot_replace_the_repository_root(self) -> None:
+        outside = self.repo.parent / "outside-graph"
+        outside.mkdir(exist_ok=True)
+        (outside / "ghost.md").write_text(note("ghost", "MODULE"), encoding="utf-8")
+
+        with self.assertRaises(context_graph.GraphError) as raised:
+            context_graph.load_notes(self.repo, str(outside))
+
+        self.assertEqual("GRAPH_ROOT_UNSAFE", raised.exception.code)
+
+    def test_a_graph_root_that_escapes_the_repository_is_refused(self) -> None:
+        outside = self.repo.parent / "outside-graph"
+        outside.mkdir(exist_ok=True)
+        (outside / "ghost.md").write_text(note("ghost", "MODULE"), encoding="utf-8")
+
+        for subpath in ("../outside-graph", "graph/../../outside-graph", "~/graph", "graph/./nested"):
+            with self.subTest(subpath=subpath):
+                with self.assertRaises(context_graph.GraphError) as raised:
+                    context_graph.load_notes(self.repo, subpath)
+                self.assertEqual("GRAPH_ROOT_UNSAFE", raised.exception.code)
+
+    def test_a_symlinked_graph_root_is_refused(self) -> None:
+        outside = self.repo.parent / "outside-graph"
+        outside.mkdir(exist_ok=True)
+        (outside / "ghost.md").write_text(note("ghost", "MODULE"), encoding="utf-8")
+        os.symlink(outside, self.repo / "linked-graph")
+
+        with self.assertRaises(context_graph.GraphError) as raised:
+            context_graph.load_notes(self.repo, "linked-graph")
+
+        self.assertEqual("GRAPH_SOURCE_UNAVAILABLE", raised.exception.code)
+
+    def test_a_graph_root_under_a_symlinked_parent_is_refused(self) -> None:
+        outside = self.repo.parent / "outside-tree"
+        (outside / "inner").mkdir(parents=True, exist_ok=True)
+        (outside / "inner" / "ghost.md").write_text(note("ghost", "MODULE"), encoding="utf-8")
+        os.symlink(outside, self.repo / "linked-parent")
+
+        with self.assertRaises(context_graph.GraphError) as raised:
+            context_graph.load_notes(self.repo, "linked-parent/inner")
+
+        self.assertEqual("GRAPH_ROOT_UNSAFE", raised.exception.code)
 
     def test_a_symlinked_subdirectory_is_not_walked(self) -> None:
         outside = self.repo / "outside"
@@ -377,6 +461,19 @@ class ProposalTests(GraphTestCase):
         self.assertNotIn("graph_node:", result["content"])
         self.assertIn("## 2026-10-02 — use-bloc-for-checkout", result["content"])
 
+    def test_a_rendered_proposal_reparses_as_the_node_it_declares(self) -> None:
+        """A proposal this module's own parser would refuse is not a proposal."""
+        self.seed()
+
+        result = context_graph.propose(self.graph(), self.record())
+        fields = context_graph.parse_frontmatter(result["content"])
+
+        self.assertEqual("idempotent-refunds", fields["graph_node"])
+        self.assertEqual("DECISION", fields["graph_kind"])
+        self.assertEqual("A duplicated webhook must not refund twice", fields["decision_reason"])
+        self.assertEqual("2026-10-02", fields["decision_date"])
+        self.assertEqual(["checkout-doc"], fields["documented_by"])
+
     def test_an_unsafe_note_path_or_malformed_proposal_is_refused(self) -> None:
         self.seed()
         graph = self.graph()
@@ -391,6 +488,11 @@ class ProposalTests(GraphTestCase):
             ({"body": "   "}, "GRAPH_PROPOSAL_INVALID"),
             ({"relations": {"unknown_relation": ["checkout-doc"]}}, "GRAPH_PROPOSAL_INVALID"),
             ({"reason": ""}, "GRAPH_DECISION_REASON_REQUIRED"),
+            ({"reason": "A duplicated webhook\nmust not refund twice"}, "GRAPH_DECISION_REASON_REQUIRED"),
+            ({"reason": "  padded reason  "}, "GRAPH_DECISION_REASON_REQUIRED"),
+            ({"note": "decisions\\..\\escape.md"}, "GRAPH_PROPOSAL_PATH_UNSAFE"),
+            ({"note": "decisions//double.md"}, "GRAPH_PROPOSAL_PATH_UNSAFE"),
+            ({"note": "~/decision.md"}, "GRAPH_PROPOSAL_PATH_UNSAFE"),
             ({"date": "2026/10/02"}, "GRAPH_DECISION_DATE_INVALID"),
             ({"kind": "MODULE"}, "GRAPH_PROPOSAL_INVALID"),
         ):
@@ -476,6 +578,18 @@ class CommandTests(GraphTestCase):
 
         self.assertEqual(2, code)
         self.assertEqual(["GRAPH_SOURCE_UNAVAILABLE"], [finding["code"] for finding in report["findings"]])
+
+    def test_a_graph_root_outside_the_repository_exits_two_without_reading_it(self) -> None:
+        outside = self.repo.parent / "outside-graph"
+        outside.mkdir(exist_ok=True)
+        (outside / "ghost.md").write_text(note("ghost", "MODULE"), encoding="utf-8")
+
+        for root in (str(outside), "../outside-graph"):
+            with self.subTest(root=root):
+                code, report = self.run_cli("validate", "--repo", str(self.repo), "--root", root)
+                self.assertEqual(2, code)
+                self.assertEqual(["GRAPH_ROOT_UNSAFE"], [finding["code"] for finding in report["findings"]])
+                self.assertNotIn("ghost", json.dumps(report))
 
     def test_an_absent_obsidian_binding_exits_two_without_a_traceback(self) -> None:
         code, report = self.run_cli("validate", "--repo", str(self.repo))

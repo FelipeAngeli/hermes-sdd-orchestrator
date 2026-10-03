@@ -37,6 +37,7 @@ SCALAR_FIELDS = ("graph_node", "graph_kind", *DECISION_FIELDS)
 LIST_FIELDS = ("code_paths", *RELATIONS)
 GRAPH_ERROR_CODES = (
     "GRAPH_SOURCE_UNAVAILABLE",
+    "GRAPH_ROOT_UNSAFE",
     "GRAPH_NODE_ID_INVALID",
     "GRAPH_NODE_DUPLICATED",
     "GRAPH_KIND_INVALID",
@@ -154,9 +155,27 @@ def _read_repo_note(root: Path, relative: PurePosixPath) -> str:
 
 
 def _repo_notes(repo_root: Path, subpath: str) -> list[tuple[str, str]]:
+    """Walk a repository-local graph root, contained inside the repository.
+
+    The root is caller-supplied, so it goes through the same path rule the rest
+    of the orchestration applies to editable and declared paths: canonical,
+    repository-relative, literal first segment. Without this, an absolute
+    `--root` would silently replace the repository root and a `../` root would
+    read notes from outside the project.
+    """
+    if not isinstance(subpath, str) or not editable_pattern_is_safe(subpath):
+        raise GraphError(
+            "GRAPH_ROOT_UNSAFE",
+            f"{subpath!r} must be a canonical repository-relative directory that does not escape the repository",
+        )
     base = Path(repo_root) / Path(*PurePosixPath(subpath).parts)
     if base.is_symlink() or not base.is_dir():
         raise GraphError("GRAPH_SOURCE_UNAVAILABLE", f"{subpath} is not a real directory")
+    for cursor in (base, *base.parents):
+        if cursor == Path(repo_root):
+            break
+        if cursor.is_symlink():
+            raise GraphError("GRAPH_ROOT_UNSAFE", f"{subpath} traverses a symlink")
     notes: list[tuple[str, str]] = []
     for current_root, dirnames, filenames in os.walk(base, followlinks=False):
         current = Path(current_root)
@@ -328,37 +347,69 @@ def _check_edges(nodes: dict[str, dict[str, Any]]) -> list[dict[str, str]]:
 
 
 def _check_cycles(nodes: dict[str, dict[str, Any]]) -> list[dict[str, str]]:
-    """Report every `depends_on` cycle once, named by its smallest member."""
-    reported: set[tuple[str, ...]] = set()
-    findings: list[dict[str, str]] = []
-    state: dict[str, int] = {}
+    """Report every `depends_on` cycle, once per cyclic group.
 
-    def visit(node_id: str, stack: list[str]) -> None:
-        state[node_id] = 1
-        stack.append(node_id)
-        for target in nodes[node_id].get("depends_on", []):
-            if target not in nodes:
+    Cycles are found as strongly connected components with an iterative Tarjan
+    pass. A DFS that only reports back edges misses a cycle reachable through an
+    already-finished node, and recursion would turn a long dependency chain into
+    a crash instead of a finding. Every cycle lives in exactly one component, so
+    one finding per component names each cyclic group exactly once.
+    """
+    index: dict[str, int] = {}
+    low: dict[str, int] = {}
+    on_stack: set[str] = set()
+    stack: list[str] = []
+    counter = 0
+    components: list[list[str]] = []
+
+    for root in sorted(nodes):
+        if root in index:
+            continue
+        work: list[tuple[str, list[str]]] = [(root, sorted(
+            target for target in nodes[root].get("depends_on", []) if target in nodes
+        ))]
+        index[root] = low[root] = counter
+        counter += 1
+        stack.append(root)
+        on_stack.add(root)
+        while work:
+            node_id, pending = work[-1]
+            if pending:
+                target = pending.pop(0)
+                if target not in index:
+                    index[target] = low[target] = counter
+                    counter += 1
+                    stack.append(target)
+                    on_stack.add(target)
+                    work.append((target, sorted(
+                        child for child in nodes[target].get("depends_on", []) if child in nodes
+                    )))
+                elif target in on_stack:
+                    low[node_id] = min(low[node_id], index[target])
                 continue
-            if state.get(target) == 1:
-                cycle = stack[stack.index(target):]
-                rotation = cycle[cycle.index(min(cycle)):] + cycle[: cycle.index(min(cycle))]
-                key = tuple(rotation)
-                if key not in reported:
-                    reported.add(key)
-                    findings.append(_finding(
-                        "GRAPH_DEPENDENCY_CYCLE",
-                        " -> ".join([*rotation, rotation[0]]),
-                        note=nodes[rotation[0]]["note"],
-                    ))
-            elif state.get(target, 0) == 0:
-                visit(target, stack)
-        stack.pop()
-        state[node_id] = 2
+            work.pop()
+            if work:
+                parent = work[-1][0]
+                low[parent] = min(low[parent], low[node_id])
+            if low[node_id] == index[node_id]:
+                component: list[str] = []
+                while True:
+                    member = stack.pop()
+                    on_stack.discard(member)
+                    component.append(member)
+                    if member == node_id:
+                        break
+                if len(component) > 1 or node_id in nodes[node_id].get("depends_on", []):
+                    components.append(sorted(component))
 
-    for node_id in sorted(nodes):
-        if state.get(node_id, 0) == 0:
-            visit(node_id, [])
-    return findings
+    return [
+        _finding(
+            "GRAPH_DEPENDENCY_CYCLE",
+            f"{len(component)} node(s) depend on each other: {', '.join(component)}",
+            note=nodes[component[0]]["note"],
+        )
+        for component in sorted(components)
+    ]
 
 
 # --------------------------------------------------------------------------- query
@@ -463,8 +514,7 @@ def propose(graph: dict[str, Any], record: Any) -> dict[str, Any]:
     note = record.get("note")
     if not isinstance(note, str) or not note.endswith(".md"):
         raise GraphError("GRAPH_PROPOSAL_PATH_UNSAFE", "note must be a Markdown path relative to the graph root")
-    relative = PurePosixPath(note)
-    if relative.is_absolute() or any(part in {"", ".", ".."} for part in note.split("/")) or "\x00" in note:
+    if not editable_pattern_is_safe(note) or "\x00" in note:
         raise GraphError("GRAPH_PROPOSAL_PATH_UNSAFE", "note path must be canonical and must not escape the graph root")
     node_id = record.get("node")
     if not isinstance(node_id, str) or NODE_ID.fullmatch(node_id) is None:
@@ -500,6 +550,14 @@ def propose(graph: dict[str, Any], record: Any) -> dict[str, Any]:
     if kind == "DECISION":
         if not isinstance(reason, str) or not reason.strip():
             raise GraphError("GRAPH_DECISION_REASON_REQUIRED", "a decision proposal must record why it was taken")
+        if reason != reason.strip() or any(character in reason for character in "\n\r\x00"):
+            # The reason is rendered as a frontmatter scalar. A multiline value
+            # would produce a note this module's own parser then refuses, so it
+            # is refused here instead of proposing an unusable note.
+            raise GraphError(
+                "GRAPH_DECISION_REASON_REQUIRED",
+                "the reason must be a single trimmed line; put detail in the body",
+            )
         if not isinstance(date, str) or ISO_DATE.fullmatch(date) is None:
             raise GraphError("GRAPH_DECISION_DATE_INVALID", "a decision proposal needs an ISO 8601 date")
     elif reason is not None or date is not None:
@@ -592,8 +650,10 @@ def main(argv: list[str] | None = None) -> int:
             record = json.loads(Path(args.record).read_text(encoding="utf-8"))
             result = propose(graph, record)
             code = 0 if result["status"] == "PROPOSED" else 2
-    except (GraphError, OSError, json.JSONDecodeError) as error:
-        code_name = getattr(error, "code", "GRAPH_SOURCE_UNAVAILABLE")
+    except (GraphError, OSError, RecursionError, json.JSONDecodeError) as error:
+        code_name = getattr(error, "code", None)
+        if not isinstance(code_name, str):
+            code_name = "GRAPH_SOURCE_UNAVAILABLE"
         result = {"valid": False, "findings": [_finding(code_name, str(error))]}
         code = 2
     print(json.dumps(result, sort_keys=True, ensure_ascii=False) if args.json else result)
