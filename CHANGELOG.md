@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 6.9.2 - 2026-10-03
+
 ### Fixed
 - A `CREATE` context-graph proposal is now verified by round trip: `propose` parses its own rendered content back with `parse_frontmatter` and refuses a mismatch as `GRAPH_PROPOSAL_INVALID`, naming the field and both readings. Enumerating forbidden spellings had already missed `\n`, then the rest of `LINE_BREAKS`, then a reason like `[deferred]` that a human reads as text and the parser reads as a one-item list — which would have made the approved note load as a different node, or vanish from the graph as `GRAPH_FIELD_INVALID`. The guarantee is the round trip, so no accepted proposal can read back as something other than what the report described; verified over every Unicode code point and 8799 accepted prefix/infix/suffix shapes, and end to end by loading an accepted proposal as a note. The `LINE_BREAKS` and single-trimmed-line rules stay because they name the common mistake precisely.
 - Corrected the 6.9.0 entry's claim that a cyclic group is named "with all of its members": since the same release it names at most `MAX_NAMED_CYCLE_MEMBERS` plus a count.
