@@ -65,6 +65,9 @@ MAX_NOTE_BYTES = 256 * 1024
 #: A finding's detail is embedded in a dispatch manifest, so a cyclic group of
 #: any size must still produce a short, readable line.
 MAX_NAMED_CYCLE_MEMBERS = 10
+#: Same rule for a quoted field value in a refusal: caller-supplied values may
+#: be arbitrarily long, so they are excerpted before reaching a finding.
+MAX_DETAIL_EXCERPT = 120
 DEFAULT_GRAPH_SUBPATH = "context-graph"
 PROPOSAL_OPERATIONS = ("CREATE", "APPEND")
 OBSIDIAN_WRITE_ACTION = "OBSIDIAN_WRITE"
@@ -590,13 +593,22 @@ def propose(graph: dict[str, Any], record: Any) -> dict[str, Any]:
         ))
     content = _render(node_id, kind, reason, date, relations, body, operation)
     if operation == "CREATE":
-        # The invariant is the round trip itself, not a list of forbidden
-        # spellings. Enumerating them has already missed a newline class twice
-        # (plain \n, then U+2028) and a value shape once (`[a, b]` reparsing as
-        # a list), so the rendered note is parsed back and compared instead.
+        # The invariant is "the approved content loads as the node described",
+        # not a list of forbidden spellings. Enumerating those already missed a
+        # newline class twice (plain \n, then U+2028) and a value shape once
+        # (`[a, b]` reparsing as a list), so the rendered note is checked the way
+        # a reader would check it: parse it back, and keep it loadable at all.
         mismatch = _render_mismatch(content, node_id, kind, reason, date, relations)
         if mismatch is not None:
             raise GraphError("GRAPH_PROPOSAL_INVALID", mismatch)
+    encoded = len(content.encode("utf-8"))
+    if encoded > MAX_NOTE_BYTES:
+        # A note this size is refused on the read path, so approving it would
+        # produce a note that loads as nothing.
+        raise GraphError(
+            "GRAPH_PROPOSAL_INVALID",
+            f"the rendered note is {encoded} bytes and would be refused above {MAX_NOTE_BYTES}; shorten the body",
+        )
     return {
         "status": "PROPOSED" if not findings else "BLOCKED",
         "action": OBSIDIAN_WRITE_ACTION,
@@ -637,10 +649,23 @@ def _render_mismatch(
     for field, value in expected.items():
         if parsed.get(field) != value:
             return (
-                f"{field} would read back as {parsed.get(field)!r} instead of {value!r}; "
-                "use plain text and put structure in the body"
+                f"{field} would read back as {_excerpt(parsed.get(field))} "
+                f"instead of {_excerpt(value)}; use plain text and put structure in the body"
             )
     return None
+
+
+def _excerpt(value: Any) -> str:
+    """Quote a value for a finding without letting its size into the manifest.
+
+    A finding's detail is embedded in a dispatch manifest, so the same bound the
+    cycle detail respects applies here: field values are caller-supplied and may
+    be arbitrarily long.
+    """
+    text = repr(value)
+    if len(text) <= MAX_DETAIL_EXCERPT:
+        return text
+    return f"{text[:MAX_DETAIL_EXCERPT]}… ({len(text)} characters)"
 
 
 def _render(

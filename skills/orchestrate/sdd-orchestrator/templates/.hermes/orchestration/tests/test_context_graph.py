@@ -489,6 +489,44 @@ class ProposalTests(GraphTestCase):
         self.assertEqual("2026-10-02", fields["decision_date"])
         self.assertEqual(["checkout-doc"], fields["documented_by"])
 
+    def test_an_oversized_proposal_is_refused_because_the_note_would_not_load(self) -> None:
+        """An accepted proposal must be loadable, not merely reparseable."""
+        self.seed()
+
+        with self.assertRaises(context_graph.GraphError) as raised:
+            context_graph.propose(self.graph(), self.record(
+                body="x" * (context_graph.MAX_NOTE_BYTES + 10)
+            ))
+
+        self.assertEqual("GRAPH_PROPOSAL_INVALID", raised.exception.code)
+        self.assertIn(str(context_graph.MAX_NOTE_BYTES), raised.exception.detail)
+
+    def test_a_proposal_just_inside_the_note_limit_is_accepted_and_loads(self) -> None:
+        self.seed()
+        graph = self.graph()
+        overhead = len(context_graph.propose(graph, self.record(body="x"))["content"].encode("utf-8")) - 1
+
+        result = context_graph.propose(graph, self.record(
+            body="x" * (context_graph.MAX_NOTE_BYTES - overhead)
+        ))
+        self.write("decisions/idempotent-refunds.md", result["content"])
+
+        self.assertEqual("PROPOSED", result["status"])
+        self.assertEqual(context_graph.MAX_NOTE_BYTES, len(result["content"].encode("utf-8")))
+        self.assertEqual([], self.graph()["findings"])
+        self.assertIn("idempotent-refunds", self.graph()["nodes"])
+
+    def test_a_refusal_never_embeds_an_unbounded_field_value(self) -> None:
+        """A finding's detail goes into a dispatch manifest; it must stay short."""
+        self.seed()
+
+        with self.assertRaises(context_graph.GraphError) as raised:
+            context_graph.propose(self.graph(), self.record(reason="[" + "a" * 200_000 + "]"))
+
+        self.assertEqual("GRAPH_PROPOSAL_INVALID", raised.exception.code)
+        self.assertLess(len(raised.exception.detail), 600)
+        self.assertIn("characters", raised.exception.detail)
+
     def test_a_reason_that_would_read_back_as_a_list_is_refused(self) -> None:
         """A bracket-delimited scalar reparses as a list, so the note would lie."""
         self.seed()
