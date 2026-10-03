@@ -164,7 +164,7 @@ class StructureTests(GraphTestCase):
         self.assertEqual({"GRAPH_NODE_ID_INVALID", "GRAPH_KIND_INVALID", "GRAPH_FIELD_INVALID"}, codes)
 
     def test_an_unsafe_code_path_is_refused_like_an_editable_path(self) -> None:
-        for pattern in ("/etc/passwd", "../outside/**", "**", "*", "src/../etc"):
+        for pattern in ("/absolute/elsewhere", "../outside/**", "**", "*", "src/../outside", "~/elsewhere"):
             with self.subTest(pattern=pattern):
                 self.write("m.md", note("m", "MODULE", code_paths=[pattern]))
                 findings = self.graph()["findings"]
