@@ -64,17 +64,17 @@ Every refusal carries a stable code from `GRAPH_ERROR_CODES`:
 
 | Code | Rule |
 | --- | --- |
-| `GRAPH_SOURCE_UNAVAILABLE` | The graph root is absent or is not a real directory, or a note is symlinked, non-UTF-8, not a regular file or larger than 256 KiB. Symlinked notes and subdirectories are never followed. |
-| `GRAPH_ROOT_UNSAFE` | `--root` is absolute, escapes the repository, is not canonical, or any component up to the repository root is a symlink. The root goes through the same path rule as a slice's editable paths, so a caller cannot point the graph at notes outside the project. |
+| `GRAPH_SOURCE_UNAVAILABLE` | The graph root does not exist or is not a directory, or a note is symlinked, non-UTF-8, not a regular file or larger than 256 KiB. Symlinked notes and subdirectories are never followed. |
+| `GRAPH_ROOT_UNSAFE` | `--root` is absolute, escapes the repository, is not canonical, or the root itself or any ancestor up to the repository root is a symlink. The root goes through the same path rule as a slice's editable paths, so a caller cannot point the graph at notes outside the project. Containment is checked before existence, so a symlinked root reports as a containment failure rather than a missing directory. |
 | `GRAPH_FRONTMATTER_INVALID` | The frontmatter is outside the supported subset, has a duplicate key or is unclosed. |
 | `GRAPH_NODE_ID_INVALID`, `GRAPH_KIND_INVALID`, `GRAPH_FIELD_INVALID` | The node ID is not lowercase-dashed, the kind is not a `NODE_KINDS` member, or a field has the wrong shape (a scalar where a list is required, or a relation target that is not a node ID). |
 | `GRAPH_NODE_DUPLICATED` | Two notes declare the same node ID; the finding names both. |
 | `GRAPH_CODE_PATH_UNSAFE` | A `code_paths` pattern is absolute, escapes the repository or matches everything. |
 | `GRAPH_EDGE_DANGLING`, `GRAPH_EDGE_KIND_INVALID` | A relation points at an unknown node, or the relation is not allowed between those two kinds. |
-| `GRAPH_DEPENDENCY_CYCLE` | `depends_on` forms a cycle. Cycles are found as strongly connected components with an iterative pass, so a cycle reachable only through an already-finished node is still reported, a long dependency chain cannot exhaust the stack, and each cyclic group is named once with all of its members. |
-| `GRAPH_DECISION_REASON_REQUIRED`, `GRAPH_DECISION_DATE_INVALID` | A `DECISION` lacks a reason or a valid ISO date. A proposal's reason must also be a single trimmed line, because it is rendered as a frontmatter scalar; detail belongs in the body. |
+| `GRAPH_DEPENDENCY_CYCLE` | `depends_on` forms a cycle. Cycles are found as strongly connected components with an iterative pass, so a cycle reachable only through an already-finished node is still reported, a long dependency chain cannot exhaust the stack, and each cyclic group is named once. A group larger than `MAX_NAMED_CYCLE_MEMBERS` names its first members plus a count, so the finding stays short enough to embed in a manifest. |
+| `GRAPH_DECISION_REASON_REQUIRED`, `GRAPH_DECISION_DATE_INVALID` | A `DECISION` lacks a reason or a valid ISO date. A proposal's reason must also be a single trimmed line, because it is rendered as a frontmatter scalar; every character in `LINE_BREAKS` (the parser's own line definition, which includes U+2028, U+2029 and U+0085, not only `\n`) is refused. Detail belongs in the body. |
 | `GRAPH_SELECTOR_REQUIRED` | A query names no node and no path, or its depth is outside `0`–`MAX_DEPTH`. |
-| `GRAPH_PROPOSAL_INVALID`, `GRAPH_PROPOSAL_PATH_UNSAFE` | A proposal has an unsupported shape/operation, or its note path is absolute, non-canonical, backslash-bearing or not Markdown. The note path uses the same path rule as the graph root and a slice's editable paths. |
+| `GRAPH_PROPOSAL_INVALID`, `GRAPH_PROPOSAL_PATH_UNSAFE` | A proposal has an unsupported shape/operation, or its note path is absolute, non-canonical, backslash-bearing, glob-bearing or not Markdown. The note path uses the same path rule as the graph root and a slice's editable paths, and additionally must be literal: a note path is one file, never a pattern. |
 
 ## Querying before acting
 

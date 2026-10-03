@@ -55,9 +55,16 @@ GRAPH_ERROR_CODES = (
 )
 NODE_ID = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 ISO_DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+#: Every character ``str.splitlines()`` treats as a break. A frontmatter scalar
+#: holding one of these would render a note this module's own parser refuses, so
+#: the guard has to use the parser's own definition of a line, not just \n/\r.
+LINE_BREAKS = "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"
 DEFAULT_DEPTH = 2
 MAX_DEPTH = 8
 MAX_NOTE_BYTES = 256 * 1024
+#: A finding's detail is embedded in a dispatch manifest, so a cyclic group of
+#: any size must still produce a short, readable line.
+MAX_NAMED_CYCLE_MEMBERS = 10
 DEFAULT_GRAPH_SUBPATH = "context-graph"
 PROPOSAL_OPERATIONS = ("CREATE", "APPEND")
 OBSIDIAN_WRITE_ACTION = "OBSIDIAN_WRITE"
@@ -169,13 +176,15 @@ def _repo_notes(repo_root: Path, subpath: str) -> list[tuple[str, str]]:
             f"{subpath!r} must be a canonical repository-relative directory that does not escape the repository",
         )
     base = Path(repo_root) / Path(*PurePosixPath(subpath).parts)
-    if base.is_symlink() or not base.is_dir():
-        raise GraphError("GRAPH_SOURCE_UNAVAILABLE", f"{subpath} is not a real directory")
+    # Containment first: a symlinked root (or a symlinked ancestor of it) is a
+    # containment failure, not a missing directory, and must report as one.
     for cursor in (base, *base.parents):
         if cursor == Path(repo_root):
             break
         if cursor.is_symlink():
             raise GraphError("GRAPH_ROOT_UNSAFE", f"{subpath} traverses a symlink")
+    if not base.is_dir():
+        raise GraphError("GRAPH_SOURCE_UNAVAILABLE", f"{subpath} is not a real directory")
     notes: list[tuple[str, str]] = []
     for current_root, dirnames, filenames in os.walk(base, followlinks=False):
         current = Path(current_root)
@@ -403,13 +412,18 @@ def _check_cycles(nodes: dict[str, dict[str, Any]]) -> list[dict[str, str]]:
                     components.append(sorted(component))
 
     return [
-        _finding(
-            "GRAPH_DEPENDENCY_CYCLE",
-            f"{len(component)} node(s) depend on each other: {', '.join(component)}",
-            note=nodes[component[0]]["note"],
-        )
+        _finding("GRAPH_DEPENDENCY_CYCLE", _cycle_detail(component), note=nodes[component[0]]["note"])
         for component in sorted(components)
     ]
+
+
+def _cycle_detail(component: list[str]) -> str:
+    """Name a cyclic group in one bounded line, whatever its size."""
+    named = component[:MAX_NAMED_CYCLE_MEMBERS]
+    listed = ", ".join(named)
+    if len(component) > len(named):
+        listed += f", and {len(component) - len(named)} more"
+    return f"{len(component)} node(s) depend on each other: {listed}"
 
 
 # --------------------------------------------------------------------------- query
@@ -514,8 +528,11 @@ def propose(graph: dict[str, Any], record: Any) -> dict[str, Any]:
     note = record.get("note")
     if not isinstance(note, str) or not note.endswith(".md"):
         raise GraphError("GRAPH_PROPOSAL_PATH_UNSAFE", "note must be a Markdown path relative to the graph root")
-    if not editable_pattern_is_safe(note) or "\x00" in note:
-        raise GraphError("GRAPH_PROPOSAL_PATH_UNSAFE", "note path must be canonical and must not escape the graph root")
+    if not editable_pattern_is_safe(note) or "\x00" in note or set(note) & {"*", "?", "[", "]"}:
+        raise GraphError(
+            "GRAPH_PROPOSAL_PATH_UNSAFE",
+            "note path must be a canonical, literal path that does not escape the graph root",
+        )
     node_id = record.get("node")
     if not isinstance(node_id, str) or NODE_ID.fullmatch(node_id) is None:
         raise GraphError("GRAPH_PROPOSAL_INVALID", "node must be a lowercase node id")
@@ -550,10 +567,10 @@ def propose(graph: dict[str, Any], record: Any) -> dict[str, Any]:
     if kind == "DECISION":
         if not isinstance(reason, str) or not reason.strip():
             raise GraphError("GRAPH_DECISION_REASON_REQUIRED", "a decision proposal must record why it was taken")
-        if reason != reason.strip() or any(character in reason for character in "\n\r\x00"):
-            # The reason is rendered as a frontmatter scalar. A multiline value
-            # would produce a note this module's own parser then refuses, so it
-            # is refused here instead of proposing an unusable note.
+        if reason != reason.strip() or any(character in reason for character in LINE_BREAKS + "\x00"):
+            # The reason is rendered as a frontmatter scalar. Any character this
+            # module's parser treats as a line break would produce a note it then
+            # refuses, so the guard uses the parser's own line definition.
             raise GraphError(
                 "GRAPH_DECISION_REASON_REQUIRED",
                 "the reason must be a single trimmed line; put detail in the body",

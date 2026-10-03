@@ -221,6 +221,21 @@ class StructureTests(GraphTestCase):
         self.assertEqual(length, len(graph["nodes"]))
         self.assertEqual([], graph["findings"])
 
+    def test_a_large_cyclic_group_stays_one_bounded_finding(self) -> None:
+        """The detail is embedded in a dispatch manifest; it must stay readable."""
+        length = 400
+        for position in range(length):
+            self.write(f"n{position}.md", note(
+                f"node-{position}", "MODULE", depends_on=[f"node-{(position + 1) % length}"]
+            ))
+
+        findings = [finding for finding in self.graph()["findings"] if finding["code"] == "GRAPH_DEPENDENCY_CYCLE"]
+
+        self.assertEqual(1, len(findings))
+        self.assertLess(len(findings[0]["detail"]), 400)
+        self.assertIn(f"{length} node(s)", findings[0]["detail"])
+        self.assertIn("more", findings[0]["detail"])
+
     def test_a_self_dependency_is_a_cycle(self) -> None:
         self.write("a.md", note("alpha", "MODULE", depends_on=["alpha"]))
 
@@ -270,7 +285,7 @@ class SourceTests(GraphTestCase):
                     context_graph.load_notes(self.repo, subpath)
                 self.assertEqual("GRAPH_ROOT_UNSAFE", raised.exception.code)
 
-    def test_a_symlinked_graph_root_is_refused(self) -> None:
+    def test_a_symlinked_graph_root_is_refused_as_a_containment_failure(self) -> None:
         outside = self.repo.parent / "outside-graph"
         outside.mkdir(exist_ok=True)
         (outside / "ghost.md").write_text(note("ghost", "MODULE"), encoding="utf-8")
@@ -279,7 +294,7 @@ class SourceTests(GraphTestCase):
         with self.assertRaises(context_graph.GraphError) as raised:
             context_graph.load_notes(self.repo, "linked-graph")
 
-        self.assertEqual("GRAPH_SOURCE_UNAVAILABLE", raised.exception.code)
+        self.assertEqual("GRAPH_ROOT_UNSAFE", raised.exception.code)
 
     def test_a_graph_root_under_a_symlinked_parent_is_refused(self) -> None:
         outside = self.repo.parent / "outside-tree"
@@ -473,6 +488,45 @@ class ProposalTests(GraphTestCase):
         self.assertEqual("A duplicated webhook must not refund twice", fields["decision_reason"])
         self.assertEqual("2026-10-02", fields["decision_date"])
         self.assertEqual(["checkout-doc"], fields["documented_by"])
+
+    def test_every_line_break_the_parser_knows_is_refused_in_a_reason(self) -> None:
+        """The guard must use the parser's own definition of a line, not just \\n."""
+        self.seed()
+        graph = self.graph()
+
+        for separator in context_graph.LINE_BREAKS:
+            with self.subTest(separator=repr(separator)):
+                with self.assertRaises(context_graph.GraphError) as raised:
+                    context_graph.propose(graph, self.record(reason=f"left{separator}right"))
+                self.assertEqual("GRAPH_DECISION_REASON_REQUIRED", raised.exception.code)
+
+    def test_a_rendered_proposal_reparses_for_every_accepted_reason(self) -> None:
+        self.seed()
+        graph = self.graph()
+
+        for reason in ("short", "with: a colon", "with #hash and [brackets]", "a" * 200):
+            with self.subTest(reason=reason[:20]):
+                result = context_graph.propose(graph, self.record(reason=reason))
+                fields = context_graph.parse_frontmatter(result["content"])
+                self.assertEqual(reason, fields["decision_reason"])
+
+    def test_a_glob_bearing_note_path_is_refused_because_a_note_path_is_literal(self) -> None:
+        self.seed()
+        graph = self.graph()
+
+        for path in ("decisions/*.md", "decisions/d?.md", "decisions/[ab].md"):
+            with self.subTest(path=path):
+                with self.assertRaises(context_graph.GraphError) as raised:
+                    context_graph.propose(graph, self.record(note=path))
+                self.assertEqual("GRAPH_PROPOSAL_PATH_UNSAFE", raised.exception.code)
+
+    def test_an_ordinary_nested_note_path_is_still_accepted(self) -> None:
+        self.seed()
+        graph = self.graph()
+
+        for path in ("d.md", "decisions/foo.md", "a/b/c/decision-1.md"):
+            with self.subTest(path=path):
+                self.assertEqual("PROPOSED", context_graph.propose(graph, self.record(note=path))["status"])
 
     def test_an_unsafe_note_path_or_malformed_proposal_is_refused(self) -> None:
         self.seed()
