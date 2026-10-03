@@ -489,6 +489,67 @@ class ProposalTests(GraphTestCase):
         self.assertEqual("2026-10-02", fields["decision_date"])
         self.assertEqual(["checkout-doc"], fields["documented_by"])
 
+    def test_a_reason_that_would_read_back_as_a_list_is_refused(self) -> None:
+        """A bracket-delimited scalar reparses as a list, so the note would lie."""
+        self.seed()
+        graph = self.graph()
+
+        for reason in ("[deferred]", "[a, b]", "[ADR-7 superseded]"):
+            with self.subTest(reason=reason):
+                with self.assertRaises(context_graph.GraphError) as raised:
+                    context_graph.propose(graph, self.record(reason=reason))
+                self.assertEqual("GRAPH_PROPOSAL_INVALID", raised.exception.code)
+                self.assertIn("decision_reason", raised.exception.detail)
+
+    def test_no_accepted_create_proposal_can_read_back_as_a_different_node(self) -> None:
+        """The round trip is the invariant: parse the rendered note and compare."""
+        self.seed()
+        graph = self.graph()
+        candidates = [
+            "short",
+            "with: a colon",
+            "with #hash and [brackets] inside",
+            "- leading dash",
+            "[bracketed]",
+            "  padded  ",
+            "multi\nline",
+            "u2028\u2028separated",
+            "--- fence like",
+            "trailing colon:",
+            "a" * 300,
+            "tab\tseparated",
+        ]
+
+        accepted = 0
+        for reason in candidates:
+            with self.subTest(reason=reason[:24]):
+                try:
+                    result = context_graph.propose(graph, self.record(reason=reason))
+                except context_graph.GraphError:
+                    continue
+                accepted += 1
+                fields = context_graph.parse_frontmatter(result["content"])
+                self.assertEqual(reason, fields["decision_reason"])
+                self.assertEqual("idempotent-refunds", fields["graph_node"])
+                self.assertEqual(["checkout-doc"], fields["documented_by"])
+        self.assertGreater(accepted, 0, "the fixture must accept at least one reason")
+
+    def test_an_accepted_proposal_loads_as_the_node_it_declares(self) -> None:
+        """End to end: the approved content, written as a note, must be that node."""
+        self.seed()
+
+        result = context_graph.propose(self.graph(), self.record())
+        self.write("decisions/idempotent-refunds.md", result["content"])
+        graph = self.graph()
+
+        self.assertEqual([], graph["findings"])
+        self.assertIn("idempotent-refunds", graph["nodes"])
+        self.assertEqual("DECISION", graph["nodes"]["idempotent-refunds"]["kind"])
+        self.assertEqual(
+            "A duplicated webhook must not refund twice",
+            graph["nodes"]["idempotent-refunds"]["decision_reason"],
+        )
+
     def test_every_line_break_the_parser_knows_is_refused_in_a_reason(self) -> None:
         """The guard must use the parser's own definition of a line, not just \\n."""
         self.seed()

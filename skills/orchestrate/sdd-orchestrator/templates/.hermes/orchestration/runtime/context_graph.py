@@ -588,6 +588,15 @@ def propose(graph: dict[str, Any], record: Any) -> dict[str, Any]:
             f"APPEND requires {node_id} to already be declared by {note}",
             note=note,
         ))
+    content = _render(node_id, kind, reason, date, relations, body, operation)
+    if operation == "CREATE":
+        # The invariant is the round trip itself, not a list of forbidden
+        # spellings. Enumerating them has already missed a newline class twice
+        # (plain \n, then U+2028) and a value shape once (`[a, b]` reparsing as
+        # a list), so the rendered note is parsed back and compared instead.
+        mismatch = _render_mismatch(content, node_id, kind, reason, date, relations)
+        if mismatch is not None:
+            raise GraphError("GRAPH_PROPOSAL_INVALID", mismatch)
     return {
         "status": "PROPOSED" if not findings else "BLOCKED",
         "action": OBSIDIAN_WRITE_ACTION,
@@ -595,9 +604,43 @@ def propose(graph: dict[str, Any], record: Any) -> dict[str, Any]:
         "written": False,
         "note": note,
         "operation": operation,
-        "content": _render(node_id, kind, reason, date, relations, body, operation),
+        "content": content,
         "findings": sorted(findings, key=lambda item: (item["code"], item["detail"])),
     }
+
+
+def _render_mismatch(
+    content: str,
+    node_id: str,
+    kind: str,
+    reason: str | None,
+    date: str | None,
+    relations: dict[str, list[str]],
+) -> str | None:
+    """Return why the rendered note would not read back as declared, or None.
+
+    A proposal a human approves must load as the node it describes. Anything the
+    parser would read differently is refused here, so the guarantee holds by
+    construction rather than by keeping a blacklist in sync with the parser.
+    """
+    expected: dict[str, Any] = {"graph_node": node_id, "graph_kind": kind}
+    if kind == "DECISION":
+        expected["decision_reason"] = reason
+        expected["decision_date"] = date
+    for relation, targets in relations.items():
+        if targets:
+            expected[relation] = list(targets)
+    try:
+        parsed = parse_frontmatter(content)
+    except GraphError as error:
+        return f"the rendered note would not parse: {error.detail}"
+    for field, value in expected.items():
+        if parsed.get(field) != value:
+            return (
+                f"{field} would read back as {parsed.get(field)!r} instead of {value!r}; "
+                "use plain text and put structure in the body"
+            )
+    return None
 
 
 def _render(
