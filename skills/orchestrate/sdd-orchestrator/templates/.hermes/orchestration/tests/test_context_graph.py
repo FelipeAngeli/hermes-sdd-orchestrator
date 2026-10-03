@@ -489,6 +489,22 @@ class ProposalTests(GraphTestCase):
         self.assertEqual("2026-10-02", fields["decision_date"])
         self.assertEqual(["checkout-doc"], fields["documented_by"])
 
+    def test_an_append_tolerates_a_node_record_without_a_recorded_size(self) -> None:
+        """A caller-built graph must not turn the size gate into a KeyError."""
+        self.seed()
+        graph = self.graph()
+        for node in graph["nodes"].values():
+            node.pop("note_bytes", None)
+
+        result = context_graph.propose(graph, self.record(
+            operation="APPEND",
+            note="decisions/bloc.md",
+            node="use-bloc-for-checkout",
+            body="Outcome recorded.",
+        ))
+
+        self.assertEqual("PROPOSED", result["status"])
+
     def test_an_append_that_would_push_the_note_over_the_limit_is_refused(self) -> None:
         """A small fragment still makes the node disappear if the note overflows."""
         self.seed()

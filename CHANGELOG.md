@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- The context-graph `APPEND` size gate reads the existing note's recorded size defensively, so a graph a caller assembled itself (rather than through `build`, which always records it) gets the normal refusal path instead of an uncaught `KeyError`. An absent size counts as zero, which only ever makes the gate more permissive for a record that never came from a note.
+
 ## 6.9.4 - 2026-10-03
 
 ### Fixed

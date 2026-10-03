@@ -608,7 +608,11 @@ def propose(graph: dict[str, Any], record: Any) -> dict[str, Any]:
     # An APPEND is concatenated onto a note that already has a size, so the
     # limit applies to the result, not to the fragment: a small fragment can
     # still push the note past the read limit and make the node disappear.
-    already = existing["note_bytes"] if operation == "APPEND" and existing is not None else 0
+    already = (
+        int(existing.get("note_bytes", 0))
+        if operation == "APPEND" and existing is not None
+        else 0
+    )
     if already + encoded > MAX_NOTE_BYTES:
         # A note this size is refused on the read path, so approving it would
         # produce a note that loads as nothing.
