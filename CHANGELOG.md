@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 6.9.3 - 2026-10-03
+
 ### Fixed
 - An accepted `CREATE` context-graph proposal must now also be *loadable*, not merely reparseable: the rendered note is refused as `GRAPH_PROPOSAL_INVALID` when it exceeds `MAX_NOTE_BYTES`, the same bound the read path already enforced, because approving a larger note produced a note that loaded as nothing and reported the failure against the note instead of the proposal. The exact boundary size is accepted and loads clean.
 - A `GRAPH_PROPOSAL_INVALID` round-trip refusal excerpts both readings to `MAX_DETAIL_EXCERPT` instead of embedding the full field value twice: a 200 000-character reason produced a 400 101-character detail inside a dispatch manifest, reintroducing the unbounded detail the cycle finding had just been fixed to avoid. The detail is now constant-size (375 characters for the same input).
