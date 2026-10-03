@@ -250,6 +250,9 @@ def build(notes: list[tuple[str, str]]) -> dict[str, Any]:
         node = _node_from_fields(note_path, fields, findings)
         if node is None:
             continue
+        # The note's own size is part of the graph: an APPEND proposal has to
+        # know how much room is left before the read limit refuses the note.
+        node["note_bytes"] = len(text.encode("utf-8"))
         if node["id"] in nodes:
             findings.append(_finding(
                 "GRAPH_NODE_DUPLICATED",
@@ -602,13 +605,22 @@ def propose(graph: dict[str, Any], record: Any) -> dict[str, Any]:
         if mismatch is not None:
             raise GraphError("GRAPH_PROPOSAL_INVALID", mismatch)
     encoded = len(content.encode("utf-8"))
-    if encoded > MAX_NOTE_BYTES:
+    # An APPEND is concatenated onto a note that already has a size, so the
+    # limit applies to the result, not to the fragment: a small fragment can
+    # still push the note past the read limit and make the node disappear.
+    already = existing["note_bytes"] if operation == "APPEND" and existing is not None else 0
+    if already + encoded > MAX_NOTE_BYTES:
         # A note this size is refused on the read path, so approving it would
         # produce a note that loads as nothing.
-        raise GraphError(
-            "GRAPH_PROPOSAL_INVALID",
-            f"the rendered note is {encoded} bytes and would be refused above {MAX_NOTE_BYTES}; shorten the body",
+        detail = (
+            f"the rendered note is {encoded} bytes and would be refused above {MAX_NOTE_BYTES}; shorten the body"
+            if not already
+            else (
+                f"appending {encoded} bytes to a {already}-byte note would exceed {MAX_NOTE_BYTES}; "
+                "shorten the body or start a new note"
+            )
         )
+        raise GraphError("GRAPH_PROPOSAL_INVALID", detail)
     return {
         "status": "PROPOSED" if not findings else "BLOCKED",
         "action": OBSIDIAN_WRITE_ACTION,

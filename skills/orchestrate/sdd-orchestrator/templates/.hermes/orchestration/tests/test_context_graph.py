@@ -489,6 +489,58 @@ class ProposalTests(GraphTestCase):
         self.assertEqual("2026-10-02", fields["decision_date"])
         self.assertEqual(["checkout-doc"], fields["documented_by"])
 
+    def test_an_append_that_would_push_the_note_over_the_limit_is_refused(self) -> None:
+        """A small fragment still makes the node disappear if the note overflows."""
+        self.seed()
+        graph = self.graph()
+        existing = context_graph.propose(graph, self.record(
+            body="x" * (context_graph.MAX_NOTE_BYTES - 300)
+        ))
+        self.write("decisions/idempotent-refunds.md", existing["content"])
+        graph = self.graph()
+        self.assertIn("idempotent-refunds", graph["nodes"])
+
+        with self.assertRaises(context_graph.GraphError) as raised:
+            context_graph.propose(graph, self.record(
+                operation="APPEND",
+                note="decisions/idempotent-refunds.md",
+                node="idempotent-refunds",
+                body="y" * 1000,
+            ))
+
+        self.assertEqual("GRAPH_PROPOSAL_INVALID", raised.exception.code)
+        self.assertIn("appending", raised.exception.detail)
+        self.assertIn(str(context_graph.MAX_NOTE_BYTES), raised.exception.detail)
+
+    def test_an_append_that_fits_is_accepted_and_the_note_still_loads(self) -> None:
+        self.seed()
+        created = context_graph.propose(self.graph(), self.record())
+        self.write("decisions/idempotent-refunds.md", created["content"])
+
+        fragment = context_graph.propose(self.graph(), self.record(
+            operation="APPEND",
+            note="decisions/idempotent-refunds.md",
+            node="idempotent-refunds",
+            body="Outcome: replay verified in staging.",
+        ))
+        self.write("decisions/idempotent-refunds.md", created["content"] + fragment["content"])
+        graph = self.graph()
+
+        self.assertEqual("PROPOSED", fragment["status"])
+        self.assertEqual([], graph["findings"])
+        self.assertIn("idempotent-refunds", graph["nodes"])
+
+    def test_the_size_gate_counts_bytes_not_characters(self) -> None:
+        """A multi-byte body must not slip past a character-based limit."""
+        self.seed()
+
+        with self.assertRaises(context_graph.GraphError) as raised:
+            context_graph.propose(self.graph(), self.record(
+                body="\U0001f9e9" * (context_graph.MAX_NOTE_BYTES // 4)
+            ))
+
+        self.assertEqual("GRAPH_PROPOSAL_INVALID", raised.exception.code)
+
     def test_an_oversized_proposal_is_refused_because_the_note_would_not_load(self) -> None:
         """An accepted proposal must be loadable, not merely reparseable."""
         self.seed()

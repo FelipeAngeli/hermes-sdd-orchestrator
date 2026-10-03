@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- The context-graph note-size gate now covers `APPEND`, not only `CREATE`: the limit applies to the resulting note, so a 1 027-byte fragment appended to a 261 977-byte note is refused with the existing and added sizes instead of being accepted and making the node disappear from the graph. `build` records each node's `note_bytes` so a proposal knows the room left. A fitting append is still accepted and the merged note still loads clean.
+
 ## 6.9.3 - 2026-10-03
 
 ### Fixed
