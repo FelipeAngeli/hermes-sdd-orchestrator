@@ -14,7 +14,7 @@ Sub-agents are narrow, specialist leaf-worker briefs. The controller dispatches 
 - `deterministic_attempt`: which tool (grep, `git diff`, tests, analyzer, schema validation…) was tried first and why it was not enough.
 - `if_empty`: what changes if the answer is `NO_FINDINGS`. If nothing changes, the dispatch is decorative and is skipped.
 
-Each demand is classified by risk as `LOW`, `MEDIUM`, `HIGH` or `CRITICAL` (an unclassified demand counts as `HIGH`) and routed on the smallest safe path: `FAST`, `STANDARD` or `DEEP`. Iteration follows `OBSERVE → ANALYZE → ACT → VERIFY → LEARN`, with a declared `max_iterations` and a stop as soon as an iteration brings no new evidence.
+Each demand is classified by risk as `LOW`, `MEDIUM`, `HIGH` or `CRITICAL` and routed on the smallest safe path: `FAST`, `STANDARD` or `DEEP`. Only projects with explicit `--automatic-jev-governance` consent use Jev automatically; installing TypeSafe guidance is not consent. After deterministic tools, semantic classifications go through `runtime/semantic_governor.py decide` in one cached batch. The automatic cached path requires POSIX no-follow guarantees and blocks on non-POSIX systems without substituting another classifier. Confidence below `0.70`, malformed output, provider failure or uncertainty returns `REVIEW`; failure tombstones prevent an automatic repeat charge for the unchanged fingerprint. Exact facts, permissions and FSM transitions never go to Jev. Iteration follows `OBSERVE → ANALYZE → ACT → VERIFY → LEARN`, with a declared `max_iterations` and a stop when no new evidence appears.
 
 ## Catalogue
 

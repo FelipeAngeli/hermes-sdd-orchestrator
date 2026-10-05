@@ -2,7 +2,7 @@
 
 [Docs index](../README.md) · Related: [Action journal](action-journal.md), [Stage agents](stage-agents.md), [Gates](gates-and-stack-detection.md), [Contracts](contracts-and-schemas.md)
 
-**Files:** `policies/LOOP_POLICY.md`, `policies/BOUNDED_AUTOMATION.md`, `policies/BOUNDED_RUN_DRIVER.md`, `runtime/bounded_run_planner.py`, `runtime/bounded_run_driver.py`, `runtime/bounded_loop_driver.py`, `schemas/BOUNDED_RUN_PLAN_SCHEMA.json`.
+**Files:** `policies/LOOP_POLICY.md`, `policies/BOUNDED_AUTOMATION.md`, `policies/BOUNDED_RUN_DRIVER.md`, `runtime/bounded_run_planner.py`, `runtime/bounded_run_driver.py`, `runtime/bounded_loop_driver.py`, `runtime/terminal_progress.py`, `schemas/BOUNDED_RUN_PLAN_SCHEMA.json`.
 
 `LOOP_POLICY.md` is the authoritative policy and is written in Portuguese. The three Python tools are **pure**: they read JSON snapshots and return decisions. They never run a worker, write STATE, touch Git or activate a mode. The controller performs every effect.
 
@@ -81,3 +81,19 @@ Subcommand `next`. Flags: `--snapshot`, `--plan`, `--json`. Decisions: `CONTINUE
 ## Per-action loop
 
 For every action, the controller follows the same sequence: reread STATE → driver `next` → [journal recovery](action-journal.md) → [stage context check](harness.md#stage-context-manifest-schema-2-stage_contextpy) → `prepare` → dispatch one worker → validate the [contract](contracts-and-schemas.md) → prepare and commit STATE → `release` → `rollover` → `next` again. A valid result whose verification fails goes through the [bounded correction loop](harness.md#bounded-correction-loop-correction_looppy) before any retry. A healthy success never ends a bounded round by itself. Only a stop decision does.
+
+## Terminal progress
+
+`terminal_progress.py` is the presentation layer for the classic Hermes CLI. Its private `TERMINAL_PROGRESS.json` is not authoritative orchestration state: `STATE.md`, the action journal and the bounded drivers still decide what may happen. The controller starts one display run with the actual Hermes provider, records a concise activity before each command/dispatch/gate/material action, advances it with each valid FSM transition and closes it as `DONE`, `BLOCKED` or `PAUSED`.
+
+The dashboard renders the provider, current stage as `N/8`, remaining-stage count, elapsed time for the current stage, completed/skipped/blocked/paused stage durations, the five most recent activities, and Jev's active/completed state, provider, model, classification area and question IDs. Only the normal next transition is accepted, except the declared `SPECIFY → PLAN` path that records `CLARIFY` as skipped; no other stage can disappear from the display. `finish --status DONE` accepts REVIEW or DONE only, closes REVIEW when needed, and always renders `DONE (8/8)` with zero remaining stages. Mutations are atomic; POSIX temporary descriptors are mode `0600`, while Windows retains the secure `mkstemp` file and ACL because `os.fchmod` is unavailable there. Activity text is bounded and rejects control characters. Color is TTY-aware, `--no-color` disables it explicitly, and one named `NO_COLOR` lookup honors the standard environment convention without broad environment access. `--json` exposes the same validated state for automation. A semantic-governor cache miss updates Jev before and after its network call; a cache hit does not claim a live Jev use.
+
+```text
+terminal_progress.py start --provider <provider> --stage SPECIFY
+terminal_progress.py activity --message <summary>
+terminal_progress.py stage --name <next-stage>
+terminal_progress.py show
+terminal_progress.py finish --status DONE|BLOCKED|PAUSED
+```
+
+Subcommands: `start`, `stage`, `activity`, `jev-start`, `jev-finish`, `finish`, `show`. Common flags are `--file`, `--json` and `--no-color`. `start` accepts `--provider`, `--stage` and optional `--activity`; `stage` accepts `--name` and `--previous-status`; `activity` requires `--message`; `jev-start` requires `--provider`, `--area` and one or more `--question`; `jev-finish` requires `--status` and accepts `--model`; `finish` requires `--status`.

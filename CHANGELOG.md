@@ -4,6 +4,21 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Breaking
+- Automatic Jev governance now requires a new explicit consent bit: TypeSafe installation records `automatic_semantic_governance:false`, `--automatic-jev-governance` records `true`, and legacy `{"install":true}` answers reopen onboarding rather than being reinterpreted as authorization for external, potentially billed calls.
+
+### Added
+- Automatic repository-local Jev semantic governance after explicit consent: `semantic_governor.py decide` batches every non-deterministic classification for an unchanged demand into one paid call, caches parsed decisions and failure/uncertainty tombstones by a material fingerprint, accepts confidence `0.70` inclusively, routes lower-confidence, malformed, unavailable or uncertain outcomes to `REVIEW` without fabrication or automatic retry, and prints timed `JEV EM USO`/`JEV USADO` receipts while preserving JSON stdout. POSIX request/cache access is descriptor-anchored and no-follow, private cache/lock ownership and modes are enforced, calls are serialized, and non-POSIX automatic governance fails closed rather than weakening those guarantees.
+- A repository-local Hermes CLI progress dashboard now exposes the active provider, current and remaining SDD stages, elapsed time per stage, recent commands/dispatches/gates/actions, and Jev's live provider/model/classification area. `terminal_progress.py` persists only bounded private presentation state, enforces the FSM's sole CLARIFY skip, renders after each update, and remains separate from authoritative STATE/journal decisions; live semantic-governor calls update it automatically and print timed start/finish receipts.
+
+### Changed
+- Automatic semantic governance uses explicit, separate installation and potentially billed-call consent; the final cached governor supports POSIX only and reports `JEV_GOVERNANCE_PLATFORM_UNSUPPORTED` elsewhere without substituting another classifier.
+
+### Fixed
+- Semantic-governor terminal receipts accept only printable question IDs and known SDD phase names, preventing control-character and forged-line injection.
+- Failure/uncertainty tombstones prevent an unchanged request from being sent and potentially billed again automatically.
+- Terminal progress closes successful runs as `DONE (8/8)`, persists without assuming Unix-only `fchmod`, and checks only the named `NO_COLOR` variable rather than scanning the environment.
+
 ## 6.9.5 - 2026-10-03
 
 ### Fixed

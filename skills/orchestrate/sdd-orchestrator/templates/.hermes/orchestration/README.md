@@ -4,8 +4,8 @@ This directory separates controller concerns while keeping mutable local state a
 
 ```text
 .hermes/
-├── .env         # created on TypeSafe opt-in; ignored and private
-├── .env.example # TypeSafe variable name; contains no credential
+├── .env         # created on TypeSafe/Jev opt-in; ignored and private
+├── .env.example # supported provider key names; contains no credential
 └── orchestration/
     ├── agents/      # stage-specific leaf-worker briefs
     ├── contracts/   # executor and reviewer interfaces
@@ -19,6 +19,8 @@ This directory separates controller concerns while keeping mutable local state a
     ├── PROJECT_SETUP.md
     ├── ACTION_JOURNAL.json
     ├── INCIDENTS.md
+    ├── JEV_CACHE.json             # created on first live decision; ignored and private
+    ├── TERMINAL_PROGRESS.json     # current CLI presentation state; ignored and private
     └── action-journal-history/  # created on demand
 ```
 
@@ -38,6 +40,20 @@ python3 .hermes/orchestration/runtime/bounded_run_planner.py --help
 python3 .hermes/orchestration/runtime/bounded_run_driver.py --help
 ```
 
+## Terminal progress
+
+`runtime/terminal_progress.py` gives the classic Hermes terminal a persistent, dependency-free SDD dashboard. It shows the active provider, current stage and its position, remaining stages, time per stage, Jev status/provider/model and exact classification area, plus recent activity. This presentation file never replaces `STATE.md` or the action journal and must not contain secrets or hidden chain-of-thought.
+
+```text
+python3 .hermes/orchestration/runtime/terminal_progress.py start --provider openai-codex --stage SPECIFY
+python3 .hermes/orchestration/runtime/terminal_progress.py activity --message "Inspecting repository context"
+python3 .hermes/orchestration/runtime/terminal_progress.py stage --name CLARIFY
+python3 .hermes/orchestration/runtime/terminal_progress.py show
+python3 .hermes/orchestration/runtime/terminal_progress.py finish --status DONE
+```
+
+Every mutation immediately renders the updated dashboard; `--json` keeps the same state machine available to automation. The controller records one concise activity before every command, worker dispatch, gate and material action. Only `CLARIFY` may be skipped. Live semantic-governor calls automatically mark Jev as active before network access and completed afterward, while cache hits leave Jev inactive because no paid request occurred.
+
 ## Project-local engineering skills
 
 The sibling `.hermes/skills/` directory contains three progressive playbooks: `sdd-backend-engineering`, `sdd-architecture-decisions` and `sdd-database-design-migrations`. They guide PLAN/IMPLEMENT; existing specialist sub-agents remain the independent auditors. Installation does not trust a repository or mutate global skills. After inspection, run `hermes skills trust` in the repository and start a new session so Hermes can discover them. Stage-context schema 2 binds `project_root` to the canonical live Git workspace and records every required `SKILL.md`/reference path and hash; `stage_context.py check` verifies actual bytes/frontmatter and refuses extra, missing or changed guidance. Regenerate schema-1 manifests.
@@ -48,13 +64,13 @@ The installed `hooks/` directory mirrors the `agents/` and `sub-agents/` source 
 
 Installation only copies these files. It never edits a Hermes profile or grants hook consent. To activate them, inspect `hooks/README.md`, replace `<ABSOLUTE_PROJECT_ROOT>` in `hooks/hooks.example.yaml`, and merge it into a dedicated profile for this checkout. Absolute paths bind Hermes' persistent `(event, command)` consent to this repository. The controller must atomically maintain `STAGE_CONTEXT.json`, `HOOK_BINDING.json`, and `VERIFICATION_EVIDENCE.json` before an active implementation turn; the scope hook fails closed when live Git, STATE, journal, binding, and context cannot be proven consistent.
 
-Before the first demand, resolve `.hermes/orchestration/PROJECT_SETUP.md`. Inspect project evidence first, then ask only unresolved questions about issue tracker access, optional Obsidian binding, optional TypeSafe skill installation for Jev guidance, and other project-specific tools. Accept `none`, never ask for credentials or product requirements, and validate connectivity read-only before recording it.
+Before the first demand, resolve `.hermes/orchestration/PROJECT_SETUP.md`. Ask separately about TypeSafe guidance installation and automatic potentially billed Jev classifications. Installation records `automatic_semantic_governance: false`; only `--automatic-jev-governance` records explicit consent. Legacy install-only answers reopen onboarding. Accept `none`, never ask for credentials, and validate connectivity read-only.
 
 ## Optional TypeSafe skill and Jev connector
 
 Jev is TypeSafe's flagship System One model; the installable project integration is the `typesafe-ai` skill. Preview with the project installer using `--target <repo-root> --typesafe-ai install --json`, then apply only after explicit opt-in by adding `--apply`. The installer does not execute the official `npx skills add typesafe-ai/skills --skill typesafe-ai` command or download code. Instead it verifies and copies a reviewed snapshot from an immutable upstream commit, preserves unrelated lock data, and commits the skill, merged pinned lock entry, onboarding answer and a private `.env` placeholder as one rollback-covered operation. An existing regular `.env` is never overwritten. An existing skill installation is recorded without overwrite only when the same pinned lock and trusted digest verification passes; a conflict fails closed. Use `--typesafe-ai none --apply` to record an explicit opt-out only when no TypeSafe installation is discoverable. The generated skill and lock remain repository-local and are not added to global Hermes configuration.
 
-Set `TYPESAFE_API_KEY` in the owner-only mode-`0600` `.hermes/.env` or the process environment, then check it locally with `python3 .hermes/orchestration/runtime/typesafe_connector.py preflight --json`. To make an explicit API call, prepare strict JSON with `state`, non-empty `questions`, and optional `model`, then run `python3 .hermes/orchestration/runtime/typesafe_connector.py evaluate --input request.json --json`. Each question must be a typed object (`type` is `noul`, `choice` or `score`, with `instructions` and, for `choice`/`score`, the matching `criteria`; descriptions may be text or structured objects/arrays); a malformed one is refused locally as `TYPESAFE_QUESTION_INVALID: <question id>` before anything is sent. Keep the input on a path with no symlinked component, such as a file you create under `.hermes/orchestration/` itself. The default model is `jev-latest`; `--timeout` accepts a finite value greater than 0 through 300 seconds. Each provider has one fixed endpoint, redirects are refused, nothing runs automatically or retries, and the key or a remote error body is never printed.
+Set the selected provider key in owner-only `.hermes/.env`, then run `typesafe_connector.py preflight --json`. Only explicit automatic Jev consent plus READY preflight is standing authorization for `semantic_governor.py decide`; TypeSafe installation alone authorizes no calls. The governor batches classifications, accepts confidence `0.70` or higher, and caches decisions plus failure/uncertainty tombstones so an unchanged fingerprint is not billed again automatically. The automatic cached path requires POSIX descriptor-anchored no-follow access and returns `JEV_GOVERNANCE_PLATFORM_UNSUPPORTED` elsewhere without making a request or substituting another classifier. Live calls print timed `JEV EM USO`/`JEV USADO` receipts and update an active terminal dashboard; cache hits make no paid call. The raw connector remains available for explicit typed requests. Fixed endpoints refuse redirects and never print keys or remote error bodies.
 
 To use the independent Jev AI compatible endpoint instead, set `JEV_AI_API_KEY` in the same `.hermes/.env` (or the server environment) and pass `--provider jev-ai`. It targets only `https://jev-ai.pro/api` (`/v1/systemone`, `/v1/models`) and never falls back to TypeSafe. Run `preflight --provider jev-ai --json` to see the resolved destination, `models --provider jev-ai --json` for an authenticated lookup without inference, and `evaluate --provider jev-ai --input request.json --json` for one billed decision. Requests above 256000 bytes, 64 questions or 64-character question IDs are refused locally. On a timeout, lost connection or 504 the report says `"outcome":"UNCERTAIN"`: check Jev AI usage before resending.
 

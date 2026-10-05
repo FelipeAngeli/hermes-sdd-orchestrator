@@ -231,6 +231,46 @@ class BundleContractTests(unittest.TestCase):
         referenced = set(re.findall(r"`([a-z][a-z0-9-]+)`", routing))
         self.assertEqual(set(), referenced - shipped)
 
+    def test_controller_automatically_uses_cached_batched_jev_for_semantic_decisions(self) -> None:
+        entrypoint = normalized((TEMPLATES / ".hermes.md").read_text(encoding="utf-8"))
+        dispatch = normalized((ORCHESTRATION / "policies" / "DISPATCH_POLICY.md").read_text(encoding="utf-8"))
+        skill = normalized((SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8"))
+        for policy in (entrypoint, dispatch, skill):
+            self.assertIn("semantic_governor.py decide", policy)
+            self.assertIn("0.70", policy)
+            self.assertIn("review", policy)
+            self.assertIn("cache", policy)
+            self.assertIn("batch", policy)
+            self.assertIn("explicit automatic jev consent", policy)
+            self.assertIn("--automatic-jev-governance", policy)
+        self.assertIn("standing authorization", entrypoint)
+        self.assertIn("without asking again", entrypoint)
+        self.assertIn("after deterministic facts", entrypoint)
+        self.assertNotIn("*** facts", entrypoint)
+        self.assertIn("legacy install-only answers never authorize calls", entrypoint)
+        self.assertIn("deterministic facts", dispatch)
+        self.assertIn("every non-deterministic semantic classification", dispatch)
+        self.assertIn("one paid call", dispatch)
+
+    def test_controller_publishes_terminal_progress_for_every_sdd_stage(self) -> None:
+        entrypoint = normalized((TEMPLATES / ".hermes.md").read_text(encoding="utf-8"))
+        installed_readme = normalized((ORCHESTRATION / "README.md").read_text(encoding="utf-8"))
+        progress_tool = ORCHESTRATION / "runtime" / "terminal_progress.py"
+
+        self.assertTrue(progress_tool.is_file())
+        for command in ("terminal_progress.py start", "terminal_progress.py activity", "terminal_progress.py stage", "terminal_progress.py finish"):
+            self.assertIn(command, entrypoint)
+        for visible_field in ("provider", "current stage", "remaining stages", "time per stage", "jev", "recent activity"):
+            self.assertIn(visible_field, installed_readme)
+
+        installer = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn('TERMINAL_PROGRESS_PATH = f"{CONFIG_ROOT}/TERMINAL_PROGRESS.json"', installer)
+        self.assertIn("TERMINAL_PROGRESS_PATH,", installer)
+
+    def test_type_safe_environment_example_names_both_supported_provider_keys(self) -> None:
+        lines = (TEMPLATES / ".hermes" / ".env.example").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(["TYPESAFE_API_KEY=", "JEV_AI_API_KEY="], lines)
+
     def test_entrypoint_is_compact_portable_and_explains_both_authorization_modes(self) -> None:
         entrypoint = (TEMPLATES / ".hermes.md").read_text(encoding="utf-8")
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
@@ -492,6 +532,7 @@ class InstallerBehaviorTests(unittest.TestCase):
         installer: Path = INSTALLER,
         apply: bool = False,
         typesafe_ai: str | None = None,
+        automatic_jev_governance: bool = False,
         env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         arguments = [sys.executable, str(installer), "--target", str(target)]
@@ -499,6 +540,8 @@ class InstallerBehaviorTests(unittest.TestCase):
             arguments.append("--apply")
         if typesafe_ai:
             arguments.extend(("--typesafe-ai", typesafe_ai))
+        if automatic_jev_governance:
+            arguments.append("--automatic-jev-governance")
         arguments.append("--json")
         return self.execute(*arguments, check=False, env=env)
 
@@ -739,7 +782,10 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertEqual("PRESENT", integration["env_status"])
             self.assertEqual("NONE", integration["planned_env_action"])
             setup = (target / ".hermes/orchestration/PROJECT_SETUP.md").read_text(encoding="utf-8")
-            self.assertIn('typesafe_ai: {"install":true}', setup)
+            self.assertIn(
+                'typesafe_ai: {"install":true,"automatic_semantic_governance":false}',
+                setup,
+            )
             self.assertIn("status: PENDING", setup)
             for source in TYPESAFE_FIXTURE.iterdir():
                 self.assertEqual(source.read_bytes(), (target / ".hermes/skills/typesafe-ai" / source.name).read_bytes())
@@ -748,11 +794,75 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertEqual({"keep": True}, lock["metadata"])
             env_example = target / ".hermes/.env.example"
             env_file = target / ".hermes/.env"
-            self.assertEqual("TYPESAFE_API_KEY=\n", env_example.read_text(encoding="utf-8"))
-            self.assertEqual("TYPESAFE_API_KEY=\n", env_file.read_text(encoding="utf-8"))
+            expected_env = "TYPESAFE_API_KEY=\nJEV_AI_API_KEY=\n"
+            self.assertEqual(expected_env, env_example.read_text(encoding="utf-8"))
+            self.assertEqual(expected_env, env_file.read_text(encoding="utf-8"))
             self.assertEqual(0o600, stat.S_IMODE(env_file.stat().st_mode))
             ignored = self.execute("git", "-C", str(target), "check-ignore", "-q", str(env_file), check=False)
             self.assertEqual(0, ignored.returncode)
+
+    def test_automatic_jev_governance_requires_new_explicit_consent(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-auto-consent-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+
+            installed = self.run_installer(target, apply=True, typesafe_ai="install")
+            self.assertEqual(0, installed.returncode, installed.stderr)
+            setup_path = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            self.assertIn(
+                'typesafe_ai: {"install":true,"automatic_semantic_governance":false}',
+                setup_path.read_text(encoding="utf-8"),
+            )
+
+            consented = self.run_installer(
+                target,
+                apply=True,
+                typesafe_ai="install",
+                automatic_jev_governance=True,
+            )
+
+            self.assertEqual(0, consented.returncode, consented.stderr)
+            report = json.loads(consented.stdout)
+            self.assertTrue(
+                report["onboarding"]["integrations"]["typesafe_ai"]["automatic_semantic_governance"]
+            )
+            self.assertIn(
+                'typesafe_ai: {"install":true,"automatic_semantic_governance":true}',
+                setup_path.read_text(encoding="utf-8"),
+            )
+
+    def test_legacy_typesafe_answer_never_authorizes_automatic_governance(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-legacy-consent-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            installed = self.run_installer(target, apply=True, typesafe_ai="install")
+            self.assertEqual(0, installed.returncode, installed.stderr)
+            setup_path = target / ".hermes/orchestration/PROJECT_SETUP.md"
+            setup = setup_path.read_text(encoding="utf-8").replace(
+                '{"install":true,"automatic_semantic_governance":false}',
+                '{"install":true}',
+            )
+            setup_path.write_text(setup, encoding="utf-8")
+
+            report = json.loads(self.run_installer(target).stdout)
+
+            self.assertFalse(report["onboarding"]["record_valid"])
+            self.assertFalse(
+                report["onboarding"]["integrations"]["typesafe_ai"]["automatic_semantic_governance"]
+            )
+            self.assertIn(
+                "typesafe_ai",
+                {question["id"] for question in report["onboarding"]["questions"]},
+            )
+
+    def test_automatic_jev_flag_requires_typesafe_install_choice(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-typesafe-auto-invalid-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+
+            result = self.run_installer(target, automatic_jev_governance=True)
+
+            self.assert_blocked(result, "AUTOMATIC_JEV_GOVERNANCE_REQUIRES_TYPESAFE_INSTALL")
 
     def test_typesafe_opt_in_needs_no_node_or_npx(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-typesafe-no-node-") as temp:
@@ -1027,8 +1137,8 @@ class InstallerBehaviorTests(unittest.TestCase):
             setup = setup.replace("issue_tracker: UNRESOLVED", "issue_tracker: none")
             setup = setup.replace("obsidian: UNRESOLVED", "obsidian: none")
             setup = setup.replace(
-                'typesafe_ai: {"install":true}',
-                'typesafe_ai: {"install":false,"install":true}',
+                'typesafe_ai: {"install":true,"automatic_semantic_governance":false}',
+                'typesafe_ai: {"install":false,"install":true,"automatic_semantic_governance":false}',
             )
             setup = setup.replace("project_tools: UNRESOLVED", "project_tools: none")
             setup_path.write_text(setup, encoding="utf-8")
@@ -1164,7 +1274,10 @@ class InstallerBehaviorTests(unittest.TestCase):
 
             self.assertEqual(0, result.returncode, result.stderr)
             migrated = setup_path.read_text(encoding="utf-8")
-            self.assertIn('typesafe_ai: {"install":true}', migrated)
+            self.assertIn(
+                'typesafe_ai: {"install":true,"automatic_semantic_governance":false}',
+                migrated,
+            )
             self.assertIn("status: COMPLETE", migrated)
             self.assertIn("issue_tracker: none", migrated)
             self.assertIn("project_tools: none", migrated)
@@ -1260,7 +1373,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertTrue(report["applied"])
             self.assertEqual("RECORD", integration["applied_action"])
             self.assertEqual("PRESENT", integration["env_status"])
-            self.assertEqual("TYPESAFE_API_KEY=\n", env_path.read_text(encoding="utf-8"))
+            self.assertEqual("TYPESAFE_API_KEY=\nJEV_AI_API_KEY=\n", env_path.read_text(encoding="utf-8"))
             self.assertEqual(0o600, stat.S_IMODE(env_path.stat().st_mode))
 
     def test_apply_creates_pending_project_onboarding_record(self) -> None:
@@ -1681,7 +1794,7 @@ class InstallerBehaviorTests(unittest.TestCase):
                 onboarding_after = module._render_onboarding_answer(
                     resolved_target,
                     "typesafe_ai",
-                    '{"install":true}',
+                    module.TYPESAFE_ANSWER_DISABLED,
                 )
                 module.install_typesafe_skill(resolved_target, onboarding_after)
 
@@ -1704,7 +1817,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertEqual(0, installed.returncode, installed.stderr)
             setup = target / ".hermes/orchestration/PROJECT_SETUP.md"
             setup_before = setup.read_bytes()
-            onboarding_after = module._render_onboarding_answer(target, "typesafe_ai", '{"install":true}')
+            onboarding_after = module._render_onboarding_answer(target, "typesafe_ai", module.TYPESAFE_ANSWER_DISABLED)
             real_status = module.typesafe_skill_status
             calls = 0
 
@@ -1735,7 +1848,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.initialize_repository(target)
             installed = self.run_installer(target, apply=True)
             self.assertEqual(0, installed.returncode, installed.stderr)
-            onboarding_after = module._render_onboarding_answer(target, "typesafe_ai", '{"install":true}')
+            onboarding_after = module._render_onboarding_answer(target, "typesafe_ai", module.TYPESAFE_ANSWER_DISABLED)
             skill_root = target / ".hermes/skills/typesafe-ai"
             skill_owner = target / "skill-owner"
             lock_path = target / "skills-lock.json"
@@ -1768,7 +1881,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.initialize_repository(target)
             installed = self.run_installer(target, apply=True)
             self.assertEqual(0, installed.returncode, installed.stderr)
-            onboarding_after = module._render_onboarding_answer(target, "typesafe_ai", '{"install":true}')
+            onboarding_after = module._render_onboarding_answer(target, "typesafe_ai", module.TYPESAFE_ANSWER_DISABLED)
             external = Path(temp) / "external.txt"
             external.write_bytes(b"external sentinel\n")
             skill_root = target / ".hermes/skills/typesafe-ai"
@@ -1797,7 +1910,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.initialize_repository(target)
             installed = self.run_installer(target, apply=True)
             self.assertEqual(0, installed.returncode, installed.stderr)
-            onboarding_after = module._render_onboarding_answer(target, "typesafe_ai", '{"install":true}')
+            onboarding_after = module._render_onboarding_answer(target, "typesafe_ai", module.TYPESAFE_ANSWER_DISABLED)
             setup = target / ".hermes/orchestration/PROJECT_SETUP.md"
             setup_owner = target / "setup-owner.md"
             replacement = b"concurrent setup\n"

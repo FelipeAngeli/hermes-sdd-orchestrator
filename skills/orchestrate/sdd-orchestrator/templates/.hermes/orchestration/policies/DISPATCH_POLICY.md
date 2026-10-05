@@ -28,9 +28,17 @@ These are exact, cheap and reproducible. A sub-agent that re-derives what `grep`
 
 Escalate to a sub-agent when the question requires judgment the tools cannot supply: whether a test proves a rule, whether a consumer's green suite actually exercises the changed path, whether a divergence is intentional.
 
+## Automatic Jev semantic governance
+
+Only explicit automatic Jev consent recorded by `--automatic-jev-governance` (`automatic_semantic_governance: true`) is standing authorization; installing TypeSafe guidance is not consent, and legacy install-only answers never authorize calls. After that one-time consent, do not ask again for each call. Deterministic facts, calculations, exact lookups, Git state, schema checks, commands, permissions and final FSM transitions remain in code and never go to Jev.
+
+After deterministic precedence, send **every non-deterministic semantic classification** needed for the unchanged demand through `runtime/semantic_governor.py decide`. Put risk, optional-context relevance and eligible-specialist questions into one batch so an unchanged demand costs at most one paid call. Consult its cache first; call Jev again only when the canonical semantic fingerprint changes because material state, evidence, candidates, provider, model or policy changed. This automatic cached path requires POSIX descriptor-anchored no-follow guarantees; `JEV_GOVERNANCE_PLATFORM_UNSUPPORTED` blocks the classification on other systems and never authorizes a main-model substitute.
+
+The governor accepts a judgment only at confidence `0.70` or higher. A lower-confidence, malformed, unavailable or uncertain result is `REVIEW`: never fabricate a route, silently substitute a main-model classification, or automatically retry a possibly billed request. Jev selects only options supplied by the controller; it cannot invent paths, roles, commands or permissions. Every live use prints the `JEV USADO` terminal block with evaluated-file count, decided-versus-review totals and the fingerprint artifact; cache hits make no paid call.
+
 ## Risk classification
 
-Classify every demand before routing it:
+Classify every demand before routing it; when the classification is not fixed by the deterministic definitions below, use the semantic governor above:
 
 - `LOW` — isolated change, no contract, no shared state, no external effect. Copy, styling, a constant, a message.
 - `MEDIUM` — behavior inside one module, existing contracts unchanged.
