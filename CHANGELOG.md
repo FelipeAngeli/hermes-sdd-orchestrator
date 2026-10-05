@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 7.0.0 - 2026-10-05
+
 ### Breaking
 - Automatic Jev governance now requires a new explicit consent bit: TypeSafe installation records `automatic_semantic_governance:false`, `--automatic-jev-governance` records `true`, and legacy `{"install":true}` answers reopen onboarding rather than being reinterpreted as authorization for external, potentially billed calls.
 
