@@ -301,6 +301,20 @@ def _live_project_root() -> Path | None:
         return None
 
 
+def _installed_playbook_root() -> Path | None:
+    """Obsidian project container holding this controller, when vault-resident.
+
+    runtime/ -> orchestration/ -> .hermes/ -> <container>. The container is
+    authoritative only when it carries the Obsidian binding written by the
+    installer; a repository-local installation returns ``None``.
+    """
+    container = Path(__file__).resolve().parents[3]
+    binding = container / ".hermes" / "obsidian.json"
+    if binding.is_file() and not binding.is_symlink() and (container / ".hermes" / "skills").is_dir():
+        return container
+    return None
+
+
 def _check_playbooks(value: dict[str, Any]) -> list[dict[str, str]]:
     errors: list[dict[str, str]] = []
     loaded: dict[str, dict[str, Any]] = {}
@@ -318,6 +332,13 @@ def _check_playbooks(value: dict[str, Any]) -> list[dict[str, str]]:
             "PLAYBOOK_ROOT_INVALID",
             "project_root must be the canonical non-symlinked live Git workspace when playbooks are loaded",
         ))
+    # Playbook bytes come from wherever the controller is installed: the
+    # repository (legacy) or the Obsidian project container (default).
+    asset_root = root
+    if root_valid and not (root / ".hermes" / "skills").is_dir():
+        installed = _installed_playbook_root()
+        if installed is not None:
+            asset_root = installed
 
     for item in value["playbooks"]:
         name = item["name"]
@@ -353,16 +374,16 @@ def _check_playbooks(value: dict[str, Any]) -> list[dict[str, str]]:
                 ))
                 continue
             if root_valid:
-                base = root / ".hermes" / "skills" / name / "references"
-                if _verified_file(root, relative, reference["sha256"], base) is None:
+                base = asset_root / ".hermes" / "skills" / name / "references"
+                if _verified_file(asset_root, relative, reference["sha256"], base) is None:
                     errors.append(_finding(
                         "PLAYBOOK_CONTENT_MISMATCH",
                         f"{name} reference content does not match its project-local descriptor",
                     ))
 
         if root_valid and path_valid:
-            base = root / ".hermes" / "skills" / name
-            content = _verified_file(root, item["path"], item["sha256"], base)
+            base = asset_root / ".hermes" / "skills" / name
+            content = _verified_file(asset_root, item["path"], item["sha256"], base)
             identity = _frontmatter_identity(content) if content is not None else None
             if identity != (name, item["version"]):
                 errors.append(_finding(

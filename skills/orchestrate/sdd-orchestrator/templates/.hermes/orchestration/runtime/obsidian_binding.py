@@ -85,7 +85,29 @@ class Binding:
 
 
 def binding_path(repo_root: Path) -> Path:
-    return Path(repo_root) / BINDING_RELATIVE_PATH
+    """Return the binding governing ``repo_root``.
+
+    A legacy repository-local binding wins when present. Otherwise, when this
+    runtime is installed inside an Obsidian project container (the default
+    storage), the container's own ``.hermes/obsidian.json`` is authoritative so
+    the user's repository never has to carry any Hermes file.
+
+    This precedence serves operator-invoked CLIs with an explicit ``--repo``.
+    Hooks act on repository content that may be untrusted, so with a
+    vault-resident controller they use only the container binding instead.
+    """
+    local = Path(repo_root) / BINDING_RELATIVE_PATH
+    if local.is_file():
+        return local
+    installed = _installed_container_binding()
+    return installed if installed is not None else local
+
+
+def _installed_container_binding() -> Path | None:
+    # runtime/ -> orchestration/ -> .hermes/ -> <project container>
+    container = Path(__file__).resolve().parents[3]
+    candidate = container / BINDING_RELATIVE_PATH
+    return candidate if candidate.is_file() and not candidate.is_symlink() else None
 
 
 def load(repo_root: Path) -> Binding:
@@ -94,7 +116,12 @@ def load(repo_root: Path) -> Binding:
     Raises BindingError with codes: BINDING_MISSING, BINDING_INVALID,
     BINDING_SCHEMA_UNSUPPORTED.
     """
-    path = binding_path(repo_root)
+    return load_path(binding_path(repo_root))
+
+
+def load_path(path: Path) -> Binding:
+    """Load and validate one explicit binding file (same error codes as ``load``)."""
+    path = Path(path)
     if not path.is_file():
         raise BindingError(
             "BINDING_MISSING",

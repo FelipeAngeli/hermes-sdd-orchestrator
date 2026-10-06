@@ -50,6 +50,8 @@ Hermes profile (once)                         Target Git project (per project)
 
 `.hermes/obsidian.json` is the one exception to the untracked rule: it binds the project to its Obsidian vault and is versioned so connectivity survives a clone. When a worktree is bootstrapped against a vault, `STATE.md`, `ACTION_JOURNAL.json` and `INCIDENTS.md` move into that vault, keyed per worktree — see `templates/.hermes/orchestration/BOOTSTRAP.md`.
 
+> **Since 8.0.0 the default is to keep everything in Obsidian.** With `--obsidian-vault <absolute vault> --obsidian-project <Projects/Name>`, the installer writes the controller, `PROJECT_SETUP.md`, playbooks, binding and per-worktree runtime under `<vault>/<project>/` and **writes nothing to the user's repository** — no `.hermes/`, `.hermes.md`, `skills-lock.json`, `.env`, `__pycache__` or `.git/info/exclude` edit. The in-repository layout above is used only with `--local-storage`. TypeSafe/Jev credentials never go into the vault: export them in the environment. See [Skill and installer](docs/components/skill-and-installer.md#obsidian-storage-default).
+
 The skill is reusable. The controller configuration, project setup, state, incident log, and journal are project-local and added only to the target repository's Git `info/exclude`. The installer never overwrites existing configuration or modifies tracked files.
 
 ## Project-local engineering skills

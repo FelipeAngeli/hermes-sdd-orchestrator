@@ -304,6 +304,22 @@ class SliceContractTests(unittest.TestCase):
                 result = ctx.check(value)
             self.assertTrue(result["valid"], result["errors"])
 
+    def test_required_playbook_is_verified_from_vault_resident_controller(self) -> None:
+        value = context()
+        value["slice"]["required_playbooks"] = [
+            {"name": "sdd-database-design-migrations", "slice_ids": ["S1"]}
+        ]
+        with tempfile.TemporaryDirectory() as repo_temp, tempfile.TemporaryDirectory() as vault_temp:
+            repo = Path(repo_temp).resolve()
+            container = Path(vault_temp).resolve()
+            materialize_playbook(value, container)
+            with mock.patch.object(ctx, "_live_project_root", return_value=repo), \
+                    mock.patch.object(ctx, "_installed_playbook_root", return_value=container):
+                value["project_root"] = str(repo)
+                result = ctx.check(value)
+            self.assertTrue(result["valid"], result["errors"])
+            self.assertFalse((repo / ".hermes").exists())
+
     def test_unrequired_playbook_is_rejected_for_current_implement_slice(self) -> None:
         value = context()
         value["playbooks"] = [playbook()]

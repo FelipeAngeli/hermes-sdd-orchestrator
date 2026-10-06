@@ -15,6 +15,7 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 ROOT = Path(__file__).resolve().parent
 TEMPLATE = ROOT.parent / "templates"
@@ -48,6 +49,21 @@ STATE_PATHS = (
     f"{CONFIG_ROOT}/INCIDENTS.md",
     f"{CONFIG_ROOT}/ACTION_JOURNAL.json",
 )
+#: False in Obsidian storage mode: credentials never live in the vault or the
+#: user's repository, so no `.env` placeholder is created and the connector
+#: reads keys from the process environment.
+CREDENTIAL_FILE_MANAGED = True
+#: False in Obsidian storage mode: the vault may be its own Git repository
+#: (for example with obsidian-git); being tracked there is not a conflict,
+#: because the user's repository is never a destination.
+TRACKED_DESTINATIONS_GUARDED = True
+
+
+def _set_storage_mode(obsidian: bool) -> None:
+    """Apply the per-run storage policy in one place."""
+    global CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED
+    CREDENTIAL_FILE_MANAGED = not obsidian
+    TRACKED_DESTINATIONS_GUARDED = not obsidian
 
 
 class InstallError(RuntimeError):
@@ -110,7 +126,17 @@ def require_root(value: str) -> tuple[Path, dict[str, str]]:
     }
 
 
+def _inside_work_tree(target: Path) -> bool:
+    result = subprocess.run(
+        ["git", "-C", str(target), "rev-parse", "--is-inside-work-tree"],
+        text=True, capture_output=True, timeout=20, check=False,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
 def is_tracked(target: Path, relative: str) -> bool:
+    if not TRACKED_DESTINATIONS_GUARDED:
+        return False
     result = subprocess.run(
         ["git", "-C", str(target), "ls-files", "--error-unmatch", "--", relative],
         text=True, capture_output=True, timeout=20, check=False,
@@ -119,6 +145,9 @@ def is_tracked(target: Path, relative: str) -> bool:
 
 
 def tracked_under(target: Path, relative: str) -> bool:
+    if not TRACKED_DESTINATIONS_GUARDED or not _inside_work_tree(target):
+        # Decided by `rev-parse`, never by localized stderr text.
+        return False
     result = subprocess.run(
         ["git", "-C", str(target), "ls-files", "--", relative],
         text=True, capture_output=True, timeout=20, check=False,
@@ -428,8 +457,10 @@ def _create_project_file_nofollow(
     content: bytes,
     created_files: list[tuple[str, tuple[int, int], bytes]],
     created_directories: list[tuple[str, tuple[int, int]]],
+    *,
+    check_tracked: bool = True,
 ) -> None:
-    if is_tracked(target, relative):
+    if check_tracked and is_tracked(target, relative):
         raise InstallError(f"TRACKED_DESTINATION_PATH: {relative}")
     if os.name != "posix":
         reject_symlinks(target, relative)
@@ -598,7 +629,12 @@ def _load_template_module(name: str, relative: str):
     if spec is None or spec.loader is None:
         raise InstallError(f"TEMPLATE_MODULE_UNAVAILABLE: {relative}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(name, None)
+        raise
     return module
 
 
@@ -707,6 +743,13 @@ def _close_descriptor(descriptor: int) -> None:
         os.close(descriptor)
     except OSError:
         pass
+
+
+def _typesafe_env_ready(status: dict[str, object]) -> bool:
+    """A credential file is required only where the installer manages one."""
+    if status.get("env_status") == "PRESENT":
+        return True
+    return not CREDENTIAL_FILE_MANAGED and status.get("env_status") == "ABSENT"
 
 
 def typesafe_env_status(target: Path) -> dict[str, object]:
@@ -1043,7 +1086,7 @@ def onboarding_questions(
     recorded_none = recorded_typesafe.strip().casefold() == "none"
     integration_issues: list[str] = []
     if recorded_install:
-        typesafe_healthy = typesafe["status"] == "INSTALLED" and typesafe["env_status"] == "PRESENT"
+        typesafe_healthy = typesafe["status"] == "INSTALLED" and _typesafe_env_ready(typesafe)
     elif recorded_none:
         typesafe_healthy = typesafe["status"] == "NOT_INSTALLED"
     else:
@@ -1063,7 +1106,7 @@ def onboarding_questions(
                 if (
                     recorded_install
                     and recorded_automatic == automatic_jev_governance
-                    and typesafe["env_status"] == "PRESENT"
+                    and _typesafe_env_ready(typesafe)
                 )
                 else "RECORD"
             )
@@ -1078,7 +1121,7 @@ def onboarding_questions(
         typesafe["planned_action"] = "NONE"
     typesafe["planned_env_action"] = (
         "CREATE"
-        if typesafe_choice == "install" and typesafe["env_status"] == "ABSENT"
+        if CREDENTIAL_FILE_MANAGED and typesafe_choice == "install" and typesafe["env_status"] == "ABSENT"
         else "NONE"
     )
     typesafe["automatic_semantic_governance"] = recorded_automatic
@@ -1537,6 +1580,8 @@ def _ensure_typesafe_env(target: Path) -> tuple[bool, tuple[int, int] | None]:
     environment = typesafe_env_status(target)
     if environment["env_status"] == "PRESENT":
         return False, None
+    if not CREDENTIAL_FILE_MANAGED and environment["env_status"] == "ABSENT":
+        return False, None
     if environment["env_status"] == "CONFLICT":
         raise InstallError(f"TYPESAFE_ENV_CONFLICT: {environment['env_issue']}")
     path = Path(TYPESAFE_ENV_PATH)
@@ -1610,8 +1655,16 @@ def _rollback_typesafe_env(target: Path, identity: tuple[int, int] | None) -> No
     )
 
 
-def install_typesafe_skill(target: Path, onboarding_after: bytes) -> str:
-    """Commit the vetted bundled skill, merged lock and onboarding answer."""
+def install_typesafe_skill(
+    target: Path,
+    onboarding_after: bytes,
+    before_commit: Callable[[], None] | None = None,
+) -> str:
+    """Commit the vetted bundled skill, merged lock and onboarding answer.
+
+    `before_commit` runs after every write and inside this function's own
+    rollback, so a caller-side check that fails undoes the integration too.
+    """
     current = _preflight_typesafe_install(target)
     if current["status"] == "INSTALLED":
         setup_relative = f"{CONFIG_ROOT}/PROJECT_SETUP.md"
@@ -1631,6 +1684,8 @@ def install_typesafe_skill(target: Path, onboarding_after: bytes) -> str:
             _, env_identity = _ensure_typesafe_env(target)
             if _path_identity(target / setup_relative) != setup_identity:
                 raise InstallError("ONBOARDING_RECORD_CHANGED_DURING_APPLY")
+            if before_commit is not None:
+                before_commit()
         except BaseException as error:
             rollback_errors: list[BaseException] = []
             try:
@@ -1761,6 +1816,8 @@ def install_typesafe_skill(target: Path, onboarding_after: bytes) -> str:
             raise InstallError("TYPESAFE_LOCK_CHANGED_DURING_APPLY")
         if _path_identity(target / CONFIG_ROOT / "PROJECT_SETUP.md") != setup_identity:
             raise InstallError("ONBOARDING_RECORD_CHANGED_DURING_APPLY")
+        if before_commit is not None:
+            before_commit()
     except BaseException as error:
         if skill_descriptor is not None:
             _close_descriptor(skill_descriptor)
@@ -2333,9 +2390,348 @@ def _apply_base_install(
     return [str(item) for item in cleanup_errors]
 
 
+OBSIDIAN_RUNTIME_SUBPATH = ".hermes-runtime"
+OBSIDIAN_BINDING_PATH = ".hermes/obsidian.json"
+WORKTREE_RUNTIME_FILES = ("STATE.md", "INCIDENTS.md", "ACTION_JOURNAL.json")
+#: Controller files the owner is told to edit after install. Created when
+#: absent, never compared, so a second worktree can share the container.
+OBSIDIAN_USER_CONFIGURED = frozenset({f"{CONFIG_ROOT}/policies/GATES.md"})
+
+
+def _identity_chain(path: Path) -> list[tuple[int, int]]:
+    """Device/inode of `path` (or its deepest existing ancestor) and every ancestor.
+
+    Comparing identities instead of spellings is immune to case-insensitive
+    filesystems, symlinks and `..`, so a differently cased path cannot pass.
+    """
+    current = Path(os.path.abspath(path))
+    while not current.exists() and current != current.parent:
+        current = current.parent
+    chain: list[tuple[int, int]] = []
+    seen: set[tuple[int, int]] = set()
+    while True:
+        metadata = os.stat(current)
+        identity = (metadata.st_dev, metadata.st_ino)
+        if identity in seen:
+            break
+        seen.add(identity)
+        chain.append(identity)
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return chain
+
+
+def _git_text(directory: Path, *arguments: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(directory), *arguments], text=True, capture_output=True, timeout=20, check=False
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _protected_roots(target: Path, workspace: dict[str, str]) -> list[Path]:
+    """The target, its Git directory, every linked worktree and every superproject."""
+    roots: list[Path] = []
+    pending = [target]
+    visited: set[str] = set()
+    while pending:
+        tree = pending.pop()
+        key = os.path.normcase(os.path.abspath(tree))
+        if key in visited:
+            continue
+        visited.add(key)
+        roots.append(tree)
+        common = _git_text(tree, "rev-parse", "--path-format=absolute", "--git-common-dir")
+        if common:
+            roots.append(Path(common))
+        for line in _git_text(tree, "worktree", "list", "--porcelain").splitlines():
+            if line.startswith("worktree "):
+                pending.append(Path(line[len("worktree "):]))
+        superproject = _git_text(tree, "rev-parse", "--show-superproject-working-tree")
+        if superproject:
+            pending.append(Path(superproject))
+    roots.append(Path(workspace["git_common_dir"]))
+    return [root for root in roots if root.exists()]
+
+
+def _reject_storage_overlap(vault: Path, project: str, target: Path, workspace: dict[str, str]) -> None:
+    """The vault and every checkout of the user's repository must be disjoint."""
+    storage = [vault, vault / project]
+    for root in _protected_roots(target, workspace):
+        root_chain = _identity_chain(root)
+        for place in storage:
+            place_chain = _identity_chain(place)
+            inside_root = root_chain[0] in place_chain
+            contains_root = place.exists() and place_chain[0] in root_chain
+            if inside_root or contains_root:
+                raise InstallError(f"OBSIDIAN_VAULT_OVERLAPS_TARGET: {root}")
+
+
+def resolve_obsidian_storage(vault_value: str | None, project_value: str | None) -> tuple[Path, str]:
+    """Validate the Obsidian vault and project container used as the only storage root."""
+    if not vault_value or not project_value:
+        raise InstallError("OBSIDIAN_BINDING_REQUIRED")
+    vault = Path(vault_value).expanduser()
+    if not vault.is_absolute():
+        raise InstallError("OBSIDIAN_VAULT_NOT_ABSOLUTE")
+    if not vault.is_dir():
+        raise InstallError("OBSIDIAN_VAULT_NOT_FOUND")
+    project = Path(project_value)
+    if (
+        project.is_absolute()
+        or not project.parts
+        or any(part in {"", ".", ".."} or part.startswith(".") for part in project.parts)
+        or "\\" in project_value
+        or "\x00" in project_value
+    ):
+        raise InstallError("OBSIDIAN_PROJECT_INVALID")
+    return vault.resolve(strict=True), project.as_posix()
+
+
+def _worktree_slug(target: Path) -> str:
+    previous = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        module = _load_template_module("sdd_obsidian_binding", "runtime/obsidian_binding.py")
+    finally:
+        sys.dont_write_bytecode = previous
+    return module.worktree_slug(target)
+
+
+def obsidian_binding_content(vault: Path, project: str) -> bytes:
+    payload = {
+        "schema_version": 1,
+        "vault_path": str(vault),
+        "project_container": project,
+        "runtime_subpath": OBSIDIAN_RUNTIME_SUBPATH,
+    }
+    return (json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
+def obsidian_project_setup(vault: Path, project: str) -> str:
+    answer = json.dumps(
+        {"vault": str(vault), "project_container": project},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return project_setup().replace("  obsidian: UNRESOLVED", f"  obsidian: {answer}", 1)
+
+
+def _plan_obsidian_files(
+    vault: Path,
+    project: str,
+    target: Path,
+    workspace: dict[str, str],
+) -> tuple[dict[str, bytes], str, list[str]]:
+    """Return missing vault-relative files, the runtime path and preserved owner edits.
+
+    Controller files and the binding must be byte-identical when present. The
+    per-worktree runtime is all-or-nothing so an interrupted or foreign STATE is
+    never combined with a fresh journal.
+    """
+    expected: dict[str, bytes] = {}
+    for source in template_files():
+        expected[f"{project}/{source.relative_to(TEMPLATE).as_posix()}"] = source.read_bytes()
+    expected[f"{project}/{OBSIDIAN_BINDING_PATH}"] = obsidian_binding_content(vault, project)
+    planned: dict[str, bytes] = {}
+    previously_installed = all(
+        _read_project_file_nofollow(vault, f"{project}/{relative}") is not None
+        for relative in (OBSIDIAN_BINDING_PATH, f"{CONFIG_ROOT}/PROJECT_SETUP.md")
+    )
+    # Owner-edited files are trusted only in a container this installer already
+    # set up; a fresh container never adopts gate commands it did not write.
+    user_configured = (
+        {f"{project}/{relative}" for relative in OBSIDIAN_USER_CONFIGURED} if previously_installed else set()
+    )
+    customized: list[str] = []
+    for relative, content in expected.items():
+        existing = _read_project_file_nofollow(vault, relative)
+        if existing is None:
+            planned[relative] = content
+        elif existing != content:
+            if relative not in user_configured:
+                raise InstallError(f"CONFIG_CONFLICT: {relative}")
+            customized.append(f"{relative}:sha256:{hashlib.sha256(existing).hexdigest()}")
+
+    setup = f"{project}/{CONFIG_ROOT}/PROJECT_SETUP.md"
+    if _read_project_file_nofollow(vault, setup) is None:
+        planned[setup] = obsidian_project_setup(vault, project).encode("utf-8")
+
+    runtime = f"{project}/{OBSIDIAN_RUNTIME_SUBPATH}/{_worktree_slug(target)}"
+    present = [
+        name for name in WORKTREE_RUNTIME_FILES
+        if _read_project_file_nofollow(vault, f"{runtime}/{name}") is not None
+    ]
+    if present and len(present) != len(WORKTREE_RUNTIME_FILES):
+        raise InstallError(f"LOCAL_STATE_REQUIRES_REVIEW: {', '.join(f'{runtime}/{name}' for name in present)}")
+    if not present:
+        planned[f"{runtime}/STATE.md"] = state(workspace).encode("utf-8")
+        planned[f"{runtime}/INCIDENTS.md"] = b"# SDD Orchestration Incidents\n\nNo incidents recorded.\n"
+        planned[f"{runtime}/ACTION_JOURNAL.json"] = empty_journal(target, workspace).encode("utf-8")
+    return planned, runtime, customized
+
+
+def _apply_obsidian_files(vault: Path, planned: dict[str, bytes], after_base=None) -> None:
+    created_files: list[tuple[str, tuple[int, int], bytes]] = []
+    created_directories: list[tuple[str, tuple[int, int]]] = []
+    try:
+        for relative, content in planned.items():
+            _create_project_file_nofollow(
+                vault,
+                relative,
+                content,
+                created_files,
+                created_directories,
+                check_tracked=False,
+            )
+        if after_base is not None:
+            after_base()
+    except BaseException as error:
+        try:
+            _rollback_created_paths(vault, created_files, created_directories)
+        except InstallError as rollback:
+            raise InstallError(f"{error}; {rollback}") from error
+        if isinstance(error, FileExistsError):
+            raise InstallError(f"CONFIG_DESTINATION_CHANGED: {error.filename}") from error
+        raise
+
+
+def _target_snapshot(target: Path) -> tuple[str, frozenset[str]]:
+    status = git(target, "status", "--porcelain", "--untracked-files=all", "--ignored")
+    hermes = frozenset(
+        str(path.relative_to(target))
+        for name in (".hermes", ".hermes.md", "skills-lock.json")
+        for path in [target / name]
+        if path.exists() or path.is_symlink()
+    )
+    return status, hermes
+
+
+def run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict[str, object]:
+    previous = (CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED)
+    _set_storage_mode(obsidian=True)
+    try:
+        return _run_obsidian_install(args, target, workspace)
+    finally:
+        _restore_storage_mode(previous)
+
+
+def _restore_storage_mode(previous: tuple[bool, bool]) -> None:
+    global CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED
+    CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED = previous
+
+
+def _run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict[str, object]:
+    vault, project = resolve_obsidian_storage(args.obsidian_vault, args.obsidian_project)
+    _reject_storage_overlap(vault, project, target, workspace)
+    container = vault / project
+    target_before = _target_snapshot(target)
+
+    def require_target_unchanged() -> None:
+        if _target_snapshot(target) != target_before:
+            raise InstallError("TARGET_WORKTREE_CHANGED")
+    planned, runtime, customized = _plan_obsidian_files(vault, project, target, workspace)
+    setup_present = f"{project}/{CONFIG_ROOT}/PROJECT_SETUP.md" not in planned
+    if args.typesafe_ai and setup_present:
+        _require_typesafe_record_target(container)
+    onboarding = onboarding_questions(
+        container if setup_present else None,
+        args.typesafe_ai,
+        args.automatic_jev_governance,
+    )
+    integration = onboarding["integrations"]["typesafe_ai"]
+    if not setup_present:
+        integration.update(typesafe_skill_status(container))
+        integration["planned_action"] = "INSTALL" if args.typesafe_ai == "install" else (
+            "RECORD_NONE" if args.typesafe_ai == "none" else "NONE"
+        )
+        integration["planned_env_action"] = (
+            "CREATE"
+            if CREDENTIAL_FILE_MANAGED and args.typesafe_ai == "install" and integration["env_status"] == "ABSENT"
+            else "NONE"
+        )
+    action = integration.get("planned_action")
+    if action == "BLOCKED":
+        if integration.get("env_status") == "CONFLICT":
+            raise InstallError(f"TYPESAFE_ENV_CONFLICT: {integration.get('env_issue')}")
+        raise InstallError(f"TYPESAFE_SKILL_CONFLICT: {integration.get('issue') or integration.get('status')}")
+    if action == "INSTALL" and setup_present:
+        _preflight_typesafe_install(container)
+    report: dict[str, object] = {
+        "status": "READY" if planned or action != "NONE" else "ALREADY_INITIALIZED",
+        "storage": "OBSIDIAN",
+        "target": str(target),
+        "vault": str(vault),
+        "project_container": str(container),
+        "worktree_runtime": str(vault / runtime),
+        "planned": sorted(planned),
+        "target_writes": [],
+        "preserved_owner_files": customized,
+        "exclude_update_planned": False,
+        "applied": False,
+        "stack": detect_stack(target),
+        "onboarding": onboarding,
+        "next_step": "Resolve the project onboarding questions, then configure verified commands in the container GATES.md.",
+    }
+    integration_result: dict[str, str] = {}
+
+    def apply_integration() -> None:
+        """Run the integration with the drift check inside its own rollback."""
+        if args.typesafe_ai == "install":
+            answer = TYPESAFE_ANSWER_ENABLED if args.automatic_jev_governance else TYPESAFE_ANSWER_DISABLED
+            onboarding_after = _render_onboarding_answer(container, "typesafe_ai", answer)
+            integration_result["applied_action"] = install_typesafe_skill(
+                container, onboarding_after, before_commit=require_target_unchanged
+            )
+            return
+        relative = f"{CONFIG_ROOT}/PROJECT_SETUP.md"
+        snapshot = _read_project_regular_snapshot(container, relative)
+        if snapshot is None:
+            raise InstallError("ONBOARDING_RECORD_MISSING")
+        before, owned = snapshot
+        after = _render_onboarding_answer(container, "typesafe_ai", "none", source=before)
+        _overwrite_project_file_nofollow(container, relative, owned, after, expected=before)
+        try:
+            require_target_unchanged()
+        except BaseException:
+            _overwrite_project_file_nofollow(container, relative, owned, before, expected=after)
+            raise
+        integration_result["applied_action"] = "RECORD_NONE"
+
+    integration_requested = bool(args.apply and args.typesafe_ai and action != "NONE")
+
+    def finish_inside_transaction() -> None:
+        # Checked before and after the integration and inside every rollback,
+        # so a changed repository undoes every vault path this run wrote.
+        require_target_unchanged()
+        if integration_requested:
+            apply_integration()
+        else:
+            require_target_unchanged()
+
+    if args.apply and (planned or integration_requested):
+        _apply_obsidian_files(vault, planned, finish_inside_transaction)
+        report["applied"] = True
+        report["status"] = "APPLIED"
+        report["onboarding"] = onboarding_questions(container)
+        if integration_result:
+            report["onboarding"]["integrations"]["typesafe_ai"]["applied_action"] = integration_result["applied_action"]
+    if _target_snapshot(target) != target_before:
+        raise InstallError("TARGET_WORKTREE_CHANGED")
+    return report
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", default=".", help="existing Git worktree root (default: current directory)")
+    parser.add_argument("--obsidian-vault", help="absolute path to the Obsidian vault")
+    parser.add_argument("--obsidian-project", help="project container path relative to the Obsidian vault")
+    parser.add_argument(
+        "--local-storage",
+        action="store_true",
+        help="legacy mode: install the controller inside the target worktree instead of Obsidian",
+    )
     parser.add_argument("--apply", action="store_true", help="write files after a successful dry run")
     parser.add_argument(
         "--typesafe-ai",
@@ -2383,6 +2779,16 @@ def main() -> int:
         return 2
     try:
         target, workspace = require_root(args.target)
+        if args.local_storage and (args.obsidian_vault or args.obsidian_project):
+            raise InstallError("STORAGE_MODE_CONFLICT")
+        _set_storage_mode(obsidian=not args.local_storage)
+        if not args.local_storage:
+            report = run_obsidian_install(args, target, workspace)
+            if args.json:
+                print(json.dumps(report, ensure_ascii=False))
+            else:
+                print(f'{report["status"]}: {len(report["planned"])} files planned in {report["project_container"]}')
+            return 0
         planned, existing_state = _plan_base_files(target)
         exclude_planned = exclude_update_planned(workspace)
         if args.typesafe_ai and existing_state:
@@ -2473,6 +2879,11 @@ def main() -> int:
             report["next_step"] = "Create the initial Git commit on an attached branch, then rerun the installer."
         elif str(error) == "ATTACHED_BRANCH_REQUIRED":
             report["next_step"] = "Switch the target worktree to an attached branch, then rerun the installer."
+        elif str(error) == "OBSIDIAN_BINDING_REQUIRED":
+            report["next_step"] = (
+                "Pass --obsidian-vault <absolute vault> and --obsidian-project <container relative to the vault>; "
+                "all orchestrator data is stored there and nothing is written to the project."
+            )
         print(json.dumps(report, ensure_ascii=False) if args.json else f'BLOCKED: {error}', file=sys.stderr)
         return 2
 

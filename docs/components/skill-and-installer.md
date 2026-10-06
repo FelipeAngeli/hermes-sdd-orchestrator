@@ -19,21 +19,47 @@ The complete published bundle is scanned in CI with Hermes `skills-guard-v5` fro
 
 ## `install_project.py`: per-project installer
 
+**Default storage is the Obsidian project container. Nothing is written to the user's repository.**
+
 ```text
-python3 <skill>/scripts/install_project.py --target <repo-root> --json                             # dry run
-python3 <skill>/scripts/install_project.py --target <repo-root> --apply --json                     # write
-python3 <skill>/scripts/install_project.py --target <repo-root> --typesafe-ai install --json       # preview opt-in
-python3 <skill>/scripts/install_project.py --target <repo-root> --typesafe-ai install --apply --json
-python3 <skill>/scripts/install_project.py --target <repo-root> --typesafe-ai install --automatic-jev-governance --apply --json
+V="--obsidian-vault /abs/vault --obsidian-project Projects/App"
+python3 <skill>/scripts/install_project.py --target <repo-root> $V --json                          # dry run
+python3 <skill>/scripts/install_project.py --target <repo-root> $V --apply --json                  # write into the vault
+python3 <skill>/scripts/install_project.py --target <repo-root> $V --typesafe-ai install --apply --json
+python3 <skill>/scripts/install_project.py --target <repo-root> $V --typesafe-ai install --automatic-jev-governance --apply --json
+python3 <skill>/scripts/install_project.py --target <repo-root> --local-storage --apply --json     # legacy in-repo layout
 ```
 
 | Flag | Meaning |
 | --- | --- |
 | `--target` | Existing Git worktree root (default `.`). A subdirectory is rejected with `TARGET_NOT_REPOSITORY_ROOT`. |
+| `--obsidian-vault` | Absolute path of an existing Obsidian vault. Required unless `--local-storage`. |
+| `--obsidian-project` | Project container relative to the vault (for example `Projects/App`). Absolute paths, `..`, hidden (`.`-prefixed) components, backslashes and NUL are refused with `OBSIDIAN_PROJECT_INVALID`. |
+| `--local-storage` | Legacy mode: install `.hermes.md` and `.hermes/` inside the target worktree, hidden through `.git/info/exclude`, exactly as before 8.0.0. Combining it with the Obsidian flags returns `STORAGE_MODE_CONFLICT`. |
 | `--apply` | Write files and apply an explicitly selected TypeSafe action. Without it the command only plans. |
 | `--typesafe-ai install\|none` | Explicitly install/record the repository-local TypeSafe skill, or record an opt-out. Omit it to leave the onboarding answer unresolved. |
 | `--automatic-jev-governance` | With `--typesafe-ai install`, explicitly authorize automatic, potentially billed semantic classifications. Installation alone records `false`. |
 | `--json` | Machine-readable report. |
+
+### Obsidian storage (default)
+
+Without `--local-storage`, both Obsidian flags are mandatory; omitting them returns `BLOCKED` with `OBSIDIAN_BINDING_REQUIRED` and a `next_step`, before any write. A missing vault returns `OBSIDIAN_VAULT_NOT_FOUND` and a relative one `OBSIDIAN_VAULT_NOT_ABSOLUTE`. The Git checks (repository, initial commit, attached branch) still run against `--target`, and the stack is still detected from it, but every write lands under `<vault>/<project>/`:
+
+```text
+<vault>/<project>/
+├── .hermes.md
+├── .hermes/obsidian.json                         # binding (vault_path, project_container, runtime_subpath)
+├── .hermes/orchestration/…                        # complete controller payload + PROJECT_SETUP.md
+├── .hermes/skills/…                               # engineering playbooks (+ typesafe-ai when opted in)
+├── skills-lock.json                               # only with TypeSafe opt-in
+└── .hermes-runtime/<worktree-slug>/STATE.md, ACTION_JOURNAL.json, INCIDENTS.md
+```
+
+`PROJECT_SETUP.md` is created with the `obsidian` answer already resolved to that vault and container. The report adds `storage: OBSIDIAN`, `vault`, `project_container`, `worktree_runtime` and `target_writes: []`; `exclude_update_planned` is always `false` because nothing in the worktree needs hiding. Before planning, a vault or container that equals, contains or lies inside the target worktree, its Git common directory, any linked worktree or any superproject returns `OBSIDIAN_VAULT_OVERLAPS_TARGET`; paths are compared by device and inode, so case variants on case-insensitive filesystems, symlinks and `..` cannot slip through. The installer snapshots the target's `git status --ignored` plus the presence of `.hermes`, `.hermes.md` and `skills-lock.json` before the run and compares it again inside the apply transaction, before and after the TypeSafe integration and inside its own rollback, so `TARGET_WORKTREE_CHANGED` restores `PROJECT_SETUP.md` and removes every vault path the run wrote. The installer checks once more after the transaction commits; a drift seen only then is reported as `TARGET_WORKTREE_CHANGED` but the committed vault files stay. Container files must be byte-identical to the bundle when they already exist (`CONFIG_CONFLICT` otherwise), except `policies/GATES.md` once the container already holds this installer's binding and `PROJECT_SETUP.md`: it is then owned by the project so several worktrees can share the container, and the report lists it under `preserved_owner_files` with its SHA-256. A fresh container never adopts a foreign `GATES.md` (`CONFIG_CONFLICT`); whoever can write the vault controls the gate commands, so review that hash. Every other controller file stays managed; tracked-path checks are skipped in the vault, which may be its own Git repository, and `planned_env_action` is always `NONE` because no credential file is managed; the per-worktree runtime is all-or-nothing (`LOCAL_STATE_REQUIRES_REVIEW`). A failed apply rolls back every file and directory it created, by identity and content. A repeated identical apply returns `ALREADY_INITIALIZED` and changes no byte. Bytecode is never generated by the installer.
+
+In Obsidian mode TypeSafe installs its vetted skill and `skills-lock.json` into the container but **no `.env` file is created anywhere**: credentials never belong in a synced vault nor in the repository. Export `TYPESAFE_API_KEY` or `JEV_AI_API_KEY` in the process environment; the connector reads it there when no credential file exists.
+
+### Repository-local storage (`--local-storage`)
 
 The report contains `status`, `planned`, `exclude_update_planned`, `applied`, optional `warnings`, `next_step`, **`stack`**, and **`onboarding`**. `planned` lists project files missing before apply; `exclude_update_planned` separately reports drift in the installer-managed Git exclusions and becomes `false` after a successful repair. A completed apply remains `APPLIED` if an owned lock cannot be cleaned up after commit; `warnings` then reports `LOCK_CLEANUP_REQUIRES_REVIEW` instead of falsely reporting the completed transaction as blocked. `stack` is the read-only output of [`detect_stack.py`](gates-and-stack-detection.md#detect_stackpy) for the target. `onboarding` has scope `ORCHESTRATOR_ONLY` and lists only unresolved questions about issue-tracker access, optional Obsidian binding, optional TypeSafe skill installation and automatic Jev consent, and other project-specific tools; every integration accepts an explicit `none` answer. Its `integrations.typesafe_ai` object reports `status`, `planned_action`, `env_status`, `planned_env_action`, `automatic_semantic_governance`, `planned_automatic_semantic_governance`, the official upstream command for reference, and the repository-local skill, lock and credential-file paths. It also reports `record_valid`, `record_status`, `record_issues`, and `integration_issues`; malformed setup records or a mismatch between the recorded TypeSafe choice and the verified local installation remain visibly unresolved instead of failing open.
 

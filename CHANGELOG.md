@@ -4,6 +4,29 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 8.0.3 - 2026-10-06
+
+### Fixed
+- With a vault-resident controller, hooks now use only the container binding everywhere: the IMPLEMENT vault write check and the transient `STAGE_CONTEXT.json`, `HOOK_BINDING.json` and `VERIFICATION_EVIDENCE.json` (always read from the worktree runtime in the vault) no longer follow a binding or `.hermes` tree inside the repository. In 8.0.2 a repository-local `.hermes/obsidian.json` could still redefine the container for the write check and allow IMPLEMENT writes outside both the repository and the real container. `obsidian_binding.binding_path` keeps its repository-first precedence for operator-invoked CLIs, now documented.
+
+## 8.0.2 - 2026-10-06
+
+### Fixed
+- The installer's overlap check compares device/inode identities instead of path spellings, so a case variant on a case-insensitive filesystem can no longer place the vault inside the repository's Git directory, and it also protects linked worktrees and superprojects of the target. Repository drift during the TypeSafe integration now rolls the integration back too (`PROJECT_SETUP.md` restored, skill and lock removed), for fresh and existing containers. `policies/GATES.md` is adopted only in a container this installer already set up (binding and `PROJECT_SETUP.md` present); a fresh container with a foreign `GATES.md` returns `CONFIG_CONFLICT`, and an adopted one is listed under the new report field `preserved_owner_files` with its SHA-256. The per-run storage policy is restored after each run. A `TARGET_WORKTREE_CHANGED` detected after the apply transaction committed reports the drift but does not undo the committed vault files. With a vault-resident controller, hooks use only the container binding (a binding inside the repository can no longer redirect state) and accept only a worktree whose runtime `STATE.md` the installer created.
+
+## 8.0.1 - 2026-10-06
+
+### Fixed
+- The Obsidian installer refuses a vault or project container that overlaps the target worktree or its Git directory (`OBSIDIAN_VAULT_OVERLAPS_TARGET`) before writing, and checks `TARGET_WORKTREE_CHANGED` inside the apply transaction so a changed repository rolls back every vault path the run created; before, an overlapping vault left files in the repository. In the vault, tracked-path checks are skipped (decided with `git rev-parse`, not localized stderr), so a Git-tracked vault no longer blocks a TypeSafe reinstall; `policies/GATES.md` is created when absent and then left to the owner, so a second worktree can share a container after the gates are configured; the dry run no longer reports `planned_env_action: CREATE` in Obsidian mode. Storage policy is set per run instead of by a global mutated mid-function. `SKILL.md`, `BOOTSTRAP.md`, the hooks example and the hooks page now describe container-relative paths. Migrating an existing `--local-storage` install: run the installer with the Obsidian flags into a new container, then move open-demand runtime with `migrate_to_vault.py`.
+
+## 8.0.0 - 2026-10-06
+
+### Breaking
+- The project installer now stores **everything in the Obsidian project container** and writes nothing to the user's repository: no `.hermes/`, `.hermes.md`, `skills-lock.json`, `.env`, bytecode or `.git/info/exclude` edits. `install_project.py` gains `--obsidian-vault` and `--obsidian-project`, which are required by default (`OBSIDIAN_BINDING_REQUIRED` otherwise), and writes the controller, `PROJECT_SETUP.md` (with the `obsidian` answer pre-resolved), playbooks, `.hermes/obsidian.json` and the per-worktree runtime under `<vault>/<project>/`. The report adds `storage`, `vault`, `project_container`, `worktree_runtime` and `target_writes: []`, and the run fails with `TARGET_WORKTREE_CHANGED` if the target's Git status or Hermes paths moved. The old in-repository layout remains available with `--local-storage` (`STORAGE_MODE_CONFLICT` when combined with the Obsidian flags). In Obsidian mode TypeSafe creates no credential file; keys come from the process environment.
+
+### Changed
+- `obsidian_binding.binding_path` falls back to the container binding of the controller it runs from when the repository has none, and `load_path` loads an explicit binding. Hooks accept a vault-resident controller for a clean repository and default their transient files to the worktree runtime in the vault; `stage_context.py` verifies playbook bytes from the container's `.hermes/skills/` while still requiring `project_root` to be the live Git workspace.
+
 ## 7.0.0 - 2026-10-05
 
 ### Breaking

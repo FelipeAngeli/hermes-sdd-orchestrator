@@ -1,7 +1,7 @@
 ---
 name: sdd-orchestrator
 description: Install and run safe project-local SDD orchestration.
-version: 7.0.0
+version: 8.0.3
 author: Felipe Angeli (FelipeAngeli), Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -29,7 +29,7 @@ Do not use it to bypass a target project's `AGENTS.md`, `CLAUDE.md`, existing tr
 - Hermes Agent and Git are installed.
 - Python 3.10+ and the `jsonschema` package are available to the same interpreter.
 - The target is an existing Git worktree root with an attached branch.
-- The target owner authorizes adding local `.hermes/` configuration.
+- An existing Obsidian vault and a project container inside it. By default nothing is written to the target repository; `--local-storage` is the legacy opt-in that installs `.hermes/` inside the repository instead.
 
 ## Installation
 
@@ -40,19 +40,21 @@ hermes skills tap add FelipeAngeli/hermes-sdd-orchestrator
 hermes skills install FelipeAngeli/hermes-sdd-orchestrator/skills/orchestrate/sdd-orchestrator --yes
 ```
 
-The installed skill contains a project-local installer. From a Hermes session, invoke it with `terminal` using the installed skill's `scripts/install_project.py` path and the target worktree:
+The installed skill contains the installer. From a Hermes session, invoke it with `terminal` using the installed skill's `scripts/install_project.py` path, the target worktree, and the Obsidian vault/project container that will hold **all** orchestrator data:
 
 ```text
-python3 <installed-skill>/scripts/install_project.py --target <project-root> --json
-python3 <installed-skill>/scripts/install_project.py --target <project-root> --typesafe-ai install --json
-python3 <installed-skill>/scripts/install_project.py --target <project-root> --typesafe-ai install --apply --json
-python3 <installed-skill>/scripts/install_project.py --target <project-root> --typesafe-ai install --automatic-jev-governance --apply --json
-python3 <installed-skill>/scripts/install_project.py --target <project-root> --apply --json
+python3 <installed-skill>/scripts/install_project.py --target <project-root> --obsidian-vault <abs-vault> --obsidian-project <Projects/Name> --json
+python3 <installed-skill>/scripts/install_project.py --target <project-root> --obsidian-vault <abs-vault> --obsidian-project <Projects/Name> --apply --json
+python3 <installed-skill>/scripts/install_project.py --target <project-root> --obsidian-vault <abs-vault> --obsidian-project <Projects/Name> --typesafe-ai install --automatic-jev-governance --apply --json
 ```
+
+With Obsidian storage the controller, `PROJECT_SETUP.md`, playbooks, binding and per-worktree runtime land under `<vault>/<project>/` (runtime in `.hermes-runtime/<worktree-slug>/`); the report shows `target_writes: []` and the run fails with `TARGET_WORKTREE_CHANGED` if the repository moved. Run the controller tools from the container, for example `python3 <vault>/<project>/.hermes/orchestration/runtime/<tool>.py`, with the repository as working directory. Missing Obsidian flags return `OBSIDIAN_BINDING_REQUIRED`; a vault or container that overlaps any checkout of the repository (the target, linked worktrees, superprojects) or its Git directory returns `OBSIDIAN_VAULT_OVERLAPS_TARGET` before any write, and a repository that changes during the run rolls back every vault path the run wrote, including the TypeSafe integration. Controller files must match the template byte for byte, except `policies/GATES.md` in a container this installer already set up: it is then owned by the project, listed with its hash under `preserved_owner_files`, and anyone who can write the vault controls its gate commands. A vault that is itself a Git repository is fine: tracked-path conflicts apply only to the user's repository. The installer does not register the container with Hermes skill discovery; the controller loads its playbooks through the stage manifest. No credential file is created in this mode; export `TYPESAFE_API_KEY`/`JEV_AI_API_KEY` in the environment. The rest of this paragraph describes the legacy `--local-storage` layout.
 
 The dry run must return `READY` before `--apply`. A successful write returns `status: APPLIED` with `applied: true` and creates an untracked `.hermes/` tree; a later no-op returns `ALREADY_INITIALIZED`. If Python is older than 3.10, it returns `PYTHON_3_10_REQUIRED`; if the interpreter lacks `jsonschema`, it returns `JSONSCHEMA_REQUIRED`; a target outside a Git worktree returns `GIT_REPOSITORY_REQUIRED`; a repository without an initial commit returns `GIT_INITIAL_COMMIT_REQUIRED`; and detached HEAD returns `ATTACHED_BRANCH_REQUIRED`. These are `BLOCKED` reports with an actionable `next_step`, produced before target writes. It also refuses tracked, conflicting, symlinked, special-file, or partial existing SDD state. Apply uses descriptor-anchored no-follow exclusive writes, safe file modes, a Git index lock, exact root-anchored exclusions, and rollback of newly created paths and exclusion edits on failure. Missing managed exclusions are repaired on a later apply without rewriting installed controller files. Project-local engineering skills land under `.hermes/skills/`; Hermes loads them only after the user runs `hermes skills trust` for that repository, normally in a new session. TypeSafe opt-in also creates a private ignored `.hermes/.env` placeholder without overwriting an existing regular file; `runtime/typesafe_connector.py preflight` is local-only and `evaluate` contacts Jev only when explicitly invoked. The installed `orchestration/hooks/` layer is inactive by default: activation is an explicit dedicated-profile opt-in after replacing `<ABSOLUTE_PROJECT_ROOT>` in `hooks/hooks.example.yaml`. The installer never edits profile configuration, SOUL, global skills, trust or hook consent.
 
 ## Procedure
+
+Paths below are relative to the controller root: the Obsidian project container `<vault>/<project>/` by default, or the repository with `--local-storage`. Commands run with the repository as working directory.
 
 1. Read the target project's instructions and capture the Git baseline. Completion: protected pre-existing files are recorded before any edit.
 2. Read the installed local controller documents: `.hermes.md`, `.hermes/orchestration/STATE.md`, `.hermes/orchestration/PROJECT_SETUP.md`, `.hermes/orchestration/policies/LOOP_POLICY.md`, `.hermes/orchestration/policies/GATES.md`, `.hermes/orchestration/policies/ACTION_RECOVERY.md`, the matching stage brief under `.hermes/orchestration/agents/`, and the applicable contract. Completion: the current FSM state and allowed next action are known.

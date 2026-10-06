@@ -29,6 +29,10 @@ EVIDENCE_RELATIVE = Path(".hermes/orchestration/VERIFICATION_EVIDENCE.json")
 STATE_RELATIVE = Path(".hermes/orchestration/STATE.md")
 JOURNAL_RELATIVE = Path(".hermes/orchestration/ACTION_JOURNAL.json")
 SUBAGENT_HISTORY_RELATIVE = Path(".hermes/orchestration/action-journal-history/subagent-events")
+#: Project container holding this installed controller (runtime/ -> orchestration/
+#: -> .hermes/ -> container). It is authoritative only when it carries a binding,
+#: i.e. when the controller was installed into Obsidian instead of the repository.
+INSTALLED_CONTAINER = RUNTIME.parents[2]
 DIRECT_WRITE_TOOLS = {"write_file", "patch"}
 HOOK_ENVIRONMENT_KEYS = (
     "SDD_STAGE_CONTEXT",
@@ -54,7 +58,7 @@ def runtime_locations(root: Path) -> RuntimeLocations:
     """Resolve controller state locally or in the bound per-worktree vault runtime."""
     root = root.resolve()
     try:
-        binding = obsidian_binding.load(root)
+        binding = _load_binding(root)
     except obsidian_binding.BindingError as exc:
         if exc.code != "BINDING_MISSING":
             raise
@@ -71,6 +75,20 @@ def runtime_locations(root: Path) -> RuntimeLocations:
         history_workspace=runtime,
         history_relative=Path("action-journal-history/subagent-events"),
     )
+
+
+def _container_binding_path() -> Path | None:
+    candidate = INSTALLED_CONTAINER / ".hermes" / "obsidian.json"
+    return candidate if candidate.is_file() and not candidate.is_symlink() else None
+
+
+def _load_binding(root: Path) -> obsidian_binding.Binding:
+    # A vault-resident controller trusts only its own container binding; a
+    # binding inside the (possibly untrusted) repository cannot redirect it.
+    container_binding = _container_binding_path()
+    if container_binding is not None:
+        return obsidian_binding.load_path(container_binding)
+    return obsidian_binding.load(root)
 
 
 class HookInputError(ValueError):
@@ -101,14 +119,33 @@ def _root(payload: Mapping[str, Any]) -> Path:
     if not isinstance(cwd, str) or not cwd:
         raise HookInputError("hook payload has no cwd")
     root = Path(cwd).expanduser().resolve()
-    if not (root / ".hermes" / "orchestration").is_dir():
-        raise HookInputError(f"{root} has no installed .hermes/orchestration directory")
+    if _container_binding_path() is None:
+        if (root / ".hermes" / "orchestration").is_dir():
+            return root
+        raise HookInputError(
+            f"{root} has no installed .hermes/orchestration directory and no Obsidian-resident controller"
+        )
+    # A vault-resident controller serves only worktrees the installer set up:
+    # each one has its own runtime STATE.md under the container.
+    try:
+        installed = runtime_locations(root).state.is_file()
+    except Exception as error:  # binding or slug errors fail closed
+        raise HookInputError(f"{root} is not a worktree of this Obsidian-resident controller: {error}") from error
+    if not installed:
+        raise HookInputError(f"{root} is not a worktree installed for this Obsidian-resident controller")
     return root
 
 
 def _configured_path(root: Path, environ: Mapping[str, str], key: str, default: Path) -> Path:
     configured = environ.get(key)
-    return Path(configured).expanduser().resolve() if configured else root / default
+    if configured:
+        return Path(configured).expanduser().resolve()
+    if _container_binding_path() is not None:
+        # Obsidian-resident controller: transient hook files live with the
+        # worktree runtime in the vault, never in the (untrusted) repository,
+        # even when the repository carries its own .hermes tree.
+        return runtime_locations(root).state.parent / default.name
+    return root / default
 
 
 def _load_json(path: Path, label: str) -> Any:
@@ -253,7 +290,7 @@ def _allowed_target(raw_target: str, root: Path, context: dict[str, Any]) -> tup
     if context.get("stage") != "IMPLEMENT":
         return None, _block("Vault write refused: only IMPLEMENT may write inside the bound project container.")
     try:
-        binding = obsidian_binding.load(root)
+        binding = _load_binding(root)
         return vault_guard.assert_writable(binding, resolved), None
     except (obsidian_binding.BindingError, vault_guard.VaultWriteRefused) as exc:
         return None, _block(f"Write refused outside the repository and bound project container: {exc}")
