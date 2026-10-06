@@ -143,9 +143,21 @@ class VaultResidentControllerTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
+    def install_runtime(self, repo: Path) -> None:
+        state = hook_runtime.runtime_locations(repo).state
+        state.parent.mkdir(parents=True)
+        state.write_text("```json\n{}\n```\n", encoding="utf-8")
+
     def test_clean_repository_is_accepted_when_controller_is_vault_resident(self) -> None:
+        self.install_runtime(self.repo)
         self.assertEqual(self.repo, hook_runtime._root({"cwd": str(self.repo)}))
         self.assertFalse((self.repo / ".hermes").exists())
+
+    def test_an_uninstalled_directory_is_refused_by_a_vault_resident_controller(self) -> None:
+        stranger = self.repo.parent / "unrelated"
+        stranger.mkdir()
+        with self.assertRaisesRegex(hook_runtime.HookInputError, "not a worktree installed"):
+            hook_runtime._root({"cwd": str(stranger)})
 
     def test_hook_state_files_default_to_the_worktree_runtime_in_the_vault(self) -> None:
         path = hook_runtime._configured_path(self.repo, {}, "SDD_STAGE_CONTEXT", hook_runtime.CONTEXT_RELATIVE)

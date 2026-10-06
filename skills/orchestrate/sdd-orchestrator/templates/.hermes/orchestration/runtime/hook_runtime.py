@@ -119,10 +119,20 @@ def _root(payload: Mapping[str, Any]) -> Path:
     if not isinstance(cwd, str) or not cwd:
         raise HookInputError("hook payload has no cwd")
     root = Path(cwd).expanduser().resolve()
-    if not (root / ".hermes" / "orchestration").is_dir() and _container_binding_path() is None:
+    if (root / ".hermes" / "orchestration").is_dir():
+        return root
+    if _container_binding_path() is None:
         raise HookInputError(
             f"{root} has no installed .hermes/orchestration directory and no Obsidian-resident controller"
         )
+    # A vault-resident controller serves only worktrees the installer set up:
+    # each one has its own runtime STATE.md under the container.
+    try:
+        installed = runtime_locations(root).state.is_file()
+    except Exception as error:  # binding or slug errors fail closed
+        raise HookInputError(f"{root} is not a worktree of this Obsidian-resident controller: {error}") from error
+    if not installed:
+        raise HookInputError(f"{root} is not a worktree installed for this Obsidian-resident controller")
     return root
 
 
