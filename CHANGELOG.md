@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- The installed controller suite now passes when run from an Obsidian project container, the default storage since 8.0.0. Six tests in `test_hooks.py`, `test_obsidian_binding.py` and `test_context_graph.py` picked up the real container binding of the controller they ran from and looked for runtime files in the vault; they now isolate themselves like a source checkout, and the vault-resident tests patch over that. A new installer test installs into an Obsidian container with automatic Jev consent and runs the installed suite, which CI previously exercised only with `--local-storage`. Test-only change: no runtime behavior differs.
+
 ## 9.0.2 - 2026-10-06
 
 ### Fixed

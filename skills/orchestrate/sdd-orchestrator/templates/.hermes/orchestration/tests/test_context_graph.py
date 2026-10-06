@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -724,9 +725,23 @@ class ProposalTests(GraphTestCase):
 
 
 class CommandTests(GraphTestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        # Run a copy of the runtime outside any Obsidian project container, so a
+        # suite executed from an installed container sees a source checkout.
+        cls._runtime_copy = tempfile.TemporaryDirectory(prefix="sdd-graph-runtime-")
+        cls.cli_runtime = Path(cls._runtime_copy.name) / "runtime"
+        shutil.copytree(RUNTIME, cls.cli_runtime, ignore=shutil.ignore_patterns("__pycache__"))
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._runtime_copy.cleanup()
+        super().tearDownClass()
+
     def run_cli(self, *arguments: str) -> tuple[int, dict[str, object]]:
         result = subprocess.run(
-            [sys.executable, str(RUNTIME / "context_graph.py"), *arguments, "--json"],
+            [sys.executable, "-B", str(self.cli_runtime / "context_graph.py"), *arguments, "--json"],
             text=True,
             capture_output=True,
             timeout=60,
