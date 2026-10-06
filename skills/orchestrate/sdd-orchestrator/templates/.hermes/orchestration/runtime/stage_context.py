@@ -11,19 +11,20 @@ it never reads other repository files, the vault or STATE and never mutates stat
 
 When the project recorded explicit automatic Jev consent, PLAN and IMPLEMENT
 also need the `semantic_governance` record: the fingerprint of a live
-`semantic_governor.py decide` report for this ticket, read back from the
-governor cache. A `REVIEW` outcome must carry the human resolution. Without
-that consent the record is optional and unchecked.
+`semantic_governor.py decide` report for this ticket, read back and
+structurally validated from the governor cache. A `REVIEW` outcome must carry
+the human resolution. Only an explicit non-consent answer disables the gate;
+a missing or unreadable setup fails closed.
 """
 from __future__ import annotations
 
 import argparse
 import copy
 import hashlib
-import importlib
+import importlib.util
 import json
-import os
 import re
+import sys
 import subprocess
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -77,6 +78,7 @@ CONTEXT_ERROR_CODES = (
     "JEV_GOVERNANCE_RECORD_UNVERIFIED",
     "JEV_GOVERNANCE_REVIEW_UNRESOLVED",
     "JEV_GOVERNANCE_SETUP_INVALID",
+    "JEV_GOVERNANCE_PLATFORM_UNSUPPORTED",
     "SCHEMA_INVALID",
 )
 
@@ -490,29 +492,39 @@ def _check_slice(value: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def _semantic_governor() -> Any:
-    return importlib.import_module("semantic_governor")
-
-
-def _automatic_governance_consented(governor: Any) -> bool:
-    """True only for the exact automatic-consent record; a malformed setup raises."""
-    try:
-        governor._load_project_setup_consent(JEV_PROJECT_SETUP_PATH)
-    except governor.GovernanceError as error:
-        if str(error) in {"JEV_GOVERNANCE_CONSENT_REQUIRED", "JEV_GOVERNANCE_PLATFORM_UNSUPPORTED"}:
-            return False
-        raise
-    return True
+    """Load the sibling governor by path, independent of sys.path and cwd."""
+    path = Path(__file__).resolve().with_name("semantic_governor.py")
+    name = "sdd_stage_context_semantic_governor"
+    module = sys.modules.get(name)
+    if module is None:
+        spec = importlib.util.spec_from_file_location(name, path)
+        if spec is None or spec.loader is None:
+            raise ImportError(str(path))
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return module
 
 
 def _check_semantic_governance(value: dict[str, Any]) -> list[dict[str, str]]:
+    """Fail closed: only an explicit non-consent record disables the gate."""
     if value["stage"] not in GOVERNANCE_STAGES:
         return []
     governor = _semantic_governor()
-    try:
-        if not _automatic_governance_consented(governor):
-            return []
-    except governor.GovernanceError as error:
-        return [_finding("JEV_GOVERNANCE_SETUP_INVALID", f"PROJECT_SETUP.md cannot be read for Jev consent: {error}")]
+    state = governor.consent_state(JEV_PROJECT_SETUP_PATH)
+    if state == governor.CONSENT_DISABLED:
+        return []
+    if state != governor.CONSENT_ENABLED:
+        return [_finding(
+            "JEV_GOVERNANCE_SETUP_INVALID",
+            f"{JEV_PROJECT_SETUP_PATH} is missing or its typesafe_ai answer is unreadable; "
+            "record none, an explicit false, or the automatic consent",
+        )]
+    if governor._platform_name() != "posix":
+        return [_finding(
+            "JEV_GOVERNANCE_PLATFORM_UNSUPPORTED",
+            "automatic Jev governance is enabled but the governor cannot run on this platform",
+        )]
     record = value.get("semantic_governance")
     if record is None:
         return [_finding(
@@ -522,23 +534,11 @@ def _check_semantic_governance(value: dict[str, Any]) -> list[dict[str, str]]:
         )]
     fingerprint = record["fingerprint"]
     try:
-        parent, name = governor._open_parent_descriptor(JEV_CACHE_PATH, "JEV_GOVERNANCE_CACHE_INVALID")
-        try:
-            report = governor._read_cache_at(parent, name)["entries"].get(fingerprint)
-        finally:
-            os.close(parent)
+        report = governor.verify_cached_decision(JEV_CACHE_PATH, fingerprint, value["ticket"])
     except (governor.GovernanceError, OSError):
-        report = None
-    if (
-        not isinstance(report, dict)
-        or report.get("fingerprint") != fingerprint
-        or report.get("ticket") != value["ticket"]
-        or report.get("provenance") != "LIVE_JEV"
-        or report.get("status") not in {"DECIDED", "REVIEW"}
-    ):
         return [_finding(
             "JEV_GOVERNANCE_RECORD_UNVERIFIED",
-            f"fingerprint {fingerprint[:12]} is not a governor decision for {value['ticket']} in the Jev cache",
+            f"fingerprint {fingerprint[:12]} is not a valid governor decision for {value['ticket']} in {JEV_CACHE_PATH}",
         )]
     if report["status"] == "REVIEW" and not record["review_resolution"]:
         return [_finding(
@@ -656,9 +656,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     global JEV_PROJECT_SETUP_PATH, JEV_CACHE_PATH
     if args.project_setup is not None:
-        JEV_PROJECT_SETUP_PATH = args.project_setup.resolve()
+        JEV_PROJECT_SETUP_PATH = args.project_setup.absolute()
     if args.jev_cache is not None:
-        JEV_CACHE_PATH = args.jev_cache.resolve()
+        JEV_CACHE_PATH = args.jev_cache.absolute()
     try:
         value = json.loads(Path(args.context).read_text(encoding="utf-8"))
         if args.command == "check":

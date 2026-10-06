@@ -601,9 +601,17 @@ def decide(
         except Exception as error:
             raise GovernanceError("JEV_GOVERNANCE_CACHE_READ_FAILED") from error
         if cache is not None and digest in cache["entries"]:
-            cached = json.loads(json.dumps(_validate_cached_report(
-                cache["entries"][digest], digest, value, provider
-            )))
+            stored = _validate_cached_report(cache["entries"][digest], digest, value, provider)
+            if "ticket" not in stored:
+                # Reports cached before `ticket` existed: the fingerprint already
+                # covers the ticket, so record it without a new paid call.
+                stored["ticket"] = value["ticket"]
+                try:
+                    assert cache_location is not None
+                    _write_cache_at(*cache_location, cache, prior_tombstone_is_safe=True)
+                except Exception as error:
+                    raise GovernanceError("JEV_GOVERNANCE_CACHE_WRITE_FAILED") from error
+            cached = json.loads(json.dumps(stored))
             cached["provenance"] = "CACHE"
             return cached
 
@@ -699,7 +707,23 @@ def _load_request(path: Path) -> dict[str, Any]:
             os.close(parent_descriptor)
 
 
-def _load_project_setup_consent(path: Path) -> None:
+def _read_project_setup_lines(path: Path) -> list[str]:
+    if _platform_name() != "posix":
+        # Consent detection only: the governor never runs here, but a gate must
+        # still see that consent exists in order to fail closed.
+        try:
+            with open(path, "rb") as stream:
+                encoded = stream.read(MAX_INPUT_BYTES + 1)
+        except FileNotFoundError as error:
+            raise GovernanceError("JEV_GOVERNANCE_CONSENT_REQUIRED") from error
+        except OSError as error:
+            raise GovernanceError("JEV_GOVERNANCE_PROJECT_SETUP_INVALID") from error
+        if len(encoded) > MAX_INPUT_BYTES:
+            raise GovernanceError("JEV_GOVERNANCE_PROJECT_SETUP_INVALID")
+        try:
+            return encoded.decode("utf-8").splitlines()
+        except UnicodeError as error:
+            raise GovernanceError("JEV_GOVERNANCE_PROJECT_SETUP_INVALID") from error
     parent_descriptor, name = _open_parent_descriptor(
         path, "JEV_GOVERNANCE_PROJECT_SETUP_INVALID"
     )
@@ -733,7 +757,10 @@ def _load_project_setup_consent(path: Path) -> None:
             os.close(descriptor)
         if parent_descriptor is not None:
             os.close(parent_descriptor)
+    return lines
 
+
+def _typesafe_answer(lines: list[str]) -> str:
     yaml_starts = [index for index, line in enumerate(lines) if line == "```yaml"]
     if len(yaml_starts) != 1:
         raise GovernanceError("JEV_GOVERNANCE_PROJECT_SETUP_INVALID")
@@ -760,25 +787,137 @@ def _load_project_setup_consent(path: Path) -> None:
     ]
     if len(matches) != 1:
         raise GovernanceError("JEV_GOVERNANCE_CONSENT_REQUIRED")
-    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError("duplicate JSON key")
-            result[key] = value
-        return result
+    return matches[0]
 
+
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _parse_consent(answer: str) -> Any:
     try:
-        consent = json.loads(matches[0], object_pairs_hook=unique_object)
+        return json.loads(answer, object_pairs_hook=_unique_object)
     except (json.JSONDecodeError, RecursionError, ValueError):
         raise GovernanceError("JEV_GOVERNANCE_CONSENT_REQUIRED") from None
-    if (
-        not isinstance(consent, dict)
-        or set(consent) != {"install", "automatic_semantic_governance"}
-        or consent["install"] is not True
-        or consent["automatic_semantic_governance"] is not True
-    ):
+
+
+def _is_exact_consent(consent: Any, automatic: bool) -> bool:
+    return (
+        isinstance(consent, dict)
+        and set(consent) == {"install", "automatic_semantic_governance"}
+        and consent["install"] is True
+        and consent["automatic_semantic_governance"] is automatic
+    )
+
+
+def _load_project_setup_consent(path: Path) -> None:
+    consent = _parse_consent(_typesafe_answer(_read_project_setup_lines(path)))
+    if not _is_exact_consent(consent, True):
         raise GovernanceError("JEV_GOVERNANCE_CONSENT_REQUIRED")
+
+
+CONSENT_ENABLED = "ENABLED"
+CONSENT_DISABLED = "DISABLED"
+CONSENT_INVALID = "INVALID"
+
+
+def consent_state(path: Path) -> str:
+    """Classify the onboarding record for gates that must fail closed.
+
+    Only an explicit record disables enforcement: `none`, `UNRESOLVED`, the
+    exact `automatic_semantic_governance: false` object, or the legacy
+    install-only object (which never authorized calls). A missing file, a
+    missing or duplicated answer, malformed JSON or any other object is
+    INVALID, unlike the governor, for which those simply mean no consent.
+    """
+    try:
+        answer = _typesafe_answer(_read_project_setup_lines(path))
+    except GovernanceError:
+        return CONSENT_INVALID
+    if answer.casefold() in {"none", "unresolved"}:
+        return CONSENT_DISABLED
+    try:
+        consent = _parse_consent(answer)
+    except GovernanceError:
+        return CONSENT_INVALID
+    if _is_exact_consent(consent, True):
+        return CONSENT_ENABLED
+    if _is_exact_consent(consent, False) or consent == {"install": True} and consent["install"] is True:
+        return CONSENT_DISABLED
+    return CONSENT_INVALID
+
+
+def _validate_report_structure(report: Any, fingerprint_value: str, ticket: str) -> None:
+    """Request-independent validation of one persisted governor report."""
+    allowed = {
+        "schema_version", "status", "provenance", "provider", "ticket", "model",
+        "threshold", "fingerprint", "decisions", "summary", "usage", "billing", "reason",
+    }
+    if (
+        not isinstance(report, dict)
+        or set(report) - allowed
+        or report.get("schema_version") != 1
+        or report.get("status") not in {"DECIDED", "REVIEW"}
+        or report.get("provenance") != "LIVE_JEV"
+        or report.get("provider") not in PROVIDERS
+        or report.get("ticket") != ticket
+        or report.get("threshold") != THRESHOLD
+        or report.get("fingerprint") != fingerprint_value
+        or not isinstance(report.get("decisions"), dict)
+        or not report["decisions"]
+    ):
+        raise GovernanceError("JEV_GOVERNANCE_CACHE_INVALID")
+    decided = 0
+    for item in report["decisions"].values():
+        if not isinstance(item, dict) or set(item) != {"value", "confidence", "disposition", "reason"}:
+            raise GovernanceError("JEV_GOVERNANCE_CACHE_INVALID")
+        if item["disposition"] == "DECIDED":
+            if (
+                not _finite_probability(item["confidence"])
+                or item["confidence"] < THRESHOLD
+                or item["value"] is None
+                or item["reason"] != "AT_OR_ABOVE_THRESHOLD"
+            ):
+                raise GovernanceError("JEV_GOVERNANCE_CACHE_INVALID")
+            decided += 1
+        elif item["disposition"] == "REVIEW":
+            if item["value"] is not None or (
+                item["confidence"] is not None and not _finite_probability(item["confidence"])
+            ) or not isinstance(item["reason"], str):
+                raise GovernanceError("JEV_GOVERNANCE_CACHE_INVALID")
+        else:
+            raise GovernanceError("JEV_GOVERNANCE_CACHE_INVALID")
+    review = len(report["decisions"]) - decided
+    if report.get("summary") != {"decided": decided, "review": review}:
+        raise GovernanceError("JEV_GOVERNANCE_CACHE_INVALID")
+    if report["status"] != ("DECIDED" if review == 0 else "REVIEW"):
+        raise GovernanceError("JEV_GOVERNANCE_CACHE_INVALID")
+    if "reason" in report:
+        if not isinstance(report["reason"], str) or not report["reason"] or decided != 0 or any(
+            key in report for key in ("model", "usage", "billing")
+        ):
+            raise GovernanceError("JEV_GOVERNANCE_CACHE_INVALID")
+    elif not _valid_remote_model(report.get("model")) or not isinstance(report.get("usage"), dict):
+        raise GovernanceError("JEV_GOVERNANCE_CACHE_INVALID")
+
+
+def verify_cached_decision(cache_path: Path, fingerprint_value: str, ticket: str) -> dict[str, Any]:
+    """Return the structurally valid live report for `ticket`, or raise GovernanceError.
+
+    Reads under the cache lock with the same no-follow descriptors as `decide`.
+    The cache is owner-private; this proves the controller's process followed
+    the governor, not that a same-user process could not have written the file.
+    """
+    _require_supported_platform()
+    with _cache_lock(cache_path) as location:
+        report = _read_cache_at(*location)["entries"].get(fingerprint_value)
+    _validate_report_structure(report, fingerprint_value, ticket)
+    return json.loads(json.dumps(report))
 
 
 def _connector_preflight(provider: str, env_file: Path) -> None:
