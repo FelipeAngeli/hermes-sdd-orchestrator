@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 7.0.0 - 2026-10-05
+
 ### Breaking
 - Automatic Jev governance now requires a new explicit consent bit at the actual connector boundary: TypeSafe installation records `automatic_semantic_governance:false`, `--automatic-jev-governance` records `true`, and false, missing or legacy `{"install":true}` answers block before request/cache reads or network access. `semantic_governor.py decide` gains `--project-setup` (defaulting to the local orchestration record), rechecks exact consent plus local READY preflight immediately before evaluation, and fails closed before state/network access on Windows because junction-safe held-handle traversal is not implemented.
 
