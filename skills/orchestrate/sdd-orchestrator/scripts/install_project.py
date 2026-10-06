@@ -52,6 +52,17 @@ STATE_PATHS = (
 #: user's repository, so no `.env` placeholder is created and the connector
 #: reads keys from the process environment.
 CREDENTIAL_FILE_MANAGED = True
+#: False in Obsidian storage mode: the vault may be its own Git repository
+#: (for example with obsidian-git); being tracked there is not a conflict,
+#: because the user's repository is never a destination.
+TRACKED_DESTINATIONS_GUARDED = True
+
+
+def _set_storage_mode(obsidian: bool) -> None:
+    """Apply the per-run storage policy in one place."""
+    global CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED
+    CREDENTIAL_FILE_MANAGED = not obsidian
+    TRACKED_DESTINATIONS_GUARDED = not obsidian
 
 
 class InstallError(RuntimeError):
@@ -114,7 +125,17 @@ def require_root(value: str) -> tuple[Path, dict[str, str]]:
     }
 
 
+def _inside_work_tree(target: Path) -> bool:
+    result = subprocess.run(
+        ["git", "-C", str(target), "rev-parse", "--is-inside-work-tree"],
+        text=True, capture_output=True, timeout=20, check=False,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
 def is_tracked(target: Path, relative: str) -> bool:
+    if not TRACKED_DESTINATIONS_GUARDED:
+        return False
     result = subprocess.run(
         ["git", "-C", str(target), "ls-files", "--error-unmatch", "--", relative],
         text=True, capture_output=True, timeout=20, check=False,
@@ -123,14 +144,14 @@ def is_tracked(target: Path, relative: str) -> bool:
 
 
 def tracked_under(target: Path, relative: str) -> bool:
+    if not TRACKED_DESTINATIONS_GUARDED or not _inside_work_tree(target):
+        # Decided by `rev-parse`, never by localized stderr text.
+        return False
     result = subprocess.run(
         ["git", "-C", str(target), "ls-files", "--", relative],
         text=True, capture_output=True, timeout=20, check=False,
     )
     if result.returncode:
-        # An Obsidian vault is usually not a Git repository; nothing there is tracked.
-        if "not a git repository" in result.stderr:
-            return False
         raise InstallError((result.stderr or result.stdout).strip() or "Git preflight failed.")
     return bool(result.stdout.strip())
 
@@ -2359,6 +2380,22 @@ def _apply_base_install(
 OBSIDIAN_RUNTIME_SUBPATH = ".hermes-runtime"
 OBSIDIAN_BINDING_PATH = ".hermes/obsidian.json"
 WORKTREE_RUNTIME_FILES = ("STATE.md", "INCIDENTS.md", "ACTION_JOURNAL.json")
+#: Controller files the owner is told to edit after install. Created when
+#: absent, never compared, so a second worktree can share the container.
+OBSIDIAN_USER_CONFIGURED = frozenset({f"{CONFIG_ROOT}/policies/GATES.md"})
+
+
+def _overlaps(first: Path, second: Path) -> bool:
+    return first == second or first in second.parents or second in first.parents
+
+
+def _reject_storage_overlap(vault: Path, project: str, target: Path, workspace: dict[str, str]) -> None:
+    """The vault and the repository must be disjoint in both directions."""
+    container = vault / project
+    protected = [target.resolve(strict=True), Path(workspace["git_common_dir"]).resolve(strict=True)]
+    for root in protected:
+        if _overlaps(vault, root) or _overlaps(container.resolve(strict=False), root):
+            raise InstallError(f"OBSIDIAN_VAULT_OVERLAPS_TARGET: {root}")
 
 
 def resolve_obsidian_storage(vault_value: str | None, project_value: str | None) -> tuple[Path, str]:
@@ -2428,11 +2465,12 @@ def _plan_obsidian_files(
         expected[f"{project}/{source.relative_to(TEMPLATE).as_posix()}"] = source.read_bytes()
     expected[f"{project}/{OBSIDIAN_BINDING_PATH}"] = obsidian_binding_content(vault, project)
     planned: dict[str, bytes] = {}
+    user_configured = {f"{project}/{relative}" for relative in OBSIDIAN_USER_CONFIGURED}
     for relative, content in expected.items():
         existing = _read_project_file_nofollow(vault, relative)
         if existing is None:
             planned[relative] = content
-        elif existing != content:
+        elif existing != content and relative not in user_configured:
             raise InstallError(f"CONFIG_CONFLICT: {relative}")
 
     setup = f"{project}/{CONFIG_ROOT}/PROJECT_SETUP.md"
@@ -2490,11 +2528,15 @@ def _target_snapshot(target: Path) -> tuple[str, frozenset[str]]:
 
 
 def run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict[str, object]:
-    global CREDENTIAL_FILE_MANAGED
-    CREDENTIAL_FILE_MANAGED = False
+    _set_storage_mode(obsidian=True)
     vault, project = resolve_obsidian_storage(args.obsidian_vault, args.obsidian_project)
+    _reject_storage_overlap(vault, project, target, workspace)
     container = vault / project
     target_before = _target_snapshot(target)
+
+    def require_target_unchanged() -> None:
+        if _target_snapshot(target) != target_before:
+            raise InstallError("TARGET_WORKTREE_CHANGED")
     planned, runtime = _plan_obsidian_files(vault, project, target, workspace)
     setup_present = f"{project}/{CONFIG_ROOT}/PROJECT_SETUP.md" not in planned
     if args.typesafe_ai and setup_present:
@@ -2511,7 +2553,9 @@ def run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict[
             "RECORD_NONE" if args.typesafe_ai == "none" else "NONE"
         )
         integration["planned_env_action"] = (
-            "CREATE" if args.typesafe_ai == "install" and integration["env_status"] == "ABSENT" else "NONE"
+            "CREATE"
+            if CREDENTIAL_FILE_MANAGED and args.typesafe_ai == "install" and integration["env_status"] == "ABSENT"
+            else "NONE"
         )
     action = integration.get("planned_action")
     if action == "BLOCKED":
@@ -2547,8 +2591,16 @@ def run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict[
             integration_result["applied_action"] = "RECORD_NONE"
 
     integration_requested = bool(args.apply and args.typesafe_ai and action != "NONE")
+
+    def finish_inside_transaction() -> None:
+        if integration_requested:
+            apply_integration()
+        # Checked before the transaction ends so a changed repository rolls
+        # back every path this run created in the vault.
+        require_target_unchanged()
+
     if args.apply and (planned or integration_requested):
-        _apply_obsidian_files(vault, planned, apply_integration if integration_requested else None)
+        _apply_obsidian_files(vault, planned, finish_inside_transaction)
         report["applied"] = True
         report["status"] = "APPLIED"
         report["onboarding"] = onboarding_questions(container)
@@ -2618,6 +2670,7 @@ def main() -> int:
         target, workspace = require_root(args.target)
         if args.local_storage and (args.obsidian_vault or args.obsidian_project):
             raise InstallError("STORAGE_MODE_CONFLICT")
+        _set_storage_mode(obsidian=not args.local_storage)
         if not args.local_storage:
             report = run_obsidian_install(args, target, workspace)
             if args.json:

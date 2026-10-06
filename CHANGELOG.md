@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- The Obsidian installer refuses a vault or project container that overlaps the target worktree or its Git directory (`OBSIDIAN_VAULT_OVERLAPS_TARGET`) before writing, and checks `TARGET_WORKTREE_CHANGED` inside the apply transaction so a changed repository rolls back every vault path the run created; before, an overlapping vault left files in the repository. In the vault, tracked-path checks are skipped (decided with `git rev-parse`, not localized stderr), so a Git-tracked vault no longer blocks a TypeSafe reinstall; `policies/GATES.md` is created when absent and then left to the owner, so a second worktree can share a container after the gates are configured; the dry run no longer reports `planned_env_action: CREATE` in Obsidian mode. Storage policy is set per run instead of by a global mutated mid-function. `SKILL.md`, `BOOTSTRAP.md`, the hooks example and the hooks page now describe container-relative paths. Migrating an existing `--local-storage` install: run the installer with the Obsidian flags into a new container, then move open-demand runtime with `migrate_to_vault.py`.
+
 ## 8.0.0 - 2026-10-06
 
 ### Breaking
@@ -11,6 +14,7 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ### Changed
 - `obsidian_binding.binding_path` falls back to the container binding of the controller it runs from when the repository has none, and `load_path` loads an explicit binding. Hooks accept a vault-resident controller for a clean repository and default their transient files to the worktree runtime in the vault; `stage_context.py` verifies playbook bytes from the container's `.hermes/skills/` while still requiring `project_root` to be the live Git workspace.
+
 ## 7.0.0 - 2026-10-05
 
 ### Breaking

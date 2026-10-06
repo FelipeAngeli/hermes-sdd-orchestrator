@@ -23,7 +23,7 @@ The `hooks/` layer is the event-driven edge of the SDD harness, parallel to `age
 
 ## Activation and consent
 
-Replace `<ABSOLUTE_PROJECT_ROOT>` in `.hermes/orchestration/hooks/hooks.example.yaml`, then merge the block into a **dedicated Hermes profile** for that checkout. Hermes asks for first-use consent for every `(event, command)` pair unless the user has deliberately enabled auto-accept. Consent persists by exact event and command, so repository-relative commands are unsafe here: approval in one checkout could otherwise authorize same-named code in a different current directory. The absolute path binds consent to this checkout. Shell hooks inherit the profile process environment, so do not reuse the dedicated profile for unrelated repositories. The installer never changes a profile or grants consent.
+Replace `<ABSOLUTE_PROJECT_ROOT>` in `.hermes/orchestration/hooks/hooks.example.yaml` with the directory that holds `.hermes/orchestration` (the Obsidian project container by default, the repository with `--local-storage`; hooks take the repository from the event's `cwd`), then merge the block into a **dedicated Hermes profile** for that checkout. Hermes asks for first-use consent for every `(event, command)` pair unless the user has deliberately enabled auto-accept. Consent persists by exact event and command, so repository-relative commands are unsafe here: approval in one checkout could otherwise authorize same-named code in a different current directory. The absolute path binds consent to this checkout. Shell hooks inherit the profile process environment, so do not reuse the dedicated profile for unrelated repositories. The installer never changes a profile or grants consent.
 
 The scope entry uses:
 

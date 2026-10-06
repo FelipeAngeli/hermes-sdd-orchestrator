@@ -6,6 +6,7 @@ frontmatter, safety boundaries, catalogues, and controller policy.
 """
 from __future__ import annotations
 
+import argparse
 import ast
 import contextlib
 import importlib.util
@@ -728,6 +729,142 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertEqual([], list(vault.iterdir()))
             self.assertFalse((Path(temp) / "outside").exists())
             self.assertEqual(before, self.repository_snapshot(target))
+
+    def test_obsidian_vault_overlapping_the_repository_is_refused_before_writing(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-obsidian-overlap-") as temp:
+            target, vault, _ = self.make_obsidian_fixture(temp)
+            before = self.repository_snapshot(target)
+            outer = Path(temp)
+            for chosen_vault, project in ((target, "Projects/App"), (outer, "repo/Inside"), (target / "docs", "App")):
+                with self.subTest(vault=chosen_vault, project=project):
+                    chosen_vault.mkdir(exist_ok=True)
+                    result = self.run_installer(
+                        target, apply=True, obsidian_vault=chosen_vault, obsidian_project=project
+                    )
+                    self.assert_blocked(result, "OBSIDIAN_VAULT_OVERLAPS_TARGET")
+                    (target / "docs").rmdir() if (target / "docs").exists() else None
+            self.assertEqual(before, self.repository_snapshot(target))
+            self.assertFalse((outer / "Projects").exists())
+
+    def test_obsidian_storage_argument_errors_block_without_writing(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-obsidian-args-") as temp:
+            target, vault, _ = self.make_obsidian_fixture(temp)
+            before = self.repository_snapshot(target)
+            cases = (
+                (["--obsidian-vault", "relative/vault", "--obsidian-project", "App"], "OBSIDIAN_VAULT_NOT_ABSOLUTE"),
+                (["--obsidian-vault", str(Path(temp) / "missing"), "--obsidian-project", "App"],
+                 "OBSIDIAN_VAULT_NOT_FOUND"),
+                (["--local-storage", "--obsidian-vault", str(vault), "--obsidian-project", "App"],
+                 "STORAGE_MODE_CONFLICT"),
+            )
+            for extra, reason in cases:
+                with self.subTest(reason=reason):
+                    result = self.execute(
+                        sys.executable, str(INSTALLER), "--target", str(target), *extra, "--apply", "--json",
+                        check=False,
+                    )
+                    self.assert_blocked(result, reason)
+            self.assertEqual([], list(vault.iterdir()))
+            self.assertEqual(before, self.repository_snapshot(target))
+
+    def test_obsidian_container_symlink_component_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-obsidian-symlink-") as temp:
+            target, vault, _ = self.make_obsidian_fixture(temp)
+            elsewhere = Path(temp) / "elsewhere"
+            elsewhere.mkdir()
+            (vault / "Projects").symlink_to(elsewhere, target_is_directory=True)
+            result = self.run_installer(target, apply=True, obsidian_vault=vault, obsidian_project="Projects/App")
+            self.assert_blocked(result, "SYMLINK")
+            self.assertEqual([], list(elsewhere.iterdir()))
+
+    def test_obsidian_partial_runtime_and_foreign_controller_block(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-obsidian-conflict-") as temp:
+            target, vault, container = self.make_obsidian_fixture(temp)
+            first = self.run_installer(target, apply=True, obsidian_vault=vault, obsidian_project="Projects/App")
+            self.assertEqual(0, first.returncode, first.stderr)
+            runtime = Path(json.loads(first.stdout)["worktree_runtime"])
+            (runtime / "INCIDENTS.md").unlink()
+            partial = self.run_installer(target, apply=True, obsidian_vault=vault, obsidian_project="Projects/App")
+            self.assert_blocked(partial, "LOCAL_STATE_REQUIRES_REVIEW")
+            (runtime / "INCIDENTS.md").write_text("# SDD Orchestration Incidents\n\nNo incidents recorded.\n")
+            journal = container / ".hermes/orchestration/runtime/action_journal.py"
+            journal.write_text(journal.read_text(encoding="utf-8") + "# foreign edit\n", encoding="utf-8")
+            conflict = self.run_installer(target, apply=True, obsidian_vault=vault, obsidian_project="Projects/App")
+            self.assert_blocked(conflict, "CONFIG_CONFLICT")
+
+    def test_obsidian_second_worktree_shares_a_container_with_edited_gates(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-obsidian-worktrees-") as temp:
+            target, vault, container = self.make_obsidian_fixture(temp)
+            first = self.run_installer(target, apply=True, obsidian_vault=vault, obsidian_project="Projects/App")
+            self.assertEqual(0, first.returncode, first.stderr)
+            gates = container / ".hermes/orchestration/policies/GATES.md"
+            gates.write_text(gates.read_text(encoding="utf-8") + "\n- focused test: make test\n", encoding="utf-8")
+            edited = gates.read_bytes()
+            second_tree = Path(temp) / "repo-second"
+            self.execute("git", "-C", str(target), "worktree", "add", "-q", "-b", "second", str(second_tree))
+
+            second = self.run_installer(
+                second_tree, apply=True, obsidian_vault=vault, obsidian_project="Projects/App"
+            )
+
+            self.assertEqual(0, second.returncode, second.stdout + second.stderr)
+            self.assertNotEqual(json.loads(first.stdout)["worktree_runtime"], json.loads(second.stdout)["worktree_runtime"])
+            self.assertEqual(edited, gates.read_bytes())
+
+    def test_obsidian_typesafe_reinstall_works_in_a_git_tracked_vault(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-obsidian-git-vault-") as temp:
+            target, vault, _ = self.make_obsidian_fixture(temp)
+            def install():
+                return self.run_installer(
+                    target, apply=True, typesafe_ai="install", obsidian_vault=vault, obsidian_project="Projects/App"
+                )
+
+            first = install()
+            self.assertEqual(0, first.returncode, first.stderr)
+            self.execute("git", "init", "-q", "-b", "main", str(vault))
+            self.execute("git", "-C", str(vault), "-c", "user.email=t@example.invalid", "-c", "user.name=T",
+                         "add", "-A")
+            self.execute("git", "-C", str(vault), "-c", "user.email=t@example.invalid", "-c", "user.name=T",
+                         "commit", "-qm", "vault")
+
+            repeated = install()
+
+            self.assertEqual(0, repeated.returncode, repeated.stdout + repeated.stderr)
+            report = json.loads(repeated.stdout)
+            self.assertEqual("ALREADY_INITIALIZED", report["status"])
+            self.assertEqual("INSTALLED", report["onboarding"]["integrations"]["typesafe_ai"]["status"])
+
+    def test_obsidian_dry_run_never_plans_a_credentials_file(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-obsidian-env-plan-") as temp:
+            target, vault, _ = self.make_obsidian_fixture(temp)
+            result = self.run_installer(
+                target, typesafe_ai="install", obsidian_vault=vault, obsidian_project="Projects/App"
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            integration = json.loads(result.stdout)["onboarding"]["integrations"]["typesafe_ai"]
+            self.assertEqual("NONE", integration["planned_env_action"])
+
+    def test_obsidian_changed_repository_rolls_back_every_vault_write(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-obsidian-rollback-") as temp:
+            target, vault, _ = self.make_obsidian_fixture(temp)
+            module = self.load_installer_module()
+            workspace = module.require_root(str(target))[1]
+            calls = {"count": 0}
+            original = module._target_snapshot
+
+            def drifting(path):
+                calls["count"] += 1
+                status, hermes = original(path)
+                return (status + "?? drift\n", hermes) if calls["count"] > 1 else (status, hermes)
+
+            args = argparse.Namespace(
+                obsidian_vault=str(vault), obsidian_project="Projects/App", typesafe_ai=None,
+                automatic_jev_governance=False, apply=True,
+            )
+            with mock.patch.object(module, "_target_snapshot", drifting):
+                with self.assertRaisesRegex(module.InstallError, "TARGET_WORKTREE_CHANGED"):
+                    module.run_obsidian_install(args, target.resolve(), workspace)
+            self.assertEqual([], list(vault.iterdir()))
 
     def test_non_git_target_reports_actionable_blocker_without_writing(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-no-git-") as temp:
