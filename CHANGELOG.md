@@ -4,6 +4,24 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 9.0.2 - 2026-10-06
+
+### Fixed
+- The 9.x line now includes the 8.0.1–8.0.3 installer and hook fixes (vault/repository overlap refusal, rollback on repository drift including the TypeSafe integration, identity-based overlap checks, owner-only `GATES.md` adoption, and hooks that trust only the container binding). The untagged 9.0.0 and 9.0.1 release commits predate those fixes; this release is the first 9.x tree that contains both the Jev dispatch gate and them.
+
+## 9.0.1 - 2026-10-06
+
+### Fixed
+- The Jev dispatch gate no longer creates the governor cache, its lock or their parent directories: `verify_cached_decision` returns `JEV_GOVERNANCE_RECORD_UNVERIFIED` when either is absent, so `stage_context.py` stays read-only, including inside the Obsidian container. `consent_state` spells out the legacy install-only check instead of relying on operator precedence. The gate tests that need the POSIX-only cache are skipped on other platforms. Migration note for 9.0.0: an older `PROJECT_SETUP.md` with no `typesafe_ai` answer also fails closed at PLAN and IMPLEMENT; record `typesafe_ai: none` to opt out. The hooks page now lists the setup and platform refusals, and the harness page states that in-flight tombstones pass only as `REVIEW` with a human resolution.
+
+## 9.0.0 - 2026-10-06
+
+### Breaking
+- Automatic Jev governance is now enforced at dispatch instead of being only an instruction. Projects installed with `--automatic-jev-governance` must add a `semantic_governance` record to PLAN and IMPLEMENT manifests that v8.0.0 accepted; a missing `PROJECT_SETUP.md` now fails closed at those stages. With `automatic_semantic_governance: true` in `PROJECT_SETUP.md`, `stage_context.py check` (and the hooks that call it) refuses PLAN and IMPLEMENT manifests that lack the new optional `semantic_governance` record (`JEV_GOVERNANCE_RECORD_REQUIRED`), cite a fingerprint that is not a structurally valid `LIVE_JEV` governor report for the same ticket in the Jev cache (`JEV_GOVERNANCE_RECORD_UNVERIFIED`), or leave a `REVIEW` outcome without a human `review_resolution` (`JEV_GOVERNANCE_REVIEW_UNRESOLVED`). The gate fails closed: only an explicit `none`, `UNRESOLVED`, `false` or legacy install-only answer disables it, while a missing or unreadable setup gives `JEV_GOVERNANCE_SETUP_INVALID` and consent on a non-POSIX platform gives `JEV_GOVERNANCE_PLATFORM_UNSUPPORTED`. `stage_context.py` gains `--project-setup` and `--jev-cache` (made absolute without resolving symlinks) and loads the governor by path. `semantic_governor.py` reports now record the request `ticket`; a report cached before that gets it written back on its next cache hit without a new paid call. The governor adds the public `consent_state` and `verify_cached_decision` helpers. The record is excluded from the slice hash, so approvals stay valid. The installed test suites isolate the gate from the project's own `PROJECT_SETUP.md`, so they pass in consented projects too.
+
+### Changed
+- `AGENTS.md` requires agents changing this repository to route semantic classifications (risk, branch type, changelog level, specialist reviewers) through `semantic_governor.py decide` with inputs in the ignored `.hermes-dev/`, stop when preflight is not `READY`, hand `REVIEW` results to the owner, and announce each use with a `JEV USADO` block.
+
 ## 8.0.3 - 2026-10-06
 
 ### Fixed

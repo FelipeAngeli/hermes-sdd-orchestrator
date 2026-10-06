@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,42 @@ import validate_protocol  # noqa: E402
 
 SCRIPT = RUNTIME / "stage_context.py"
 SHA = "a" * 64
+STAGE_CONTEXT_MODULE = ctx
+
+
+_GOVERNANCE_ISOLATION: list = []
+ISOLATED_CLI_FLAGS: list[str] = []
+
+
+def setUpModule() -> None:
+    """Isolate the Jev gate from the PROJECT_SETUP.md of the installed controller.
+
+    Without this, a project installed with automatic Jev consent would see every
+    PLAN/IMPLEMENT fixture here refused, and a source checkout (which has no
+    PROJECT_SETUP.md) would fail closed. Tests that exercise the gate patch over it.
+    """
+    temp = tempfile.TemporaryDirectory(prefix="sdd-jev-isolation-")
+    root = Path(temp.name).resolve()
+    setup = root / "PROJECT_SETUP.md"
+    setup.write_text(
+        "```yaml\nschema_version: 1\nanswers:\n  typesafe_ai: none\n```\n", encoding="utf-8"
+    )
+    patchers = [
+        mock.patch.object(STAGE_CONTEXT_MODULE, "JEV_PROJECT_SETUP_PATH", setup),
+        mock.patch.object(STAGE_CONTEXT_MODULE, "JEV_CACHE_PATH", root / "JEV_CACHE.json"),
+    ]
+    for patcher in patchers:
+        patcher.start()
+    _GOVERNANCE_ISOLATION.extend([temp, *patchers])
+    ISOLATED_CLI_FLAGS[:] = ["--project-setup", str(setup), "--jev-cache", str(root / "JEV_CACHE.json")]
+
+
+def tearDownModule() -> None:
+    temp, *patchers = _GOVERNANCE_ISOLATION
+    for patcher in reversed(patchers):
+        patcher.stop()
+    temp.cleanup()
+    _GOVERNANCE_ISOLATION.clear()
 
 
 def context(stage: str = "IMPLEMENT") -> dict:
@@ -620,12 +657,213 @@ class ReadOnlyRoleContextTests(unittest.TestCase):
             ctx.verifier_context(context(), role="TDD_IMPLEMENTER")
 
 
+def governance_request(ticket: str = "APP-1") -> dict:
+    return {
+        "schema_version": 1,
+        "ticket": ticket,
+        "state": {"request": "Change the shared payment contract"},
+        "questions": {
+            "risk": {
+                "type": "choice",
+                "instructions": "Classify the smallest safe SDD risk path.",
+                "criteria": {"LOW": "isolated", "HIGH": "shared contract"},
+            },
+        },
+    }
+
+
+def governance_response(confidence: float) -> dict:
+    return {
+        "status": "OK",
+        "result": {
+            "model": "jev-1.13.0",
+            "answers": {
+                "risk": {
+                    "type": "choice",
+                    "choice": "HIGH",
+                    "probabilities": {"LOW": 1 - confidence, "HIGH": confidence},
+                    "confidence": confidence,
+                },
+            },
+            "usage": {"input_tokens": 10, "output_tokens": 2},
+        },
+    }
+
+
+def governance_setup(automatic: bool) -> str:
+    answer = json.dumps({"install": True, "automatic_semantic_governance": automatic})
+    return (
+        "# SDD Project Setup\n\n```yaml\nschema_version: 1\nstatus: COMPLETE\nanswers:\n"
+        f"  issue_tracker: none\n  obsidian: none\n  typesafe_ai: {answer}\n  project_tools: none\n```\n"
+    )
+
+
+@unittest.skipUnless(os.name == "posix", "the governor cache and its lock are POSIX-only")
+class SemanticGovernanceGateTests(unittest.TestCase):
+    """With automatic Jev consent, PLAN and IMPLEMENT need a governor decision for the ticket."""
+
+    def setUp(self) -> None:
+        temp = tempfile.TemporaryDirectory(prefix="sdd-jev-gate-")
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name).resolve()
+        self.setup_path = self.root / "PROJECT_SETUP.md"
+        self.cache_path = self.root / "JEV_CACHE.json"
+        for name, target in (("JEV_PROJECT_SETUP_PATH", self.setup_path), ("JEV_CACHE_PATH", self.cache_path)):
+            patcher = mock.patch.object(ctx, name, target)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def consent(self, automatic: bool = True) -> None:
+        self.setup_path.write_text(governance_setup(automatic), encoding="utf-8")
+
+    def decide(self, confidence: float = 0.9, ticket: str = "APP-1") -> str:
+        governor = ctx._semantic_governor()
+        report = governor.decide(
+            governance_request(ticket),
+            lambda payload: governance_response(confidence),
+            cache_path=self.cache_path,
+        )
+        return report["fingerprint"]
+
+    def write_answer(self, answer: str) -> None:
+        self.setup_path.write_text(
+            f"```yaml\nschema_version: 1\nanswers:\n  typesafe_ai: {answer}\n```\n", encoding="utf-8"
+        )
+
+    def test_only_an_explicit_non_consent_answer_disables_the_gate(self) -> None:
+        for answer in ("none", "UNRESOLVED", '{"install":true,"automatic_semantic_governance":false}',
+                       '{"install":true}'):
+            with self.subTest(answer=answer):
+                self.write_answer(answer)
+                for stage in ("PLAN", "IMPLEMENT"):
+                    self.assertTrue(ctx.check(context(stage))["valid"])
+
+    def test_missing_or_unreadable_consent_fails_closed(self) -> None:
+        self.assertIn("JEV_GOVERNANCE_SETUP_INVALID", errors_of(context("PLAN")))
+        for answer in ("{not json", '{"install":true,"automatic_semantic_governance":"yes"}',
+                       '{"install":true,"install":true,"automatic_semantic_governance":true}'):
+            with self.subTest(answer=answer):
+                self.write_answer(answer)
+                self.assertIn("JEV_GOVERNANCE_SETUP_INVALID", errors_of(context("IMPLEMENT")))
+        self.setup_path.write_text("```yaml\nschema_version: 1\nanswers:\n  obsidian: none\n```\n", encoding="utf-8")
+        self.assertIn("JEV_GOVERNANCE_SETUP_INVALID", errors_of(context("PLAN")))
+
+    def test_consent_on_an_unsupported_platform_fails_closed(self) -> None:
+        self.consent()
+        governor = ctx._semantic_governor()
+        with mock.patch.object(governor, "_platform_name", return_value="nt"):
+            self.assertIn("JEV_GOVERNANCE_PLATFORM_UNSUPPORTED", errors_of(context("PLAN")))
+        self.write_answer("none")
+        with mock.patch.object(governor, "_platform_name", return_value="nt"):
+            self.assertTrue(ctx.check(context("PLAN"))["valid"])
+
+    def test_the_gate_creates_nothing_when_the_cache_is_absent(self) -> None:
+        self.consent()
+        missing = self.root / "new" / "sub" / "JEV_CACHE.json"
+        value = context("PLAN")
+        value["semantic_governance"] = {"fingerprint": "e" * 64, "review_resolution": None}
+        with mock.patch.object(ctx, "JEV_CACHE_PATH", missing):
+            self.assertIn("JEV_GOVERNANCE_RECORD_UNVERIFIED", errors_of(value))
+        self.assertFalse((self.root / "new").exists())
+
+    def test_a_forged_minimal_cache_entry_is_refused(self) -> None:
+        self.consent()
+        forged = "d" * 64
+        self.cache_path.write_text(json.dumps({"schema_version": 1, "entries": {forged: {
+            "fingerprint": forged, "ticket": "APP-1", "provenance": "LIVE_JEV", "status": "DECIDED",
+        }}}), encoding="utf-8")
+        self.cache_path.chmod(0o600)
+        value = context("IMPLEMENT")
+        value["semantic_governance"] = {"fingerprint": forged, "review_resolution": None}
+        self.assertIn("JEV_GOVERNANCE_RECORD_UNVERIFIED", errors_of(value))
+
+    def test_a_pre_ticket_cache_entry_is_backfilled_without_a_paid_call(self) -> None:
+        self.consent()
+        governor = ctx._semantic_governor()
+        digest = self.decide()
+        cache = json.loads(self.cache_path.read_text(encoding="utf-8"))
+        del cache["entries"][digest]["ticket"]
+        self.cache_path.write_text(json.dumps(cache), encoding="utf-8")
+        value = context("PLAN")
+        value["semantic_governance"] = {"fingerprint": digest, "review_resolution": None}
+        self.assertIn("JEV_GOVERNANCE_RECORD_UNVERIFIED", errors_of(value))
+        report = governor.decide(
+            governance_request(), lambda payload: self.fail("backfill made a paid call"), cache_path=self.cache_path
+        )
+        self.assertEqual("CACHE", report["provenance"])
+        self.assertEqual("APP-1", report["ticket"])
+        self.assertTrue(ctx.check(value)["valid"])
+
+    def test_cli_flags_select_the_setup_and_cache(self) -> None:
+        self.consent()
+        value = context("PLAN")
+        value["semantic_governance"] = {"fingerprint": self.decide(), "review_resolution": None}
+        path = self.root / "context.json"
+        path.write_text(json.dumps(value), encoding="utf-8")
+        base = [sys.executable, str(SCRIPT), "check", "--context", str(path), "--json"]
+        flags = ["--project-setup", str(self.setup_path), "--jev-cache", str(self.cache_path)]
+        accepted = subprocess.run(base + flags, text=True, capture_output=True, timeout=30)
+        self.assertEqual(0, accepted.returncode, accepted.stdout + accepted.stderr)
+        other = self.root / "other-cache.json"
+        refused = subprocess.run(
+            base + ["--project-setup", str(self.setup_path), "--jev-cache", str(other)],
+            text=True, capture_output=True, timeout=30,
+        )
+        self.assertEqual(2, refused.returncode)
+        self.assertIn("JEV_GOVERNANCE_RECORD_UNVERIFIED", refused.stdout)
+
+    def test_consent_requires_a_governance_record_before_plan_and_implement(self) -> None:
+        self.consent()
+        for stage in ("PLAN", "IMPLEMENT"):
+            with self.subTest(stage=stage):
+                self.assertIn("JEV_GOVERNANCE_RECORD_REQUIRED", errors_of(context(stage)))
+        for stage in ("SPECIFY", "TASKS", "TEST", "REVIEW"):
+            with self.subTest(stage=stage):
+                self.assertNotIn("JEV_GOVERNANCE_RECORD_REQUIRED", errors_of(context(stage)))
+
+    def test_a_cached_live_decision_for_the_ticket_satisfies_the_gate(self) -> None:
+        self.consent()
+        value = context("IMPLEMENT")
+        value["semantic_governance"] = {"fingerprint": self.decide(), "review_resolution": None}
+        result = ctx.check(value)
+        self.assertTrue(result["valid"], result["errors"])
+
+    def test_an_invented_or_foreign_fingerprint_is_refused(self) -> None:
+        self.consent()
+        value = context("PLAN")
+        value["semantic_governance"] = {"fingerprint": "c" * 64, "review_resolution": None}
+        self.assertIn("JEV_GOVERNANCE_RECORD_UNVERIFIED", errors_of(value))
+        value["semantic_governance"]["fingerprint"] = self.decide(ticket="APP-2")
+        self.assertIn("JEV_GOVERNANCE_RECORD_UNVERIFIED", errors_of(value))
+
+    def test_a_review_outcome_needs_a_recorded_resolution(self) -> None:
+        self.consent()
+        value = context("PLAN")
+        value["semantic_governance"] = {"fingerprint": self.decide(confidence=0.6), "review_resolution": None}
+        self.assertIn("JEV_GOVERNANCE_REVIEW_UNRESOLVED", errors_of(value))
+        value["semantic_governance"]["review_resolution"] = "Owner classified risk as HIGH on 2026-10-06"
+        self.assertTrue(ctx.check(value)["valid"])
+
+    def test_a_malformed_setup_fails_closed(self) -> None:
+        self.setup_path.write_text("no yaml record here\n", encoding="utf-8")
+        self.assertIn("JEV_GOVERNANCE_SETUP_INVALID", errors_of(context("PLAN")))
+        self.assertNotIn("JEV_GOVERNANCE_SETUP_INVALID", errors_of(context("TASKS")))
+
+    def test_the_governance_record_does_not_change_the_approved_slice_hash(self) -> None:
+        self.consent()
+        value = context("IMPLEMENT")
+        before = ctx.slice_sha256(value)
+        value["semantic_governance"] = {"fingerprint": self.decide(), "review_resolution": None}
+        self.assertEqual(before, ctx.slice_sha256(value))
+
+
 class StageContextCliTests(unittest.TestCase):
     def run_cli(self, *args: str, value: dict) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "context.json"
             path.write_text(json.dumps(value), encoding="utf-8")
-            return subprocess.run([sys.executable, str(SCRIPT), *args, "--context", str(path), "--json"],
+            return subprocess.run([sys.executable, str(SCRIPT), *args, "--context", str(path), "--json",
+                                   *ISOLATED_CLI_FLAGS],
                                   text=True, capture_output=True, timeout=30)
 
     def test_check_exit_codes(self) -> None:
@@ -641,7 +879,7 @@ class StageContextCliTests(unittest.TestCase):
             path = Path(temp) / "context.json"
             path.write_text(json.dumps(context()), encoding="utf-8")
             result = subprocess.run([sys.executable, str(SCRIPT), "verifier-context", "--context", str(path),
-                                     "--role", "DATA_FLOW_TRACER", "--json"], text=True, capture_output=True, timeout=30)
+                                     "--role", "DATA_FLOW_TRACER", "--json", *ISOLATED_CLI_FLAGS], text=True, capture_output=True, timeout=30)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("DATA_FLOW_TRACER", json.loads(result.stdout)["role"])
 

@@ -36,6 +36,8 @@ After deterministic precedence, send **every non-deterministic semantic classifi
 
 The governor accepts a judgment only at confidence `0.70` or higher. A lower-confidence, malformed, unavailable or uncertain result is `REVIEW`: never fabricate a route, silently substitute a main-model classification, or automatically retry a possibly billed request. Jev selects only options supplied by the controller; it cannot invent paths, roles, commands or permissions. Every live use prints the `JEV USADO` terminal block with evaluated-file count, decided-versus-review totals and the fingerprint artifact; cache hits make no paid call.
 
+This is enforced, not advisory: with automatic consent, `runtime/stage_context.py check` refuses a PLAN or IMPLEMENT manifest that lacks `semantic_governance`, whose fingerprint is not a cached governor report for the same ticket, or whose `REVIEW` outcome has no recorded human `review_resolution`.
+
 ## Risk classification
 
 Classify every demand before routing it; when the classification is not fixed by the deterministic definitions below, use the semantic governor above:

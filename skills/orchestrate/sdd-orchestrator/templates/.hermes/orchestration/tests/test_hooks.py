@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from os import environ as process_environment
 from pathlib import Path
+from unittest import mock
 from unittest.mock import patch
 
 ORCHESTRATION = Path(__file__).resolve().parents[1]
@@ -21,6 +22,40 @@ import hook_runtime  # noqa: E402
 import action_journal  # noqa: E402
 
 SHA = "a" * 64
+STAGE_CONTEXT_MODULE = hook_runtime.stage_context
+
+
+_GOVERNANCE_ISOLATION: list = []
+
+
+def setUpModule() -> None:
+    """Isolate the Jev gate from the PROJECT_SETUP.md of the installed controller.
+
+    Without this, a project installed with automatic Jev consent would see every
+    PLAN/IMPLEMENT fixture here refused, and a source checkout (which has no
+    PROJECT_SETUP.md) would fail closed. Tests that exercise the gate patch over it.
+    """
+    temp = tempfile.TemporaryDirectory(prefix="sdd-jev-isolation-")
+    root = Path(temp.name).resolve()
+    setup = root / "PROJECT_SETUP.md"
+    setup.write_text(
+        "```yaml\nschema_version: 1\nanswers:\n  typesafe_ai: none\n```\n", encoding="utf-8"
+    )
+    patchers = [
+        mock.patch.object(STAGE_CONTEXT_MODULE, "JEV_PROJECT_SETUP_PATH", setup),
+        mock.patch.object(STAGE_CONTEXT_MODULE, "JEV_CACHE_PATH", root / "JEV_CACHE.json"),
+    ]
+    for patcher in patchers:
+        patcher.start()
+    _GOVERNANCE_ISOLATION.extend([temp, *patchers])
+
+
+def tearDownModule() -> None:
+    temp, *patchers = _GOVERNANCE_ISOLATION
+    for patcher in reversed(patchers):
+        patcher.stop()
+    temp.cleanup()
+    _GOVERNANCE_ISOLATION.clear()
 
 
 def context() -> dict:
@@ -72,6 +107,19 @@ class ScopeHookTests(unittest.TestCase):
         result = hook_runtime.scope_tool_call(payload, self.root, context())
         self.assertEqual("block", result["action"])
         self.assertIn("editable_paths", result["message"])
+
+    @unittest.skipUnless(sys.platform != "win32", "the Jev gate is exercised on POSIX")
+    def test_jev_consent_blocks_implement_writes_without_a_governance_record(self) -> None:
+        setup = self.root.resolve() / "PROJECT_SETUP.md"
+        setup.write_text(
+            '```yaml\nschema_version: 1\nanswers:\n'
+            '  typesafe_ai: {"install":true,"automatic_semantic_governance":true}\n```\n',
+            encoding="utf-8",
+        )
+        payload = {"tool_name": "write_file", "tool_input": {"path": "src/app.py", "content": "x"}, "cwd": str(self.root)}
+        with mock.patch.object(STAGE_CONTEXT_MODULE, "JEV_PROJECT_SETUP_PATH", setup):
+            with self.assertRaisesRegex(hook_runtime.HookInputError, "JEV_GOVERNANCE_RECORD_REQUIRED"):
+                hook_runtime.scope_tool_call(payload, self.root, context())
 
     def test_v4a_patch_validates_every_target_including_lenient_headers(self) -> None:
         payload = {"tool_name": "patch", "tool_input": {

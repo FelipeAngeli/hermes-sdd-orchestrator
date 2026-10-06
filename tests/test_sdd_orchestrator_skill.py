@@ -1230,6 +1230,15 @@ class InstallerBehaviorTests(unittest.TestCase):
                 setup_path.read_text(encoding="utf-8"),
             )
 
+            # The installed suite isolates the dispatch gate from this consent
+            # record, so a consented project still passes its own tests.
+            suite = self.execute(
+                sys.executable, "-m", "unittest", "discover",
+                "-s", str(target / ".hermes/orchestration/tests"), "-p", "test_*.py",
+                cwd=target,
+            )
+            self.assertIn("OK", suite.stderr)
+
     def test_legacy_typesafe_answer_never_authorizes_automatic_governance(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-typesafe-legacy-consent-") as temp:
             target = Path(temp)
