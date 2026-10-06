@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -697,6 +698,7 @@ def governance_setup(automatic: bool) -> str:
     )
 
 
+@unittest.skipUnless(os.name == "posix", "the governor cache and its lock are POSIX-only")
 class SemanticGovernanceGateTests(unittest.TestCase):
     """With automatic Jev consent, PLAN and IMPLEMENT need a governor decision for the ticket."""
 
@@ -754,6 +756,15 @@ class SemanticGovernanceGateTests(unittest.TestCase):
         self.write_answer("none")
         with mock.patch.object(governor, "_platform_name", return_value="nt"):
             self.assertTrue(ctx.check(context("PLAN"))["valid"])
+
+    def test_the_gate_creates_nothing_when_the_cache_is_absent(self) -> None:
+        self.consent()
+        missing = self.root / "new" / "sub" / "JEV_CACHE.json"
+        value = context("PLAN")
+        value["semantic_governance"] = {"fingerprint": "e" * 64, "review_resolution": None}
+        with mock.patch.object(ctx, "JEV_CACHE_PATH", missing):
+            self.assertIn("JEV_GOVERNANCE_RECORD_UNVERIFIED", errors_of(value))
+        self.assertFalse((self.root / "new").exists())
 
     def test_a_forged_minimal_cache_entry_is_refused(self) -> None:
         self.consent()

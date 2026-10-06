@@ -847,7 +847,10 @@ def consent_state(path: Path) -> str:
         return CONSENT_INVALID
     if _is_exact_consent(consent, True):
         return CONSENT_ENABLED
-    if _is_exact_consent(consent, False) or consent == {"install": True} and consent["install"] is True:
+    legacy_install_only = (
+        isinstance(consent, dict) and set(consent) == {"install"} and consent["install"] is True
+    )
+    if _is_exact_consent(consent, False) or legacy_install_only:
         return CONSENT_DISABLED
     return CONSENT_INVALID
 
@@ -909,11 +912,16 @@ def _validate_report_structure(report: Any, fingerprint_value: str, ticket: str)
 def verify_cached_decision(cache_path: Path, fingerprint_value: str, ticket: str) -> dict[str, Any]:
     """Return the structurally valid live report for `ticket`, or raise GovernanceError.
 
-    Reads under the cache lock with the same no-follow descriptors as `decide`.
+    Reads under the governor's existing cache lock with the same no-follow
+    descriptors as `decide`; it creates nothing when the cache or lock is absent.
     The cache is owner-private; this proves the controller's process followed
     the governor, not that a same-user process could not have written the file.
     """
     _require_supported_platform()
+    lock_path = cache_path.with_name(f".{cache_path.name}.lock")
+    if not os.path.lexists(cache_path) or not os.path.lexists(lock_path):
+        # A gate never creates the cache, its lock or their parents.
+        raise GovernanceError("JEV_GOVERNANCE_CACHE_INVALID")
     with _cache_lock(cache_path) as location:
         report = _read_cache_at(*location)["entries"].get(fingerprint_value)
     _validate_report_structure(report, fingerprint_value, ticket)

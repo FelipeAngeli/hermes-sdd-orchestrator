@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- The Jev dispatch gate no longer creates the governor cache, its lock or their parent directories: `verify_cached_decision` returns `JEV_GOVERNANCE_RECORD_UNVERIFIED` when either is absent, so `stage_context.py` stays read-only, including inside the Obsidian container. `consent_state` spells out the legacy install-only check instead of relying on operator precedence. The gate tests that need the POSIX-only cache are skipped on other platforms. Migration note for 9.0.0: an older `PROJECT_SETUP.md` with no `typesafe_ai` answer also fails closed at PLAN and IMPLEMENT; record `typesafe_ai: none` to opt out. The hooks page now lists the setup and platform refusals, and the harness page states that in-flight tombstones pass only as `REVIEW` with a human resolution.
+
 ## 9.0.0 - 2026-10-06
 
 ### Breaking

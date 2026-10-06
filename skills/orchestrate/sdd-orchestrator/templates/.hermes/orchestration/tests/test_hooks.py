@@ -108,6 +108,7 @@ class ScopeHookTests(unittest.TestCase):
         self.assertEqual("block", result["action"])
         self.assertIn("editable_paths", result["message"])
 
+    @unittest.skipUnless(sys.platform != "win32", "the Jev gate is exercised on POSIX")
     def test_jev_consent_blocks_implement_writes_without_a_governance_record(self) -> None:
         setup = self.root.resolve() / "PROJECT_SETUP.md"
         setup.write_text(

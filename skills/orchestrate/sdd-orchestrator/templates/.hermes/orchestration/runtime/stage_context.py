@@ -7,7 +7,8 @@ code/documentation divergences and, for IMPLEMENT/TEST/REVIEW, the slice
 contract — editable paths, project-local playbooks, the authoritative acceptance
 mapping and the observable verifiers each check needs. It reads only the
 controller-owned JSON and the exact project-local playbook files named there;
-it never reads other repository files, the vault or STATE and never mutates state.
+it never reads other repository files, the vault or STATE and never mutates state
+(the optional Jev gate below reads the governor cache under its existing lock).
 
 When the project recorded explicit automatic Jev consent, PLAN and IMPLEMENT
 also need the `semantic_governance` record: the fingerprint of a live
