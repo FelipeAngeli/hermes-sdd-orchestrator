@@ -20,7 +20,7 @@ The binding is the only place that decides vault paths. With Obsidian storage it
 
 Public API: `load`, `load_path`, `binding_path`, `worktree_slug`, `runtime_dir`, `state_path`, `journal_path`, `is_inside_container`.
 
-Hooks (`hook_runtime.py`) and the playbook check (`stage_context.py`) follow the same rule: when the repository has no `.hermes/orchestration`, a vault-resident controller is accepted, transient hook files (`STAGE_CONTEXT.json`, `HOOK_BINDING.json`, `VERIFICATION_EVIDENCE.json`) default to the worktree runtime directory in the vault, and playbook bytes are verified from the container's `.hermes/skills/`. `project_root` must still be the live Git workspace; only where the bytes are read changes.
+Hooks (`hook_runtime.py`) differ from `binding_path` on one point: with a vault-resident controller they read only the container binding, for runtime state, transient hook files and the vault write check alike, because a repository-local binding could redirect them. Hooks and the playbook check (`stage_context.py`) follow the same rule: when the repository has no `.hermes/orchestration`, a vault-resident controller is accepted, transient hook files (`STAGE_CONTEXT.json`, `HOOK_BINDING.json`, `VERIFICATION_EVIDENCE.json`) default to the worktree runtime directory in the vault, and playbook bytes are verified from the container's `.hermes/skills/`. `project_root` must still be the live Git workspace; only where the bytes are read changes.
 
 ## Read connectivity: `obsidian_connector.py`
 

@@ -140,9 +140,10 @@ def _configured_path(root: Path, environ: Mapping[str, str], key: str, default: 
     configured = environ.get(key)
     if configured:
         return Path(configured).expanduser().resolve()
-    if not (root / ".hermes" / "orchestration").is_dir() and _container_binding_path() is not None:
+    if _container_binding_path() is not None:
         # Obsidian-resident controller: transient hook files live with the
-        # worktree runtime in the vault, never in the user's repository.
+        # worktree runtime in the vault, never in the (untrusted) repository,
+        # even when the repository carries its own .hermes tree.
         return runtime_locations(root).state.parent / default.name
     return root / default
 
@@ -289,7 +290,7 @@ def _allowed_target(raw_target: str, root: Path, context: dict[str, Any]) -> tup
     if context.get("stage") != "IMPLEMENT":
         return None, _block("Vault write refused: only IMPLEMENT may write inside the bound project container.")
     try:
-        binding = obsidian_binding.load(root)
+        binding = _load_binding(root)
         return vault_guard.assert_writable(binding, resolved), None
     except (obsidian_binding.BindingError, vault_guard.VaultWriteRefused) as exc:
         return None, _block(f"Write refused outside the repository and bound project container: {exc}")

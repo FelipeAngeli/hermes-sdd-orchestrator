@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- With a vault-resident controller, hooks now use only the container binding everywhere: the IMPLEMENT vault write check and the transient `STAGE_CONTEXT.json`, `HOOK_BINDING.json` and `VERIFICATION_EVIDENCE.json` (always read from the worktree runtime in the vault) no longer follow a binding or `.hermes` tree inside the repository. In 8.0.2 a repository-local `.hermes/obsidian.json` could still redefine the container for the write check and allow IMPLEMENT writes outside both the repository and the real container. `obsidian_binding.binding_path` keeps its repository-first precedence for operator-invoked CLIs, now documented.
+
 ## 8.0.2 - 2026-10-06
 
 ### Fixed
