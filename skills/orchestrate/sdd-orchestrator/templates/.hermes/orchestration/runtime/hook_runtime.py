@@ -83,8 +83,8 @@ def _container_binding_path() -> Path | None:
 
 
 def _load_binding(root: Path) -> obsidian_binding.Binding:
-    if (root / obsidian_binding.BINDING_RELATIVE_PATH).is_file():
-        return obsidian_binding.load(root)
+    # A vault-resident controller trusts only its own container binding; a
+    # binding inside the (possibly untrusted) repository cannot redirect it.
     container_binding = _container_binding_path()
     if container_binding is not None:
         return obsidian_binding.load_path(container_binding)
@@ -119,10 +119,20 @@ def _root(payload: Mapping[str, Any]) -> Path:
     if not isinstance(cwd, str) or not cwd:
         raise HookInputError("hook payload has no cwd")
     root = Path(cwd).expanduser().resolve()
-    if not (root / ".hermes" / "orchestration").is_dir() and _container_binding_path() is None:
+    if _container_binding_path() is None:
+        if (root / ".hermes" / "orchestration").is_dir():
+            return root
         raise HookInputError(
             f"{root} has no installed .hermes/orchestration directory and no Obsidian-resident controller"
         )
+    # A vault-resident controller serves only worktrees the installer set up:
+    # each one has its own runtime STATE.md under the container.
+    try:
+        installed = runtime_locations(root).state.is_file()
+    except Exception as error:  # binding or slug errors fail closed
+        raise HookInputError(f"{root} is not a worktree of this Obsidian-resident controller: {error}") from error
+    if not installed:
+        raise HookInputError(f"{root} is not a worktree installed for this Obsidian-resident controller")
     return root
 
 
@@ -130,9 +140,10 @@ def _configured_path(root: Path, environ: Mapping[str, str], key: str, default: 
     configured = environ.get(key)
     if configured:
         return Path(configured).expanduser().resolve()
-    if not (root / ".hermes" / "orchestration").is_dir() and _container_binding_path() is not None:
+    if _container_binding_path() is not None:
         # Obsidian-resident controller: transient hook files live with the
-        # worktree runtime in the vault, never in the user's repository.
+        # worktree runtime in the vault, never in the (untrusted) repository,
+        # even when the repository carries its own .hermes tree.
         return runtime_locations(root).state.parent / default.name
     return root / default
 
@@ -279,7 +290,7 @@ def _allowed_target(raw_target: str, root: Path, context: dict[str, Any]) -> tup
     if context.get("stage") != "IMPLEMENT":
         return None, _block("Vault write refused: only IMPLEMENT may write inside the bound project container.")
     try:
-        binding = obsidian_binding.load(root)
+        binding = _load_binding(root)
         return vault_guard.assert_writable(binding, resolved), None
     except (obsidian_binding.BindingError, vault_guard.VaultWriteRefused) as exc:
         return None, _block(f"Write refused outside the repository and bound project container: {exc}")

@@ -1,6 +1,9 @@
 # Opt in by merging this block into a dedicated Hermes profile config.yaml.
-# Replace <ABSOLUTE_PROJECT_ROOT> before use. Absolute paths keep Hermes'
-# persistent (event, command) consent bound to this checkout.
+# Replace <ABSOLUTE_PROJECT_ROOT> before use with the directory that holds
+# .hermes/orchestration: the Obsidian project container (<vault>/<project>) for
+# the default storage, or the repository root with --local-storage. Hooks take
+# the repository from the event's cwd. Absolute paths keep Hermes' persistent
+# (event, command) consent bound to this installation.
 hooks:
   pre_tool_call:
     - matcher: "write_file|patch"

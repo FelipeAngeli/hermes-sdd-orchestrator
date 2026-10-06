@@ -191,9 +191,67 @@ class VaultResidentControllerTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
+    def install_runtime(self, repo: Path) -> None:
+        state = hook_runtime.runtime_locations(repo).state
+        state.parent.mkdir(parents=True)
+        state.write_text("```json\n{}\n```\n", encoding="utf-8")
+
     def test_clean_repository_is_accepted_when_controller_is_vault_resident(self) -> None:
+        self.install_runtime(self.repo)
         self.assertEqual(self.repo, hook_runtime._root({"cwd": str(self.repo)}))
         self.assertFalse((self.repo / ".hermes").exists())
+
+    def test_a_repository_cannot_redirect_a_vault_resident_controller(self) -> None:
+        evil = self.repo.parent / "evil"
+        (evil / ".hermes" / "orchestration").mkdir(parents=True)
+        elsewhere = self.repo.parent / "elsewhere"
+        elsewhere.mkdir()
+        (evil / ".hermes" / "obsidian.json").write_text(json.dumps({
+            "schema_version": 1, "vault_path": str(elsewhere), "project_container": "X",
+        }), encoding="utf-8")
+        with self.assertRaisesRegex(hook_runtime.HookInputError, "not a worktree installed"):
+            hook_runtime._root({"cwd": str(evil)})
+        state = hook_runtime.runtime_locations(evil).state
+        self.assertTrue(state.is_relative_to(self.container))
+        self.assertFalse(state.is_relative_to(elsewhere))
+
+    def plant_repository_binding(self, elsewhere: Path) -> None:
+        (self.repo / ".hermes" / "orchestration").mkdir(parents=True)
+        (self.repo / ".hermes" / "obsidian.json").write_text(json.dumps({
+            "schema_version": 1, "vault_path": str(elsewhere), "project_container": "Proj",
+        }), encoding="utf-8")
+
+    def test_a_planted_repository_binding_cannot_widen_vault_writes(self) -> None:
+        self.install_runtime(self.repo)
+        elsewhere = self.repo.parent / "elsewhere"
+        (elsewhere / "Proj").mkdir(parents=True)
+        payload = {"tool_name": "write_file", "cwd": str(self.repo),
+                   "tool_input": {"path": str(elsewhere / "Proj" / "payload.md"), "content": "x"}}
+        self.assertEqual("block", hook_runtime.scope_tool_call(payload, self.repo, context())["action"])
+        self.plant_repository_binding(elsewhere)
+        self.assertEqual(self.repo, hook_runtime._root({"cwd": str(self.repo)}))
+        self.assertEqual("block", hook_runtime.scope_tool_call(payload, self.repo, context())["action"])
+        inside = {"tool_name": "write_file", "cwd": str(self.repo),
+                  "tool_input": {"path": str(self.container / "note.md"), "content": "x"}}
+        self.assertEqual("modify", hook_runtime.scope_tool_call(inside, self.repo, context())["action"])
+
+    def test_hook_files_stay_in_the_vault_when_the_repository_has_a_hermes_tree(self) -> None:
+        self.install_runtime(self.repo)
+        self.plant_repository_binding(self.repo.parent / "elsewhere")
+        runtime = hook_runtime.runtime_locations(self.repo).state.parent
+        for key, default in (("SDD_STAGE_CONTEXT", hook_runtime.CONTEXT_RELATIVE),
+                             ("SDD_HOOK_BINDING", hook_runtime.BINDING_RELATIVE),
+                             ("SDD_VERIFICATION_EVIDENCE", hook_runtime.EVIDENCE_RELATIVE)):
+            with self.subTest(key=key):
+                path = hook_runtime._configured_path(self.repo, {}, key, default)
+                self.assertEqual(runtime / default.name, path)
+                self.assertTrue(path.is_relative_to(self.container))
+
+    def test_an_uninstalled_directory_is_refused_by_a_vault_resident_controller(self) -> None:
+        stranger = self.repo.parent / "unrelated"
+        stranger.mkdir()
+        with self.assertRaisesRegex(hook_runtime.HookInputError, "not a worktree installed"):
+            hook_runtime._root({"cwd": str(stranger)})
 
     def test_hook_state_files_default_to_the_worktree_runtime_in_the_vault(self) -> None:
         path = hook_runtime._configured_path(self.repo, {}, "SDD_STAGE_CONTEXT", hook_runtime.CONTEXT_RELATIVE)

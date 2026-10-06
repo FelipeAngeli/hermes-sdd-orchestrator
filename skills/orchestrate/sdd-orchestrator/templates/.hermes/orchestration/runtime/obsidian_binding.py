@@ -91,6 +91,10 @@ def binding_path(repo_root: Path) -> Path:
     runtime is installed inside an Obsidian project container (the default
     storage), the container's own ``.hermes/obsidian.json`` is authoritative so
     the user's repository never has to carry any Hermes file.
+
+    This precedence serves operator-invoked CLIs with an explicit ``--repo``.
+    Hooks act on repository content that may be untrusted, so with a
+    vault-resident controller they use only the container binding instead.
     """
     local = Path(repo_root) / BINDING_RELATIVE_PATH
     if local.is_file():
