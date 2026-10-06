@@ -4,6 +4,11 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Breaking
+- The project installer now stores **everything in the Obsidian project container** and writes nothing to the user's repository: no `.hermes/`, `.hermes.md`, `skills-lock.json`, `.env`, bytecode or `.git/info/exclude` edits. `install_project.py` gains `--obsidian-vault` and `--obsidian-project`, which are required by default (`OBSIDIAN_BINDING_REQUIRED` otherwise), and writes the controller, `PROJECT_SETUP.md` (with the `obsidian` answer pre-resolved), playbooks, `.hermes/obsidian.json` and the per-worktree runtime under `<vault>/<project>/`. The report adds `storage`, `vault`, `project_container`, `worktree_runtime` and `target_writes: []`, and the run fails with `TARGET_WORKTREE_CHANGED` if the target's Git status or Hermes paths moved. The old in-repository layout remains available with `--local-storage` (`STORAGE_MODE_CONFLICT` when combined with the Obsidian flags). In Obsidian mode TypeSafe creates no credential file; keys come from the process environment.
+
+### Changed
+- `obsidian_binding.binding_path` falls back to the container binding of the controller it runs from when the repository has none, and `load_path` loads an explicit binding. Hooks accept a vault-resident controller for a clean repository and default their transient files to the worktree runtime in the vault; `stage_context.py` verifies playbook bytes from the container's `.hermes/skills/` while still requiring `project_root` to be the live Git workspace.
 ## 7.0.0 - 2026-10-05
 
 ### Breaking

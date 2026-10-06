@@ -56,6 +56,27 @@ class LoadTests(unittest.TestCase):
             obsidian_binding.load(self.repo)
         self.assertEqual(ctx.exception.code, "BINDING_MISSING")
 
+    def test_runtime_installed_in_vault_uses_container_binding_when_repo_has_none(self) -> None:
+        import importlib.util
+        import shutil
+
+        container = Path(self._tmp.name) / "vault" / "Projects" / "App"
+        runtime = container / ".hermes" / "orchestration" / "runtime"
+        runtime.mkdir(parents=True)
+        shutil.copy2(RUNTIME / "obsidian_binding.py", runtime / "obsidian_binding.py")
+        write_binding(container, vault_path=str(Path(self._tmp.name) / "vault"), project_container="Projects/App")
+        spec = importlib.util.spec_from_file_location("vault_obsidian_binding", runtime / "obsidian_binding.py")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["vault_obsidian_binding"] = module
+        self.addCleanup(sys.modules.pop, "vault_obsidian_binding", None)
+        spec.loader.exec_module(module)
+
+        binding = module.load(self.repo)
+
+        self.assertEqual("Projects/App", binding.project_container)
+        self.assertFalse((self.repo / ".hermes").exists())
+        self.assertEqual((container / ".hermes" / "obsidian.json").resolve(), module.binding_path(self.repo))
+
     def test_unknown_schema_version_is_refused(self) -> None:
         write_binding(self.repo, schema_version=999)
         with self.assertRaises(obsidian_binding.BindingError) as ctx:

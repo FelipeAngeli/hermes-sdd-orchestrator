@@ -540,9 +540,17 @@ class InstallerBehaviorTests(unittest.TestCase):
         apply: bool = False,
         typesafe_ai: str | None = None,
         automatic_jev_governance: bool = False,
+        obsidian_vault: Path | None = None,
+        obsidian_project: str | None = None,
         env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         arguments = [sys.executable, str(installer), "--target", str(target)]
+        if obsidian_vault is not None:
+            arguments.extend(("--obsidian-vault", str(obsidian_vault)))
+        if obsidian_project is not None:
+            arguments.extend(("--obsidian-project", obsidian_project))
+        if obsidian_vault is None and obsidian_project is None:
+            arguments.append("--local-storage")
         if apply:
             arguments.append("--apply")
         if typesafe_ai:
@@ -586,6 +594,140 @@ class InstallerBehaviorTests(unittest.TestCase):
         report = json.loads(result.stderr)
         self.assertEqual("BLOCKED", report["status"])
         self.assertIn(reason, report["reason"])
+
+    def test_obsidian_apply_keeps_target_clean_and_installs_under_project_container(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-obsidian-only-") as temp:
+            root = Path(temp)
+            target = root / "repo"
+            vault = root / "vault"
+            target.mkdir()
+            vault.mkdir()
+            self.initialize_repository(target)
+            before = self.repository_snapshot(target)
+            exclude = Path(
+                self.execute(
+                    "git", "-C", str(target), "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"
+                ).stdout.strip()
+            )
+            exclude_before = exclude.read_bytes() if exclude.exists() else None
+
+            result = self.run_installer(
+                target,
+                apply=True,
+                obsidian_vault=vault,
+                obsidian_project="Projects/App",
+            )
+
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            report = json.loads(result.stdout)
+            container = vault.resolve() / "Projects/App"
+            self.assertEqual("APPLIED", report["status"])
+            self.assertTrue(report["applied"])
+            self.assertEqual(str(container), report["project_container"])
+            self.assertEqual([], report["target_writes"])
+            self.assertEqual(before, self.repository_snapshot(target))
+            self.assertEqual(exclude_before, exclude.read_bytes() if exclude.exists() else None)
+            self.assertFalse((target / ".hermes").exists())
+            self.assertFalse((target / ".hermes.md").exists())
+            self.assertFalse((target / "skills-lock.json").exists())
+            self.assertTrue((container / ".hermes.md").is_file())
+            self.assertTrue((container / ".hermes/orchestration/runtime/action_journal.py").is_file())
+            self.assertTrue((container / ".hermes/orchestration/PROJECT_SETUP.md").is_file())
+            self.assertTrue(Path(report["worktree_runtime"]).joinpath("STATE.md").is_file())
+            self.assertFalse(any(path.suffix in {".pyc", ".pyo"} for path in target.rglob("*")))
+
+    def make_obsidian_fixture(self, temp: str) -> tuple[Path, Path, Path]:
+        root = Path(temp)
+        target = root / "repo"
+        vault = root / "vault"
+        target.mkdir()
+        vault.mkdir()
+        self.initialize_repository(target)
+        return target, vault, vault / "Projects/App"
+
+    def test_obsidian_second_apply_is_already_initialized_and_byte_identical(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-obsidian-idempotent-") as temp:
+            target, vault, container = self.make_obsidian_fixture(temp)
+            first = self.run_installer(target, apply=True, obsidian_vault=vault, obsidian_project="Projects/App")
+            self.assertEqual(0, first.returncode, first.stderr)
+            before = (self.repository_snapshot(target), self.filesystem_snapshot(container))
+
+            second = self.run_installer(target, apply=True, obsidian_vault=vault, obsidian_project="Projects/App")
+
+            self.assertEqual(0, second.returncode, second.stderr)
+            report = json.loads(second.stdout)
+            self.assertEqual("ALREADY_INITIALIZED", report["status"])
+            self.assertFalse(report["applied"])
+            self.assertEqual(before, (self.repository_snapshot(target), self.filesystem_snapshot(container)))
+
+    def test_obsidian_typesafe_install_lives_only_in_container_without_credentials_file(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-obsidian-typesafe-") as temp:
+            target, vault, container = self.make_obsidian_fixture(temp)
+            before = self.repository_snapshot(target)
+
+            result = self.run_installer(
+                target,
+                apply=True,
+                typesafe_ai="install",
+                automatic_jev_governance=True,
+                obsidian_vault=vault,
+                obsidian_project="Projects/App",
+            )
+
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            integration = json.loads(result.stdout)["onboarding"]["integrations"]["typesafe_ai"]
+            self.assertEqual("INSTALLED", integration["status"])
+            self.assertTrue(integration["automatic_semantic_governance"])
+            self.assertEqual(before, self.repository_snapshot(target))
+            for source in TYPESAFE_FIXTURE.iterdir():
+                self.assertEqual(
+                    source.read_bytes(),
+                    (container / ".hermes/skills/typesafe-ai" / source.name).read_bytes(),
+                )
+            self.assertTrue((container / "skills-lock.json").is_file())
+            self.assertFalse((container / ".hermes/.env").exists())
+            setup = (container / ".hermes/orchestration/PROJECT_SETUP.md").read_text(encoding="utf-8")
+            self.assertIn('typesafe_ai: {"install":true,"automatic_semantic_governance":true}', setup)
+            self.assertIn('"project_container":"Projects/App"', setup)
+
+            repeated = self.run_installer(
+                target,
+                apply=True,
+                typesafe_ai="install",
+                automatic_jev_governance=True,
+                obsidian_vault=vault,
+                obsidian_project="Projects/App",
+            )
+            self.assertEqual(0, repeated.returncode, repeated.stderr)
+            self.assertEqual("ALREADY_INITIALIZED", json.loads(repeated.stdout)["status"])
+
+    def test_apply_without_obsidian_binding_blocks_without_writing(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-obsidian-required-") as temp:
+            target = Path(temp)
+            self.initialize_repository(target)
+            before = self.repository_snapshot(target)
+
+            result = self.execute(
+                sys.executable, str(INSTALLER), "--target", str(target), "--apply", "--json", check=False
+            )
+
+            self.assert_blocked(result, "OBSIDIAN_BINDING_REQUIRED")
+            self.assertIn("--obsidian-vault", json.loads(result.stderr)["next_step"])
+            self.assertEqual(before, self.repository_snapshot(target))
+
+    def test_obsidian_project_container_must_stay_inside_vault(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-obsidian-escape-") as temp:
+            target, vault, _ = self.make_obsidian_fixture(temp)
+            before = self.repository_snapshot(target)
+            for project in ("../outside", "/abs", ".hidden/App"):
+                with self.subTest(project=project):
+                    result = self.run_installer(
+                        target, apply=True, obsidian_vault=vault, obsidian_project=project
+                    )
+                    self.assert_blocked(result, "OBSIDIAN_PROJECT_INVALID")
+            self.assertEqual([], list(vault.iterdir()))
+            self.assertFalse((Path(temp) / "outside").exists())
+            self.assertEqual(before, self.repository_snapshot(target))
 
     def test_non_git_target_reports_actionable_blocker_without_writing(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-no-git-") as temp:
@@ -1346,6 +1488,7 @@ class InstallerBehaviorTests(unittest.TestCase):
                 str(INSTALLER),
                 "--target",
                 str(target),
+                "--local-storage",
                 "--typesafe-ai",
                 "install",
                 "--apply",
@@ -2110,7 +2253,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             command = (
                 "umask 000; exec "
                 f"{shlex.quote(sys.executable)} {shlex.quote(str(INSTALLER))} "
-                f"--target {shlex.quote(str(target))} --apply --json"
+                f"--target {shlex.quote(str(target))} --local-storage --apply --json"
             )
 
             result = self.execute("/bin/sh", "-c", command, check=False)

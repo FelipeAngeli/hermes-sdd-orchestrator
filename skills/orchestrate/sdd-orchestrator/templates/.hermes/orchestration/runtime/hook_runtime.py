@@ -29,6 +29,10 @@ EVIDENCE_RELATIVE = Path(".hermes/orchestration/VERIFICATION_EVIDENCE.json")
 STATE_RELATIVE = Path(".hermes/orchestration/STATE.md")
 JOURNAL_RELATIVE = Path(".hermes/orchestration/ACTION_JOURNAL.json")
 SUBAGENT_HISTORY_RELATIVE = Path(".hermes/orchestration/action-journal-history/subagent-events")
+#: Project container holding this installed controller (runtime/ -> orchestration/
+#: -> .hermes/ -> container). It is authoritative only when it carries a binding,
+#: i.e. when the controller was installed into Obsidian instead of the repository.
+INSTALLED_CONTAINER = RUNTIME.parents[2]
 DIRECT_WRITE_TOOLS = {"write_file", "patch"}
 HOOK_ENVIRONMENT_KEYS = (
     "SDD_STAGE_CONTEXT",
@@ -54,7 +58,7 @@ def runtime_locations(root: Path) -> RuntimeLocations:
     """Resolve controller state locally or in the bound per-worktree vault runtime."""
     root = root.resolve()
     try:
-        binding = obsidian_binding.load(root)
+        binding = _load_binding(root)
     except obsidian_binding.BindingError as exc:
         if exc.code != "BINDING_MISSING":
             raise
@@ -71,6 +75,20 @@ def runtime_locations(root: Path) -> RuntimeLocations:
         history_workspace=runtime,
         history_relative=Path("action-journal-history/subagent-events"),
     )
+
+
+def _container_binding_path() -> Path | None:
+    candidate = INSTALLED_CONTAINER / ".hermes" / "obsidian.json"
+    return candidate if candidate.is_file() and not candidate.is_symlink() else None
+
+
+def _load_binding(root: Path) -> obsidian_binding.Binding:
+    if (root / obsidian_binding.BINDING_RELATIVE_PATH).is_file():
+        return obsidian_binding.load(root)
+    container_binding = _container_binding_path()
+    if container_binding is not None:
+        return obsidian_binding.load_path(container_binding)
+    return obsidian_binding.load(root)
 
 
 class HookInputError(ValueError):
@@ -101,14 +119,22 @@ def _root(payload: Mapping[str, Any]) -> Path:
     if not isinstance(cwd, str) or not cwd:
         raise HookInputError("hook payload has no cwd")
     root = Path(cwd).expanduser().resolve()
-    if not (root / ".hermes" / "orchestration").is_dir():
-        raise HookInputError(f"{root} has no installed .hermes/orchestration directory")
+    if not (root / ".hermes" / "orchestration").is_dir() and _container_binding_path() is None:
+        raise HookInputError(
+            f"{root} has no installed .hermes/orchestration directory and no Obsidian-resident controller"
+        )
     return root
 
 
 def _configured_path(root: Path, environ: Mapping[str, str], key: str, default: Path) -> Path:
     configured = environ.get(key)
-    return Path(configured).expanduser().resolve() if configured else root / default
+    if configured:
+        return Path(configured).expanduser().resolve()
+    if not (root / ".hermes" / "orchestration").is_dir() and _container_binding_path() is not None:
+        # Obsidian-resident controller: transient hook files live with the
+        # worktree runtime in the vault, never in the user's repository.
+        return runtime_locations(root).state.parent / default.name
+    return root / default
 
 
 def _load_json(path: Path, label: str) -> Any:

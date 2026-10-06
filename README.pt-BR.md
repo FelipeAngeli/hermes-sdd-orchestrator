@@ -50,6 +50,8 @@ Perfil Hermes (uma vez)                       Projeto Git de destino (por projet
 
 `.hermes/obsidian.json` é a única exceção à regra de não rastreamento: ele vincula o projeto ao vault do Obsidian e é versionado para que a conectividade sobreviva a um clone. Quando uma worktree é inicializada com um vault, `STATE.md`, `ACTION_JOURNAL.json` e `INCIDENTS.md` são movidos para esse vault e separados por worktree — veja `templates/.hermes/orchestration/BOOTSTRAP.md`.
 
+> **A partir da 8.0.0, o padrão é guardar tudo no Obsidian.** Com `--obsidian-vault <vault absoluto> --obsidian-project <Projetos/Nome>`, o instalador grava controlador, `PROJECT_SETUP.md`, playbooks, vínculo e runtime por worktree em `<vault>/<projeto>/` e **não escreve nada no repositório do usuário** — nenhum `.hermes/`, `.hermes.md`, `skills-lock.json`, `.env`, `__pycache__` ou edição em `.git/info/exclude`. O layout acima, dentro do repositório, só é usado com `--local-storage`. Credenciais TypeSafe/Jev nunca vão para o vault: exporte-as no ambiente. Veja [Skill e instalador](docs/components/skill-and-installer.md#obsidian-storage-default).
+
 A skill é reutilizável. A configuração do controlador, o setup do projeto, o estado, o registro de incidentes e o journal são locais ao projeto e adicionados somente ao `info/exclude` do Git no repositório de destino. O instalador nunca sobrescreve configuração existente nem modifica arquivos rastreados.
 
 ## Skills de engenharia locais ao projeto

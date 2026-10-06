@@ -123,6 +123,37 @@ class ScopeHookTests(unittest.TestCase):
             )
 
 
+class VaultResidentControllerTests(unittest.TestCase):
+    """The controller lives in the Obsidian container; the repository stays clean."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        base = Path(tmp.name).resolve()
+        self.repo = base / "repo"
+        self.repo.mkdir()
+        self.container = base / "vault" / "Projects" / "App"
+        (self.container / ".hermes").mkdir(parents=True)
+        (self.container / ".hermes" / "obsidian.json").write_text(json.dumps({
+            "schema_version": 1,
+            "vault_path": str(base / "vault"),
+            "project_container": "Projects/App",
+        }), encoding="utf-8")
+        patcher = patch.object(hook_runtime, "INSTALLED_CONTAINER", self.container)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_clean_repository_is_accepted_when_controller_is_vault_resident(self) -> None:
+        self.assertEqual(self.repo, hook_runtime._root({"cwd": str(self.repo)}))
+        self.assertFalse((self.repo / ".hermes").exists())
+
+    def test_hook_state_files_default_to_the_worktree_runtime_in_the_vault(self) -> None:
+        path = hook_runtime._configured_path(self.repo, {}, "SDD_STAGE_CONTEXT", hook_runtime.CONTEXT_RELATIVE)
+        runtime = hook_runtime.runtime_locations(self.repo).state.parent
+        self.assertEqual(runtime / "STAGE_CONTEXT.json", path)
+        self.assertTrue(runtime.is_relative_to(self.container))
+
+
 class VerificationAndLifecycleHookTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
