@@ -38,9 +38,13 @@ The project's context lives in the second brain. Resolve every vault path throug
 
 During SPECIFY, PLAN and IMPLEMENT the vault is read-only for this role (`policies/LOOP_POLICY.md` §18). An update is only a proposal: it describes the verified change and its evidence. The controller presents it as an `OBSIDIAN WRITE PROPOSAL` after REVIEW/DONE and applies it only with explicit human authorization. Never copy secrets, credentials or personal data into a note, and never duplicate the repository's technical documentation there; link to it.
 
-Within the project container, propose only the notes the project actually warrants:
+The project container is an LLM Wiki. Read its `SCHEMA.md`, `index.md` and the recent `log.md` entries before anything else, and propose notes only where its layout puts them:
 
-`README`, `Architecture`, `Project-Rules`, `Tech-Stack`, `Dependencies`, `Testing-Strategy`, `Integrations`, `Decisions/`, `Modules/`, `Specs/` and an audit log of context changes.
+- `raw/` is immutable source material: demand artifacts in `raw/articles/`, session logs and meetings in `raw/transcripts/`, PDFs in `raw/papers/`, images in `raw/assets/`. Never propose an edit to a raw file.
+- `entities/` holds one page per module, service, integration or organization; `concepts/` one page per rule, concept or decision (`type: decision`); `comparisons/` side-by-side analyses; `queries/` answers worth keeping.
+- Every proposed page carries the frontmatter and tags defined in `SCHEMA.md`, links at least two pages, and comes with its `index.md` line and `log.md` entry.
+
+Architecture, rules, stack, dependencies, testing strategy and integrations become `concepts/` or `entities/` pages, not free-standing notes at the container root.
 
 - Never recreate documentation that already exists, in the repository or in the vault. Point to it instead; a second copy diverges from the first and the reader cannot tell which is current.
 - Propose a note update only for a verified change, and record what changed and the evidence for it.

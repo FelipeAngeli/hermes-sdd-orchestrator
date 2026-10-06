@@ -65,7 +65,8 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/migrate_to_vault.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/migrate_all_worktrees.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/consolidate_runtime.py",
-      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/state_format.py"
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/state_format.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/wiki_layout.py"
     ],
     "docs/components/context-graph.md": [
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/context_graph.py"

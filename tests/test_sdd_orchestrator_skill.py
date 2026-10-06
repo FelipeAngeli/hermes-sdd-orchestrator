@@ -659,6 +659,42 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertEqual(0, suite.returncode, suite.stderr[-4000:])
             self.assertEqual("", self.execute("git", "-C", str(target), "status", "--porcelain").stdout)
 
+    def test_obsidian_container_is_laid_out_as_an_llm_wiki(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-obsidian-wiki-") as temp:
+            target, vault, container = self.make_obsidian_fixture(temp)
+            result = self.run_installer(
+                target, apply=True, typesafe_ai="install", obsidian_vault=vault, obsidian_project="Projects/App"
+            )
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            for name in ("SCHEMA.md", "index.md", "log.md"):
+                self.assertTrue((container / name).is_file(), name)
+            for directory in ("raw/articles", "raw/papers", "raw/transcripts", "raw/assets",
+                              "entities", "concepts", "comparisons", "queries"):
+                self.assertTrue((container / directory).is_dir(), directory)
+            visible = sorted(path.name for path in container.iterdir() if not path.name.startswith("."))
+            self.assertEqual(
+                ["SCHEMA.md", "comparisons", "concepts", "entities", "index.md", "log.md", "queries", "raw"], visible
+            )
+            self.assertIn("layout_version: 1", (container / "SCHEMA.md").read_text(encoding="utf-8"))
+
+    def test_obsidian_install_never_overwrites_existing_wiki_files(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-obsidian-wiki-keep-") as temp:
+            target, vault, container = self.make_obsidian_fixture(temp)
+            (container / "concepts").mkdir(parents=True)
+            (container / "index.md").write_text("# My curated index\n", encoding="utf-8")
+            (container / "concepts" / "payments.md").write_text("# Payments\n", encoding="utf-8")
+            before = {path: path.read_bytes() for path in (container / "index.md", container / "concepts/payments.md")}
+
+            result = self.run_installer(target, apply=True, obsidian_vault=vault, obsidian_project="Projects/App")
+
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            for path, content in before.items():
+                self.assertEqual(content, path.read_bytes())
+            self.assertFalse((container / "concepts/.gitkeep").exists())
+            self.assertTrue((container / "SCHEMA.md").is_file())
+            again = self.run_installer(target, apply=True, obsidian_vault=vault, obsidian_project="Projects/App")
+            self.assertEqual("ALREADY_INITIALIZED", json.loads(again.stdout)["status"])
+
     def make_obsidian_fixture(self, temp: str) -> tuple[Path, Path, Path]:
         root = Path(temp)
         target = root / "repo"
@@ -707,7 +743,8 @@ class InstallerBehaviorTests(unittest.TestCase):
                     source.read_bytes(),
                     (container / ".hermes/skills/typesafe-ai" / source.name).read_bytes(),
                 )
-            self.assertTrue((container / "skills-lock.json").is_file())
+            self.assertTrue((container / ".hermes/skills-lock.json").is_file())
+            self.assertFalse((container / "skills-lock.json").exists())
             self.assertFalse((container / ".hermes/.env").exists())
             setup = (container / ".hermes/orchestration/PROJECT_SETUP.md").read_text(encoding="utf-8")
             self.assertIn('typesafe_ai: {"install":true,"automatic_semantic_governance":true}', setup)

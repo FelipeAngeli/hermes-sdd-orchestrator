@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import datetime
 import errno
 import hashlib
 import importlib.util
@@ -14,7 +15,7 @@ import shutil
 import stat
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Callable
 
 ROOT = Path(__file__).resolve().parent
@@ -23,6 +24,8 @@ CONFIG_ROOT = ".hermes/orchestration"
 TYPESAFE_SKILL_ROOT = ".hermes/skills/typesafe-ai"
 TYPESAFE_SKILL_PATH = f"{TYPESAFE_SKILL_ROOT}/SKILL.md"
 TYPESAFE_LOCK_PATH = "skills-lock.json"
+#: In an Obsidian container the lock stays hidden so the wiki root holds only notes.
+TYPESAFE_LOCK_PATH_OBSIDIAN = ".hermes/skills-lock.json"
 TYPESAFE_ENV_PATH = ".hermes/.env"
 TYPESAFE_ENV_CONTENT = b"TYPESAFE_API_KEY=\nJEV_AI_API_KEY=\n"
 JEV_CACHE_PATH = f"{CONFIG_ROOT}/JEV_CACHE.json"
@@ -61,9 +64,10 @@ TRACKED_DESTINATIONS_GUARDED = True
 
 def _set_storage_mode(obsidian: bool) -> None:
     """Apply the per-run storage policy in one place."""
-    global CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED
+    global CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED, TYPESAFE_LOCK_PATH
     CREDENTIAL_FILE_MANAGED = not obsidian
     TRACKED_DESTINATIONS_GUARDED = not obsidian
+    TYPESAFE_LOCK_PATH = TYPESAFE_LOCK_PATH_OBSIDIAN if obsidian else "skills-lock.json"
 
 
 class InstallError(RuntimeError):
@@ -2518,6 +2522,30 @@ def obsidian_project_setup(vault: Path, project: str) -> str:
     return project_setup().replace("  obsidian: UNRESOLVED", f"  obsidian: {answer}", 1)
 
 
+def _wiki_module():
+    previous = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        return _load_template_module("sdd_wiki_layout", "runtime/wiki_layout.py")
+    finally:
+        sys.dont_write_bytecode = previous
+
+
+def _wiki_skeleton(project: str) -> dict[str, bytes]:
+    """Skeleton files plus a hidden keep-file for each empty wiki directory."""
+    module = _wiki_module()
+    name = PurePosixPath(project).name
+    files = dict(module.skeleton_files(project=name, today=datetime.date.today().isoformat()))
+    for directory in module.DIRECTORIES:
+        files[f"{directory}/.gitkeep"] = b""
+    return files
+
+
+def _project_path_present(vault: Path, relative: str) -> bool:
+    """True when the path exists in any form; the wiki is never overwritten."""
+    return os.path.lexists(vault / relative)
+
+
 def _plan_obsidian_files(
     vault: Path,
     project: str,
@@ -2557,6 +2585,18 @@ def _plan_obsidian_files(
     setup = f"{project}/{CONFIG_ROOT}/PROJECT_SETUP.md"
     if _read_project_file_nofollow(vault, setup) is None:
         planned[setup] = obsidian_project_setup(vault, project).encode("utf-8")
+
+    # LLM Wiki skeleton: created only where absent, never compared or replaced,
+    # because the wiki files belong to the project once they exist.
+    for relative, content in _wiki_skeleton(project).items():
+        path = vault / project / relative
+        if relative.endswith("/.gitkeep"):
+            # A keep-file only materializes an absent or empty wiki directory.
+            directory = path.parent
+            if directory.is_symlink() or (directory.is_dir() and any(directory.iterdir())):
+                continue
+        if not _project_path_present(vault, f"{project}/{relative}"):
+            planned[f"{project}/{relative}"] = content
 
     runtime = f"{project}/{OBSIDIAN_RUNTIME_SUBPATH}/{_worktree_slug(target)}"
     present = [
@@ -2609,7 +2649,7 @@ def _target_snapshot(target: Path) -> tuple[str, frozenset[str]]:
 
 
 def run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict[str, object]:
-    previous = (CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED)
+    previous = (CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED, TYPESAFE_LOCK_PATH)
     _set_storage_mode(obsidian=True)
     try:
         return _run_obsidian_install(args, target, workspace)
@@ -2617,9 +2657,9 @@ def run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict[
         _restore_storage_mode(previous)
 
 
-def _restore_storage_mode(previous: tuple[bool, bool]) -> None:
-    global CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED
-    CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED = previous
+def _restore_storage_mode(previous: tuple[bool, bool, str]) -> None:
+    global CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED, TYPESAFE_LOCK_PATH
+    CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED, TYPESAFE_LOCK_PATH = previous
 
 
 def _run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict[str, object]:

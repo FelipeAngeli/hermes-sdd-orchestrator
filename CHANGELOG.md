@@ -4,6 +4,15 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Breaking
+- In Obsidian storage the TypeSafe lock moves from the container root to `.hermes/skills-lock.json`, so the wiki root holds only notes. An existing Obsidian install with TypeSafe keeps its lock at the root, where the installer no longer looks; run `wiki_layout.py migrate --apply` on the container (it moves a root `skills-lock.json` into `.hermes/`) before reinstalling or upgrading.
+
+### Added
+- Each Obsidian project container is now laid out as a Karpathy LLM Wiki (the bundled `llm-wiki` skill's layout): `SCHEMA.md`, `index.md`, `log.md`, `raw/{articles,papers,transcripts,assets}/`, `entities/`, `concepts/`, `comparisons/` and `queries/`, with the orchestrator hidden under `.hermes/` and `.hermes-runtime/`. The installer creates the missing skeleton and never overwrites a wiki file. New `runtime/wiki_layout.py` (`init`, `migrate`, `check`, dry run unless `--apply`) migrates legacy project folders (`sessions/`, `decisions/`, `boards/`, `_Discovery/`, demand folders…) with copy → SHA-256 verify → remove, refusing every conflict before the first move and recording the moves in `log.md` and `index.md`. Folder index notes (`README.md`, `_INDEX.md`) inside legacy folders stay raw sources instead of becoming wiki pages.
+
+### Changed
+- The `project-context-guardian` brief now proposes notes in the wiki layout (raw sources are immutable; pages go to `entities/`, `concepts/`, `comparisons/` or `queries/` with `index.md` and `log.md` updates) instead of free-standing `Decisions/`, `Modules/` and `Specs/` folders.
+
 ## 9.0.3 - 2026-10-06
 
 ### Fixed

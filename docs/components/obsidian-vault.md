@@ -2,9 +2,41 @@
 
 [Docs index](../README.md) · Related: [Action journal](action-journal.md), [Skill and installer](skill-and-installer.md), [FSM and bounded loop](fsm-and-loop.md)
 
-**Files:** `BOOTSTRAP.md`, `runtime/obsidian_binding.py`, `runtime/obsidian_connector.py`, `runtime/vault_guard.py`, `runtime/bootstrap_worktree.py`, `runtime/migrate_to_vault.py`, `runtime/migrate_all_worktrees.py`, `runtime/consolidate_runtime.py`, `runtime/state_format.py`.
+**Files:** `BOOTSTRAP.md`, `runtime/wiki_layout.py`, `runtime/obsidian_binding.py`, `runtime/obsidian_connector.py`, `runtime/vault_guard.py`, `runtime/bootstrap_worktree.py`, `runtime/migrate_to_vault.py`, `runtime/migrate_all_worktrees.py`, `runtime/consolidate_runtime.py`, `runtime/state_format.py`.
 
 Since 8.0.0 the Obsidian project container is the **default storage** for everything the orchestrator owns: the [installer](skill-and-installer.md#obsidian-storage-default) writes the controller, setup, playbooks, binding and per-worktree runtime under `<vault>/<project>/` and leaves the user's repository untouched. `--local-storage` keeps the old in-repository layout. During SPECIFY → TEST the vault's knowledge notes are read-only. After REVIEW or DONE, Hermes may propose a write, and every write needs human approval (`OBSIDIAN_WRITE` is a [`HUMAN_REQUIRED` action](fsm-and-loop.md#actions)). The vault is never a condition for DONE.
+
+## Project container layout: LLM Wiki (`wiki_layout.py`)
+
+Each project container is a [Karpathy LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f), the layout of the bundled `llm-wiki` Hermes skill. The orchestrator stays hidden, so the visible root holds only the wiki:
+
+```text
+<vault>/<project>/
+├── SCHEMA.md      # domain, conventions, frontmatter, tag taxonomy; `layout_version: 1`
+├── index.md       # sectioned catalog: Entities, Concepts, Comparisons, Queries
+├── log.md         # append-only action log, rotated to log-YYYY.md
+├── raw/           # Layer 1, immutable: articles/ papers/ transcripts/ assets/
+├── entities/      # Layer 2: modules, services, integrations, organizations
+├── concepts/      # Layer 2: concepts, rules and decisions (`type: decision`)
+├── comparisons/   # Layer 2: side-by-side analyses
+├── queries/       # Layer 2: filed answers; Obsidian Bases under queries/boards/
+├── .hermes/ .hermes.md          # controller, binding, playbooks, skills-lock.json
+└── .hermes-runtime/<worktree>/  # per-worktree STATE, journal, incidents
+```
+
+The [installer](skill-and-installer.md#obsidian-storage-default) creates the skeleton (`SCHEMA.md`, `index.md`, `log.md` and a hidden `.gitkeep` in each empty directory) only where it is absent and never compares or replaces a wiki file, because it belongs to the project once it exists. In this mode the TypeSafe lock lives at `.hermes/skills-lock.json`.
+
+`wiki_layout.py` initializes, migrates and checks a container. It is stdlib-only and never contacts the network:
+
+```text
+python3 <container>/.hermes/orchestration/runtime/wiki_layout.py init    --container <abs> [--project <name>] [--date YYYY-MM-DD] [--apply] [--json]
+python3 <container>/.hermes/orchestration/runtime/wiki_layout.py migrate --container <abs> [--project <name>] [--date YYYY-MM-DD] [--apply] [--json]
+python3 <container>/.hermes/orchestration/runtime/wiki_layout.py check   --container <abs> [--json]
+```
+
+Without `--apply`, `init` and `migrate` are dry runs that report `planned_skeleton`, `moves`, `deduplicated`, `conflicts` and `skipped_symlinks`. `migrate --apply` maps legacy project folders onto the layout: `sessions/` → `raw/transcripts/`, `_Meetings/` → `raw/transcripts/meetings/`, `decisions/` → `concepts/`, `boards/` → `queries/boards/`, `_Discovery/`, `_References/` and `_Reviews/` → `raw/articles/<name>/`, every demand folder and other loose note → `raw/articles/` (a folder index note such as `README.md` or `_INDEX.md` inside a legacy folder that maps to `concepts/` or `queries/` stays a raw source under `raw/articles/<folder>/`), PDFs → `raw/papers/`, images and media → `raw/assets/`, root `.base` files → `queries/`, and a root `skills-lock.json` → `.hermes/`. Hidden entries, the skeleton files, `log-YYYY.md` and the wiki directories (plus `_archive/` and `_meta/`) stay where they are. Every conflict (a destination that exists with different content, is not a regular file, or is claimed twice) blocks the whole run with `WIKI_MIGRATION_CONFLICT` before anything moves; a byte-identical destination is deduplicated. Each file is copied with `O_EXCL`, its SHA-256 verified and only then is the source removed; symlinks are never followed or moved. An interrupted run returns `WIKI_MIGRATION_INCOMPLETE`, leaves every unmoved source in place, logs what moved and can be rerun. A completed run prunes emptied legacy folders, adds moved pages to `index.md` under their section and appends the full move list to `log.md`; a second run returns `ALREADY_MIGRATED`.
+
+`check` exits 2 with `WIKI_SKELETON_MISSING`, `WIKI_LEGACY_ENTRY` (a visible root entry outside the layout) or `WIKI_PAGE_NOT_INDEXED` (a Layer-2 page missing from `index.md`). Other errors are `WIKI_CONTAINER_INVALID` (not an absolute real directory), `WIKI_VAULT_REQUIRED` (no `.obsidian/` or container binding above it), `WIKI_PATH_UNSAFE` and `WIKI_DATE_INVALID`. `entities`, `concepts`, `comparisons` and `queries` are the Layer-2 sections the index and check use.
 
 ## Binding: `.hermes/obsidian.json` (`obsidian_binding.py`)
 
