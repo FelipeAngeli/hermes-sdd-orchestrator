@@ -4,6 +4,10 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Changed
+- Automatic Jev governance is now enforced at dispatch instead of being only an instruction. When `PROJECT_SETUP.md` records `automatic_semantic_governance: true`, `stage_context.py check` refuses PLAN and IMPLEMENT manifests without the new optional `semantic_governance` record (`JEV_GOVERNANCE_RECORD_REQUIRED`), with a fingerprint that is not a `LIVE_JEV` governor report for the same ticket in the Jev cache (`JEV_GOVERNANCE_RECORD_UNVERIFIED`), or with a `REVIEW` outcome lacking a human `review_resolution` (`JEV_GOVERNANCE_REVIEW_UNRESOLVED`); an unparsable setup fails closed (`JEV_GOVERNANCE_SETUP_INVALID`). Projects without consent are unaffected. `stage_context.py` gains `--project-setup` and `--jev-cache`; `semantic_governor.py` reports now record the request `ticket`. The record is excluded from the slice hash, so approvals are not invalidated.
+- `AGENTS.md` requires agents changing this repository to route semantic classifications (risk, branch type, changelog level, specialist reviewers) through `semantic_governor.py decide` with inputs in the ignored `.hermes-dev/`, stop when preflight is not `READY`, hand `REVIEW` results to the owner, and announce each use with a `JEV USADO` block.
+
 ## 8.0.0 - 2026-10-06
 
 ### Breaking

@@ -8,13 +8,21 @@ contract — editable paths, project-local playbooks, the authoritative acceptan
 mapping and the observable verifiers each check needs. It reads only the
 controller-owned JSON and the exact project-local playbook files named there;
 it never reads other repository files, the vault or STATE and never mutates state.
+
+When the project recorded explicit automatic Jev consent, PLAN and IMPLEMENT
+also need the `semantic_governance` record: the fingerprint of a live
+`semantic_governor.py decide` report for this ticket, read back from the
+governor cache. A `REVIEW` outcome must carry the human resolution. Without
+that consent the record is optional and unchecked.
 """
 from __future__ import annotations
 
 import argparse
 import copy
 import hashlib
+import importlib
 import json
+import os
 import re
 import subprocess
 from pathlib import Path, PurePosixPath
@@ -28,6 +36,9 @@ SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schemas" / "STAGE_CONTEXT_S
 PROJECT_CONTEXT_STAGES = ("PLAN", "IMPLEMENT")
 FORBIDDEN_SOURCE_NAMES = ("STATE.md", "ACTION_JOURNAL.json", "INCIDENTS.md", "action-journal-history")
 SLICE_STAGES = ("IMPLEMENT", "TEST", "REVIEW")
+GOVERNANCE_STAGES = ("PLAN", "IMPLEMENT")
+JEV_PROJECT_SETUP_PATH = Path(__file__).resolve().parents[1] / "PROJECT_SETUP.md"
+JEV_CACHE_PATH = Path(__file__).resolve().parents[1] / "JEV_CACHE.json"
 APPROVAL_REUSED = "APPROVAL_REUSED"
 APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
 APPROVAL_NOT_REQUESTED = "APPROVAL_NOT_REQUESTED"
@@ -62,6 +73,10 @@ CONTEXT_ERROR_CODES = (
     "VERIFIER_COMMAND_REQUIRED",
     "VERIFIER_UNKNOWN_CHECK",
     "SCOPE_CHANGE_REQUIRED",
+    "JEV_GOVERNANCE_RECORD_REQUIRED",
+    "JEV_GOVERNANCE_RECORD_UNVERIFIED",
+    "JEV_GOVERNANCE_REVIEW_UNRESOLVED",
+    "JEV_GOVERNANCE_SETUP_INVALID",
     "SCHEMA_INVALID",
 )
 
@@ -474,6 +489,65 @@ def _check_slice(value: dict[str, Any]) -> list[dict[str, str]]:
     return errors
 
 
+def _semantic_governor() -> Any:
+    return importlib.import_module("semantic_governor")
+
+
+def _automatic_governance_consented(governor: Any) -> bool:
+    """True only for the exact automatic-consent record; a malformed setup raises."""
+    try:
+        governor._load_project_setup_consent(JEV_PROJECT_SETUP_PATH)
+    except governor.GovernanceError as error:
+        if str(error) in {"JEV_GOVERNANCE_CONSENT_REQUIRED", "JEV_GOVERNANCE_PLATFORM_UNSUPPORTED"}:
+            return False
+        raise
+    return True
+
+
+def _check_semantic_governance(value: dict[str, Any]) -> list[dict[str, str]]:
+    if value["stage"] not in GOVERNANCE_STAGES:
+        return []
+    governor = _semantic_governor()
+    try:
+        if not _automatic_governance_consented(governor):
+            return []
+    except governor.GovernanceError as error:
+        return [_finding("JEV_GOVERNANCE_SETUP_INVALID", f"PROJECT_SETUP.md cannot be read for Jev consent: {error}")]
+    record = value.get("semantic_governance")
+    if record is None:
+        return [_finding(
+            "JEV_GOVERNANCE_RECORD_REQUIRED",
+            f"automatic Jev governance is enabled: run semantic_governor.py decide for {value['ticket']} "
+            f"before {value['stage']} and record its fingerprint",
+        )]
+    fingerprint = record["fingerprint"]
+    try:
+        parent, name = governor._open_parent_descriptor(JEV_CACHE_PATH, "JEV_GOVERNANCE_CACHE_INVALID")
+        try:
+            report = governor._read_cache_at(parent, name)["entries"].get(fingerprint)
+        finally:
+            os.close(parent)
+    except (governor.GovernanceError, OSError):
+        report = None
+    if (
+        not isinstance(report, dict)
+        or report.get("fingerprint") != fingerprint
+        or report.get("ticket") != value["ticket"]
+        or report.get("provenance") != "LIVE_JEV"
+        or report.get("status") not in {"DECIDED", "REVIEW"}
+    ):
+        return [_finding(
+            "JEV_GOVERNANCE_RECORD_UNVERIFIED",
+            f"fingerprint {fingerprint[:12]} is not a governor decision for {value['ticket']} in the Jev cache",
+        )]
+    if report["status"] == "REVIEW" and not record["review_resolution"]:
+        return [_finding(
+            "JEV_GOVERNANCE_REVIEW_UNRESOLVED",
+            "Jev returned REVIEW; record the human resolution instead of inventing a route",
+        )]
+    return []
+
+
 _MACHINE_KINDS = ("TEST", "STATIC_ANALYSIS", "SCHEMA_VALIDATION", "STATE_INSPECTION", "LOG_INSPECTION")
 
 
@@ -494,6 +568,7 @@ def check(value: Any) -> dict[str, Any]:
         *_check_context_graph(value),
         *_check_playbooks(value),
         *_check_slice(value),
+        *_check_semantic_governance(value),
     ]
     digest = slice_sha256(value)
     approval = value["approval"]
@@ -574,9 +649,16 @@ def main(argv: list[str] | None = None) -> int:
         command = commands.add_parser(name)
         command.add_argument("--context", required=True, help="Controller-owned stage context manifest JSON.")
         command.add_argument("--json", action="store_true", help="Emit structured JSON.")
+        command.add_argument("--project-setup", type=Path, help="PROJECT_SETUP.md holding the Jev consent record.")
+        command.add_argument("--jev-cache", type=Path, help="Governor cache that holds semantic_governance fingerprints.")
         if name == "verifier-context":
             command.add_argument("--role", choices=sorted(READ_ONLY_ROLES), help="Read-only sub-agent role being dispatched.")
     args = parser.parse_args(argv)
+    global JEV_PROJECT_SETUP_PATH, JEV_CACHE_PATH
+    if args.project_setup is not None:
+        JEV_PROJECT_SETUP_PATH = args.project_setup.resolve()
+    if args.jev_cache is not None:
+        JEV_CACHE_PATH = args.jev_cache.resolve()
     try:
         value = json.loads(Path(args.context).read_text(encoding="utf-8"))
         if args.command == "check":

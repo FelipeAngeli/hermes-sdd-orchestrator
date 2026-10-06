@@ -620,6 +620,125 @@ class ReadOnlyRoleContextTests(unittest.TestCase):
             ctx.verifier_context(context(), role="TDD_IMPLEMENTER")
 
 
+def governance_request(ticket: str = "APP-1") -> dict:
+    return {
+        "schema_version": 1,
+        "ticket": ticket,
+        "state": {"request": "Change the shared payment contract"},
+        "questions": {
+            "risk": {
+                "type": "choice",
+                "instructions": "Classify the smallest safe SDD risk path.",
+                "criteria": {"LOW": "isolated", "HIGH": "shared contract"},
+            },
+        },
+    }
+
+
+def governance_response(confidence: float) -> dict:
+    return {
+        "status": "OK",
+        "result": {
+            "model": "jev-1.13.0",
+            "answers": {
+                "risk": {
+                    "type": "choice",
+                    "choice": "HIGH",
+                    "probabilities": {"LOW": 1 - confidence, "HIGH": confidence},
+                    "confidence": confidence,
+                },
+            },
+            "usage": {"input_tokens": 10, "output_tokens": 2},
+        },
+    }
+
+
+def governance_setup(automatic: bool) -> str:
+    answer = json.dumps({"install": True, "automatic_semantic_governance": automatic})
+    return (
+        "# SDD Project Setup\n\n```yaml\nschema_version: 1\nstatus: COMPLETE\nanswers:\n"
+        f"  issue_tracker: none\n  obsidian: none\n  typesafe_ai: {answer}\n  project_tools: none\n```\n"
+    )
+
+
+class SemanticGovernanceGateTests(unittest.TestCase):
+    """With automatic Jev consent, PLAN and IMPLEMENT need a governor decision for the ticket."""
+
+    def setUp(self) -> None:
+        temp = tempfile.TemporaryDirectory(prefix="sdd-jev-gate-")
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name).resolve()
+        self.setup_path = self.root / "PROJECT_SETUP.md"
+        self.cache_path = self.root / "JEV_CACHE.json"
+        for name, target in (("JEV_PROJECT_SETUP_PATH", self.setup_path), ("JEV_CACHE_PATH", self.cache_path)):
+            patcher = mock.patch.object(ctx, name, target)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def consent(self, automatic: bool = True) -> None:
+        self.setup_path.write_text(governance_setup(automatic), encoding="utf-8")
+
+    def decide(self, confidence: float = 0.9, ticket: str = "APP-1") -> str:
+        governor = ctx._semantic_governor()
+        report = governor.decide(
+            governance_request(ticket),
+            lambda payload: governance_response(confidence),
+            cache_path=self.cache_path,
+        )
+        return report["fingerprint"]
+
+    def test_without_consent_no_governance_record_is_required(self) -> None:
+        for automatic in (None, False):
+            with self.subTest(automatic=automatic):
+                if automatic is not None:
+                    self.consent(automatic)
+                for stage in ("PLAN", "IMPLEMENT"):
+                    self.assertTrue(ctx.check(context(stage))["valid"])
+
+    def test_consent_requires_a_governance_record_before_plan_and_implement(self) -> None:
+        self.consent()
+        for stage in ("PLAN", "IMPLEMENT"):
+            with self.subTest(stage=stage):
+                self.assertIn("JEV_GOVERNANCE_RECORD_REQUIRED", errors_of(context(stage)))
+        for stage in ("SPECIFY", "TASKS", "TEST", "REVIEW"):
+            with self.subTest(stage=stage):
+                self.assertNotIn("JEV_GOVERNANCE_RECORD_REQUIRED", errors_of(context(stage)))
+
+    def test_a_cached_live_decision_for_the_ticket_satisfies_the_gate(self) -> None:
+        self.consent()
+        value = context("IMPLEMENT")
+        value["semantic_governance"] = {"fingerprint": self.decide(), "review_resolution": None}
+        result = ctx.check(value)
+        self.assertTrue(result["valid"], result["errors"])
+
+    def test_an_invented_or_foreign_fingerprint_is_refused(self) -> None:
+        self.consent()
+        value = context("PLAN")
+        value["semantic_governance"] = {"fingerprint": "c" * 64, "review_resolution": None}
+        self.assertIn("JEV_GOVERNANCE_RECORD_UNVERIFIED", errors_of(value))
+        value["semantic_governance"]["fingerprint"] = self.decide(ticket="APP-2")
+        self.assertIn("JEV_GOVERNANCE_RECORD_UNVERIFIED", errors_of(value))
+
+    def test_a_review_outcome_needs_a_recorded_resolution(self) -> None:
+        self.consent()
+        value = context("PLAN")
+        value["semantic_governance"] = {"fingerprint": self.decide(confidence=0.6), "review_resolution": None}
+        self.assertIn("JEV_GOVERNANCE_REVIEW_UNRESOLVED", errors_of(value))
+        value["semantic_governance"]["review_resolution"] = "Owner classified risk as HIGH on 2026-10-06"
+        self.assertTrue(ctx.check(value)["valid"])
+
+    def test_a_malformed_setup_fails_closed(self) -> None:
+        self.setup_path.write_text("no yaml record here\n", encoding="utf-8")
+        self.assertIn("JEV_GOVERNANCE_SETUP_INVALID", errors_of(context("PLAN")))
+
+    def test_the_governance_record_does_not_change_the_approved_slice_hash(self) -> None:
+        self.consent()
+        value = context("IMPLEMENT")
+        before = ctx.slice_sha256(value)
+        value["semantic_governance"] = {"fingerprint": self.decide(), "review_resolution": None}
+        self.assertEqual(before, ctx.slice_sha256(value))
+
+
 class StageContextCliTests(unittest.TestCase):
     def run_cli(self, *args: str, value: dict) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temp:

@@ -340,6 +340,38 @@
         }
       ]
     },
+    "semantic_governance": {
+      "description": "Required for PLAN and IMPLEMENT when PROJECT_SETUP.md records automatic Jev consent: the fingerprint of the semantic_governor.py decide report for this ticket, and the human resolution when that report is REVIEW.",
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "fingerprint",
+            "review_resolution"
+          ],
+          "properties": {
+            "fingerprint": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "review_resolution": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/text"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
     "slice": {
       "anyOf": [
         {

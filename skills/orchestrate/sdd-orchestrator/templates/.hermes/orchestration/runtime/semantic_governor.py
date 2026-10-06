@@ -281,6 +281,7 @@ def _review_all(value: dict[str, Any], digest: str, reason: str, *, provider: st
         "status": "REVIEW",
         "provenance": "LIVE_JEV",
         "provider": provider,
+        "ticket": value["ticket"],
         "threshold": THRESHOLD,
         "fingerprint": digest,
         "decisions": decisions,
@@ -372,6 +373,7 @@ def _parse_remote(value: dict[str, Any], remote: Any, digest: str, *, provider: 
         "status": "DECIDED" if review == 0 else "REVIEW",
         "provenance": "LIVE_JEV",
         "provider": provider,
+        "ticket": value["ticket"],
         "model": result["model"],
         "threshold": THRESHOLD,
         "fingerprint": digest,
@@ -431,7 +433,7 @@ def _validate_cached_report(
     provider: str,
 ) -> dict[str, Any]:
     allowed = {
-        "schema_version", "status", "provenance", "provider", "model",
+        "schema_version", "status", "provenance", "provider", "ticket", "model",
         "threshold", "fingerprint", "decisions", "summary", "usage", "billing", "reason",
     }
     if (
@@ -441,6 +443,7 @@ def _validate_cached_report(
         or report.get("status") not in {"DECIDED", "REVIEW"}
         or report.get("provenance") != "LIVE_JEV"
         or report.get("provider") != provider
+        or report.get("ticket", value["ticket"]) != value["ticket"]
         or report.get("threshold") != THRESHOLD
         or report.get("fingerprint") != digest
         or not isinstance(report.get("decisions"), dict)

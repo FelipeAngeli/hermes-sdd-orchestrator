@@ -13,6 +13,16 @@ Never commit to `main`. For every improvement:
 
 Details: [docs/maintaining-docs.md#branches-and-versions](docs/maintaining-docs.md#branches-and-versions).
 
+## Jev decides semantic classifications
+
+Every semantic classification an agent makes while changing this repository goes through Jev: the risk of a change (`LOW`…`CRITICAL`), the branch `<type>`, whether a change is `### Added`, `### Changed`, `### Breaking` or `### Fixed`, and which specialist reviewer a pull request needs. Deterministic facts (Git state, test results, schema validity, the version computed by `tools/release.py`) never go to Jev.
+
+1. Inputs live in the ignored `.hermes-dev/` directory: `PROJECT_SETUP.md` records the owner's automatic consent, plus the request JSON and `JEV_CACHE.json`. The key comes from `.env` (`TYPESAFE_API_KEY`, or `JEV_AI_API_KEY` with `--provider jev-ai`) or the environment.
+2. Run `python3 skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/typesafe_connector.py preflight --env-file .env --json`. If it is not `READY`, stop and report the blocker; do not classify in its place.
+3. Batch every question for the change into one request and run `semantic_governor.py decide --input .hermes-dev/<ticket>.json --project-setup .hermes-dev/PROJECT_SETUP.md --cache .hermes-dev/JEV_CACHE.json --env-file .env --json`.
+4. Use only answers at confidence `0.70` or higher. Anything returned as `REVIEW` goes to the user; never substitute your own classification.
+5. Announce every use in the reply with a **JEV USADO** block: script, number of files evaluated, decided versus review, and the fingerprint artifact.
+
 ## Pull request review
 
 Every pull request in this repository is reviewed with the `pr-reviewer` sub-agent, and so is every review a pull request has already received. There are no exceptions for small or documentation-only changes.

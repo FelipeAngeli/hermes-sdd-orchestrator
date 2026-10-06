@@ -23,6 +23,7 @@ Before each dispatch the controller writes a schema-2 manifest that validates ag
 - `playbooks`: project-local engineering skills loaded for the dispatch, each with exact name, semantic version, `.hermes/skills/<name>/SKILL.md` path, SHA-256, loaded `references` path/hash descriptors and reason. The checker resolves these paths under `project_root`, rejects symlinks/escapes, hashes the actual bytes and matches strict plain-scalar `name`/`version` frontmatter to the descriptor; quoted, tagged, commented, block or duplicate identity scalars fail closed. Ordinary source excerpts remain in `sources`.
 - `divergences`: code/documentation mismatches, each citing both sides. `authority` is always `CODE`, because the code describes what is implemented. The divergence is recorded; no decision is invented to settle it.
 - `context_graph`: optional. The [context graph](context-graph.md) query made for this dispatch — `status` (`CURRENT`, `REFRESHED`, `PARTIAL`, `MISSING`, `NOT_CONFIGURED`), `source` (`OBSIDIAN` or `REPOSITORY`), the `selectors` queried, the returned `nodes` with kind/note/distance, the in-scope `decisions` with reason and date, `unresolved` selectors and any `findings`. Omitting the key or sending `null` is valid: a project without a graph is never blocked. The record is excluded from the slice hash, so refreshing the graph never invalidates an approval.
+- `semantic_governance`: required for `GOVERNANCE_STAGES` (PLAN and IMPLEMENT) only when `PROJECT_SETUP.md` holds the exact automatic Jev consent record (`automatic_semantic_governance: true`). It carries the `fingerprint` of the `semantic_governor.py decide` report for this ticket and a `review_resolution`, the human decision that replaces a `REVIEW` outcome (`null` otherwise). The checker reads the report back from the governor cache, so a fingerprint the controller did not obtain from a live governor call for the same ticket fails. Without consent the record is optional and unchecked. It is excluded from the slice hash.
 - `slice`: required for `SLICE_STAGES` (IMPLEMENT, TEST, REVIEW). It declares `current_slice_ids`, `completed_slice_ids`, `editable_paths`, project-local `required_playbooks` bound to slice IDs, the authoritative `acceptance` mapping and `required_verification`.
 - `approval`: `approved_slice_sha256s`, the per-slice hashes stored when a human approved PLAN/TASKS, and the evidence for that approval.
 
@@ -39,6 +40,7 @@ Before each dispatch the controller writes a schema-2 manifest that validates ag
 | `ACCEPTANCE_CHECK_UNVERIFIED`, `VERIFIER_COMMAND_REQUIRED`, `VERIFIER_UNKNOWN_CHECK` | Every AGENT check in scope is bound to an observable verifier (`TEST`, `STATIC_ANALYSIS`, `SCHEMA_VALIDATION`, `STATE_INSPECTION`, `LOG_INSPECTION`) that has a command, and every HUMAN check is bound to a `HUMAN` verifier. |
 | `INDEPENDENT_VERIFIER_REQUIRED` | Each AGENT check in scope needs at least one bound verifier that predates the slice (`introduced_by_slice: false`). A test the slice has just written cannot be its only proof, and a pre-existing verifier bound to another check does not count. |
 | `SCOPE_CHANGE_REQUIRED` | The approved hash no longer matches the slice contract. |
+| `JEV_GOVERNANCE_RECORD_REQUIRED`, `JEV_GOVERNANCE_RECORD_UNVERIFIED`, `JEV_GOVERNANCE_REVIEW_UNRESOLVED`, `JEV_GOVERNANCE_SETUP_INVALID` | Only with automatic Jev consent, and only for PLAN and IMPLEMENT: the manifest carries `semantic_governance`; its fingerprint is a `LIVE_JEV` report for the same ticket in the governor cache (`JEV_CACHE.json`, or `--jev-cache`); a `REVIEW` report carries a human `review_resolution`; and a `PROJECT_SETUP.md` (or `--project-setup`) that cannot be parsed fails closed instead of skipping the gate. |
 | `SCHEMA_INVALID` | The manifest does not match the schema. |
 
 The full list is published as `CONTEXT_ERROR_CODES`.
@@ -60,6 +62,7 @@ The full list is published as `CONTEXT_ERROR_CODES`.
 
 ```text
 stage_context.py check --context ctx.json --json             # exit 2 on any finding
+# every command also accepts --project-setup PATH and --jev-cache PATH (defaults: the controller's PROJECT_SETUP.md and JEV_CACHE.json)
 stage_context.py hash --context ctx.json --json              # slice_sha256 of the current IMPLEMENT slice (exit 2 for other stages)
 stage_context.py verifier-context --context ctx.json [--role PROJECT_CONTEXT_GUARDIAN] --json  # validator context
 ```
