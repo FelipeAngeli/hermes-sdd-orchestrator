@@ -24,7 +24,7 @@ python3 -m unittest discover -s skills/orchestrate/sdd-orchestrator/templates/.h
 
 ## Installed controller tests
 
-These tests ship inside every project (`.hermes/orchestration/tests/`), so a target can verify its own copy.
+These tests ship inside every project (`.hermes/orchestration/tests/`), so a target can verify its own copy. They pass both from a repository install and from an Obsidian project container: `test_hooks.py`, `test_stage_context.py` and `test_obsidian_binding.py` isolate themselves from the installed controller's own `PROJECT_SETUP.md`, Jev cache and container binding in `setUpModule`, and the `context_graph.py` CLI tests run a copy of the runtime outside the container. `tests/test_sdd_orchestrator_skill.py` installs into an Obsidian container with automatic Jev consent and runs that installed suite.
 
 | File | Covers |
 | --- | --- |

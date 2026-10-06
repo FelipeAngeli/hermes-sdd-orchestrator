@@ -29,7 +29,7 @@ _GOVERNANCE_ISOLATION: list = []
 
 
 def setUpModule() -> None:
-    """Isolate the Jev gate from the PROJECT_SETUP.md of the installed controller.
+    """Isolate the suite from the installed controller's own setup and container.
 
     Without this, a project installed with automatic Jev consent would see every
     PLAN/IMPLEMENT fixture here refused, and a source checkout (which has no
@@ -41,9 +41,16 @@ def setUpModule() -> None:
     setup.write_text(
         "```yaml\nschema_version: 1\nanswers:\n  typesafe_ai: none\n```\n", encoding="utf-8"
     )
+    # The suite may itself run from an Obsidian project container. Point the
+    # hook runtime and the binding module at an empty container so fixtures
+    # behave like a source checkout; vault-resident tests patch over this.
+    no_container = root / "no-container"
+    no_container.mkdir()
     patchers = [
         mock.patch.object(STAGE_CONTEXT_MODULE, "JEV_PROJECT_SETUP_PATH", setup),
         mock.patch.object(STAGE_CONTEXT_MODULE, "JEV_CACHE_PATH", root / "JEV_CACHE.json"),
+        mock.patch.object(hook_runtime, "INSTALLED_CONTAINER", no_container),
+        mock.patch.object(hook_runtime.obsidian_binding, "_installed_container_binding", lambda: None),
     ]
     for patcher in patchers:
         patcher.start()

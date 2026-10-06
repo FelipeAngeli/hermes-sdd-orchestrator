@@ -637,6 +637,28 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertTrue(Path(report["worktree_runtime"]).joinpath("STATE.md").is_file())
             self.assertFalse(any(path.suffix in {".pyc", ".pyo"} for path in target.rglob("*")))
 
+    def test_obsidian_installed_suite_passes_from_the_project_container(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-obsidian-suite-") as temp:
+            root = Path(temp)
+            target = root / "repo"
+            vault = root / "vault"
+            target.mkdir()
+            vault.mkdir()
+            self.initialize_repository(target)
+            result = self.run_installer(
+                target, apply=True, typesafe_ai="install", automatic_jev_governance=True,
+                obsidian_vault=vault, obsidian_project="Projects/App",
+            )
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            container = Path(json.loads(result.stdout)["project_container"])
+            suite = self.execute(
+                sys.executable, "-m", "unittest", "discover",
+                "-s", str(container / ".hermes/orchestration/tests"), "-p", "test_*.py",
+                cwd=target, check=False,
+            )
+            self.assertEqual(0, suite.returncode, suite.stderr[-4000:])
+            self.assertEqual("", self.execute("git", "-C", str(target), "status", "--porcelain").stdout)
+
     def make_obsidian_fixture(self, temp: str) -> tuple[Path, Path, Path]:
         root = Path(temp)
         target = root / "repo"

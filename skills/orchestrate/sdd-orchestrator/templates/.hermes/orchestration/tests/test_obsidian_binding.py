@@ -12,6 +12,7 @@ import tempfile
 import unittest
 from os import environ as process_environment
 from pathlib import Path
+from unittest import mock
 import sys
 
 RUNTIME = Path(__file__).resolve().parents[1] / "runtime"
@@ -35,6 +36,25 @@ def write_binding(repo: Path, **overrides) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
+
+
+def setUpModule() -> None:
+    """Behave like a source checkout even when run from an Obsidian container.
+
+    The vault-resident test loads its own copy of the module, which this patch
+    does not touch.
+    """
+    patcher = mock.patch.object(obsidian_binding, "_installed_container_binding", lambda: None)
+    patcher.start()
+    _ISOLATION.append(patcher)
+
+
+def tearDownModule() -> None:
+    while _ISOLATION:
+        _ISOLATION.pop().stop()
+
+
+_ISOLATION: list = []
 
 
 class LoadTests(unittest.TestCase):
