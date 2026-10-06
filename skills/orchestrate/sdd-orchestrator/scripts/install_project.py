@@ -23,7 +23,13 @@ TYPESAFE_SKILL_ROOT = ".hermes/skills/typesafe-ai"
 TYPESAFE_SKILL_PATH = f"{TYPESAFE_SKILL_ROOT}/SKILL.md"
 TYPESAFE_LOCK_PATH = "skills-lock.json"
 TYPESAFE_ENV_PATH = ".hermes/.env"
-TYPESAFE_ENV_CONTENT = b"TYPESAFE_API_KEY=\n"
+TYPESAFE_ENV_CONTENT = b"TYPESAFE_API_KEY=\nJEV_AI_API_KEY=\n"
+JEV_CACHE_PATH = f"{CONFIG_ROOT}/JEV_CACHE.json"
+TERMINAL_PROGRESS_PATH = f"{CONFIG_ROOT}/TERMINAL_PROGRESS.json"
+JEV_CACHE_LOCK_PATH = f"{CONFIG_ROOT}/.JEV_CACHE.json.lock"
+TERMINAL_PROGRESS_LOCK_PATH = f"{CONFIG_ROOT}/.TERMINAL_PROGRESS.json.lock"
+TYPESAFE_ANSWER_DISABLED = '{"install":true,"automatic_semantic_governance":false}'
+TYPESAFE_ANSWER_ENABLED = '{"install":true,"automatic_semantic_governance":true}'
 TYPESAFE_SOURCE_REF = "65a39f393687675ce170e6094757de20370365b9"
 TYPESAFE_UPSTREAM_HASH = "9cd84c5e535dec8dec59917c110f9c00b4a61faadb86b432ec7e41051170af12"
 TYPESAFE_TRUSTED_DIGEST = "5266f2a9acfb6ae5fd58717bdf366f38e224cb57a55824e2aa81a0922d5e6964"
@@ -147,6 +153,10 @@ def managed_exclude_entries() -> tuple[str, ...]:
         *(path.relative_to(TEMPLATE).as_posix() for path in template_files()),
         *STATE_PATHS,
         TYPESAFE_ENV_PATH,
+        JEV_CACHE_PATH,
+        TERMINAL_PROGRESS_PATH,
+        JEV_CACHE_LOCK_PATH,
+        TERMINAL_PROGRESS_LOCK_PATH,
         f"{CONFIG_ROOT}/action-journal-history/",
     ]
     return tuple(dict.fromkeys(f"/{relative}" for relative in relative_paths))
@@ -862,8 +872,9 @@ def _answer_state(question_id: str, value: str) -> tuple[bool, bool]:
     elif question_id == "typesafe_ai":
         valid = (
             isinstance(decoded, dict)
-            and set(decoded) == {"install"}
+            and set(decoded) == {"install", "automatic_semantic_governance"}
             and decoded["install"] is True
+            and isinstance(decoded["automatic_semantic_governance"], bool)
         )
     elif question_id == "project_tools":
         valid = isinstance(decoded, list) and bool(decoded) and all(
@@ -957,7 +968,11 @@ def _read_onboarding_record(target: Path, question_ids: set[str]) -> tuple[dict[
     return answers, not issues, metadata.get("status"), sorted(set(issues))
 
 
-def onboarding_questions(target: Path | None = None, typesafe_choice: str | None = None) -> dict[str, object]:
+def onboarding_questions(
+    target: Path | None = None,
+    typesafe_choice: str | None = None,
+    automatic_jev_governance: bool = False,
+) -> dict[str, object]:
     """Return only unresolved project-local questions after installation."""
     questions = [
         {
@@ -972,8 +987,11 @@ def onboarding_questions(target: Path | None = None, typesafe_choice: str | None
         },
         {
             "id": "typesafe_ai",
-            "prompt": "Should the orchestrator install the project-local TypeSafe skill for Hermes (including guidance for Jev)?",
-            "accepted_answers": ["JSON object with install set to true", "none"],
+            "prompt": "Should the orchestrator install TypeSafe, and may it send automatic, potentially billed semantic classifications to Jev?",
+            "accepted_answers": [
+                "JSON object with install true and automatic_semantic_governance true or false",
+                "none",
+            ],
         },
         {
             "id": "project_tools",
@@ -1011,7 +1029,17 @@ def onboarding_questions(target: Path | None = None, typesafe_choice: str | None
         recorded_value = _load_unique_json(recorded_typesafe)
     except (ValueError, TypeError):
         recorded_value = None
-    recorded_install = recorded_value == {"install": True}
+    recorded_install = (
+        isinstance(recorded_value, dict)
+        and set(recorded_value) == {"install", "automatic_semantic_governance"}
+        and recorded_value.get("install") is True
+        and isinstance(recorded_value.get("automatic_semantic_governance"), bool)
+    )
+    recorded_automatic = bool(
+        isinstance(recorded_value, dict)
+        and recorded_install
+        and recorded_value["automatic_semantic_governance"] is True
+    )
     recorded_none = recorded_typesafe.strip().casefold() == "none"
     integration_issues: list[str] = []
     if recorded_install:
@@ -1032,7 +1060,11 @@ def onboarding_questions(target: Path | None = None, typesafe_choice: str | None
         if typesafe["status"] == "INSTALLED":
             typesafe["planned_action"] = (
                 "NONE"
-                if recorded_install and typesafe["env_status"] == "PRESENT"
+                if (
+                    recorded_install
+                    and recorded_automatic == automatic_jev_governance
+                    and typesafe["env_status"] == "PRESENT"
+                )
                 else "RECORD"
             )
         else:
@@ -1048,6 +1080,10 @@ def onboarding_questions(target: Path | None = None, typesafe_choice: str | None
         "CREATE"
         if typesafe_choice == "install" and typesafe["env_status"] == "ABSENT"
         else "NONE"
+    )
+    typesafe["automatic_semantic_governance"] = recorded_automatic
+    typesafe["planned_automatic_semantic_governance"] = (
+        automatic_jev_governance if typesafe_choice == "install" else recorded_automatic
     )
     return {
         "status": "COMPLETE" if complete else "REQUIRED",
@@ -1082,10 +1118,10 @@ answers:
 
 - Ask only about orchestrator connectivity, never product requirements or implementation preferences.
 - Inspect repository evidence first and ask only questions whose answers remain unresolved.
-- Accept `none` as an explicit answer for every integration. Otherwise use compact JSON on the same line: issue tracker requires `provider`, `project`, `read`, and `write`; Obsidian requires an absolute `vault` and relative `project_container`; TypeSafe requires `{"install":true}`; project tools require a non-empty array of objects with `tool`, `purpose`, `read`, and `write`.
+- Accept `none` as an explicit answer for every integration. Otherwise use compact JSON on the same line: issue tracker requires `provider`, `project`, `read`, and `write`; Obsidian requires an absolute `vault` and relative `project_container`; TypeSafe requires `install:true` plus explicit `automatic_semantic_governance:true|false`; project tools require a non-empty array of objects with `tool`, `purpose`, `read`, and `write`.
 - For an issue tracker, record the provider, project identifier, and separate read/write permission; verify connectivity read-only before any mutation.
 - For Obsidian, record whether it is enabled and, only when enabled, the vault and project container required by `BOOTSTRAP.md`. When the official CLI is available, discover candidates read-only with `python3 .hermes/orchestration/runtime/obsidian_connector.py discover --json`; after `.hermes/obsidian.json` exists, verify the bound container and selected read transport with `python3 .hermes/orchestration/runtime/obsidian_connector.py preflight --repo . --json`. A filesystem fallback is valid; neither command writes a note.
-- Jev is a TypeSafe model, not the installed product. Use `--typesafe-ai install --apply` to copy the vetted project-local TypeSafe skill snapshot or `--typesafe-ai none --apply` to opt out only when no TypeSafe installation is discoverable; the official `npx` command is informational and is never executed by this installer.
+- Jev is a TypeSafe model, not the installed product. `--typesafe-ai install --apply` installs guidance without authorizing automatic external calls; add `--automatic-jev-governance` only after explicit consent to potentially billed semantic transmissions. Existing `{"install":true}` records never grant that consent and require explicit migration. Use `--typesafe-ai none --apply` to opt out only when no TypeSafe installation is discoverable; the official `npx` command is informational and is never executed by this installer.
 - For other project tools, record each tool's purpose and separate read/write permission.
 - Never request passwords, tokens, verification codes, or other secrets in chat. Use Hermes credential facilities when authentication is required.
 - Set `status: COMPLETE` only after all four answers are resolved, including explicit `none` answers.
@@ -1100,6 +1136,17 @@ def _require_typesafe_record_target(target: Path) -> None:
     legacy_keys = question_ids - {"typesafe_ai"}
     legacy_issues = {"ANSWERS_MISSING", "STATUS_ANSWER_MISMATCH"}
     if set(answers) == legacy_keys and set(issues).issubset(legacy_issues):
+        return
+    legacy_value = answers.get("typesafe_ai", "")
+    try:
+        legacy_typesafe = _load_unique_json(legacy_value) == {"install": True}
+    except (ValueError, TypeError):
+        legacy_typesafe = False
+    if (
+        set(answers) == question_ids
+        and legacy_typesafe
+        and set(issues).issubset({"ANSWER_VALUE_INVALID", "STATUS_ANSWER_MISMATCH"})
+    ):
         return
     reason = issues[0] if issues else "UNKNOWN"
     raise InstallError(f"ONBOARDING_RECORD_INVALID: {reason}")
@@ -1572,12 +1619,6 @@ def install_typesafe_skill(target: Path, onboarding_after: bytes) -> str:
         if setup_snapshot is None:
             raise InstallError("ONBOARDING_RECORD_MISSING")
         setup_before, setup_identity = setup_snapshot
-        onboarding_after = _render_onboarding_answer(
-            target,
-            "typesafe_ai",
-            '{"install":true}',
-            source=setup_before,
-        )
         env_identity: tuple[int, int] | None = None
         try:
             _overwrite_project_file_nofollow(
@@ -1624,12 +1665,6 @@ def install_typesafe_skill(target: Path, onboarding_after: bytes) -> str:
     if setup_snapshot is None:
         raise InstallError("ONBOARDING_RECORD_MISSING")
     setup_before, setup_identity = setup_snapshot
-    onboarding_after = _render_onboarding_answer(
-        target,
-        "typesafe_ai",
-        '{"install":true}',
-        source=setup_before,
-    )
     entry: dict[str, object] = {
         "source": "typesafe-ai/skills",
         "ref": TYPESAFE_SOURCE_REF,
@@ -2307,8 +2342,23 @@ def main() -> int:
         choices=("install", "none"),
         help="explicitly install the project-local TypeSafe skill or record that it is not used",
     )
+    parser.add_argument(
+        "--automatic-jev-governance",
+        action="store_true",
+        help="authorize automatic, potentially billed Jev classifications (requires --typesafe-ai install)",
+    )
     parser.add_argument("--json", action="store_true", help="emit a machine-readable report")
     args = parser.parse_args()
+    if args.automatic_jev_governance and args.typesafe_ai != "install":
+        report = {
+            "status": "BLOCKED",
+            "reason": "AUTOMATIC_JEV_GOVERNANCE_REQUIRES_TYPESAFE_INSTALL",
+        }
+        print(
+            json.dumps(report, ensure_ascii=False) if args.json else f"BLOCKED: {report['reason']}",
+            file=sys.stderr,
+        )
+        return 2
     if sys.version_info < (3, 10):
         report = {
             "status": "BLOCKED",
@@ -2337,7 +2387,11 @@ def main() -> int:
         exclude_planned = exclude_update_planned(workspace)
         if args.typesafe_ai and existing_state:
             _require_typesafe_record_target(target)
-        onboarding = onboarding_questions(target, args.typesafe_ai)
+        onboarding = onboarding_questions(
+            target,
+            args.typesafe_ai,
+            args.automatic_jev_governance,
+        )
         onboarding_integrations = onboarding["integrations"]
         if not isinstance(onboarding_integrations, dict) or not isinstance(
             onboarding_integrations.get("typesafe_ai"), dict
@@ -2369,7 +2423,12 @@ def main() -> int:
 
         def apply_integration() -> None:
             if args.typesafe_ai == "install":
-                onboarding_after = _render_onboarding_answer(target, "typesafe_ai", '{"install":true}')
+                answer = (
+                    TYPESAFE_ANSWER_ENABLED
+                    if args.automatic_jev_governance
+                    else TYPESAFE_ANSWER_DISABLED
+                )
+                onboarding_after = _render_onboarding_answer(target, "typesafe_ai", answer)
                 integration_result["applied_action"] = install_typesafe_skill(target, onboarding_after)
             else:
                 _write_onboarding_answer(target, "typesafe_ai", "none")

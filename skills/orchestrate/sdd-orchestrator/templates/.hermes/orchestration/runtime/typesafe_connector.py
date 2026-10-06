@@ -248,31 +248,14 @@ def _encoded_json(value: Any) -> bytes:
     return json.dumps(value, ensure_ascii=False, allow_nan=False).encode("utf-8")
 
 
-def _request_payload(path: Path, provider: str = DEFAULT_PROVIDER) -> dict[str, Any]:
-    descriptor: int | None = None
+def _validated_request_payload(raw: bytes, provider: str) -> dict[str, Any]:
     try:
-        descriptor = _open_env_descriptor(path)
-        if descriptor is None:
-            raise ValueError("input missing")
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode):
-            raise ValueError("input is not a regular file")
-        stream = os.fdopen(descriptor, "rb")
-        descriptor = None
-        with stream:
-            raw = stream.read(MAX_INPUT_BYTES + 1)
         if len(raw) > MAX_INPUT_BYTES:
             raise ValueError("input too large")
         payload = _load_json(raw.decode("utf-8"))
         _validate_json_depth(payload)
-    except (OSError, UnicodeError, ValueError, RecursionError, TypeSafeConfigError) as error:
+    except (UnicodeError, ValueError, RecursionError) as error:
         raise ValueError("TYPESAFE_INPUT_INVALID") from error
-    finally:
-        if descriptor is not None:
-            try:
-                os.close(descriptor)
-            except OSError:
-                pass
     if not isinstance(payload, dict) or set(payload) - {"state", "questions", "model"}:
         raise ValueError("TYPESAFE_INPUT_INVALID")
     if "state" not in payload or not isinstance(payload.get("questions"), dict) or not payload["questions"]:
@@ -297,6 +280,38 @@ def _request_payload(path: Path, provider: str = DEFAULT_PROVIDER) -> dict[str, 
     ):
         raise ValueError("TYPESAFE_INPUT_OVER_LIMIT")
     return normalized
+
+
+def _request_payload(path: Path, provider: str = DEFAULT_PROVIDER) -> dict[str, Any]:
+    descriptor: int | None = None
+    try:
+        descriptor = _open_env_descriptor(path)
+        if descriptor is None:
+            raise ValueError("TYPESAFE_INPUT_INVALID")
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError("TYPESAFE_INPUT_INVALID")
+        stream = os.fdopen(descriptor, "rb")
+        descriptor = None
+        with stream:
+            raw = stream.read(MAX_INPUT_BYTES + 1)
+    except (OSError, TypeSafeConfigError) as error:
+        raise ValueError("TYPESAFE_INPUT_INVALID") from error
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+    return _validated_request_payload(raw, provider)
+
+
+def _request_payload_stdin(provider: str = DEFAULT_PROVIDER) -> dict[str, Any]:
+    try:
+        raw = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
+    except OSError as error:
+        raise ValueError("TYPESAFE_INPUT_INVALID") from error
+    return _validated_request_payload(raw, provider)
 
 
 def _question_reason(question_id: str) -> str:
@@ -503,7 +518,13 @@ def main() -> int:
     models.add_argument("--timeout", default="30")
     evaluate = subparsers.add_parser("evaluate", help="send one explicit typed evaluation; this is billed")
     add_common(evaluate)
-    evaluate.add_argument("--input", type=Path, required=True, help="JSON file with state, questions, and optional model")
+    input_source = evaluate.add_mutually_exclusive_group(required=True)
+    input_source.add_argument("--input", type=Path, help="JSON file with state, questions, and optional model")
+    input_source.add_argument(
+        "--input-stdin",
+        action="store_true",
+        help="read bounded JSON from stdin without reopening a pathname",
+    )
     evaluate.add_argument("--timeout", default="30")
     args = parser.parse_args()
     provider = args.provider
@@ -537,7 +558,11 @@ def main() -> int:
             if args.command == "models":
                 listed = _list_models(urls["models"], key, timeout)
             else:
-                payload = _request_payload(args.input, provider)
+                payload = (
+                    _request_payload_stdin(provider)
+                    if args.input_stdin
+                    else _request_payload(args.input, provider)
+                )
                 result = _evaluate(
                     urls["systemone"], key, payload, timeout, billing, accept_json=provider != DEFAULT_PROVIDER
                 )

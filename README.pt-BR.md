@@ -68,18 +68,28 @@ python3 <skill-instalada>/scripts/install_project.py \
 
 python3 <skill-instalada>/scripts/install_project.py \
   --target /caminho/absoluto/do/projeto --typesafe-ai install --apply --json
+
+# Consentimento separado para classificações automáticas potencialmente cobradas:
+python3 <skill-instalada>/scripts/install_project.py \
+  --target /caminho/absoluto/do/projeto --typesafe-ai install \
+  --automatic-jev-governance --apply --json
 ```
 
-Use `--typesafe-ai none --apply` somente quando não houver uma skill TypeSafe presente. O instalador **não** executa o comando oficial `npx skills add typesafe-ai/skills --skill typesafe-ai` e não baixa código. Em vez disso, verifica e copia um snapshot revisado, fixado em um commit imutável do upstream, grava `.hermes/skills/typesafe-ai`, mescla `skills-lock.json` com segurança, preserva entradas não relacionadas e nunca altera skills nem configurações globais do Hermes. O opt-in também cria `.hermes/.env` privado e ignorado, com `TYPESAFE_API_KEY=` vazio, sem sobrescrever um arquivo existente; `.hermes/.env.example` documenta a variável. Instalações conflitantes, rastreadas, com symlink, incompletas, adulteradas ou de outra origem falham de forma fechada.
+Use `--typesafe-ai none --apply` somente quando não houver uma skill TypeSafe presente. O instalador **não** executa o comando oficial `npx skills add typesafe-ai/skills --skill typesafe-ai` e não baixa código. Em vez disso, verifica e copia um snapshot revisado, fixado em um commit imutável do upstream, grava `.hermes/skills/typesafe-ai`, mescla `skills-lock.json` com segurança, preserva entradas não relacionadas e nunca altera skills nem configurações globais do Hermes. O opt-in também cria `.hermes/.env` privado e ignorado, com entradas vazias `TYPESAFE_API_KEY=` e `JEV_AI_API_KEY=`, sem sobrescrever um arquivo existente. Instalações conflitantes, rastreadas, com symlink, incompletas, adulteradas ou de outra origem falham de forma fechada.
 
-O conector instalado, feito somente com a biblioteca padrão, verifica a configuração sem rede e envia dados ao Jev apenas por um comando `evaluate` explícito:
+O conector verifica a configuração sem rede. Instalar TypeSafe não autoriza chamadas e registra `automatic_semantic_governance: false`; respostas antigas somente de instalação reabrem o onboarding. Apenas `--automatic-jev-governance` junto de preflight READY vira autorização permanente. Fatos exatos continuam determinísticos; classificações semânticas são agrupadas em uma chamada Jev e armazenadas por fingerprint.
 
 ```bash
 python3 .hermes/orchestration/runtime/typesafe_connector.py preflight --json
 python3 .hermes/orchestration/runtime/typesafe_connector.py evaluate --input request.json --json
+python3 .hermes/orchestration/runtime/semantic_governor.py decide --input governance.json --project-setup .hermes/orchestration/PROJECT_SETUP.md --json
 ```
 
-`request.json` contém `state`, um mapa `questions` não vazio e, opcionalmente, `model` (padrão `jev-latest`). `evaluate` sempre usa `https://api.typesafe.ai/v1/systemone`; nunca roda automaticamente, e seus relatórios JSON nunca exibem a credencial nem corpos de erro remotos. Veja [Skill e instalador](docs/components/skill-and-installer.md#typesafejev-runtime-connector).
+`semantic_governor.py` lê o setup por descritores e exige o objeto exato de consentimento habilitado mais preflight local READY antes da avaliação. Aceita somente classificações limitadas `choice` e `noul`, envia todas em uma requisição, aceita confiança `0.70` ou superior e retorna `REVIEW` em vez de inventar uma decisão incerta ou com falha. Um tombstone durável é gravado antes da fronteira paga; falha na persistência final retorna `REVIEW` com recibo e mantém esse tombstone, impedindo retry automático. Chamadas reais imprimem `JEV EM USO`/`JEV USADO` em stderr; acertos de cache não fazem chamada paga. Essas garantias do governor/cache são somente POSIX: no Windows, `JEV_GOVERNANCE_PLATFORM_UNSUPPORTED` ocorre antes de estado ou rede, sem alegar segurança contra junctions. O `evaluate` bruto continua disponível para pedidos tipados explícitos. Nenhum caminho exibe credenciais ou corpos de erro. Consulte [Skill e instalador](docs/components/skill-and-installer.md#automatic-jev-semantic-governance).
+
+## Painel de progresso no terminal
+
+Durante uma execução SDD, o `runtime/terminal_progress.py` local ao projeto torna explícito no CLI clássico do Hermes: provider ativo, fase atual e posição `N/8`, fases restantes, tempo em cada fase, comandos/dispatches/gates/ações recentes e se o Jev está ativo, com provider, modelo, área de classificação e IDs das decisões. O controlador atualiza o painel antes de cada ação material e em toda transição. Em POSIX, o `TERMINAL_PROGRESS.json` ignorado e modo `0600` usa travessia sem seguir links e lock privado durante cada read-modify-write completo; no Windows, retorna `PROGRESS_PLATFORM_UNSUPPORTED` em vez de oferecer tratamento inseguro de junctions. É apenas estado de apresentação—`STATE.md` e journal continuam autoritativos—e nunca guarda segredos nem raciocínio oculto. Chamadas reais do governor atualizam automaticamente o painel do Jev; acertos de cache não fingem que houve chamada paga. Consulte [Progresso no terminal](docs/components/fsm-and-loop.md#terminal-progress).
 
 ## Hooks locais ao repositório (opt-in)
 

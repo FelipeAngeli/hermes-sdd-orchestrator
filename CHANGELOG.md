@@ -4,6 +4,13 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Breaking
+- Automatic Jev governance now requires a new explicit consent bit at the actual connector boundary: TypeSafe installation records `automatic_semantic_governance:false`, `--automatic-jev-governance` records `true`, and false, missing or legacy `{"install":true}` answers block before request/cache reads or network access. `semantic_governor.py decide` gains `--project-setup` (defaulting to the local orchestration record), rechecks exact consent plus local READY preflight immediately before evaluation, and fails closed before state/network access on Windows because junction-safe held-handle traversal is not implemented.
+
+### Added
+- `semantic_governor.py decide` batches non-deterministic classifications into one Jev call after deterministic precedence, accepts confidence `0.70` inclusively, and routes uncertainty to `REVIEW`. Consent and local READY preflight complete before durable state; a proven process-construction failure safely removes the tombstone, while every failure after process start retains retry suppression as potentially billed. The bounded request is streamed over stdin, eliminating a mutable request pathname; `typesafe_connector.py evaluate` adds `--input-stdin` while preserving `--input`. The guarded POSIX cache retains one parent descriptor across lock/read/write, preserves insertion chronology, and evicts truly oldest entries to count/size limits. A post-replacement directory-sync failure is safe because the already-synced final file is visible and a crash can only retain it or the prior durable tombstone; pre-replacement failures still return `REVIEW`. Question IDs, remote model names, dashboard fields and fallback phases must be bounded printable text before terminal rendering.
+- A repository-local Hermes CLI progress dashboard exposes provider, current and remaining SDD stages, elapsed time per stage, recent bounded activity, and Jev's live provider/model/classification area. POSIX no-follow ancestor traversal and a held owner-private lock serialize complete read-modify-write operations; Windows fails closed rather than claiming junction-safe handling. The display remains separate from authoritative STATE/journal data and closes successful runs as `DONE (8/8)`.
+
 ## 6.9.5 - 2026-10-03
 
 ### Fixed
