@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 10.0.0 - 2026-10-06
+
 ### Breaking
 - In Obsidian storage the TypeSafe lock moves from the container root to `.hermes/skills-lock.json`, so the wiki root holds only notes. An existing Obsidian install with TypeSafe keeps its lock at the root, where the installer no longer looks; run `wiki_layout.py migrate --apply` on the container (it moves a root `skills-lock.json` into `.hermes/`) before reinstalling or upgrading.
 
