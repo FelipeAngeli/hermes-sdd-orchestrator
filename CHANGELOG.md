@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- The 9.x line now includes the 8.0.1–8.0.3 installer and hook fixes (vault/repository overlap refusal, rollback on repository drift including the TypeSafe integration, identity-based overlap checks, owner-only `GATES.md` adoption, and hooks that trust only the container binding). The untagged 9.0.0 and 9.0.1 release commits predate those fixes; this release is the first 9.x tree that contains both the Jev dispatch gate and them.
+
 ## 9.0.1 - 2026-10-06
 
 ### Fixed
