@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 8.0.2 - 2026-10-06
+
 ### Fixed
 - The installer's overlap check compares device/inode identities instead of path spellings, so a case variant on a case-insensitive filesystem can no longer place the vault inside the repository's Git directory, and it also protects linked worktrees and superprojects of the target. Repository drift during the TypeSafe integration now rolls the integration back too (`PROJECT_SETUP.md` restored, skill and lock removed), for fresh and existing containers. `policies/GATES.md` is adopted only in a container this installer already set up (binding and `PROJECT_SETUP.md` present); a fresh container with a foreign `GATES.md` returns `CONFIG_CONFLICT`, and an adopted one is listed under the new report field `preserved_owner_files` with its SHA-256. The per-run storage policy is restored after each run. A `TARGET_WORKTREE_CHANGED` detected after the apply transaction committed reports the drift but does not undo the committed vault files. With a vault-resident controller, hooks use only the container binding (a binding inside the repository can no longer redirect state) and accept only a worktree whose runtime `STATE.md` the installer created.
 
