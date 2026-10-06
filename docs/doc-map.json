@@ -8,6 +8,7 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes.md",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes*/.env.example",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/typesafe_connector.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/semantic_governor.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/README.md"
     ],
     "docs/components/fsm-and-loop.md": [
@@ -17,6 +18,7 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/bounded_run_planner.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/bounded_run_driver.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/bounded_loop_driver.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/terminal_progress.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/BOUNDED_RUN_PLAN_SCHEMA.json"
     ],
     "docs/components/harness.md": [

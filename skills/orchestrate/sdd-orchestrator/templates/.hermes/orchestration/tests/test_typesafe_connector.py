@@ -43,6 +43,37 @@ class TypeSafeConnectorTests(unittest.TestCase):
 
         self.assertEqual(RUNTIME.resolve().parents[2] / ".env", connector.DEFAULT_ENV_PATH)
 
+    def test_evaluate_accepts_bounded_json_from_stdin_without_reopening_a_path(self) -> None:
+        connector = load_connector()
+        payload = {
+            "state": {"request": "classify"},
+            "questions": {
+                "risk": {
+                    "type": "choice",
+                    "instructions": "Classify risk",
+                    "criteria": {"LOW": "isolated", "HIGH": "shared contract"},
+                }
+            },
+        }
+        stdin = io.TextIOWrapper(io.BytesIO(json.dumps(payload).encode()), encoding="utf-8")
+        stdout = io.StringIO()
+        with (
+            mock.patch.object(connector, "_env_api_key", return_value="fixture_key"),
+            mock.patch.object(connector, "_evaluate", return_value={"answers": {}}) as evaluate,
+            mock.patch.object(sys, "stdin", stdin),
+            mock.patch.object(
+                sys,
+                "argv",
+                [str(RUNTIME), "evaluate", "--input-stdin", "--json"],
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
+            returncode = connector.main()
+
+        self.assertEqual(0, returncode)
+        self.assertEqual("OK", json.loads(stdout.getvalue())["status"])
+        self.assertEqual("classify", evaluate.call_args.args[2]["state"]["request"])
+
     def test_preflight_without_api_key_fails_before_network_without_disclosure(self) -> None:
         self.assertTrue(RUNTIME.is_file(), "TypeSafe connector is not shipped")
         with tempfile.TemporaryDirectory(prefix="sdd-typesafe-preflight-") as temp:
