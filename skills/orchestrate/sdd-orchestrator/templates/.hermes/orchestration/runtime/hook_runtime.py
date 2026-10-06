@@ -83,8 +83,8 @@ def _container_binding_path() -> Path | None:
 
 
 def _load_binding(root: Path) -> obsidian_binding.Binding:
-    if (root / obsidian_binding.BINDING_RELATIVE_PATH).is_file():
-        return obsidian_binding.load(root)
+    # A vault-resident controller trusts only its own container binding; a
+    # binding inside the (possibly untrusted) repository cannot redirect it.
     container_binding = _container_binding_path()
     if container_binding is not None:
         return obsidian_binding.load_path(container_binding)
@@ -119,9 +119,9 @@ def _root(payload: Mapping[str, Any]) -> Path:
     if not isinstance(cwd, str) or not cwd:
         raise HookInputError("hook payload has no cwd")
     root = Path(cwd).expanduser().resolve()
-    if (root / ".hermes" / "orchestration").is_dir():
-        return root
     if _container_binding_path() is None:
+        if (root / ".hermes" / "orchestration").is_dir():
+            return root
         raise HookInputError(
             f"{root} has no installed .hermes/orchestration directory and no Obsidian-resident controller"
         )

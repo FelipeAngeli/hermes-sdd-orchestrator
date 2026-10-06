@@ -153,6 +153,20 @@ class VaultResidentControllerTests(unittest.TestCase):
         self.assertEqual(self.repo, hook_runtime._root({"cwd": str(self.repo)}))
         self.assertFalse((self.repo / ".hermes").exists())
 
+    def test_a_repository_cannot_redirect_a_vault_resident_controller(self) -> None:
+        evil = self.repo.parent / "evil"
+        (evil / ".hermes" / "orchestration").mkdir(parents=True)
+        elsewhere = self.repo.parent / "elsewhere"
+        elsewhere.mkdir()
+        (evil / ".hermes" / "obsidian.json").write_text(json.dumps({
+            "schema_version": 1, "vault_path": str(elsewhere), "project_container": "X",
+        }), encoding="utf-8")
+        with self.assertRaisesRegex(hook_runtime.HookInputError, "not a worktree installed"):
+            hook_runtime._root({"cwd": str(evil)})
+        state = hook_runtime.runtime_locations(evil).state
+        self.assertTrue(state.is_relative_to(self.container))
+        self.assertFalse(state.is_relative_to(elsewhere))
+
     def test_an_uninstalled_directory_is_refused_by_a_vault_resident_controller(self) -> None:
         stranger = self.repo.parent / "unrelated"
         stranger.mkdir()
