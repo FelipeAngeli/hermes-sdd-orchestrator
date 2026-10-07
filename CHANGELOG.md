@@ -4,6 +4,11 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- `wiki_layout.py migrate` no longer deletes a concurrent save (security-reviewer round 2 on #42). Instead of unlinking the source by name after the last check, it renames it to a private hidden name, compares that exact entry with the open descriptor and unlinks only that file; a file saved over the name in the meantime is never renamed or is put back, and the run stops with `WIKI_SOURCE_CHANGED`. The same applies to deduplicated sources.
+- `index.md` and `log.md` are decoded before the first move (a non-UTF-8 file is `WIKI_PATH_UNSAFE`), the index temporary name is random, and a failure while pruning or updating `index.md`/`log.md` after every move is logged and returned as `WIKI_MIGRATION_INCOMPLETE` instead of a traceback.
+- A folder whose children are unmarked projects (a child with controller state, or with demand folders that hold `sessions/`, `decisions/`…) is refused with `WIKI_CONTAINER_NESTED`; a single project whose demand folders hold their own legacy folders is still accepted. An unreadable directory is a `WIKI_MIGRATION_CONFLICT`, an OS error while planning is `WIKI_PATH_UNSAFE`, legacy folder names match in any Unicode normalization, and `WIKI_CONTAINER_INVALID` names the real path. The installer closes the directory iterator it opens for keep-files.
+
 ## 11.0.0 - 2026-10-07
 
 ### Breaking

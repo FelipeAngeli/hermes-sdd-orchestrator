@@ -25,6 +25,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import stat
 import unicodedata
 from pathlib import Path, PurePosixPath
@@ -208,8 +209,51 @@ def _has_marker(directory: Path) -> bool:
     return os.path.lexists(directory / ".hermes" / "obsidian.json")
 
 
+#: Controller state that marks a folder as a project of its own.
+CONTROLLER_SIGNS = frozenset({"skills-lock.json", ".hermes", ".hermes-runtime", ".hermes.md"})
+
+
+def _subdirectories(directory: Path) -> list[Path]:
+    try:
+        names = sorted(os.listdir(directory))
+    except OSError:
+        return []
+    return [
+        directory / name for name in names
+        if not _is_hidden(name) and (directory / name).is_dir() and not (directory / name).is_symlink()
+    ]
+
+
+def _has_legacy_folder(directory: Path) -> bool:
+    return any(_key(child.name) in LEGACY_FOLDERS for child in _subdirectories(directory))
+
+
+def _looks_like_project(directory: Path) -> bool:
+    """A child is a project, not a demand folder, when it carries controller state or
+    holds its own folders (demands) that in turn hold legacy folders."""
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return False
+    if any(_key(name) in CONTROLLER_SIGNS for name in names):
+        return True
+    return any(
+        _key(child.name) not in LEGACY_FOLDERS and _has_legacy_folder(child) for child in _subdirectories(directory)
+    )
+
+
 def _nested_containers(container: Path) -> list[str]:
     nested: list[str] = []
+    try:
+        children = sorted(os.listdir(container))
+    except OSError:
+        children = []
+    for name in children:
+        child = container / name
+        if _is_hidden(name) or _key(name) in LEGACY_FOLDERS or _key(name) in WIKI_ROOTS:
+            continue
+        if child.is_dir() and not child.is_symlink() and _looks_like_project(child):
+            nested.append(name)
     for current, dirnames, _ in os.walk(container, followlinks=False):
         here = Path(current)
         dirnames[:] = [name for name in sorted(dirnames) if not _is_hidden(name) and not (here / name).is_symlink()]
@@ -224,7 +268,10 @@ def _require_container(container: Path) -> Path:
     if not container.is_absolute():
         raise WikiError("WIKI_CONTAINER_INVALID", f"{container} must be absolute")
     if container.is_symlink() or not container.is_dir() or Path(os.path.realpath(container)) != container:
-        raise WikiError("WIKI_CONTAINER_INVALID", f"{container} must be an existing directory reached without symlinks")
+        raise WikiError(
+            "WIKI_CONTAINER_INVALID",
+            f"{container} must be an existing directory reached without symlinks (real path: {os.path.realpath(container)})",
+        )
     if os.path.lexists(container / ".obsidian"):
         raise WikiError("WIKI_CONTAINER_IS_VAULT", f"{container} is a vault root; pass one project folder inside it")
     if not any((ancestor / ".obsidian").is_dir() for ancestor in container.parents):
@@ -307,7 +354,7 @@ def classify(relative: str) -> str | None:
     if not parts or any(_is_hidden(part) for part in parts):
         return None
     top = parts[0]
-    folded = top.casefold()
+    folded = _key(top)
     if folded in WIKI_ROOTS:
         return None
     if len(parts) == 1 and (folded in {name.casefold() for name in SKELETON_FILES} or LOG_ROTATION.match(top)):
@@ -333,15 +380,24 @@ def classify(relative: str) -> str | None:
 # --------------------------------------------------------------------------- planning
 
 
-def _walk(container: Path) -> tuple[list[str], list[str], list[str]]:
-    """Return (regular files, symlinks, hidden entries kept below the root).
+def _walk(container: Path) -> tuple[list[str], list[str], list[str], list[str]]:
+    """Return (regular files, symlinks, hidden entries kept below the root, unreadable directories).
 
     Hidden entries are skipped at every depth and links are never followed.
     """
     files: list[str] = []
     links: list[str] = []
     hidden: list[str] = []
-    for current, dirnames, filenames in os.walk(container, followlinks=False):
+    unreadable: list[str] = []
+
+    def record(error: OSError) -> None:
+        location = Path(error.filename) if error.filename else container
+        try:
+            unreadable.append(location.relative_to(container).as_posix())
+        except ValueError:
+            unreadable.append(str(location))
+
+    for current, dirnames, filenames in os.walk(container, followlinks=False, onerror=record):
         here = Path(current)
         relative_dir = here.relative_to(container)
         nested = relative_dir != Path(".")
@@ -367,7 +423,7 @@ def _walk(container: Path) -> tuple[list[str], list[str], list[str]]:
                 links.append(relative)
             elif stat.S_ISREG(mode):
                 files.append(relative)
-    return files, links, hidden
+    return files, links, hidden, unreadable
 
 
 def _identity(status: os.stat_result) -> tuple[int, int, int, int]:
@@ -431,9 +487,11 @@ def _inspect_destination(container: Path, destination: str) -> tuple[str, Any]:
 
 
 def _plan(container: Path) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
-    files, links, hidden = _walk(container)
+    files, links, hidden, unreadable = _walk(container)
     entries = [(source, destination) for source in files if (destination := classify(source)) not in (None, source)]
-    conflicts: list[dict[str, str]] = []
+    conflicts: list[dict[str, str]] = [
+        {"source": item, "destination": "", "reason": "directory could not be read"} for item in unreadable
+    ]
     claimed: dict[str, str] = {}
     ancestors: dict[str, str] = {}
     for source, destination in entries:
@@ -496,9 +554,16 @@ def _plan(container: Path) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     return report, expected
 
 
+def _plan_safely(container: Path) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    try:
+        return _plan(container)
+    except OSError as error:
+        raise WikiError("WIKI_PATH_UNSAFE", f"cannot plan {error.filename or container}: {error.strerror or error}") from error
+
+
 def plan(container: Path) -> dict[str, Any]:
     """Describe the migration without touching the disk."""
-    return _plan(_require_container(container))[0]
+    return _plan_safely(_require_container(container))[0]
 
 
 # --------------------------------------------------------------------------- migration
@@ -523,6 +588,37 @@ def _require_unchanged_name(directory_fd: int, name: str, record: dict[str, Any]
     status = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
     if not stat.S_ISREG(status.st_mode) or _identity(status) != record["identity"]:
         raise WikiError("WIKI_SOURCE_CHANGED", f"{source} changed during the move")
+
+
+def _retire_source(directory_fd: int, name: str, source_fd: int, record: dict[str, Any], source: str) -> None:
+    """Remove the verified source without deleting a concurrent save.
+
+    The name is first renamed to a private hidden name, the renamed entry is
+    compared with the open descriptor, and only that exact file is unlinked.
+    A file saved over the name in the meantime is either never renamed or is
+    put back, so an edit can never be deleted by the check-then-unlink gap.
+    """
+    private = f".{name}.wiki-migrate-{secrets.token_hex(8)}"
+    try:
+        os.stat(private, dir_fd=directory_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        pass
+    else:
+        raise WikiError("WIKI_SOURCE_CHANGED", f"{source}: private name collision")
+    os.rename(name, private, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+    renamed = os.stat(private, dir_fd=directory_fd, follow_symlinks=False)
+    if os.path.samestat(renamed, os.fstat(source_fd)) and _identity(renamed) == record["identity"]:
+        os.unlink(private, dir_fd=directory_fd)
+        return
+    try:
+        os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        os.rename(private, name, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+        raise WikiError("WIKI_SOURCE_CHANGED", f"{source} changed during the move") from None
+    raise WikiError(
+        "WIKI_SOURCE_CHANGED",
+        f"{source} changed during the move; the version that was there is kept as {private} next to it",
+    )
 
 
 def _discard_created(directory_fd: int, name: str, fd: int) -> None:
@@ -567,7 +663,7 @@ def _move_verified(root_fd: int, source: str, record: dict[str, Any]) -> None:
                     os.close(target_fd)
             finally:
                 os.close(target_dir)
-            os.unlink(source_name, dir_fd=source_dir)
+            _retire_source(source_dir, source_name, source_fd, record, source)
         finally:
             os.close(source_fd)
     finally:
@@ -599,7 +695,7 @@ def _remove_duplicate(root_fd: int, source: str, record: dict[str, Any]) -> None
             finally:
                 os.close(target_dir)
             _require_unchanged_name(source_dir, source_name, record, source)
-            os.unlink(source_name, dir_fd=source_dir)
+            _retire_source(source_dir, source_name, source_fd, record, source)
         finally:
             os.close(source_fd)
     finally:
@@ -669,7 +765,7 @@ def _read_wiki_file(root_fd: int, name: str) -> str:
 
 def _replace_wiki_file(root_fd: int, name: str, text: str) -> None:
     os.close(_open_wiki_file(root_fd, name, os.O_RDONLY))
-    temporary = f".{name}.{os.getpid()}.tmp"
+    temporary = f".{name}.{secrets.token_hex(8)}.tmp"
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW | _CLOEXEC, 0o644, dir_fd=root_fd)
     try:
         _write_all(fd, text.encode("utf-8"))
@@ -741,11 +837,14 @@ def _index_pages(container: Path, root_fd: int, moved: list[str]) -> None:
 
 
 def _require_safe_wiki_files(root_fd: int) -> None:
+    """Fail before the first move if index.md or log.md could not be updated afterwards."""
     for name in ("index.md", "log.md"):
         try:
-            os.close(_open_wiki_file(root_fd, name, os.O_RDONLY))
+            _read_wiki_file(root_fd, name)
         except FileNotFoundError:
             continue
+        except UnicodeDecodeError as error:
+            raise WikiError("WIKI_PATH_UNSAFE", f"{name} is not valid UTF-8") from error
         except OSError as error:
             raise WikiError("WIKI_PATH_UNSAFE", f"{name}: {error.strerror or error}") from error
 
@@ -762,7 +861,7 @@ def migrate(container: Path, *, project: str, today: str) -> dict[str, Any]:
     root_fd = _open_root(container)
     try:
         _require_safe_wiki_files(root_fd)
-        report, expected = _plan(container)
+        report, expected = _plan_safely(container)
         if report["conflicts"]:
             raise WikiError(
                 "WIKI_MIGRATION_CONFLICT",
@@ -790,9 +889,20 @@ def migrate(container: Path, *, project: str, today: str) -> dict[str, Any]:
                 f"{len(done)} of {len(report['moves']) + len(report['deduplicated'])} files handled before: {error}. "
                 "Every source not yet handled is still in place; rerun migrate to continue.",
             ) from error
-        _prune_empty(root_fd, [move["source"] for move in report["moves"]] + report["deduplicated"])
-        _index_pages(container, root_fd, [move["destination"] for move in report["moves"]])
-        _append_log(root_fd, today, "Legacy project folders moved into the LLM Wiki layout", done)
+        try:
+            _prune_empty(root_fd, [move["source"] for move in report["moves"]] + report["deduplicated"])
+            _index_pages(container, root_fd, [move["destination"] for move in report["moves"]])
+            _append_log(root_fd, today, "Legacy project folders moved into the LLM Wiki layout", done)
+        except (OSError, UnicodeError, WikiError) as error:
+            try:
+                _append_log(root_fd, today, "Legacy migration moved every file but did not finish", [*done, f"stopped: {error}"])
+            except (OSError, UnicodeError, WikiError):
+                pass
+            raise WikiError(
+                "WIKI_MIGRATION_INCOMPLETE",
+                f"every file was moved, but cleaning up or updating index.md/log.md failed: {error}. "
+                "No note was lost; run check to list pages missing from index.md.",
+            ) from error
         report.update(status="APPLIED", created=created)
         return report
     finally:

@@ -2564,8 +2564,10 @@ def _wiki_path_state(container: Path, relative: str) -> str:
         if not final:
             if not stat.S_ISDIR(status.st_mode):
                 raise InstallError(f"WIKI_PATH_UNSAFE: {current} is not a directory")
-            if keep_file and index == len(parts) - 2 and any(os.scandir(current)):
-                return "present"
+            if keep_file and index == len(parts) - 2:
+                with os.scandir(current) as entries:
+                    if any(entries):
+                        return "present"
         elif not stat.S_ISREG(status.st_mode):
             raise InstallError(f"WIKI_PATH_UNSAFE: {current} is not a regular file")
     return "present"

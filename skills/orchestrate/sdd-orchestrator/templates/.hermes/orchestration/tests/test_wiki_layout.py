@@ -491,6 +491,128 @@ class MigrationSafetyTests(WikiTestCase):
         self.assertEqual(["concepts/c/plan.md"], unindexed)
 
 
+class MigrationRaceTests(WikiTestCase):
+    """Round-2 security findings: concurrent saves, post-move failures, scope and walk errors."""
+
+    def save_atomically_after(self, function_name: str, relative: str, content: str) -> None:
+        real = getattr(wiki_layout, function_name)
+        path = self.container / relative
+
+        def racing(*args, **kwargs):
+            result = real(*args, **kwargs)
+            temporary = path.with_name(".editor-save.tmp")
+            temporary.write_text(content, encoding="utf-8")
+            os.replace(temporary, path)
+            return result
+
+        setattr(wiki_layout, function_name, racing)
+        self.addCleanup(setattr, wiki_layout, function_name, real)
+
+    def test_an_atomic_save_after_the_last_check_is_never_deleted(self) -> None:
+        self.initialized()
+        self.write("sessions/a.md", "v1\n")
+        self.save_atomically_after("_require_unchanged_name", "sessions/a.md", "v2 USER EDIT\n")
+
+        self.assert_blocked("WIKI_MIGRATION_INCOMPLETE")
+
+        self.assertEqual("v2 USER EDIT\n", (self.container / "sessions/a.md").read_text(encoding="utf-8"))
+        self.assertEqual("v1\n", (self.container / "raw/transcripts/a.md").read_text(encoding="utf-8"))
+
+    def test_an_atomic_save_of_a_duplicate_after_the_last_check_is_never_deleted(self) -> None:
+        self.initialized()
+        self.write("sessions/a.md", "same\n")
+        self.write("raw/transcripts/a.md", "same\n")
+        self.save_atomically_after("_require_unchanged_name", "sessions/a.md", "same\nplus edit\n")
+
+        self.assert_blocked("WIKI_MIGRATION_INCOMPLETE")
+
+        self.assertEqual("same\nplus edit\n", (self.container / "sessions/a.md").read_text(encoding="utf-8"))
+
+    def test_a_non_utf8_index_blocks_before_any_move(self) -> None:
+        self.initialized()
+        self.write("sessions/a.md", "a\n")
+        (self.container / "index.md").write_bytes(b"\xff\xfe broken")
+        before = tree(self.container)
+
+        self.assert_blocked("WIKI_PATH_UNSAFE")
+
+        self.assertEqual(before, tree(self.container))
+
+    def test_a_failure_after_every_move_is_logged_and_coded(self) -> None:
+        self.initialized()
+        self.write("decisions/a.md", "# A\n")
+        real = wiki_layout._index_pages
+
+        def failing(*args, **kwargs):
+            raise OSError("disk full")
+
+        wiki_layout._index_pages = failing
+        self.addCleanup(setattr, wiki_layout, "_index_pages", real)
+
+        self.assert_blocked("WIKI_MIGRATION_INCOMPLETE")
+
+        self.assertEqual(b"# A\n", (self.container / "concepts/a.md").read_bytes())
+        self.assertIn("did not finish", (self.container / "log.md").read_text(encoding="utf-8"))
+
+    def test_a_stale_temporary_index_name_does_not_break_the_run(self) -> None:
+        self.initialized()
+        self.write("decisions/a.md", "# A\n")
+        for pid in range(1, 4):
+            (self.container / f".index.md.{pid}.tmp").write_text("stale\n", encoding="utf-8")
+        (self.container / f".index.md.{os.getpid()}.tmp").write_text("stale\n", encoding="utf-8")
+
+        self.assertEqual("APPLIED", self.migrate()["status"])
+        self.assertIn("[[concepts/a|a]]", (self.container / "index.md").read_text(encoding="utf-8"))
+
+    def test_a_parent_of_unmarked_projects_is_refused(self) -> None:
+        projects = self.vault / "Projects"
+        (self.container / "demand-1" / "sessions").mkdir(parents=True)
+        (self.container / "demand-1" / "sessions" / "s.md").write_text("s\n", encoding="utf-8")
+        with self.assertRaises(wiki_layout.WikiError) as raised:
+            wiki_layout.init(projects, project="Projects", today=TODAY)
+        self.assertEqual("WIKI_CONTAINER_NESTED", raised.exception.code)
+
+    def test_demand_folders_with_their_own_sessions_are_not_projects(self) -> None:
+        self.initialized()
+        self.write("demand-1/sessions/s.md", "s\n")
+        self.write("demand-1/decisions/d.md", "d\n")
+        self.assertEqual([], wiki_layout.plan(self.container)["conflicts"])
+
+    def test_an_unreadable_directory_is_a_conflict(self) -> None:
+        self.initialized()
+        self.write("sessions/a.md", "a\n")
+        locked = self.container / "sessions" / "locked"
+        locked.mkdir()
+        (locked / "b.md").write_text("b\n", encoding="utf-8")
+        locked.chmod(0)
+        self.addCleanup(locked.chmod, 0o755)
+        if os.access(locked, os.R_OK):
+            self.skipTest("running with privileges that read mode-000 directories")
+        before = tree(self.container)
+
+        error = self.assert_blocked("WIKI_MIGRATION_CONFLICT")
+
+        self.assertIn("could not be read", error.detail)
+        self.assertEqual(before, tree(self.container))
+
+    def test_a_path_too_long_to_open_returns_a_stable_code(self) -> None:
+        self.initialized()
+        real = wiki_layout._walk
+
+        def too_long(container):
+            raise OSError(63, "File name too long", str(container / "sessions" / ("x" * 300)))
+
+        wiki_layout._walk = too_long
+        self.addCleanup(setattr, wiki_layout, "_walk", real)
+        self.assert_blocked("WIKI_PATH_UNSAFE")
+
+    def test_a_decomposed_unicode_folder_name_is_recognized(self) -> None:
+        import unicodedata
+
+        decomposed = unicodedata.normalize("NFD", "Decisões")
+        self.assertEqual("concepts/x.md", wiki_layout.classify(f"{decomposed}/x.md"))
+
+
 class CheckTests(WikiTestCase):
     def test_check_reports_missing_skeleton_legacy_folders_and_unindexed_pages(self) -> None:
         self.initialized()
