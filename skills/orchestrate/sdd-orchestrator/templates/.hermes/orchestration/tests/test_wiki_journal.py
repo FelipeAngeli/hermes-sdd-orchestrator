@@ -239,12 +239,38 @@ class RecordTests(JournalTestCase):
             "passwords": "--password " * (size // 11),
             "keys": '"secret":' * (size // 9),
             "words": "token " * (size // 6),
+            "scheme_like_runs": ("a-" * size)[:size],
+            "dotted_runs": ("a." * size)[:size],
+            "plus_runs": ("a1+" * size)[:size],
+            "scheme_separators": ("a://" * size)[:size],
+            "scheme_with_user": ("a://x:" * size)[:size],
         }
         for name, text in inputs.items():
             with self.subTest(input=name):
                 started = time.monotonic()
                 self.wj.redact(text)
                 self.assertLess(time.monotonic() - started, 3.0)
+
+    def test_every_redaction_pattern_is_linear_on_repeated_prefixes(self) -> None:
+        """Each credential prefix repeated with each separator: quadratic patterns take seconds here."""
+        import time
+
+        size = 128 * 1024
+        prefixes = (
+            "eyJ", "sk-", "github_pat_", "ghp_", "glpat-", "hf_", "whsec_", "xoxb-", "AIza", "AKIA",
+            "-----BEGIN RSA PRIVATE KEY-----", "a://", "https://u:", "Bearer ", "Cookie:", "AccountKey=",
+            "--user=", "--password ", "sshpass -p", "mysql -p", "password is ", '"api_key":', "x_token_y=", "a",
+        )
+        separators = ("-", ".", "_", "+", "/", "=", ":", "@", " ", '"', "\\", "\n")
+        slowest = (0.0, "")
+        for prefix in prefixes:
+            for separator in separators:
+                unit = prefix + separator
+                text = (unit * (size // len(unit) + 1))[:size]
+                started = time.monotonic()
+                self.wj.redact(text)
+                slowest = max(slowest, (time.monotonic() - started, repr(unit)))
+        self.assertLess(slowest[0], 1.5, slowest)
 
     def test_oversized_body_is_truncated_before_redaction(self) -> None:
         with mock.patch.object(self.wj, "redact", wraps=self.wj.redact) as spy:
