@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 13.0.3 - 2026-10-07
+
 ### Fixed
 - pr-reviewer round 4 on 13.0.2: redaction still had quadratic patterns. The URL-password scheme was unbounded (`a-a-a-…`: 128 KiB took 23 s) and the JWT pattern restarted after every `-` (`eyJ-eyJ-…`: 512 KiB took 47 s). Every pattern now has bounded repetitions and starts at a fixed-width token boundary instead of `\b`, and private-key blocks are removed in one linear pass. A new test runs every credential prefix repeated with every separator and fails on any quadratic pattern (it took 23.9 s on 13.0.2).
 
