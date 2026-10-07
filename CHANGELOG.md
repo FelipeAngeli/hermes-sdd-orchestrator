@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 13.0.1 - 2026-10-07
+
 ### Fixed
 - pr-reviewer round 2 on 13.0.0: redaction also covers PGP private-key blocks, URL passwords containing `@`, `curl --user=`/`-uUSER:PW`, `--password`/`--pass`, `sshpass -p`, `mysql -pSECRET`, `glpat-`, `hf_`, `npm_`, `whsec_`, Azure `AccountKey=`/`SharedAccessKey=`/`sig=`, `Cookie:` headers, backslash-escaped JSON keys, and numeric values assigned to password-like keys.
 - A session end already logged is skipped (`ALREADY_LOGGED`), so a resumed session finalized again adds no second `log.md` entry; 13.0.0 said "once per session" without enforcing it.
