@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 13.0.4 - 2026-10-07
+
 ### Fixed
 - pr-reviewer round 5 on 13.0.3: the linear-time rewrite stopped redacting tokens that follow `=`, `/`, `.`, `+` or `-` (`KEY=sk-…`, `export STRIPE=sk_live_…`, `id=AKIA…`, `?jwt=eyJ…`, `https://…/magic/eyJ…`, `?k=AIza…`) and URL passwords after `-`, `.` or `+`; 123 context/token combinations leaked that 13.0.2 redacted. Token patterns now start after any non-word character; only the JWT pattern also refuses to start after `-`, which keeps it linear. `sshpass -p` is also redacted after `(`, `[`, `{`, quotes, `,`, `;` or `=`. New tests put every token after 17 contexts (108 failures on 13.0.3).
 
