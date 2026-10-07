@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 11.0.2 - 2026-10-07
+
 ### Fixed
 - `wiki_layout.py migrate` puts a changed source back with an exclusive hard link instead of a rename, so restoring it can never replace a newer save that landed meanwhile; if one did, both versions stay (the older under its private hidden name) and the error says the copy in the wiki is the pre-change version to reconcile by hand (security-reviewer round 3 on #42).
 - A path longer than `PATH_MAX` no longer crashes `init`, `migrate` or `check` with a traceback: inspecting the container and any OS error reaching the CLI return `WIKI_PATH_UNSAFE` as JSON.
