@@ -83,30 +83,34 @@ _LINE_BREAKS = re.compile(r"[\r\n\u2028\u2029\x0b\x0c\x85]+")
 # and each match must start at a token boundary expressed as a fixed-width
 # lookbehind (``\b`` re-matches after every '-' or '.', which made runs such as
 # ``eyJ-eyJ-…`` or ``a-a-…`` quadratic). record() also truncates before redacting.
+# Token patterns start after any non-word character, so a token after "=",
+# "/", "?", ":", "." or "-" is still found (KEY=sk-…, ?jwt=eyJ…). Only the JWT
+# pattern, which must fail after a long scan when no "." follows, also refuses
+# to start after "-" (``eyJ-eyJ-…`` would otherwise be quadratic).
 _T = r"(?<![A-Za-z0-9_])"  # not inside a word
-_TOK = r"(?<![A-Za-z0-9_.+/=-])"  # not inside a token
-_SECRET_KEY = _TOK + r"[A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|access[_-]?key|secret|token|passw(?:or)?d|passwd|pwd|credential|private[_-]?key|client[_-]?secret|auth)[A-Za-z0-9_.-]{0,40}"
+_TOK = r"(?<![A-Za-z0-9_-])"  # not inside a [A-Za-z0-9_-] token
+_SECRET_KEY = r"(?<![A-Za-z0-9_.-])"  + r"[A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|access[_-]?key|secret|token|passw(?:or)?d|passwd|pwd|credential|private[_-]?key|client[_-]?secret|auth)[A-Za-z0-9_.-]{0,40}"
 _PLAIN_VALUE = re.compile(r"^(?:\d+(?:\.\d+)?|true|false|null|none|\[redacted\])$", re.IGNORECASE)
 # Keys whose values are credentials even when they look like plain numbers.
 _ALWAYS_SECRET_KEY = re.compile(r"(?i)passw|pwd|secret|credential|private[_-]?key|passphrase")
 _SECRET_PATTERNS = (
     # Well-known token shapes (private-key blocks are handled by _redact_key_blocks).
     re.compile(_TOK + r"eyJ[A-Za-z0-9_-]{5,4096}\.[A-Za-z0-9_-]{5,8192}\.[A-Za-z0-9_-]{0,4096}"),
-    re.compile(_TOK + r"(?:sk|rk|pk)[-_](?:live|test|proj|ant)?[-_]?[A-Za-z0-9_-]{16,512}"),
-    re.compile(_TOK + r"github_pat_[A-Za-z0-9_]{20,512}"),
-    re.compile(_TOK + r"gh[pousr]_[A-Za-z0-9]{20,512}"),
-    re.compile(_TOK + r"glpat-[A-Za-z0-9_-]{16,512}"),
-    re.compile(_TOK + r"hf_[A-Za-z0-9]{20,512}"),
-    re.compile(_TOK + r"npm_[A-Za-z0-9]{20,512}"),
-    re.compile(_TOK + r"whsec_[A-Za-z0-9+/=]{16,512}"),
-    re.compile(_TOK + r"xox[abposr]-[A-Za-z0-9-]{10,512}"),
+    re.compile(_T + r"(?:sk|rk|pk)[-_](?:live|test|proj|ant)?[-_]?[A-Za-z0-9_-]{16,512}"),
+    re.compile(_T + r"github_pat_[A-Za-z0-9_]{20,512}"),
+    re.compile(_T + r"gh[pousr]_[A-Za-z0-9]{20,512}"),
+    re.compile(_T + r"glpat-[A-Za-z0-9_-]{16,512}"),
+    re.compile(_T + r"hf_[A-Za-z0-9]{20,512}"),
+    re.compile(_T + r"npm_[A-Za-z0-9]{20,512}"),
+    re.compile(_T + r"whsec_[A-Za-z0-9+/=]{16,512}"),
+    re.compile(_T + r"xox[abposr]-[A-Za-z0-9-]{10,512}"),
     re.compile(r"https://hooks\.slack\.com/services/[A-Za-z0-9/_-]{1,512}"),
-    re.compile(_TOK + r"AIza[0-9A-Za-z_-]{30,512}"),
-    re.compile(_TOK + r"(?:AKIA|ASIA)[0-9A-Z]{16}(?![0-9A-Z])"),
+    re.compile(_T + r"AIza[0-9A-Za-z_-]{30,512}"),
+    re.compile(_T + r"(?:AKIA|ASIA)[0-9A-Z]{16}(?![0-9A-Z])"),
 )
 _SECRET_SUBSTITUTIONS = (
     # scheme://user:password@host — the password may itself contain '@'; the last '@' before the host wins.
-    (re.compile(r"((?<![a-z0-9+.-])[a-z][a-z0-9+.-]{0,30}://[^\s:/@]{0,256}:)([^\s]{1,512}?)(@[^\s@/]{1,256}(?:[/:?#\s]|$))", re.IGNORECASE | re.MULTILINE), r"\1[REDACTED]\3"),
+    (re.compile(r"((?<![a-z0-9])[a-z][a-z0-9+.-]{0,30}://[^\s:/@]{0,256}:)([^\s]{1,512}?)(@[^\s@/]{1,256}(?:[/:?#\s]|$))", re.IGNORECASE | re.MULTILINE), r"\1[REDACTED]\3"),
     # Authorization schemes followed by a credential.
     (re.compile(r"(?i)" + _T + r"((?:bearer|basic|token|digest)[ \t]{1,16})([A-Za-z0-9._~+/=-]{8,4096})"), r"\1[REDACTED]"),
     # Cookie / Set-Cookie headers carry session credentials.
@@ -116,7 +120,7 @@ _SECRET_SUBSTITUTIONS = (
     # curl -u user:pw, --user user:pw, --user=user:pw
     (re.compile(r"((?:^|(?<=\s))(?:-u[ \t]{0,16}|--user(?:[ \t]{1,16}|=))['\"]?[^\s:'\"]{1,256}:)([^\s'\"]{1,512})", re.MULTILINE), r"\1[REDACTED]"),
     # --password X, --password=X, --pass X, sshpass -p X
-    (re.compile(r"(?i)((?:^|(?<=\s))(?:--pass(?:word)?(?:[ \t]{1,16}|=)|sshpass[ \t]{1,16}-p[ \t]{0,16}))(\"[^\"\n]{0,512}\"|'[^'\n]{0,512}'|[^\s'\"]{1,512})", re.MULTILINE), r"\1[REDACTED]"),
+    (re.compile(r"(?i)((?:^|(?<=[\s(\[{\"',;=]))(?:--pass(?:word)?(?:[ \t]{1,16}|=)|sshpass[ \t]{1,16}-p[ \t]{0,16}))(\"[^\"\n]{0,512}\"|'[^'\n]{0,512}'|[^\s'\"]{1,512})", re.MULTILINE), r"\1[REDACTED]"),
     # mysql/mariadb -pSECRET glued to the flag; the gap to the flag is bounded so the scan stays linear
     (re.compile(r"(?i)(" + _T + r"(?:mysql|mariadb|mysqldump|mysqladmin)(?![A-Za-z0-9_])[^\n]{0,200}?\s-p)(\"[^\"\n]{0,512}\"|'[^'\n]{0,512}'|[^\s'\"]{1,512})"), r"\1[REDACTED]"),
     # natural language: "password is X", "senha: X"

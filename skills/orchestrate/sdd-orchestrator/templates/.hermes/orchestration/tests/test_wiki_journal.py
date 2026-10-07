@@ -277,6 +277,34 @@ class RecordTests(JournalTestCase):
             self.record(kind="action", title="big", body="mysql " * (self.wj.MAX_RECORD_BYTES // 3))
         self.assertTrue(all(len(call.args[0].encode("utf-8")) <= self.wj.MAX_RECORD_BYTES + 200 for call in spy.call_args_list))
 
+    def test_tokens_are_redacted_after_punctuation_and_inside_urls(self) -> None:
+        jwt = fake("eyJhbGciOiJIUzI1NiJ9.", "eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U")
+        tokens = {
+            "openai": (fake("sk-proj-", "Abcdefghijklmnopqrstuv12"), "Abcdefghijklmnopqrstuv12"),
+            "stripe": (fake("sk_live_", "51Habcdefghijklmnopqrstuv"), "51Habcdefghijklmnop"),
+            "hf": (fake("hf_", "abcdefghijklmnopqrstuv"), "abcdefghijklmnopqrstuv"),
+            "github": (fake("ghp_", "abcdefghijklmnopqrstuvwxyz12"), "abcdefghijklmnopqrstuvwxyz12"),
+            "gitlab": (fake("glpat-", "abcdefghij1234567890"), "abcdefghij1234567890"),
+            "aws": (fake("AKIA", "ABCDEFGHIJKLMNOP"), "ABCDEFGHIJKLMNOP"),
+            "google": (fake("AIza", "SyA1234567890abcdefghijklmnopqrstuv"), "SyA1234567890abcdefghij"),
+            "webhook": (fake("whsec_", "abcdefghijklmnopqrstu"), "abcdefghijklmnopqrstu"),
+            "jwt": (jwt, "dozjgNryP4J3jVmNHl0w5N"),
+        }
+        contexts = ("KEY=", "export OPENAI=", "--data=", "id=", "(", "[", '"', ",", ":", "/", "?jwt=",
+                    "https://app.example.com/magic/", "https://x/api?k=", ".", "+", "a=b&t=", "\n")
+        for context in contexts:
+            for name, (token, secret) in tokens.items():
+                with self.subTest(context=context, token=name):
+                    self.assertNotIn(secret, self.wj.redact(f"{context}{token} tail"))
+
+    def test_url_password_after_punctuation_and_sshpass_after_brackets_are_redacted(self) -> None:
+        for context in ("-", ".", "+", "(", '"', "="):
+            with self.subTest(context=context):
+                self.assertNotIn("urlpassword9", self.wj.redact(context + fake("postgres://user:", "urlpassword9@db/app")))
+        for context in ("(", '"', ",", "=", "[", "'"):
+            with self.subTest(sshpass=context):
+                self.assertNotIn("sshsecret7", self.wj.redact(context + fake("sshpass -p ", "sshsecret7 ssh h")))
+
     def test_redaction_keeps_ordinary_values(self) -> None:
         text = self.wj.redact('max_tokens: 4096\ntoken_count = 12\n"auth": true\nTOTAL=7\nport: 5432\nhttps://example.com/a@b')
         self.assertIn("port: 5432", text)
