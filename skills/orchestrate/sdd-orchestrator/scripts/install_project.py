@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import datetime
 import errno
 import hashlib
 import importlib.util
@@ -14,7 +15,7 @@ import shutil
 import stat
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Callable
 
 ROOT = Path(__file__).resolve().parent
@@ -23,6 +24,8 @@ CONFIG_ROOT = ".hermes/orchestration"
 TYPESAFE_SKILL_ROOT = ".hermes/skills/typesafe-ai"
 TYPESAFE_SKILL_PATH = f"{TYPESAFE_SKILL_ROOT}/SKILL.md"
 TYPESAFE_LOCK_PATH = "skills-lock.json"
+#: In an Obsidian container the lock stays hidden so the wiki root holds only notes.
+TYPESAFE_LOCK_PATH_OBSIDIAN = ".hermes/skills-lock.json"
 TYPESAFE_ENV_PATH = ".hermes/.env"
 TYPESAFE_ENV_CONTENT = b"TYPESAFE_API_KEY=\nJEV_AI_API_KEY=\n"
 JEV_CACHE_PATH = f"{CONFIG_ROOT}/JEV_CACHE.json"
@@ -61,9 +64,10 @@ TRACKED_DESTINATIONS_GUARDED = True
 
 def _set_storage_mode(obsidian: bool) -> None:
     """Apply the per-run storage policy in one place."""
-    global CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED
+    global CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED, TYPESAFE_LOCK_PATH
     CREDENTIAL_FILE_MANAGED = not obsidian
     TRACKED_DESTINATIONS_GUARDED = not obsidian
+    TYPESAFE_LOCK_PATH = TYPESAFE_LOCK_PATH_OBSIDIAN if obsidian else "skills-lock.json"
 
 
 class InstallError(RuntimeError):
@@ -2518,6 +2522,57 @@ def obsidian_project_setup(vault: Path, project: str) -> str:
     return project_setup().replace("  obsidian: UNRESOLVED", f"  obsidian: {answer}", 1)
 
 
+def _wiki_module():
+    previous = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        return _load_template_module("sdd_wiki_layout", "runtime/wiki_layout.py")
+    finally:
+        sys.dont_write_bytecode = previous
+
+
+def _wiki_skeleton(project: str) -> dict[str, bytes]:
+    """Skeleton files plus a hidden keep-file for each empty wiki directory."""
+    module = _wiki_module()
+    name = PurePosixPath(project).name
+    files = dict(module.skeleton_files(project=name, today=datetime.date.today().isoformat()))
+    for directory in module.DIRECTORIES:
+        files[f"{directory}/.gitkeep"] = b""
+    return files
+
+
+def _wiki_path_state(container: Path, relative: str) -> str:
+    """Classify one skeleton path without following links.
+
+    ``absent`` and ``directory-absent`` are planned; ``present`` is left alone.
+    A keep-file is planned only for an absent or empty directory. Any link or
+    non-directory on the way, or a non-regular file where a skeleton file
+    belongs, is refused with ``WIKI_PATH_UNSAFE`` instead of a raw OS error.
+    """
+    parts = PurePosixPath(relative).parts
+    keep_file = parts[-1] == ".gitkeep"
+    current = container
+    for index, part in enumerate(parts):
+        current = current / part
+        final = index == len(parts) - 1
+        try:
+            status = os.lstat(current)
+        except FileNotFoundError:
+            return "directory-absent" if keep_file and index == len(parts) - 2 else "absent"
+        if stat.S_ISLNK(status.st_mode):
+            raise InstallError(f"WIKI_PATH_UNSAFE: {current} is a symlink")
+        if not final:
+            if not stat.S_ISDIR(status.st_mode):
+                raise InstallError(f"WIKI_PATH_UNSAFE: {current} is not a directory")
+            if keep_file and index == len(parts) - 2:
+                with os.scandir(current) as entries:
+                    if any(entries):
+                        return "present"
+        elif not stat.S_ISREG(status.st_mode):
+            raise InstallError(f"WIKI_PATH_UNSAFE: {current} is not a regular file")
+    return "present"
+
+
 def _plan_obsidian_files(
     vault: Path,
     project: str,
@@ -2557,6 +2612,12 @@ def _plan_obsidian_files(
     setup = f"{project}/{CONFIG_ROOT}/PROJECT_SETUP.md"
     if _read_project_file_nofollow(vault, setup) is None:
         planned[setup] = obsidian_project_setup(vault, project).encode("utf-8")
+
+    # LLM Wiki skeleton: created only where absent, never compared or replaced,
+    # because the wiki files belong to the project once they exist.
+    for relative, content in _wiki_skeleton(project).items():
+        if _wiki_path_state(vault / project, relative) != "present":
+            planned[f"{project}/{relative}"] = content
 
     runtime = f"{project}/{OBSIDIAN_RUNTIME_SUBPATH}/{_worktree_slug(target)}"
     present = [
@@ -2609,7 +2670,7 @@ def _target_snapshot(target: Path) -> tuple[str, frozenset[str]]:
 
 
 def run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict[str, object]:
-    previous = (CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED)
+    previous = (CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED, TYPESAFE_LOCK_PATH)
     _set_storage_mode(obsidian=True)
     try:
         return _run_obsidian_install(args, target, workspace)
@@ -2617,15 +2678,21 @@ def run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict[
         _restore_storage_mode(previous)
 
 
-def _restore_storage_mode(previous: tuple[bool, bool]) -> None:
-    global CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED
-    CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED = previous
+def _restore_storage_mode(previous: tuple[bool, bool, str]) -> None:
+    global CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED, TYPESAFE_LOCK_PATH
+    CREDENTIAL_FILE_MANAGED, TRACKED_DESTINATIONS_GUARDED, TYPESAFE_LOCK_PATH = previous
 
 
 def _run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict[str, object]:
     vault, project = resolve_obsidian_storage(args.obsidian_vault, args.obsidian_project)
     _reject_storage_overlap(vault, project, target, workspace)
     container = vault / project
+    legacy_lock = container / "skills-lock.json"
+    if os.path.lexists(legacy_lock):
+        raise InstallError(
+            f"TYPESAFE_LOCK_LEGACY_LOCATION: {legacy_lock}; move it to {container / TYPESAFE_LOCK_PATH_OBSIDIAN} "
+            "(wiki_layout.py migrate does this together with the legacy notes) and run the installer again"
+        )
     target_before = _target_snapshot(target)
 
     def require_target_unchanged() -> None:
