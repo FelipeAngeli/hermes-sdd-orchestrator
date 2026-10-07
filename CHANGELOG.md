@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- pr-reviewer round 8 on 13.0.7: the JWT pass missed a JWE with alg `dir` (empty encrypted-key segment, `eyJ…..iv.ciphertext.tag`, as in NextAuth session cookies) and a JWS with a detached payload, leaving the IV, ciphertext, tag or signature in clear; a header after `_` (`ACCESS_TOKEN_eyJ…`) and a base64 `=`-padded token also leaked. An empty second segment followed by a real segment is now a token, a header starts at a segment start or after `-`, `_` or `=`, and `=` is part of a token run. Pre-existing gaps, not regressions; still linear.
+
 ## 13.0.7 - 2026-10-07
 
 ### Fixed

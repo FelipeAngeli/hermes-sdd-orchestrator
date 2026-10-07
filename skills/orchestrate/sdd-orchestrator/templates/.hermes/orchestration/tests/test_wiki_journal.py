@@ -337,7 +337,14 @@ class RecordTests(JournalTestCase):
         self.assertEqual("x [REDACTED] y", self.wj.redact(f"x {jwe} y"))
         unsigned = part({"alg": "none"}) + "." + part({"sub": "x"})
         self.assertEqual("t [REDACTED]", self.wj.redact("t " + unsigned))
-        for ordinary in ("file.eyJ.txt", "see docs.example.com/eyJ", "version 1.2.3", "eyJ is a prefix"):
+        direct_jwe = part({"alg": "dir", "enc": "A256GCM"}) + "..initVECTOR0123.CIPHERtext0123456789.authTAG0123456"
+        detached = part({"alg": "HS256", "b64": False}) + "..detachedSIG0123456789"
+        padded = base64.urlsafe_b64encode(b'{"alg":"HS256"}').decode("ascii") + "." + base64.urlsafe_b64encode(b'{"sub":"12"}').decode("ascii") + ".paddedSIG0123456789=="
+        for token, secret in ((direct_jwe, "CIPHERtext0123456789"), (detached, "detachedSIG0123456789"), (padded, "paddedSIG0123456789")):
+            for context in ("got ", "x_", "ACCESS_TOKEN_", "next-auth.session-token=", '{"t":"'):
+                with self.subTest(token=token[:12], context=context):
+                    self.assertNotIn(secret, self.wj.redact(f"{context}{token}."))
+        for ordinary in ("file.eyJ.txt", "see docs.example.com/eyJ", "version 1.2.3", "eyJ is a prefix", "eyJabcdefgh..txt", "a=b.c=d", "foo_eyJ.bar"):
             self.assertEqual(ordinary, self.wj.redact(ordinary))
 
     def test_url_password_after_punctuation_and_sshpass_after_brackets_are_redacted(self) -> None:

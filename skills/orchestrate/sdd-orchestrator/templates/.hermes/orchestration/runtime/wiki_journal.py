@@ -179,16 +179,17 @@ def _redact_key_blocks(text: str) -> str:
         position = end.end()
 
 
-_DOTTED_RUN = re.compile(r"[A-Za-z0-9_.-]+")
+_DOTTED_RUN = re.compile(r"[A-Za-z0-9_.=-]+")
 _JWT_HEADER = "eyJ"
 _JWT_MAX_SEGMENTS = 5  # JWS has 3 segments, JWE has 5
+_JWT_HEADER_AFTER = "-_="  # x-auth-eyJ…, ACCESS_TOKEN_eyJ…, jwt=eyJ…
 
 
 def _jwt_header_start(part: str) -> int:
-    """Index of the first ``eyJ`` in ``part`` that starts a token (at 0 or after '-'), else -1."""
+    """Index of the first ``eyJ`` in ``part`` that starts a token (at 0 or after '-', '_', '='), else -1."""
     index = part.find(_JWT_HEADER)
     while index != -1:
-        if index == 0 or part[index - 1] == "-":
+        if index == 0 or part[index - 1] in _JWT_HEADER_AFTER:
             return index
         index = part.find(_JWT_HEADER, index + 1)
     return -1
@@ -202,12 +203,16 @@ def _redact_jwt_run(run: str) -> str:
         part = parts[index]
         start = _jwt_header_start(part)
         payload = parts[index + 1] if index + 1 < len(parts) else ""
-        has_signature_slot = index + 2 < len(parts)
+        third = parts[index + 2] if index + 2 < len(parts) else None
+        # An empty second segment is a JWE with alg "dir" (eyJ…..iv.ciphertext.tag)
+        # or a JWS with a detached payload (eyJ…..signature).
         is_jwt = (
             start != -1
             and len(part) - start >= 8
-            and len(payload) >= 5
-            and (has_signature_slot or payload.startswith(_JWT_HEADER))
+            and (
+                (len(payload) >= 5 and (third is not None or payload.startswith(_JWT_HEADER)))
+                or (payload == "" and third is not None and len(third) >= 5)
+            )
         )
         if not is_jwt:
             out.append(part)
