@@ -43,6 +43,8 @@ Default schema 1 budgets per round: 3 stage transitions, 8 executor calls, 1 cor
 | `AUTO_WITH_BUDGET` | `SPECIFY`, `CLARIFY`, `PLAN`, `TASKS`, `IMPLEMENT_SLICE`, `REVIEW`, `CI` | `CODEX` (`HOST` for `CI`) |
 | `HUMAN_REQUIRED` | `REOPEN_STAGE_AFTER_RETRY_EXHAUSTED`, `RESOLVE_RECOVERY`, `PROTECTED_FILE_CHANGE`, `MATERIAL_SCOPE_CHANGE`, `ARCHITECTURE_DECISION`, `BACKEND_MUTATION`, `DEV_E2E`, `COMMIT`, `PUSH`, `LINEAR_UPDATE`, `DESTRUCTIVE_ACTION`, `EXTERNAL_CONTRACT_CHANGE`, `WAIT_OR_MANUAL_REVIEW` | `NONE` |
 
+`OBSIDIAN_WRITE` is `AUTO_SAFE` because `LOOP_POLICY.md` §18 makes the project wiki read and write: stage artifacts, gate results, journal actions, incidents, decisions and Hermes turns are recorded there by [`wiki_journal.py`](obsidian-vault.md#recording-everything-in-the-wiki-wiki_journalpy), and a failed wiki write never stops the loop or DONE.
+
 Gate preconditions are enforced by the planner: `FORMAT_CHANGED_FILES` needs focused tests `PASS`, `ANALYZE` needs tests and format, `REVIEW` needs all three, and `CI` needs review `APPROVED` and CI enabled. Gate commands come from [Gates](gates-and-stack-detection.md).
 
 The snapshot's `implementation.changed_files_available` flag is also accepted under its legacy name `changed_dart_files_available`, so older installations keep validating.

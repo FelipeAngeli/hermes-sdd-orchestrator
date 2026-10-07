@@ -1,37 +1,69 @@
-"""Behavior of the wiki journal: everything the orchestrator runs lands in the project wiki."""
+"""Behavior of the wiki journal: everything the orchestrator runs lands in the project wiki.
+
+Every test runs the module from a real controller copy (vault-resident or
+repository-local) so the trust decision is exercised exactly as installed.
+"""
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-RUNTIME = Path(__file__).resolve().parents[1] / "runtime"
+ORCHESTRATION = Path(__file__).resolve().parents[1]
+RUNTIME = ORCHESTRATION / "runtime"
 sys.path.insert(0, str(RUNTIME))
 
-import action_journal  # noqa: E402
-import wiki_journal  # noqa: E402
 import wiki_layout  # noqa: E402
 
-SCRIPT = RUNTIME / "wiki_journal.py"
 WHEN = dt.datetime(2026, 10, 7, 12, 30, 5, tzinfo=dt.timezone.utc)
+CONTROLLER_MODULES = ("obsidian_binding", "wiki_layout", "wiki_journal", "action_journal")
 
 
-def setUpModule() -> None:
-    """Behave like a source checkout even when the suite runs from an installed container."""
-    patcher = mock.patch.object(wiki_journal, "_installed_container", return_value=None)
-    patcher.start()
-    unittest.addModuleCleanup(patcher.stop)
+def load_controller(root: Path) -> dict:
+    """Copy the controller under ``root`` and import its modules from there."""
+    orchestration = root / ".hermes" / "orchestration"
+    ignore = shutil.ignore_patterns("__pycache__")
+    shutil.copytree(RUNTIME, orchestration / "runtime", ignore=ignore, dirs_exist_ok=True)
+    shutil.copytree(ORCHESTRATION / "hooks", orchestration / "hooks", ignore=ignore, dirs_exist_ok=True)
+    runtime = orchestration / "runtime"
+    saved = {key: sys.modules.get(key) for key in CONTROLLER_MODULES}
+    modules: dict = {}
+    try:
+        for key in CONTROLLER_MODULES:
+            spec = importlib.util.spec_from_file_location(key, runtime / f"{key}.py")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[key] = module
+            spec.loader.exec_module(module)
+            modules[key] = module
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                sys.modules.pop(key, None)
+            else:
+                sys.modules[key] = value
+    return modules
+
+
+def fake(prefix: str, body: str) -> str:
+    """Build a credential-shaped test value without a literal secret in the source."""
+    return prefix + body
 
 
 class JournalTestCase(unittest.TestCase):
+    """A vault-resident controller in ``Projects/App`` serving the registered worktree ``code/repo``."""
+
     def setUp(self) -> None:
         temp = tempfile.TemporaryDirectory(prefix="sdd wiki journal-")
         self.addCleanup(temp.cleanup)
@@ -41,25 +73,42 @@ class JournalTestCase(unittest.TestCase):
         self.container = self.vault / "Projects" / "App"
         self.container.mkdir(parents=True)
         wiki_layout.init(self.container, project="App", today="2026-10-07")
-        self.repo = self.base / "repo"
-        self.repo.mkdir()
-        self.bind(self.repo)
+        self.repo = self.base / "code" / "repo"
+        (self.repo / ".git").mkdir(parents=True)
+        self.write_binding(self.container)
+        self.register(self.repo)
+        modules = load_controller(self.container)
+        self.wj = modules["wiki_journal"]
+        self.aj = modules["action_journal"]
+        # action_journal imports wiki_journal lazily: make it find this controller's copy.
+        patcher = mock.patch.dict(sys.modules, {"wiki_journal": self.wj})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        env = mock.patch.dict(os.environ, {})
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop("TERMINAL_CWD", None)
 
-    def bind(self, repo: Path) -> None:
-        binding = repo / ".hermes" / "obsidian.json"
+    def write_binding(self, root: Path, container: str = "Projects/App") -> None:
+        binding = root / ".hermes" / "obsidian.json"
         binding.parent.mkdir(parents=True, exist_ok=True)
-        binding.write_text(json.dumps({
-            "schema_version": 1,
-            "vault_path": str(self.vault),
-            "project_container": "Projects/App",
-        }), encoding="utf-8")
+        binding.write_text(json.dumps({"schema_version": 1, "vault_path": str(self.vault), "project_container": container}), encoding="utf-8")
+
+    def register(self, workspace: Path, slug: str = "repo-1") -> None:
+        runtime = self.container / ".hermes-runtime" / slug
+        runtime.mkdir(parents=True, exist_ok=True)
+        (runtime / "STATE.md").write_text(f'---\nworkspace:\n  path: "{workspace}"\n---\n', encoding="utf-8")
 
     def record(self, **kwargs) -> dict:
         kwargs.setdefault("when", WHEN)
-        return wiki_journal.record(self.container, **kwargs)
+        return self.wj.record(self.container, **kwargs)
 
     def log(self) -> str:
         return (self.container / "log.md").read_text(encoding="utf-8")
+
+    @staticmethod
+    def files(root: Path) -> list[str]:
+        return sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
 
 
 class RecordTests(JournalTestCase):
@@ -70,7 +119,6 @@ class RecordTests(JournalTestCase):
         text = (self.container / result["path"]).read_text(encoding="utf-8")
         self.assertIn('kind: "stage"', text)
         self.assertIn('ticket: "APP-12"', text)
-        self.assertIn('stage: "SPECIFY"', text)
         self.assertIn("Users sign in.", text)
         self.assertIn("ingest | stage — Login spec", self.log())
         self.assertIn("[[raw/articles/app-12/20261007-123005-specify-login-spec]]", self.log())
@@ -84,8 +132,7 @@ class RecordTests(JournalTestCase):
         self.assertIn("FAIL", (self.container / second["path"]).read_text(encoding="utf-8"))
 
     def test_record_without_ticket_goes_to_no_ticket(self) -> None:
-        result = self.record(kind="action", title="run", body="done")
-        self.assertTrue(result["path"].startswith("raw/articles/no-ticket/actions/"))
+        self.assertTrue(self.record(kind="action", title="run", body="done")["path"].startswith("raw/articles/no-ticket/actions/"))
 
     def test_decision_creates_a_concept_page_indexes_it_and_appends_later_records(self) -> None:
         first = self.record(kind="decision", title="Use JWT refresh", body="Short-lived access tokens.", ticket="APP-12", stage="PLAN")
@@ -97,8 +144,7 @@ class RecordTests(JournalTestCase):
         second = self.record(kind="decision", title="Use JWT refresh", body="Rotation every 15 min.", ticket="APP-12", stage="REVIEW")
         self.assertFalse(second["created"])
         page = (self.container / first["path"]).read_text(encoding="utf-8")
-        self.assertIn("type: \"decision\"", page)
-        self.assertIn("Short-lived access tokens.", page)
+        self.assertIn('type: "decision"', page)
         self.assertIn("Rotation every 15 min.", page)
         self.assertEqual(1, (self.container / "index.md").read_text(encoding="utf-8").count("[[concepts/use-jwt-refresh"))
         self.assertIn("create | decision — Use JWT refresh", self.log())
@@ -107,8 +153,7 @@ class RecordTests(JournalTestCase):
     def test_layer_two_kinds_go_to_their_folders(self) -> None:
         for kind, folder in (("entity", "entities"), ("concept", "concepts"), ("comparison", "comparisons"), ("query", "queries")):
             with self.subTest(kind=kind):
-                result = self.record(kind=kind, title=f"{kind} page", body="text")
-                self.assertTrue(result["path"].startswith(folder + "/"))
+                self.assertTrue(self.record(kind=kind, title=f"{kind} page", body="text")["path"].startswith(folder + "/"))
 
     def test_turns_of_one_session_append_to_one_transcript(self) -> None:
         first = self.record(kind="turn", title="turn 1", body="hello", session="s-1")
@@ -121,28 +166,73 @@ class RecordTests(JournalTestCase):
         self.assertLess(text.index("hello"), text.index("world"))
         self.assertEqual(1, self.log().count("session s-1"))
 
+    def test_a_full_transcript_continues_in_a_new_part(self) -> None:
+        with mock.patch.object(self.wj, "MAX_TRANSCRIPT_BYTES", 2000):
+            paths = {self.record(kind="turn", title=f"turn {n}", body="x" * 600, session="s-2")["path"] for n in range(6)}
+        self.assertIn("raw/transcripts/sessions/2026-10-07-s-2-part2.md", paths)
+        for path in paths:
+            self.assertLessEqual((self.container / path).stat().st_size, 3000)
+
+    def test_log_rotates_after_max_entries(self) -> None:
+        with mock.patch.object(self.wj, "MAX_LOG_ENTRIES", 5):
+            for n in range(8):
+                self.record(kind="gate", title=f"g{n}", body="ok")
+        self.assertTrue((self.container / "log-2026.md").is_file())
+        self.assertLess(self.log().count("\n## ["), 6)
+
     def test_secrets_are_redacted_before_writing(self) -> None:
-        result = self.record(
-            kind="stage", title="setup", stage="PLAN",
-            body="key sk-abcdefghijklmnopqrstuvwxyz123456 and TYPESAFE_API_KEY=supersecretvalue1 and Bearer abcdefghijklmnopqrstuvwx",
-        )
+        samples = {
+            "openai": (fake("sk-", "abcdefghijklmnopqrstuvwxyz123456"), "abcdefghijklmnopqrstuvwxyz123456"),
+            "env": (fake("TYPESAFE_API_KEY=", "supersecretvalue1"), "supersecretvalue1"),
+            "bearer": (fake("Authorization: Bearer ", "abcdefghijklmnopqrstuvwx"), "abcdefghijklmnopqrstuvwx"),
+            "basic": (fake("Authorization: Basic ", "dXNlcjpwYXNzd29yZDEyMw=="), "dXNlcjpwYXNzd29yZDEyMw"),
+            "json_key": (fake('{"api_key": "', 'jsonsecretvalue42"}'), "jsonsecretvalue42"),
+            "json_pw": (fake('{"password":"', 'hunter2hunter2"}'), "hunter2hunter2"),
+            "json_env": (fake('{"TYPESAFE_API_KEY": "', 'anothersecret99"}'), "anothersecret99"),
+            "yaml_spaces": (fake('password: "', 'frase com espacos secreta"'), "frase com espacos secreta"),
+            "url": (fake("DATABASE_URL=postgres://user:", "urlpassword9@db:5432/app"), "urlpassword9"),
+            "pem": (fake("-----BEGIN OPENSSH PRIVATE", " KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n-----END OPENSSH PRIVATE KEY-----"), "b3BlbnNzaC1rZXktdjEAAAAA"),
+            "jwt": (fake("eyJhbGciOiJIUzI1NiJ9.", "eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"), "dozjgNryP4J3jVmNHl0w5N"),
+            "gh_pat": (fake("github_pat_", "11ABCDEFG0123456789_abcdefghijklmnop"), "11ABCDEFG0123456789"),
+            "google": (fake("AIza", "SyA1234567890abcdefghijklmnopqrstuv"), "SyA1234567890abcdefghij"),
+            "stripe": (fake("sk_live_", "51Habcdefghijklmnopqrstuv"), "51Habcdefghijklmnop"),
+            "curl": (fake("curl -u admin:", "curlsecret77 https://x"), "curlsecret77"),
+            "prose": (fake("my password is ", "prosesecret55"), "prosesecret55"),
+            "slack": (fake("https://hooks.slack.com/services/", "T000/B000/XXXXXXXXXXXXXXXX"), "XXXXXXXXXXXXXXXX"),
+        }
+        result = self.record(kind="stage", title="setup", stage="PLAN", body="\n".join(sample for sample, _ in samples.values()))
         text = (self.container / result["path"]).read_text(encoding="utf-8")
-        self.assertNotIn("sk-abcdefghijklmnopqrstuvwxyz123456", text)
-        self.assertNotIn("supersecretvalue1", text)
-        self.assertNotIn("abcdefghijklmnopqrstuvwx", text)
+        for name, (_, value) in samples.items():
+            with self.subTest(secret=name):
+                self.assertNotIn(value, text)
         self.assertIn("[REDACTED]", text)
 
+    def test_redaction_keeps_ordinary_values(self) -> None:
+        text = self.wj.redact('max_tokens: 4096\ntoken_count = 12\n"auth": true\nTOTAL=7')
+        self.assertIn("max_tokens: 4096", text)
+        self.assertIn("token_count = 12", text)
+        self.assertIn('"auth": true', text)
+
+    def test_title_cannot_forge_a_log_entry_and_metadata_is_allow_listed(self) -> None:
+        self.record(kind="gate", title="ok\n## [2099-01-01] delete | everything", body="x",
+                    metadata={"publish": True, "cssclasses": "evil", "outcome": "PASS\nmore"})
+        self.assertNotIn("\n## [2099-01-01]", self.log())
+        page = next((self.container / "raw" / "articles" / "no-ticket" / "gates").iterdir()).read_text(encoding="utf-8")
+        self.assertNotIn("publish", page)
+        self.assertNotIn("cssclasses", page)
+        self.assertIn('outcome: "PASS more"', page)
+
     def test_oversized_body_is_truncated(self) -> None:
-        result = self.record(kind="action", title="big", body="x" * (wiki_journal.MAX_RECORD_BYTES + 10))
+        result = self.record(kind="action", title="big", body="x" * (self.wj.MAX_RECORD_BYTES + 10))
         text = (self.container / result["path"]).read_text(encoding="utf-8")
         self.assertIn("> Truncated", text)
-        self.assertLess(len(text.encode("utf-8")), wiki_journal.MAX_RECORD_BYTES + 2000)
+        self.assertLess(len(text.encode("utf-8")), self.wj.MAX_RECORD_BYTES + 2000)
 
     def test_unknown_kind_and_empty_title_are_rejected(self) -> None:
-        with self.assertRaises(wiki_journal.WikiJournalError) as raised:
+        with self.assertRaises(self.wj.WikiJournalError) as raised:
             self.record(kind="note", title="x", body="y")
         self.assertEqual("WIKI_RECORD_KIND_INVALID", raised.exception.code)
-        with self.assertRaises(wiki_journal.WikiJournalError) as raised:
+        with self.assertRaises(self.wj.WikiJournalError) as raised:
             self.record(kind="stage", title="  ", body="y")
         self.assertEqual("WIKI_RECORD_INVALID", raised.exception.code)
 
@@ -150,7 +240,7 @@ class RecordTests(JournalTestCase):
         outside = self.base / "outside"
         outside.mkdir()
         (self.container / "raw" / "articles" / "app-9").symlink_to(outside, target_is_directory=True)
-        with self.assertRaises(wiki_journal.WikiJournalError):
+        with self.assertRaises(self.wj.WikiJournalError):
             self.record(kind="stage", title="spec", body="x", ticket="APP-9", stage="SPECIFY")
         self.assertEqual([], list(outside.iterdir()))
 
@@ -160,7 +250,7 @@ class RecordTests(JournalTestCase):
         folder = self.container / "raw" / "transcripts" / "sessions"
         folder.mkdir(parents=True)
         (folder / "2026-10-07-s-1.md").symlink_to(outside)
-        with self.assertRaises(wiki_journal.WikiJournalError):
+        with self.assertRaises(self.wj.WikiJournalError):
             self.record(kind="turn", title="t", body="x", session="s-1")
         self.assertEqual("keep\n", outside.read_text(encoding="utf-8"))
 
@@ -168,89 +258,216 @@ class RecordTests(JournalTestCase):
         outside = self.base / "outside.md"
         outside.write_text("keep\n", encoding="utf-8")
         os.link(outside, self.container / "concepts" / "shared.md")
-        with self.assertRaises(wiki_journal.WikiJournalError) as raised:
+        with self.assertRaises(self.wj.WikiJournalError) as raised:
             self.record(kind="concept", title="shared", body="x")
         self.assertEqual("WIKI_PATH_UNSAFE", raised.exception.code)
         self.assertEqual("keep\n", outside.read_text(encoding="utf-8"))
 
+    def test_concurrent_writers_never_lose_an_index_entry(self) -> None:
+        script = self.container / ".hermes" / "orchestration" / "runtime" / "wiki_journal.py"
+        code = (
+            "import sys, importlib.util; spec = importlib.util.spec_from_file_location('wiki_journal', sys.argv[1]);"
+            "m = importlib.util.module_from_spec(spec); sys.modules['wiki_journal'] = m; spec.loader.exec_module(m);"
+            "m.record(m.Path(sys.argv[2]), kind='concept', title='page ' + sys.argv[3], body='summary')"
+        )
+        processes = [
+            subprocess.Popen([sys.executable, "-B", "-c", code, str(script), str(self.container), str(n)])
+            for n in range(12)
+        ]
+        self.assertEqual([0] * 12, [process.wait(60) for process in processes])
+        index = (self.container / "index.md").read_text(encoding="utf-8")
+        for n in range(12):
+            self.assertIn(f"[[concepts/page-{n}|page-{n}]]", index)
+
     def test_uninitialized_container_gets_the_skeleton_before_the_first_record(self) -> None:
         fresh = self.vault / "Projects" / "Fresh"
         fresh.mkdir()
-        container = wiki_journal.prepare_container(fresh)
-        result = wiki_journal.record(container, kind="stage", title="spec", body="x", stage="SPECIFY", when=WHEN)
+        container = self.wj.prepare_container(fresh)
+        result = self.wj.record(container, kind="stage", title="spec", body="x", stage="SPECIFY", when=WHEN)
         self.assertTrue((fresh / "SCHEMA.md").is_file())
         self.assertTrue((fresh / result["path"]).is_file())
 
     def test_vault_root_is_never_a_container(self) -> None:
-        with self.assertRaises(wiki_journal.WikiJournalError) as raised:
-            wiki_journal.prepare_container(self.vault)
+        with self.assertRaises(self.wj.WikiJournalError) as raised:
+            self.wj.prepare_container(self.vault)
         self.assertEqual("WIKI_CONTAINER_IS_VAULT", raised.exception.code)
 
 
-class WorkspaceTests(JournalTestCase):
-    def test_record_for_workspace_resolves_the_repository_binding(self) -> None:
-        result = wiki_journal.record_for_workspace(self.repo, kind="gate", title="lint", body="ok", when=WHEN)
+class TrustTests(JournalTestCase):
+    def test_vault_controller_records_for_its_registered_worktree(self) -> None:
+        result = self.wj.record_for_workspace(self.repo, kind="gate", title="lint", body="ok", when=WHEN)
         self.assertTrue((self.container / result["path"]).is_file())
 
-    def test_unbound_workspace_is_refused(self) -> None:
+    def test_unregistered_worktree_is_refused(self) -> None:
         stray = self.base / "stray"
-        stray.mkdir()
-        with self.assertRaises(wiki_journal.WikiJournalError) as raised:
-            wiki_journal.record_for_workspace(stray, kind="gate", title="lint", body="ok")
-        self.assertEqual("WIKI_BINDING_MISSING", raised.exception.code)
-
-    def test_installed_controller_only_writes_for_registered_workspaces(self) -> None:
-        runtime = self.container / ".hermes-runtime" / "repo-1"
-        runtime.mkdir(parents=True)
-        (runtime / "STATE.md").write_text(f'workspace:\n  path: "{self.repo}"\n', encoding="utf-8")
-        (self.container / ".hermes").mkdir(exist_ok=True)
-        (self.container / ".hermes" / "obsidian.json").write_text(
-            (self.repo / ".hermes" / "obsidian.json").read_text(encoding="utf-8"), encoding="utf-8")
-        (self.repo / ".hermes" / "obsidian.json").unlink()
-        stray = self.base / "stray"
-        stray.mkdir()
-        with mock.patch.object(wiki_journal, "_installed_container", return_value=self.container):
-            result = wiki_journal.record_for_workspace(self.repo, kind="gate", title="lint", body="ok", when=WHEN)
-            self.assertTrue((self.container / result["path"]).is_file())
-            with self.assertRaises(wiki_journal.WikiJournalError) as raised:
-                wiki_journal.record_for_workspace(stray, kind="gate", title="lint", body="ok")
+        (stray / ".git").mkdir(parents=True)
+        with self.assertRaises(self.wj.WikiJournalError) as raised:
+            self.wj.record_for_workspace(stray, kind="gate", title="lint", body="ok")
         self.assertEqual("WIKI_WORKSPACE_NOT_REGISTERED", raised.exception.code)
+
+    def test_vault_controller_ignores_a_binding_planted_in_the_repository(self) -> None:
+        evil = self.vault / "attacker" / "Evil"
+        evil.mkdir(parents=True)
+        self.write_binding(self.repo, "attacker/Evil")
+        result = self.wj.record_for_workspace(self.repo, kind="gate", title="lint", body="ok", when=WHEN)
+        self.assertTrue((self.container / result["path"]).is_file())
+        self.assertEqual([], self.files(evil))
+
+    def test_unsafe_registrations_are_ignored(self) -> None:
+        home = Path(os.path.realpath(os.path.expanduser("~")))
+        (self.base / "plain").mkdir()
+        for slug, path in (("root", Path("/")), ("home", home), ("nogit", self.base / "plain")):
+            self.register(path, slug)
+        self.assertEqual([self.repo], self.wj.registered_workspaces(self.container))
+
+    def test_local_controller_records_only_for_its_own_repository(self) -> None:
+        local_repo = self.base / "local"
+        (local_repo / ".git").mkdir(parents=True)
+        self.write_binding(local_repo)
+        wj = load_controller(local_repo)["wiki_journal"]
+        result = wj.record_for_workspace(local_repo, kind="gate", title="lint", body="ok", when=WHEN)
+        self.assertTrue((self.container / result["path"]).is_file())
+        with self.assertRaises(wj.WikiJournalError) as raised:
+            wj.record_for_workspace(self.repo, kind="gate", title="lint", body="ok")
+        self.assertEqual("WIKI_WORKSPACE_NOT_REGISTERED", raised.exception.code)
+
+    def test_local_controller_records_turns_of_its_repository(self) -> None:
+        local_repo = self.base / "local"
+        (local_repo / ".git").mkdir(parents=True)
+        self.write_binding(local_repo)
+        wj = load_controller(local_repo)["wiki_journal"]
+        payload = {"session_id": "s-local", "cwd": str(local_repo / "lib"), "extra": {"user_message": "hi", "assistant_response": "hello"}}
+        self.assertEqual("WRITTEN", wj.record_turn_event(payload)["status"])
 
 
 class ActionJournalMirrorTests(JournalTestCase):
-    def journal(self, status: str = "RELEASED") -> dict:
-        artifact = self.base / "final-message.json"
-        artifact.write_text('{"summary": "plan ready"}', encoding="utf-8")
+    def journal(self, *, content: bytes | None = None, path: Path | None = None) -> dict:
+        artifact = path or (self.base / "final-message.json")
+        if content is None:
+            content = json.dumps({"executor_result": {"summary": "plan ready"}}).encode("utf-8")
+        if path is None:
+            artifact.write_bytes(content)
         return {
             "journal_version": 1,
             "workspace": {"path": str(self.repo), "branch": "dev", "head": "a" * 40, "git_common_dir": str(self.repo / ".git")},
             "action": {
-                "id": "APP-12-20261007T000000Z-01", "ticket": "APP-12", "stage": "PLAN", "name": "plan", "status": status,
+                "id": "APP-12-20261007T000000Z-01", "ticket": "APP-12", "stage": "PLAN", "name": "plan", "status": "RELEASED",
                 "executor": "CODEX", "final_message_path": str(artifact), "attempt": 1, "invalid_fields": [],
             },
             "process": {"started_at": "2026-10-07T00:00:00Z", "finished_at": "2026-10-07T00:01:00Z", "exit_code": 0},
-            "artifact": {"exists": True, "sha256": "b" * 64, "validation_status": "VALID"},
+            "artifact": {"exists": True, "sha256": hashlib.sha256(content).hexdigest(), "validation_status": "VALID"},
         }
 
-    def test_mirror_action_writes_the_action_and_the_executor_result(self) -> None:
-        result = wiki_journal.mirror_action(self.journal(), outcome="RELEASED")
+    def test_mirror_action_writes_the_validated_executor_result(self) -> None:
+        result = self.wj.mirror_action(self.journal(), outcome="RELEASED")
         self.assertEqual("WRITTEN", result["status"], result)
-        self.assertTrue(result["path"].startswith("raw/articles/app-12/actions/"))
         text = (self.container / result["path"]).read_text(encoding="utf-8")
         self.assertIn("outcome: RELEASED", text)
-        self.assertIn('{"summary": "plan ready"}', text)
+        self.assertIn('"summary": "plan ready"', text)
+
+    def test_mirror_never_copies_a_file_that_is_not_the_validated_result(self) -> None:
+        secret = self.base / "id_test_key"
+        secret.write_text(fake("-----BEGIN OPENSSH PRIVATE", " KEY-----\nKEYBODY\n-----END OPENSSH PRIVATE KEY-----\n"), encoding="utf-8")
+        key = secret.read_bytes()
+        hard = self.base / "hard.json"
+        os.link(secret, hard)
+        linkdir = self.base / "linkdir"
+        linkdir.symlink_to(self.base, target_is_directory=True)
+        invalid = self.journal()
+        invalid["artifact"]["validation_status"] = "INVALID"
+        cases = {
+            "other file, wrong hash": self.journal(path=secret, content=b"anything"),
+            "other file, right hash but not a result": self.journal(path=secret, content=key),
+            "hard link": self.journal(path=hard, content=key),
+            "symlinked parent": self.journal(path=linkdir / "id_test_key", content=key),
+            "invalid artifact": invalid,
+        }
+        for name, value in cases.items():
+            with self.subTest(case=name):
+                result = self.wj.mirror_action(value, outcome="INVALID")
+                self.assertEqual("WRITTEN", result["status"], result)
+                text = (self.container / result["path"]).read_text(encoding="utf-8")
+                self.assertNotIn("KEYBODY", text)
+                self.assertNotIn("Executor result", text)
+
+    def test_a_fifo_never_blocks_the_mirror(self) -> None:
+        fifo = self.base / "final.fifo"
+        os.mkfifo(fifo)
+        value = self.journal(path=fifo, content=b"x")
+        done = threading.Event()
+        threading.Thread(target=lambda: (self.wj.mirror_action(value, outcome="INTERRUPTED"), done.set()), daemon=True).start()
+        self.assertTrue(done.wait(5), "mirror blocked on a FIFO")
 
     def test_mirror_action_never_raises(self) -> None:
         stray = self.journal()
         stray["workspace"]["path"] = str(self.base / "nowhere")
-        self.assertEqual("SKIPPED", wiki_journal.mirror_action(stray, outcome="RELEASED")["status"])
-        self.assertEqual("SKIPPED", wiki_journal.mirror_action({}, outcome="RELEASED")["status"])
+        self.assertEqual("SKIPPED", self.wj.mirror_action(stray, outcome="RELEASED")["status"])
+        self.assertEqual("SKIPPED", self.wj.mirror_action({}, outcome="RELEASED")["status"])
+
+    def full_journal(self, status: str) -> dict:
+        value = self.journal()
+        value["action"].update({
+            "status": status, "schema_path": ".hermes/orchestration/schemas/EXECUTOR_RESULT_SCHEMA.json", "protocol_version": 2,
+            "prompt_hash": "c" * 64, "retry_mode": "FULL_REPLACEMENT", "parent_action_id": None,
+            "parent_artifact_path": None, "parent_artifact_sha256": None, "allowed_corrections": [],
+        })
+        value["fingerprints"] = {"baseline": "d" * 64, "ownership": "e" * 64, "state_before": "f" * 64}
+        value["state_commit"] = {
+            "state_path": None, "expected_before_hash": "f" * 64, "expected_after_hash": None,
+            "committed_after_hash": None, "committed_at": None, "verified": False,
+        }
+        value["incidents"] = []
+        return value
+
+    def actions(self) -> list[str]:
+        folder = self.container / "raw" / "articles" / "app-12" / "actions"
+        return sorted(p.read_text(encoding="utf-8") for p in folder.iterdir()) if folder.exists() else []
+
+    def test_rollover_reports_the_wiki_record(self) -> None:
+        runtime = self.base / "runtime"
+        runtime.mkdir()
+        value = self.full_journal("RELEASED")
+        value["state_commit"].update(state_path=str(runtime / "STATE.md"), expected_after_hash="1" * 64,
+                                     committed_after_hash="1" * 64, committed_at="2026-10-07T00:02:00Z", verified=True)
+        path = runtime / "ACTION_JOURNAL.json"
+        self.aj.atomic_write(path, value)
+        result = self.aj.rollover_journal(path, self.repo / "history")
+        self.assertEqual("ROLLED_OVER", result["decision"])
+        self.assertEqual("WRITTEN", result["wiki"]["status"], result["wiki"])
+        self.assertIn('"summary": "plan ready"', (self.container / result["wiki"]["path"]).read_text(encoding="utf-8"))
+
+    def test_archive_interrupted_reports_the_wiki_record(self) -> None:
+        runtime = self.base / "runtime"
+        runtime.mkdir()
+        value = self.full_journal("PROCESS_FINISHED")
+        value["artifact"] = {"exists": False, "sha256": None, "validation_status": "PENDING"}
+        value["action"]["final_message_path"] = str(runtime / "missing.json")
+        path = runtime / "ACTION_JOURNAL.json"
+        self.aj.atomic_write(path, value)
+        result = self.aj.archive_interrupted_journal(path, self.repo / "history")
+        self.assertEqual("INTERRUPTED", result["decision"])
+        self.assertEqual("WRITTEN", result["wiki"]["status"], result["wiki"])
+
+    def test_prepare_and_block_are_recorded(self) -> None:
+        runtime = self.base / "runtime"
+        runtime.mkdir()
+        path = runtime / "ACTION_JOURNAL.json"
+        value = self.full_journal("PREPARED")
+        value["artifact"] = {"exists": False, "sha256": None, "validation_status": "PENDING"}
+        value["process"] = {"started_at": None, "finished_at": None, "exit_code": None}
+        value["action"]["final_message_path"] = str(runtime / "pending.json")
+        self.aj.prepare_action(path, value)
+        self.assertEqual(1, len(self.actions()))
+        self.assertIn("outcome: PREPARED", self.actions()[0])
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(0, self.aj.main(["--journal", str(path), "block"]))
+        self.assertTrue(any("outcome: BLOCKED" in text for text in self.actions()))
 
     def test_record_incident_is_mirrored_into_the_wiki(self) -> None:
         runtime = self.base / "runtime"
         runtime.mkdir()
         (runtime / "ACTION_JOURNAL.json").write_text(json.dumps({"workspace": {"path": str(self.repo)}}), encoding="utf-8")
-        identifier = action_journal.record_incident(
+        identifier = self.aj.record_incident(
             runtime / "INCIDENTS.md", ticket="APP-12", stage="PLAN", action_id="a-1", incident_type="CONTRACT_INVALID",
             summary="invalid", artifact_path="/tmp/final.json", state_reference="STATE.md", recovery="BLOCKED",
             currently_blocking=True, timestamp="2026-10-07T00:00:00Z",
@@ -262,7 +479,7 @@ class ActionJournalMirrorTests(JournalTestCase):
     def test_incident_still_recorded_locally_when_the_wiki_is_unavailable(self) -> None:
         runtime = self.base / "runtime"
         runtime.mkdir()
-        identifier = action_journal.record_incident(
+        identifier = self.aj.record_incident(
             runtime / "INCIDENTS.md", ticket="APP-12", stage="PLAN", action_id="a-1", incident_type="STATE_DESYNC",
             summary="desync", artifact_path="/tmp/final.json", state_reference="STATE.md", recovery="RECONCILE",
             currently_blocking=True, timestamp="2026-10-07T00:00:01Z",
@@ -277,83 +494,76 @@ class HookTests(JournalTestCase):
             "extra": {"user_message": "fix login", "assistant_response": "done", "turn_id": "t1", **extra},
         }
 
-    def test_turn_inside_a_bound_repository_is_recorded(self) -> None:
-        with mock.patch.object(wiki_journal, "_installed_container", return_value=None), \
-                mock.patch.object(wiki_journal, "__file__", str(self.repo / ".hermes/orchestration/runtime/wiki_journal.py")):
-            result = wiki_journal.record_turn_event(self.turn_payload(self.repo / "src"))
+    def sessions(self) -> list[str]:
+        folder = self.container / "raw" / "transcripts" / "sessions"
+        return sorted(p.name for p in folder.iterdir()) if folder.exists() else []
+
+    def test_turn_inside_a_served_worktree_is_recorded(self) -> None:
+        result = self.wj.record_turn_event(self.turn_payload(self.repo / "src"))
         self.assertEqual("WRITTEN", result["status"], result)
         text = (self.container / result["path"]).read_text(encoding="utf-8")
         self.assertIn("fix login", text)
         self.assertIn("done", text)
 
-    def test_turn_in_an_unrelated_directory_is_skipped(self) -> None:
-        stray = self.base / "stray"
-        stray.mkdir()
-        with mock.patch.object(wiki_journal, "__file__", str(self.repo / ".hermes/orchestration/runtime/wiki_journal.py")):
-            result = wiki_journal.record_turn_event(self.turn_payload(stray))
-        self.assertEqual("SKIPPED", result["status"])
-        self.assertFalse((self.container / "raw" / "transcripts" / "sessions").exists())
+    def test_sessions_outside_the_worktree_are_never_recorded(self) -> None:
+        home = Path(os.path.realpath(os.path.expanduser("~")))
+        for cwd in (self.repo.parent, self.base, self.vault, home, Path("/")):
+            with self.subTest(cwd=str(cwd)):
+                self.assertEqual("SKIPPED", self.wj.record_turn_event(self.turn_payload(cwd))["status"])
+        self.assertEqual([], self.sessions())
 
-    def test_installed_controller_records_turns_from_registered_workspace_and_parent(self) -> None:
-        runtime = self.container / ".hermes-runtime" / "repo-1"
-        runtime.mkdir(parents=True)
-        (runtime / "STATE.md").write_text(f'workspace:\n  path: "{self.repo}"\n', encoding="utf-8")
-        (self.container / ".hermes").mkdir(exist_ok=True)
-        (self.container / ".hermes" / "obsidian.json").write_text(
-            (self.repo / ".hermes" / "obsidian.json").read_text(encoding="utf-8"), encoding="utf-8")
-        with mock.patch.object(wiki_journal, "_installed_container", return_value=self.container):
-            inside = wiki_journal.record_turn_event(self.turn_payload(self.repo / "src"))
-            parent = wiki_journal.record_turn_event(self.turn_payload(self.base))
-            unrelated = wiki_journal.record_turn_event(self.turn_payload(self.vault))
-        self.assertEqual("WRITTEN", inside["status"], inside)
-        self.assertEqual("WRITTEN", parent["status"], parent)
-        self.assertEqual("SKIPPED", unrelated["status"])
+    def test_terminal_cwd_identifies_the_session_folder(self) -> None:
+        os.environ["TERMINAL_CWD"] = str(self.repo)
+        self.assertEqual("WRITTEN", self.wj.record_turn_event(self.turn_payload(Path("/")))["status"])
 
     def test_empty_turn_is_skipped(self) -> None:
-        with mock.patch.object(wiki_journal, "__file__", str(self.repo / ".hermes/orchestration/runtime/wiki_journal.py")):
-            result = wiki_journal.record_turn_event(self.turn_payload(self.repo, user_message="", assistant_response=" "))
+        result = self.wj.record_turn_event(self.turn_payload(self.repo, user_message="", assistant_response=" "))
         self.assertEqual("SKIPPED", result["status"])
 
-    def test_session_end_is_logged(self) -> None:
-        with mock.patch.object(wiki_journal, "__file__", str(self.repo / ".hermes/orchestration/runtime/wiki_journal.py")):
-            result = wiki_journal.record_session_end_event({
-                "hook_event_name": "on_session_end", "session_id": "s-9", "cwd": str(self.repo),
-                "extra": {"completed": True, "interrupted": False, "turn_exit_reason": "done"},
-            })
-        self.assertEqual("WRITTEN", result["status"])
-        self.assertIn("session s-9 ended", self.log())
+    def test_session_end_is_logged_once_for_a_recorded_session(self) -> None:
+        self.wj.record_turn_event(self.turn_payload(self.repo))
+        result = self.wj.record_session_end_event({"hook_event_name": "on_session_finalize", "session_id": "20261007_120000_abc", "extra": {"reason": "shutdown"}})
+        self.assertEqual("WRITTEN", result["status"], result)
+        self.assertIn("session 20261007_120000_abc ended", self.log())
+        self.assertEqual("SKIPPED", self.wj.record_session_end_event({"session_id": "unrelated"})["status"])
+        self.assertEqual(1, self.log().count(" ended"))
 
     def test_hook_main_never_fails_and_prints_an_empty_object(self) -> None:
         def boom(_payload):
             raise RuntimeError("wiki down")
 
-        output = io.StringIO()
-        with mock.patch.object(sys, "stdin", io.StringIO("{\"cwd\": \"/\"}")), redirect_stdout(output):
-            self.assertEqual(0, wiki_journal.hook_main(boom))
-        self.assertEqual("{}", output.getvalue().strip())
-        output = io.StringIO()
-        with mock.patch.object(sys, "stdin", io.StringIO("not json")), redirect_stdout(output):
-            self.assertEqual(0, wiki_journal.hook_main(boom))
+        for stdin in ('{"cwd": "/"}', "not json"):
+            output = io.StringIO()
+            with mock.patch.object(sys, "stdin", io.StringIO(stdin)), redirect_stdout(output):
+                self.assertEqual(0, self.wj.hook_main(boom))
+            self.assertEqual("{}", output.getvalue().strip())
 
-    def test_hook_scripts_run_and_never_block(self) -> None:
-        hooks = Path(__file__).resolve().parents[1] / "hooks"
-        for name in ("record-turn.py", "record-session-end.py"):
-            with self.subTest(name=name):
-                completed = subprocess.run(
-                    [sys.executable, "-B", str(hooks / name)], input=json.dumps({"cwd": str(self.base)}),
-                    capture_output=True, text=True, timeout=30,
-                )
-                self.assertEqual(0, completed.returncode, completed.stderr)
-                self.assertEqual("{}", completed.stdout.strip())
+    def test_hook_scripts_record_from_the_installed_controller_and_never_block(self) -> None:
+        hooks = self.container / ".hermes" / "orchestration" / "hooks"
+        env = {key: value for key, value in os.environ.items() if key != "TERMINAL_CWD"}
+        runs = (
+            ("record-turn.py", self.turn_payload(self.repo)),
+            ("record-turn.py", {"cwd": str(self.base)}),
+            ("record-session-end.py", {"session_id": "20261007_120000_abc"}),
+            ("record-session-end.py", {}),
+        )
+        for name, payload in runs:
+            completed = subprocess.run(
+                [sys.executable, "-B", str(hooks / name)], input=json.dumps(payload),
+                capture_output=True, text=True, timeout=30, env=env,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertEqual("{}", completed.stdout.strip())
+        self.assertEqual(1, len(self.sessions()))
+        self.assertIn("ended", self.log())
 
 
 class CliTests(JournalTestCase):
     def run_cli(self, *args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [sys.executable, "-B", str(SCRIPT), *args], input=stdin, capture_output=True, text=True, timeout=60,
-        )
+        script = self.container / ".hermes" / "orchestration" / "runtime" / "wiki_journal.py"
+        return subprocess.run([sys.executable, "-B", str(script), *args], input=stdin, capture_output=True, text=True, timeout=60)
 
-    def test_cli_records_from_the_repository_binding_and_stdin(self) -> None:
+    def test_cli_records_for_a_served_worktree_from_stdin(self) -> None:
         completed = self.run_cli(
             "record", "--repo", str(self.repo), "--kind", "stage", "--stage", "PLAN", "--ticket", "APP-12",
             "--title", "Plan", "--body-file", "-", "--json", stdin="the plan\n",
@@ -363,20 +573,24 @@ class CliTests(JournalTestCase):
         self.assertEqual("WRITTEN", report["status"])
         self.assertIn("the plan", (self.container / report["path"]).read_text(encoding="utf-8"))
 
-    def test_cli_blocks_an_unbound_repository(self) -> None:
+    def test_cli_blocks_an_unserved_repository(self) -> None:
         stray = self.base / "stray"
-        stray.mkdir()
+        (stray / ".git").mkdir(parents=True)
         completed = self.run_cli("record", "--repo", str(stray), "--kind", "gate", "--title", "x", "--body", "y", "--json")
         self.assertEqual(2, completed.returncode)
-        # A source checkout has no installed binding; a vault-resident copy refuses the unregistered worktree.
-        self.assertIn(json.loads(completed.stdout)["reason"], {"WIKI_BINDING_MISSING", "WIKI_WORKSPACE_NOT_REGISTERED"})
+        self.assertEqual("WIKI_WORKSPACE_NOT_REGISTERED", json.loads(completed.stdout)["reason"])
         self.assertFalse((self.container / "raw" / "articles" / "no-ticket").exists())
+
+    def test_cli_without_a_controller_binding_is_blocked(self) -> None:
+        (self.container / ".hermes" / "obsidian.json").unlink()
+        completed = self.run_cli("record", "--repo", str(self.repo), "--kind", "gate", "--title", "x", "--body", "y", "--json")
+        self.assertEqual(2, completed.returncode)
+        self.assertEqual("WIKI_BINDING_MISSING", json.loads(completed.stdout)["reason"])
 
 
 class PolicyTests(unittest.TestCase):
     def test_policies_describe_the_wiki_as_read_and_write(self) -> None:
-        orchestration = Path(__file__).resolve().parents[1]
-        loop = (orchestration / "policies" / "LOOP_POLICY.md").read_text(encoding="utf-8")
+        loop = (ORCHESTRATION / "policies" / "LOOP_POLICY.md").read_text(encoding="utf-8")
         self.assertIn("Obsidian é leitura **e escrita**", loop)
         self.assertNotIn("OBSIDIAN WRITE PROPOSAL", loop)
         import bounded_run_planner

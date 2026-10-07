@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hermes on_session_end observer: log the end of a bound workspace's session in the wiki."""
+"""Hermes on_session_finalize observer: log the end of a session recorded in this project's wiki."""
 from __future__ import annotations
 
 import sys

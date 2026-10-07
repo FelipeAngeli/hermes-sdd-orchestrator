@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hermes post_llm_call observer: append each turn of a bound workspace to the wiki's session transcript."""
+"""Hermes post_llm_call observer: append each turn of a session inside a served worktree to the wiki transcript."""
 from __future__ import annotations
 
 import sys

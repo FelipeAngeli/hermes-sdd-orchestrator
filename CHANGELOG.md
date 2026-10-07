@@ -4,6 +4,18 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Breaking
+- `wiki_journal.py record` takes only `--repo`: `--container` is removed, because the controller the module runs from now decides the container. A vault-resident controller writes only into its own container and only for worktrees registered in its runtime whose path is a Git work tree other than `/` or the home folder; a repository-local controller writes only for its own repository. A `.hermes/obsidian.json` planted in a worktree no longer redirects any write (pr-reviewer and security-reviewer round 1 on 12.0.0).
+- The session-end recorder hooks `on_session_finalize` instead of `on_session_end`, which Hermes fires after every turn; `hooks.example.yaml` changes accordingly and the end is logged once per session that has a transcript.
+
+### Fixed
+- An action record no longer copies an arbitrary file into the synced vault: the executor result is included only for a `VALID` artifact whose file is a single-link regular file reached without symlinks, opened non-blocking (a FIFO no longer hangs the journal), at most 512 KiB, with the journal's SHA-256 and an `executor_result`/`review_result` JSON shape.
+- Hook sessions are recorded only when `cwd` or `TERMINAL_CWD` is inside a served worktree; a session in the parent folder, the home folder or elsewhere is never recorded. Repository-local controllers now record turns too.
+- Redaction covers private-key blocks, JWTs, quoted JSON/YAML keys and values with spaces, passwords in URLs, `Basic`/`Token` credentials, `github_pat_`, `AIza…`, `sk_live_`/`rk_`/`pk_`, `ASIA…`, Slack webhooks, `curl -u` and "password is …" phrases, and runs in linear time.
+- Transcripts continue in `-partN` files past 4 MiB, `log.md` rotates to `log-YYYY.md` after 500 entries, `index.md`/`log.md` updates hold a lock so concurrent writers lose no index line, titles and frontmatter values are single lines so a title cannot forge a log entry, and only allow-listed metadata keys reach the frontmatter.
+- `prepare`, `block` and every leaf worker that stops (`subagent_stop`, metadata only) are now recorded in the wiki, and the `wiki` field of rollover and archive reports is covered by tests.
+- Documentation that still described the vault as read-only or approval-gated (`SKILL.md`, `harness.md`, the installed READMEs, the vault baseline note) now matches the code.
+
 ## 12.0.0 - 2026-10-07
 
 ### Breaking

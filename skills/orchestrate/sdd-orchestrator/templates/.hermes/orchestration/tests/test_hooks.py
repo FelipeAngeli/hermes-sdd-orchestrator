@@ -517,7 +517,7 @@ class VerificationAndLifecycleHookTests(unittest.TestCase):
             for line in text.splitlines()
             if line.startswith("  ") and not line.startswith("    ") and line.strip().endswith(":")
         }
-        self.assertEqual({"pre_tool_call", "pre_verify", "subagent_stop", "pre_llm_call", "post_llm_call", "on_session_end"}, events)
+        self.assertEqual({"pre_tool_call", "pre_verify", "subagent_stop", "pre_llm_call", "post_llm_call", "on_session_finalize"}, events)
         self.assertNotIn('command: "python3 .hermes/', text)
         self.assertIn("<ABSOLUTE_PROJECT_ROOT>", text)
         for raw in (line for line in text.splitlines() if "command:" in line):

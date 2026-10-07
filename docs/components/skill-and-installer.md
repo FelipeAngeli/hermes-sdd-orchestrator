@@ -6,7 +6,7 @@
 
 ## `SKILL.md`: Hermes entry point
 
-`skills/orchestrate/sdd-orchestrator/SKILL.md` is what Hermes loads with `/skill sdd-orchestrator`. Its frontmatter carries the name, the version (bumped on every contract change) and the tags. Its body explains when to use the skill, the prerequisites (Git, Python 3.10+, an attached-branch worktree root), installation, the nine-step operating procedure, pitfalls and verification. The procedure now carries evidence-backed context and acceptance checks across stages, checks each dispatch's context and slice contract, queries the optional [context graph](context-graph.md) for the modules and paths in scope before PLAN and IMPLEMENT (and proposes the resulting decision for human approval after REVIEW or DONE), bounds corrective retries, and requires REVIEW to verify outcomes independently of technical gates.
+`skills/orchestrate/sdd-orchestrator/SKILL.md` is what Hermes loads with `/skill sdd-orchestrator`. Its frontmatter carries the name, the version (bumped on every contract change) and the tags. Its body explains when to use the skill, the prerequisites (Git, Python 3.10+, an attached-branch worktree root), installation, the nine-step operating procedure, pitfalls and verification. The procedure now carries evidence-backed context and acceptance checks across stages, checks each dispatch's context and slice contract, queries the optional [context graph](context-graph.md) for the modules and paths in scope before PLAN and IMPLEMENT (the resulting decision, every stage artifact and every gate result are written into the project wiki with `runtime/wiki_journal.py` without approval), bounds corrective retries, and requires REVIEW to verify outcomes independently of technical gates.
 
 Install it once per Hermes profile:
 
@@ -192,7 +192,7 @@ skills-lock.json                 # optional TypeSafe project lock
 .hermes/orchestration/
 ├── agents/      → stage-agents.md
 ├── contracts/   → contracts-and-schemas.md
-├── hooks/       → hooks.md (installed but inactive until explicit profile opt-in)
+├── hooks/       → hooks.md (installed but inactive until explicit profile opt-in; includes the wiki turn/session recorders)
 ├── policies/    → fsm-and-loop.md, gates-and-stack-detection.md, action-journal.md, sub-agents.md
 ├── runtime/     → one page per tool group (see the doc map)
 ├── schemas/     → contracts-and-schemas.md, fsm-and-loop.md, harness.md, action-journal.md

@@ -495,9 +495,30 @@ def record_subagent_event(payload: Mapping[str, Any], root: Path) -> Path:
     return path
 
 
+def _mirror_subagent_event(payload: Mapping[str, Any], root: Path) -> None:
+    """Record the leaf worker's metadata (never its summary) in the project wiki; never raises."""
+    try:
+        import wiki_journal
+
+        extra = payload.get("extra") if isinstance(payload.get("extra"), dict) else {}
+        locations = runtime_locations(root)
+        action = action_journal.load_journal(locations.journal)["action"]
+        lines = [f"- {key}: {extra.get(key)}" for key in ("child_session_id", "child_role", "child_status", "duration_ms")]
+        lines.append(f"- action: {action['id']} · attempt {action['attempt']}")
+        wiki_journal.safe_record_for_workspace(
+            root, kind="action", title=f"subagent {extra.get('child_role') or 'worker'} {extra.get('child_status') or ''}".strip(),
+            body="\n".join(lines) + "\n", ticket=action["ticket"], stage=action["stage"],
+            metadata={"action_id": action["id"], "role": extra.get("child_role"), "status": extra.get("child_status")},
+        )
+    except Exception:
+        pass
+
+
 def run_subagent_hook(payload: Mapping[str, Any]) -> dict[str, str]:
     try:
-        record_subagent_event(payload, _root(payload))
+        root = _root(payload)
+        record_subagent_event(payload, root)
+        _mirror_subagent_event(payload, root)
         return {}
     except (HookInputError, OSError, action_journal.JournalError, obsidian_binding.BindingError) as exc:
         return {"error": f"subagent event was not recorded: {exc}"}

@@ -672,9 +672,9 @@ O controller grava com `.hermes/orchestration/runtime/wiki_journal.py record --r
 - cada decisão tomada, com o porquê → `--kind decision` (página em `concepts/`, `type: decision`, listada no `index.md`);
 - módulos, serviços e integrações descobertos ou alterados → `--kind entity`; conceitos e regras → `--kind concept`; comparações → `--kind comparison`; respostas que valem guardar → `--kind query`.
 
-Sem nenhuma chamada do controller, o runtime já grava sozinho: cada ação concluída, interrompida ou inválida do journal (`raw/articles/<ticket>/actions/`) e cada incidente (`raw/articles/<ticket>/incidents/`). Com os hooks `post_llm_call` e `on_session_end` ativos, cada turno de conversa do Hermes num worktree instalado vai para `raw/transcripts/sessions/` e o fim da sessão vai para o `log.md`.
+Sem nenhuma chamada do controller, o runtime já grava sozinho: cada ação preparada, bloqueada, concluída, interrompida ou inválida do journal e cada worker que termina (`raw/articles/<ticket>/actions/`), e cada incidente (`raw/articles/<ticket>/incidents/`). Com os hooks `post_llm_call` e `on_session_finalize` ativos, cada turno de conversa do Hermes dentro de um worktree servido vai para `raw/transcripts/sessions/` e o fim da sessão vai para o `log.md`; sessões abertas fora do worktree (pasta-pai, home) nunca são gravadas.
 
-`raw/` é imutável: um registro é criado uma vez e nunca reescrito; páginas da camada 2 recebem seções datadas. Todo registro entra no `log.md`. Segredos conhecidos (chaves `sk-`, `ghp_`, `Bearer`, `token=`…) são mascarados antes da escrita; nunca registre credenciais. Uma falha ao gravar no wiki nunca bloqueia o loop nem o DONE: o registro é marcado `SKIPPED` e o loop segue.
+`raw/` é imutável: um registro é criado uma vez e nunca reescrito; páginas da camada 2 recebem seções datadas. Todo registro entra no `log.md`. Formatos conhecidos de credencial (chaves privadas, JWT, `sk-`, `ghp_`, `Bearer`/`Basic`, URLs com senha, `"api_key": …`, `password=…`) são mascarados antes da escrita, mas isso é rede de segurança: nunca cole nem registre credenciais. Uma falha ao gravar no wiki nunca bloqueia o loop nem o DONE: o registro é marcado `SKIPPED` e o loop segue.
 
 ---
 

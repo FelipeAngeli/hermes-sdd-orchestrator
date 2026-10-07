@@ -596,6 +596,7 @@ def prepare_action(path: Path, next_value: dict[str, Any]) -> None:
     if next_value["action"]["status"] != "PREPARED":
         raise JournalError("INVALID_TRANSITION", "New action must start PREPARED.")
     atomic_write(path, next_value)
+    _mirror_to_wiki(next_value, "PREPARED")
 
 
 def corrective_retry_allowed(used: int, maximum: int = 1) -> bool:
@@ -631,7 +632,7 @@ def _record_incident_in_wiki(path: Path, identifier: str, entry: str, *, ticket:
 
         # Read only the workspace path: an incident is often about a journal that no longer validates.
         journal = json.loads((path.parent / "ACTION_JOURNAL.json").read_text(encoding="utf-8"))
-        wiki_journal.record_for_workspace(
+        wiki_journal.safe_record_for_workspace(
             Path(journal["workspace"]["path"]), kind="incident", title=identifier, body=entry.strip(),
             ticket=ticket, stage=stage,
         )
@@ -702,7 +703,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "archive-invalid":
             if not args.history_dir: raise JournalError("PAYLOAD_REQUIRED", "archive-invalid requires --history-dir.")
             value = archive_invalid_journal(path, Path(args.history_dir))
-        elif args.command == "block": value = _save_transition(path, "BLOCKED")
+        elif args.command == "block":
+            value = _save_transition(path, "BLOCKED"); _mirror_to_wiki(value, "BLOCKED")
         elif args.command == "inspect": value = load_journal(path)
         else: value = recovery_decision(load_journal(path))
         print(json.dumps(value, sort_keys=True) if args.json else value)
