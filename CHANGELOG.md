@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 13.0.0 - 2026-10-07
+
 ### Breaking
 - `wiki_journal.py record` takes only `--repo`: `--container` is removed, because the controller the module runs from now decides the container. A vault-resident controller writes only into its own container and only for worktrees registered in its runtime whose path is a Git work tree other than `/` or the home folder; a repository-local controller writes only for its own repository. A `.hermes/obsidian.json` planted in a worktree no longer redirects any write (pr-reviewer and security-reviewer round 1 on 12.0.0).
 - The session-end recorder hooks `on_session_finalize` instead of `on_session_end`, which Hermes fires after every turn; `hooks.example.yaml` changes accordingly and the end is logged once per session that has a transcript.
