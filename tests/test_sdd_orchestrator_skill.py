@@ -437,9 +437,9 @@ class PromptPolicyContractTests(unittest.TestCase):
         ),
         "project-context-guardian.md": (
             "read the stored context before reading the repository", "refresh only what changed",
-            "never recreate documentation", ".hermes/obsidian.json", "never write outside the project container",
+            "never recreate documentation", ".hermes/obsidian.json", "nothing is ever written outside the project container",
             "the code is the source for implemented behavior", "never invent the decision",
-            "obsidian write proposal", "never copy secrets",
+            "runtime/wiki_journal.py", "never copy secrets",
         ),
         "pr-reviewer.md": (
             "full diff from the merge base", "description, the author's summary or an existing approval",

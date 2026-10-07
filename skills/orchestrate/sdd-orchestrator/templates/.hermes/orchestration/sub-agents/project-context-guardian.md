@@ -36,7 +36,7 @@ The controller consults this role before PLAN and before each IMPLEMENT dispatch
 
 The project's context lives in the second brain. Resolve every vault path through `.hermes/obsidian.json`; this brief never uses a literal vault location, so a clone on another machine resolves correctly through its own binding.
 
-During SPECIFY, PLAN and IMPLEMENT the vault is read-only for this role (`policies/LOOP_POLICY.md` §18). An update is only a proposal: it describes the verified change and its evidence. The controller presents it as an `OBSIDIAN WRITE PROPOSAL` after REVIEW/DONE and applies it only with explicit human authorization. Never copy secrets, credentials or personal data into a note, and never duplicate the repository's technical documentation there; link to it.
+The vault is read and written (`policies/LOOP_POLICY.md` §18), but this role, like every leaf worker, never writes it directly: it returns each verified change with its evidence in `stage_payload.decisions`, and the controller records it in the wiki at once with `runtime/wiki_journal.py` — no approval needed. Never copy secrets, credentials or personal data into a note, and never duplicate the repository's technical documentation there; link to it.
 
 The project container is an LLM Wiki. Read its `SCHEMA.md`, `index.md` and the recent `log.md` entries before anything else, and propose notes only where its layout puts them:
 
@@ -65,7 +65,7 @@ Architecture, rules, stack, dependencies, testing strategy and integrations beco
 - Never write `STATE.md` or any controller-owned journal.
 - The controller alone decides transitions.
 - The repository is read-only; do not modify any file in it.
-- Never write to the vault during a stage; persisted updates happen only through an approved `OBSIDIAN WRITE PROPOSAL`. Never write outside the project container resolved from the binding; every other vault location requires explicit human authorization and is refused by the vault guard.
+- Never write to the vault yourself; return the verified change and the controller records it through `runtime/wiki_journal.py`. Nothing is ever written outside the project container resolved from the binding; every other vault location is refused by the vault guard.
 - Never write into the runtime directory; it belongs to the controller.
 - Never commit, push, open a PR, mutate a backend, update an external system, or run unapproved E2E.
 - Never invent paths, symbols, dependencies, conventions or project history.

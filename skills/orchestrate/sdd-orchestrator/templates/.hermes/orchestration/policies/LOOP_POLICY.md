@@ -34,7 +34,7 @@ executar o máximo SEGURO e VERIFICÁVEL possível antes do próximo checkpoint 
 
 Pedido explícito de entrega local vincula uma autorização única ao ticket, escopo/hash, worktree e limites totais fixos. O controller valida a evidência humana e identidade/STATE real; `bounded_run_driver.py bind` só valida dados fornecidos e nunca fabrica aprovação, muda modo, ativa loop ou executa worker. Cada ação consulta o driver; antes do dispatch recupere journal/rollover, envie JSON inline e execute Codex em foreground sem PTY com prompt curto específico da etapa (incluindo orçamento de investigação).
 
-`REPLAN_REQUIRED` exige novo snapshot → plan → bind, preservando ledger e contadores totais, sem nova pergunta humana. `corrective_retries` e `investigation_expansions` em schema 2 são totais espelhados no ledger; o controller ainda limita retry a um por ação. Pare em drift de scope/worktree, protected, resultado desconhecido, erro não recuperável ou limite global. Efeitos externos (commit/push/PR/Linear/Obsidian/backend/DEV E2E) requerem autorização explícita.
+`REPLAN_REQUIRED` exige novo snapshot → plan → bind, preservando ledger e contadores totais, sem nova pergunta humana. `corrective_retries` e `investigation_expansions` em schema 2 são totais espelhados no ledger; o controller ainda limita retry a um por ação. Pare em drift de scope/worktree, protected, resultado desconhecido, erro não recuperável ou limite global. Efeitos externos (commit/push/PR/Linear/backend/DEV E2E) requerem autorização explícita; gravar no wiki do Obsidian não (§18).
 
 ### MANUAL
 
@@ -347,8 +347,6 @@ Parar antes de:
 - commit;
 - push;
 - atualização de issue tracker (Linear, Jira, GitHub Issues…);
-- Obsidian write;
-- Obsidian update;
 - backend mutation;
 - DEV E2E;
 - protected file modification;
@@ -665,30 +663,18 @@ Hermes não continua até resposta.
 
 ## 18. Obsidian
 
-Obsidian permanece FORA do loop operacional.
+Obsidian é leitura **e escrita**: o wiki do projeto (`SCHEMA.md`, `index.md`, `log.md`, `raw/`, `entities/`, `concepts/`, `comparisons/`, `queries/`) é a memória do projeto e recebe tudo o que roda nele, sem pedir aprovação.
 
-Durante:
+O controller grava com `.hermes/orchestration/runtime/wiki_journal.py record --repo . --kind <tipo> --title <t> --body-file <arquivo>` (ou pela função `record`):
 
-SPECIFY
-CLARIFY
-PLAN
-TASKS
-IMPLEMENT
-TEST
+- ao concluir cada etapa (SPECIFY, CLARIFY, PLAN, TASKS, IMPLEMENT, TEST, REVIEW, DONE), o artefato da etapa → `--kind stage --stage <ETAPA> --ticket <ticket>` (`raw/articles/<ticket>/`);
+- cada resultado de gate (formatador, testes, análise, CI) → `--kind gate` (`raw/articles/<ticket>/gates/`);
+- cada decisão tomada, com o porquê → `--kind decision` (página em `concepts/`, `type: decision`, listada no `index.md`);
+- módulos, serviços e integrações descobertos ou alterados → `--kind entity`; conceitos e regras → `--kind concept`; comparações → `--kind comparison`; respostas que valem guardar → `--kind query`.
 
-é READ-ONLY.
+Sem nenhuma chamada do controller, o runtime já grava sozinho: cada ação concluída, interrompida ou inválida do journal (`raw/articles/<ticket>/actions/`) e cada incidente (`raw/articles/<ticket>/incidents/`). Com os hooks `post_llm_call` e `on_session_end` ativos, cada turno de conversa do Hermes num worktree instalado vai para `raw/transcripts/sessions/` e o fim da sessão vai para o `log.md`.
 
-Após REVIEW/DONE:
-
-Hermes pode preparar:
-
-OBSIDIAN WRITE PROPOSAL
-
-Escrita exige aprovação conforme:
-
-HERMES_OBSIDIAN_PROTOCOL.md
-
-Obsidian nunca é condição obrigatória para DONE.
+`raw/` é imutável: um registro é criado uma vez e nunca reescrito; páginas da camada 2 recebem seções datadas. Todo registro entra no `log.md`. Segredos conhecidos (chaves `sk-`, `ghp_`, `Bearer`, `token=`…) são mascarados antes da escrita; nunca registre credenciais. Uma falha ao gravar no wiki nunca bloqueia o loop nem o DONE: o registro é marcado `SKIPPED` e o loop segue.
 
 ---
 
@@ -864,7 +850,7 @@ push:
 NOT PERFORMED
 
 obsidian_write:
-NOT PERFORMED
+RECORDED | SKIPPED
 
 ---
 
@@ -877,7 +863,7 @@ Antes de cada dispatch, o controller grava um manifesto de contexto e executa `.
 - slice sem `editable_paths`, sem verificador observável ou apenas com verificadores criados pela própria slice → `CONTRACT_INVALID`;
 - hash da slice diferente do aprovado → `SCOPE_CHANGE_REQUIRED`.
 
-Ao aprovar PLAN/TASKS, o controller grava em `approved_slice_sha256s` o hash de cada slice planejada. Quando o hash da slice atual coincide (`APPROVAL_REUSED`), a aprovação já cobre aquela slice exata: não pedir nova confirmação. TEST e REVIEW não autorizam escrita (`APPROVAL_NOT_APPLICABLE`). A aprovação nunca cobre commit, push, issue tracker, Obsidian, backend ou DEV E2E.
+Ao aprovar PLAN/TASKS, o controller grava em `approved_slice_sha256s` o hash de cada slice planejada. Quando o hash da slice atual coincide (`APPROVAL_REUSED`), a aprovação já cobre aquela slice exata: não pedir nova confirmação. TEST e REVIEW não autorizam escrita (`APPROVAL_NOT_APPLICABLE`). A aprovação nunca cobre commit, push, issue tracker, backend ou DEV E2E. Gravar no wiki do Obsidian não precisa de aprovação (§18).
 
 Divergência entre código e documentação é registrada no manifesto com `authority: CODE`; não inventar a decisão que a explicaria.
 

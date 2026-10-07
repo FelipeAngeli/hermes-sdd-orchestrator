@@ -7,9 +7,10 @@ reason it was taken. Nothing here is a graph database: the notes are the graph,
 and they live either in the bound Obsidian project container or in a
 repository-local directory.
 
-This module is read-only. It never creates, edits or moves a note. ``propose``
-returns the note content a human would have to approve; writing it remains the
-``OBSIDIAN_WRITE`` HUMAN_REQUIRED action of the controller.
+This module itself never creates, edits or moves a note. ``propose`` returns the
+exact note content; the controller writes it into the project's wiki (the vault
+is read and written, LOOP_POLICY §18), so the result carries the ``OBSIDIAN_WRITE``
+action classified ``AUTO_SAFE``.
 """
 from __future__ import annotations
 
@@ -71,7 +72,7 @@ MAX_DETAIL_EXCERPT = 120
 DEFAULT_GRAPH_SUBPATH = "context-graph"
 PROPOSAL_OPERATIONS = ("CREATE", "APPEND")
 OBSIDIAN_WRITE_ACTION = "OBSIDIAN_WRITE"
-HUMAN_REQUIRED = "HUMAN_REQUIRED"
+OBSIDIAN_WRITE_APPROVAL = "AUTO_SAFE"
 
 
 class GraphError(ValueError):
@@ -520,11 +521,10 @@ def query(graph: dict[str, Any], *, node_ids: list[str], paths: list[str], depth
 
 
 def propose(graph: dict[str, Any], record: Any) -> dict[str, Any]:
-    """Turn a recorded decision/outcome into note content for human approval.
+    """Turn a recorded decision/outcome into note content for the controller to write.
 
-    Nothing is written. The result is the exact note text plus the
-    ``OBSIDIAN_WRITE`` action the controller must get approved, because the vault
-    is read-only until a human says otherwise.
+    Nothing is written here. The result is the exact note text plus the
+    ``OBSIDIAN_WRITE`` action, which the controller performs without approval.
     """
     if not isinstance(record, dict) or set(record) - {"note", "operation", "node", "kind", "reason", "date", "body", "relations"}:
         raise GraphError("GRAPH_PROPOSAL_INVALID", "a proposal holds only note, operation, node, kind, reason, date, body and relations")
@@ -628,7 +628,7 @@ def propose(graph: dict[str, Any], record: Any) -> dict[str, Any]:
     return {
         "status": "PROPOSED" if not findings else "BLOCKED",
         "action": OBSIDIAN_WRITE_ACTION,
-        "approval": HUMAN_REQUIRED,
+        "approval": OBSIDIAN_WRITE_APPROVAL,
         "written": False,
         "note": note,
         "operation": operation,

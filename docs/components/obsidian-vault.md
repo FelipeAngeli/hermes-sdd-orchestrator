@@ -2,9 +2,9 @@
 
 [Docs index](../README.md) · Related: [Action journal](action-journal.md), [Skill and installer](skill-and-installer.md), [FSM and bounded loop](fsm-and-loop.md)
 
-**Files:** `BOOTSTRAP.md`, `runtime/wiki_layout.py`, `runtime/obsidian_binding.py`, `runtime/obsidian_connector.py`, `runtime/vault_guard.py`, `runtime/bootstrap_worktree.py`, `runtime/migrate_to_vault.py`, `runtime/migrate_all_worktrees.py`, `runtime/consolidate_runtime.py`, `runtime/state_format.py`.
+**Files:** `BOOTSTRAP.md`, `runtime/wiki_layout.py`, `runtime/wiki_journal.py`, `runtime/obsidian_binding.py`, `runtime/obsidian_connector.py`, `runtime/vault_guard.py`, `runtime/bootstrap_worktree.py`, `runtime/migrate_to_vault.py`, `runtime/migrate_all_worktrees.py`, `runtime/consolidate_runtime.py`, `runtime/state_format.py`.
 
-Since 8.0.0 the Obsidian project container is the **default storage** for everything the orchestrator owns: the [installer](skill-and-installer.md#obsidian-storage-default) writes the controller, setup, playbooks, binding and per-worktree runtime under `<vault>/<project>/` and leaves the user's repository untouched. `--local-storage` keeps the old in-repository layout. During SPECIFY → TEST the vault's knowledge notes are read-only. After REVIEW or DONE, Hermes may propose a write, and every write needs human approval (`OBSIDIAN_WRITE` is a [`HUMAN_REQUIRED` action](fsm-and-loop.md#actions)). The vault is never a condition for DONE.
+Since 8.0.0 the Obsidian project container is the **default storage** for everything the orchestrator owns: the [installer](skill-and-installer.md#obsidian-storage-default) writes the controller, setup, playbooks, binding and per-worktree runtime under `<vault>/<project>/` and leaves the user's repository untouched. `--local-storage` keeps the old in-repository layout. Since 12.0.0 the project wiki is **read and written**: everything the orchestrator runs for the project is recorded there without approval ([`wiki_journal.py`](#recording-everything-in-the-wiki-wiki_journalpy); `OBSIDIAN_WRITE` is an [`AUTO_SAFE` action](fsm-and-loop.md#actions)). A failed wiki write never blocks the loop, and the vault is never a condition for DONE.
 
 ## Project container layout: LLM Wiki (`wiki_layout.py`)
 
@@ -41,6 +41,31 @@ Every conflict blocks the whole run with `WIKI_MIGRATION_CONFLICT` before anythi
 `check` exits 2 with `WIKI_SKELETON_MISSING`, `WIKI_LEGACY_ENTRY` (a visible root entry outside the layout) or `WIKI_PAGE_NOT_INDEXED` (a Layer-2 page missing from `index.md`; a bare-name link counts only when no other page shares that name). The container must be an existing directory reached without symlinks (`WIKI_CONTAINER_INVALID`) strictly inside a vault with `.obsidian/` (`WIKI_VAULT_REQUIRED`); the vault root itself (`WIKI_CONTAINER_IS_VAULT`), a folder holding other project containers (`WIKI_CONTAINER_NESTED`): marked ones always, and for a folder that is not itself marked, also children with controller state or children whose own folders hold legacy folders, so a marked project may group its demands under any folder and a Git work tree (`WIKI_CONTAINER_IS_REPOSITORY`) are refused. Other errors are `WIKI_PATH_UNSAFE` (also for any OS error such as a path longer than `PATH_MAX`, always as JSON) and `WIKI_DATE_INVALID`. `entities`, `concepts`, `comparisons` and `queries` are the Layer-2 sections the index and check use.
 
 Upgrading a 9.x Obsidian container: copy the new controller templates into `<container>/.hermes/` by hand (an existing installation is never upgraded automatically, and a changed managed file returns `CONFIG_CONFLICT`), run `init --apply`, review `migrate` without `--apply` (it moves every legacy note, not only the lock), run `migrate --apply`, then rerun the installer. Until the root `skills-lock.json` moves, the installer stops with `TYPESAFE_LOCK_LEGACY_LOCATION`.
+
+## Recording everything in the wiki (`wiki_journal.py`)
+
+`wiki_journal.py` writes what runs in the project into its container; its one command is `record`. Records go where the LLM Wiki puts them:
+
+| Kind | Destination | Written by |
+| --- | --- | --- |
+| `stage` | `raw/articles/<ticket>/<stamp>-<stage>-<title>.md` | the controller, at the end of each stage (LOOP_POLICY §18) |
+| `action` | `raw/articles/<ticket>/actions/` | the runtime, when the [action journal](action-journal.md) rolls over, archives an interrupted action or archives an invalid artifact (`RELEASED`, `INTERRUPTED`, `INVALID`), with the executor's final message |
+| `gate` | `raw/articles/<ticket>/gates/` | the controller, for each gate result |
+| `incident` | `raw/articles/<ticket>/incidents/` | the runtime, each time `record_incident` appends to `INCIDENTS.md` |
+| `turn` | `raw/transcripts/sessions/<date>-<session>.md` | the [`post_llm_call` hook](hooks.md), one section per Hermes turn |
+| `decision`, `concept` | `concepts/<title>.md` (`type: decision` for a decision) | the controller |
+| `entity`, `comparison`, `query` | `entities/`, `comparisons/`, `queries/` | the controller |
+
+A record without a ticket goes under `no-ticket/`. `raw/` records are created once with `O_EXCL` and never rewritten; a clashing name gets a numeric suffix. A session transcript only grows. A Layer-2 page is created with the `SCHEMA.md` frontmatter, later records append a dated section, and the page is added to its `index.md` section. Every record appends an entry to `log.md` (`ingest`, `create` or `update`); the [`on_session_end` hook](hooks.md) logs the end of each session. Before writing, common credential shapes (`sk-…`, `gh?_…`, `xox?-…`, `AKIA…`, `Bearer …`, and `*key*`/`*token*`/`*secret*`/`*password*` assignments) become `[REDACTED]`, and a body larger than `MAX_RECORD_BYTES` (512 KiB) is truncated with a note.
+
+Every write goes through no-follow descriptors anchored at the container, like the migration: a symlinked folder or file, or a hard-linked page, is refused with `WIKI_PATH_UNSAFE` and nothing is written outside the container. An uninitialized container gets the wiki skeleton first; the vault root is refused (`WIKI_CONTAINER_IS_VAULT`). The workspace's own `.hermes/obsidian.json` selects the container (`--local-storage`); otherwise the vault-resident controller writes only for a worktree whose runtime `STATE.md` registers it (`WIKI_WORKSPACE_NOT_REGISTERED`), and a workspace with neither is `WIKI_BINDING_MISSING`. The runtime's automatic records never raise: a failure returns `SKIPPED` with its reason and the journal, incident and hook carry on.
+
+```text
+python3 <container>/.hermes/orchestration/runtime/wiki_journal.py record (--repo <worktree> | --container <abs>) \
+    --kind <kind> --title <title> [--body <text> | --body-file <path|->] [--ticket <id>] [--stage <stage>] [--session <id>] [--json]
+```
+
+It prints `WRITTEN` with the `path` relative to the container, or exits 2 with `BLOCKED` and the reason (also `WIKI_RECORD_KIND_INVALID`, `WIKI_RECORD_INVALID`, `WIKI_RECORD_NAME_EXHAUSTED`). `NO_TICKET` is the folder name `no-ticket`.
 
 ## Binding: `.hermes/obsidian.json` (`obsidian_binding.py`)
 

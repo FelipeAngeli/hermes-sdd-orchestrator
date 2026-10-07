@@ -16,6 +16,14 @@ hooks:
   subagent_stop:
     - command: 'python3 "<ABSOLUTE_PROJECT_ROOT>/.hermes/orchestration/hooks/record-subagent-stop.py"'
       timeout: 10
+  # Record every Hermes turn and session end of an installed worktree in the
+  # project's Obsidian wiki (raw/transcripts/sessions/ and log.md).
+  post_llm_call:
+    - command: 'python3 "<ABSOLUTE_PROJECT_ROOT>/.hermes/orchestration/hooks/record-turn.py"'
+      timeout: 10
+  on_session_end:
+    - command: 'python3 "<ABSOLUTE_PROJECT_ROOT>/.hermes/orchestration/hooks/record-session-end.py"'
+      timeout: 10
   # Optional bounded STATE context; uncomment to enable.
   # pre_llm_call:
   #   - command: 'python3 "<ABSOLUTE_PROJECT_ROOT>/.hermes/orchestration/hooks/inject-state-summary.py"'

@@ -796,14 +796,19 @@ def _replace_wiki_file(root_fd: int, name: str, text: str) -> None:
     os.rename(temporary, name, src_dir_fd=root_fd, dst_dir_fd=root_fd)
 
 
-def _append_log(root_fd: int, today: str, subject: str, lines: list[str]) -> None:
-    entry = f"\n## [{today}] migrate | {subject}\n" + "".join(f"- {line}\n" for line in lines)
+def append_log_entry(root_fd: int, today: str, action: str, subject: str, lines: list[str]) -> None:
+    """Append one ``## [date] action | subject`` entry to log.md (single-link regular file only)."""
+    entry = f"\n## [{today}] {action} | {subject}\n" + "".join(f"- {line}\n" for line in lines)
     fd = _open_wiki_file(root_fd, "log.md", os.O_WRONLY | os.O_APPEND)
     try:
         _write_all(fd, entry.encode("utf-8"))
         os.fsync(fd)
     finally:
         os.close(fd)
+
+
+def _append_log(root_fd: int, today: str, subject: str, lines: list[str]) -> None:
+    append_log_entry(root_fd, today, "migrate", subject, lines)
 
 
 def _link_target(page: str) -> str:

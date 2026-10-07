@@ -4,6 +4,15 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Breaking
+- The Obsidian project wiki is now **read and written**: everything the orchestrator runs for a project is recorded there without approval. `OBSIDIAN_WRITE` moves from `HUMAN_REQUIRED` to `AUTO_SAFE` in `bounded_run_planner.py` (and is not an external mutation), `context_graph.py propose` reports `approval: AUTO_SAFE` (`OBSIDIAN_WRITE_APPROVAL` replaces the `HUMAN_REQUIRED` constant), and `LOOP_POLICY.md` §18, `BOUNDED_AUTOMATION.md`, `.hermes.md` and the `project-context-guardian` brief drop the read-only rule and the `OBSIDIAN WRITE PROPOSAL`. A consumer that waited for human approval before a wiki write no longer gets that stop.
+
+### Added
+- `runtime/wiki_journal.py record` writes stage artifacts, gate results, actions and incidents under `raw/articles/<ticket>/`, Hermes turns under `raw/transcripts/sessions/`, and decisions, concepts, entities, comparisons and queries as Layer-2 pages listed in `index.md`; every record appends to `log.md`. `raw/` records are never overwritten, secrets are redacted, writes go through no-follow descriptors anchored at the container, and a vault-resident controller only writes for worktrees registered in its runtime.
+- The action journal mirrors every rolled-over, interrupted and invalid action (with the executor's final message) and `record_incident` mirrors every incident into the wiki; their reports gain a `wiki` field, and a wiki failure never fails the journal.
+- Opt-in observer hooks `hooks/record-turn.py` (`post_llm_call`) and `hooks/record-session-end.py` (`on_session_end`) record each Hermes turn and session end of a bound worktree; `hooks.example.yaml` lists them.
+- `wiki_layout.append_log_entry` appends a `log.md` entry for any action.
+
 ## 11.0.2 - 2026-10-07
 
 ### Fixed
