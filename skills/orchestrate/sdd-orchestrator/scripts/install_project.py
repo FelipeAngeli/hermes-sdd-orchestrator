@@ -2541,9 +2541,34 @@ def _wiki_skeleton(project: str) -> dict[str, bytes]:
     return files
 
 
-def _project_path_present(vault: Path, relative: str) -> bool:
-    """True when the path exists in any form; the wiki is never overwritten."""
-    return os.path.lexists(vault / relative)
+def _wiki_path_state(container: Path, relative: str) -> str:
+    """Classify one skeleton path without following links.
+
+    ``absent`` and ``directory-absent`` are planned; ``present`` is left alone.
+    A keep-file is planned only for an absent or empty directory. Any link or
+    non-directory on the way, or a non-regular file where a skeleton file
+    belongs, is refused with ``WIKI_PATH_UNSAFE`` instead of a raw OS error.
+    """
+    parts = PurePosixPath(relative).parts
+    keep_file = parts[-1] == ".gitkeep"
+    current = container
+    for index, part in enumerate(parts):
+        current = current / part
+        final = index == len(parts) - 1
+        try:
+            status = os.lstat(current)
+        except FileNotFoundError:
+            return "directory-absent" if keep_file and index == len(parts) - 2 else "absent"
+        if stat.S_ISLNK(status.st_mode):
+            raise InstallError(f"WIKI_PATH_UNSAFE: {current} is a symlink")
+        if not final:
+            if not stat.S_ISDIR(status.st_mode):
+                raise InstallError(f"WIKI_PATH_UNSAFE: {current} is not a directory")
+            if keep_file and index == len(parts) - 2 and any(os.scandir(current)):
+                return "present"
+        elif not stat.S_ISREG(status.st_mode):
+            raise InstallError(f"WIKI_PATH_UNSAFE: {current} is not a regular file")
+    return "present"
 
 
 def _plan_obsidian_files(
@@ -2589,13 +2614,7 @@ def _plan_obsidian_files(
     # LLM Wiki skeleton: created only where absent, never compared or replaced,
     # because the wiki files belong to the project once they exist.
     for relative, content in _wiki_skeleton(project).items():
-        path = vault / project / relative
-        if relative.endswith("/.gitkeep"):
-            # A keep-file only materializes an absent or empty wiki directory.
-            directory = path.parent
-            if directory.is_symlink() or (directory.is_dir() and any(directory.iterdir())):
-                continue
-        if not _project_path_present(vault, f"{project}/{relative}"):
+        if _wiki_path_state(vault / project, relative) != "present":
             planned[f"{project}/{relative}"] = content
 
     runtime = f"{project}/{OBSIDIAN_RUNTIME_SUBPATH}/{_worktree_slug(target)}"
@@ -2666,6 +2685,12 @@ def _run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict
     vault, project = resolve_obsidian_storage(args.obsidian_vault, args.obsidian_project)
     _reject_storage_overlap(vault, project, target, workspace)
     container = vault / project
+    legacy_lock = container / "skills-lock.json"
+    if os.path.lexists(legacy_lock):
+        raise InstallError(
+            f"TYPESAFE_LOCK_LEGACY_LOCATION: {legacy_lock}; move it to {container / TYPESAFE_LOCK_PATH_OBSIDIAN} "
+            "(wiki_layout.py migrate does this together with the legacy notes) and run the installer again"
+        )
     target_before = _target_snapshot(target)
 
     def require_target_unchanged() -> None:

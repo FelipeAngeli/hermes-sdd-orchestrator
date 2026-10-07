@@ -4,6 +4,15 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Breaking
+- `wiki_layout.py migrate --apply` no longer initializes a bare folder: it requires a container already marked by `init --apply` or the installer (`SCHEMA.md` or a binding) and otherwise stops with `WIKI_INIT_REQUIRED`; the dry run reports `init_required`. It also refuses a vault root (`WIKI_CONTAINER_IS_VAULT`), a folder holding other project containers (`WIKI_CONTAINER_NESTED`), a Git work tree (`WIKI_CONTAINER_IS_REPOSITORY`) and a container reached through a symlink, so a scripted `migrate --apply` on such a path must point at one project folder and run `init --apply` first. Index lines for migrated pages are now path links (`[[concepts/a/plan|plan]]`) instead of bare names.
+
+### Fixed
+- `wiki_layout.py migrate` could lose or leak notes (security-reviewer and pr-reviewer on #42). It now refuses, before the first move, any destination whose ancestor is a symlink or not a directory, a destination that is the source itself or a hard link to it, destinations that differ only by case or Unicode normalization, and a destination that another move also needs as a directory. Each move opens the source and destination through no-follow descriptors anchored at the container, requires the source to be the exact file the plan hashed (same device, inode, size and mtime), copies and verifies the SHA-256, preserves the modification time and only then unlinks the source; a deduplicated source is removed only after both copies are re-hashed. A changed source stops the run with `WIKI_SOURCE_CHANGED` inside `WIKI_MIGRATION_INCOMPLETE`, and every interruption is logged. `index.md` and `log.md` are written only as single-link regular files (`WIKI_PATH_UNSAFE`), and the index now links pages by path (`[[concepts/a/plan|plan]]`) so pages sharing a name stay distinct.
+- `wiki_layout.py` no longer accepts a directory outside a vault because it carries a planted `.hermes/obsidian.json`. Hidden entries stay in place at every depth and are listed in `kept_hidden`; only a Finder `.DS_Store` is removed, and only to empty a folder the run emptied. PDFs and media go to `raw/papers/` and `raw/assets/` even inside legacy folders, and non-note files in folders that map to `concepts/` or `queries/` stay raw sources.
+- The installer reports an unsafe wiki path (a file where a wiki directory belongs, a symlinked wiki directory or skeleton file) as `WIKI_PATH_UNSAFE` instead of a raw OS error, and an Obsidian container that still has a root `skills-lock.json` as `TYPESAFE_LOCK_LEGACY_LOCATION`.
+- Upgrade path from 9.x Obsidian storage, which the 10.0.0 note left incomplete: (1) copy the new controller templates into `<container>/.hermes/` by hand, because an existing installation is never upgraded automatically and a changed managed file otherwise returns `CONFIG_CONFLICT`; (2) run `wiki_layout.py init --apply`; (3) run `wiki_layout.py migrate` without `--apply` and review the plan — it moves every legacy note, not only the TypeSafe lock; (4) run `migrate --apply`; (5) rerun the installer.
+
 ## 10.0.0 - 2026-10-06
 
 ### Breaking

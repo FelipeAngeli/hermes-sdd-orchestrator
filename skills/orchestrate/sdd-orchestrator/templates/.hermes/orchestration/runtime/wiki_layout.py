@@ -11,10 +11,11 @@ The orchestrator stays hidden under ``.hermes/`` and ``.hermes-runtime/``.
 
 ``init`` creates the missing skeleton and never overwrites a file. ``plan``
 maps legacy project folders onto the layout without touching the disk.
-``migrate`` applies that plan file by file with copy -> verify SHA-256 ->
-remove, refuses every conflict before the first move, never follows a
-symlink, and appends the move list to ``log.md``. ``check`` reports what does
-not follow the layout. Stdlib only; nothing here contacts the network.
+``migrate`` applies that plan: every conflict is refused before the first
+move, and each file is copied through no-follow descriptors, its SHA-256 and
+identity re-verified, and only then is the source removed. ``check`` reports
+what does not follow the layout. Stdlib only; nothing here contacts the
+network.
 """
 from __future__ import annotations
 
@@ -24,9 +25,8 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import stat
-import sys
+import unicodedata
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -42,11 +42,11 @@ DIRECTORIES = (
     "queries",
 )
 SKELETON_FILES = ("SCHEMA.md", "index.md", "log.md")
-#: Top-level entries that already belong to the wiki or to hidden state.
+#: Top-level entries that already belong to the wiki. Compared case-insensitively.
 WIKI_ROOTS = frozenset({"raw", "entities", "concepts", "comparisons", "queries", "_archive", "_meta"})
 HIDDEN_PREFIX = "."
-LOG_ROTATION = re.compile(r"^log-\d{4}\.md$")
-#: Legacy folder name -> wiki destination prefix. Matching is case-insensitive.
+LOG_ROTATION = re.compile(r"^log-\d{4}\.md$", re.IGNORECASE)
+#: Legacy folder name (case-insensitive) -> wiki destination prefix.
 LEGACY_FOLDERS = {
     "sessions": "raw/transcripts",
     "_meetings": "raw/transcripts/meetings",
@@ -62,9 +62,20 @@ CONTROLLER_FILES = {"skills-lock.json": ".hermes/skills-lock.json"}
 PAPER_SUFFIXES = {".pdf"}
 ASSET_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".heic", ".mp4", ".mov", ".mp3", ".wav"}
 QUERY_SUFFIXES = {".base"}
+#: Only these files become Layer-2 pages when a legacy folder maps to Layer 2.
+LAYER_TWO_SUFFIXES = {".md", ".base"}
 #: Folder index notes stay raw sources instead of becoming Layer-2 pages.
 FOLDER_INDEX_NAMES = frozenset({"readme.md", "_index.md", "index.md"})
+#: Finder metadata: the only file migrate deletes without moving, and only to empty a folder it emptied.
+FINDER_METADATA = ".DS_Store"
+#: A container opted into the wiki carries one of these; migrate --apply requires it.
+CONTAINER_MARKERS = ("SCHEMA.md", ".hermes/obsidian.json")
 PAGE_SECTIONS = (("entities", "Entities"), ("concepts", "Concepts"), ("comparisons", "Comparisons"), ("queries", "Queries"))
+
+_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
+_CLOEXEC = getattr(os, "O_CLOEXEC", 0)
+_CHUNK = 1 << 20
 
 
 class WikiError(Exception):
@@ -173,89 +184,147 @@ def skeleton_files(*, project: str, today: str) -> dict[str, bytes]:
     }
 
 
+# --------------------------------------------------------------------------- container
+
+
+def _key(relative: str) -> str:
+    """Comparison key for a path on a case- and normalization-insensitive volume."""
+    return unicodedata.normalize("NFC", relative).casefold()
+
+
+def _is_hidden(name: str) -> bool:
+    return name.startswith(HIDDEN_PREFIX)
+
+
+def _has_marker(directory: Path) -> bool:
+    schema = directory / "SCHEMA.md"
+    if schema.is_file() and not schema.is_symlink():
+        try:
+            with open(schema, "rb") as handle:
+                if handle.read(64).startswith(b"---\nlayout_version:"):
+                    return True
+        except OSError:
+            pass
+    return os.path.lexists(directory / ".hermes" / "obsidian.json")
+
+
+def _nested_containers(container: Path) -> list[str]:
+    nested: list[str] = []
+    for current, dirnames, _ in os.walk(container, followlinks=False):
+        here = Path(current)
+        dirnames[:] = [name for name in sorted(dirnames) if not _is_hidden(name) and not (here / name).is_symlink()]
+        if here != container and _has_marker(here):
+            nested.append(here.relative_to(container).as_posix())
+            dirnames[:] = []
+    return nested
+
+
 def _require_container(container: Path) -> Path:
     container = Path(container)
     if not container.is_absolute():
         raise WikiError("WIKI_CONTAINER_INVALID", f"{container} must be absolute")
-    if not container.is_dir() or container.is_symlink():
-        raise WikiError("WIKI_CONTAINER_INVALID", f"{container} must be an existing real directory")
-    for ancestor in (container, *container.parents):
-        if (ancestor / ".obsidian").is_dir() or (ancestor / ".hermes" / "obsidian.json").is_file():
-            return container
-    raise WikiError("WIKI_VAULT_REQUIRED", f"{container} is not inside an Obsidian vault")
+    if container.is_symlink() or not container.is_dir() or Path(os.path.realpath(container)) != container:
+        raise WikiError("WIKI_CONTAINER_INVALID", f"{container} must be an existing directory reached without symlinks")
+    if os.path.lexists(container / ".obsidian"):
+        raise WikiError("WIKI_CONTAINER_IS_VAULT", f"{container} is a vault root; pass one project folder inside it")
+    if not any((ancestor / ".obsidian").is_dir() for ancestor in container.parents):
+        raise WikiError("WIKI_VAULT_REQUIRED", f"{container} is not inside an Obsidian vault")
+    if os.path.lexists(container / ".git"):
+        raise WikiError("WIKI_CONTAINER_IS_REPOSITORY", f"{container} is a Git work tree, not a vault project")
+    nested = _nested_containers(container)
+    if nested:
+        raise WikiError("WIKI_CONTAINER_NESTED", f"{container} holds other wiki or project containers: {', '.join(nested[:5])}")
+    return container
 
 
-def _create_exclusive(path: Path, content: bytes) -> bool:
+def _open_root(container: Path) -> int:
+    return os.open(container, os.O_RDONLY | _DIRECTORY | _NOFOLLOW | _CLOEXEC)
+
+
+def _open_dir(root_fd: int, parts: tuple[str, ...], *, create: bool) -> int:
+    """Open a directory below ``root_fd`` one component at a time, never following a link."""
+    fd = os.dup(root_fd)
     try:
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
-    except FileExistsError:
-        return False
-    with os.fdopen(descriptor, "wb") as handle:
-        handle.write(content)
-        handle.flush()
-        os.fsync(handle.fileno())
-    return True
+        for part in parts:
+            try:
+                child = os.open(part, os.O_RDONLY | _DIRECTORY | _NOFOLLOW | _CLOEXEC, dir_fd=fd)
+            except FileNotFoundError:
+                if not create:
+                    raise
+                os.mkdir(part, 0o755, dir_fd=fd)
+                child = os.open(part, os.O_RDONLY | _DIRECTORY | _NOFOLLOW | _CLOEXEC, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
 
 
-def _safe_mkdir(container: Path, relative: str) -> None:
-    current = container
-    for part in PurePosixPath(relative).parts:
-        current = current / part
-        if current.is_symlink():
-            raise WikiError("WIKI_PATH_UNSAFE", f"{current} is a symlink")
-        if not current.exists():
-            current.mkdir()
-        elif not current.is_dir():
-            raise WikiError("WIKI_PATH_UNSAFE", f"{current} is not a directory")
+def _split(relative: str) -> tuple[tuple[str, ...], str]:
+    path = PurePosixPath(relative)
+    return path.parent.parts, path.name
 
 
 def init(container: Path, *, project: str, today: str) -> list[str]:
     """Create the missing skeleton; return the relative paths created."""
     container = _require_container(container)
     created: list[str] = []
-    for directory in DIRECTORIES:
-        if not (container / directory).is_dir():
-            _safe_mkdir(container, directory)
-            created.append(f"{directory}/")
-    for relative, content in skeleton_files(project=project, today=today).items():
-        if (container / relative).is_symlink():
-            raise WikiError("WIKI_PATH_UNSAFE", f"{relative} is a symlink")
-        if _create_exclusive(container / relative, content):
+    root_fd = _open_root(container)
+    try:
+        for directory in DIRECTORIES:
+            existed = os.path.lexists(container / directory)
+            try:
+                os.close(_open_dir(root_fd, PurePosixPath(directory).parts, create=True))
+            except OSError as error:
+                raise WikiError("WIKI_PATH_UNSAFE", f"{directory}: {error.strerror or error}") from error
+            if not existed:
+                created.append(f"{directory}/")
+        for relative, content in skeleton_files(project=project, today=today).items():
+            try:
+                fd = os.open(relative, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW | _CLOEXEC, 0o644, dir_fd=root_fd)
+            except FileExistsError:
+                if not stat.S_ISREG(os.stat(relative, dir_fd=root_fd, follow_symlinks=False).st_mode):
+                    raise WikiError("WIKI_PATH_UNSAFE", f"{relative} is not a regular file") from None
+                continue
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
             created.append(relative)
+    finally:
+        os.close(root_fd)
     return created
 
 
 # --------------------------------------------------------------------------- classification
 
 
-def _is_hidden_or_wiki(parts: tuple[str, ...]) -> bool:
-    top = parts[0]
-    if top.startswith(HIDDEN_PREFIX) or top in WIKI_ROOTS:
-        return True
-    return len(parts) == 1 and (top in SKELETON_FILES or LOG_ROTATION.match(top) is not None)
-
-
 def classify(relative: str) -> str | None:
     """Return the wiki destination of a container-relative file, or None to keep it."""
     path = PurePosixPath(relative)
     parts = path.parts
-    if not parts or _is_hidden_or_wiki(parts):
+    if not parts or any(_is_hidden(part) for part in parts):
         return None
-    if len(parts) == 1 and parts[0] in CONTROLLER_FILES:
-        return CONTROLLER_FILES[parts[0]]
     top = parts[0]
-    legacy = LEGACY_FOLDERS.get(top.casefold())
-    if legacy is not None and len(parts) > 1:
-        if not legacy.startswith("raw/") and len(parts) == 2 and parts[1].casefold() in FOLDER_INDEX_NAMES:
-            return str(PurePosixPath("raw/articles", top.casefold(), parts[1]))
-        return str(PurePosixPath(legacy, *parts[1:]))
+    folded = top.casefold()
+    if folded in WIKI_ROOTS:
+        return None
+    if len(parts) == 1 and (folded in {name.casefold() for name in SKELETON_FILES} or LOG_ROTATION.match(top)):
+        return None
+    if len(parts) == 1 and top in CONTROLLER_FILES:
+        return CONTROLLER_FILES[top]
     suffix = path.suffix.lower()
-    if len(parts) > 1 and top.lower().endswith(" assets"):
-        return str(PurePosixPath("raw/assets", *parts))
-    if suffix in ASSET_SUFFIXES:
+    if suffix in ASSET_SUFFIXES or (len(parts) > 1 and folded.endswith(" assets")):
         return str(PurePosixPath("raw/assets", *parts))
     if suffix in PAPER_SUFFIXES:
         return str(PurePosixPath("raw/papers", *parts))
+    legacy = LEGACY_FOLDERS.get(folded)
+    if legacy is not None and len(parts) > 1:
+        layer_two = not legacy.startswith("raw/")
+        if layer_two and (suffix not in LAYER_TWO_SUFFIXES or parts[-1].casefold() in FOLDER_INDEX_NAMES):
+            return str(PurePosixPath("raw/articles", folded, *parts[1:]))
+        return str(PurePosixPath(legacy, *parts[1:]))
     if len(parts) == 1 and suffix in QUERY_SUFFIXES:
         return str(PurePosixPath("queries", *parts))
     return str(PurePosixPath("raw/articles", *parts))
@@ -264,188 +333,470 @@ def classify(relative: str) -> str | None:
 # --------------------------------------------------------------------------- planning
 
 
-def _walk(container: Path) -> tuple[list[str], list[str]]:
-    """Return (regular files, symlinks) relative to the container, never following links."""
+def _walk(container: Path) -> tuple[list[str], list[str], list[str]]:
+    """Return (regular files, symlinks, hidden entries kept below the root).
+
+    Hidden entries are skipped at every depth and links are never followed.
+    """
     files: list[str] = []
     links: list[str] = []
+    hidden: list[str] = []
     for current, dirnames, filenames in os.walk(container, followlinks=False):
         here = Path(current)
         relative_dir = here.relative_to(container)
+        nested = relative_dir != Path(".")
         keep = []
         for name in sorted(dirnames):
-            entry = here / name
             relative = (relative_dir / name).as_posix()
-            if entry.is_symlink():
+            if _is_hidden(name):
+                if nested:
+                    hidden.append(f"{relative}/")
+            elif (here / name).is_symlink():
                 links.append(relative)
-            elif not (relative_dir == Path(".") and name.startswith(HIDDEN_PREFIX)):
+            else:
                 keep.append(name)
         dirnames[:] = keep
         for name in sorted(filenames):
-            entry = here / name
             relative = (relative_dir / name).as_posix()
-            mode = entry.lstat().st_mode
+            if _is_hidden(name):
+                if nested and name != FINDER_METADATA:
+                    hidden.append(relative)
+                continue
+            mode = (here / name).lstat().st_mode
             if stat.S_ISLNK(mode):
                 links.append(relative)
             elif stat.S_ISREG(mode):
                 files.append(relative)
-    return files, links
+    return files, links, hidden
 
 
-def _sha256(path: Path) -> str:
+def _identity(status: os.stat_result) -> tuple[int, int, int, int]:
+    return (status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns)
+
+
+def _hash_fd(fd: int) -> str:
     digest = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
+    os.lseek(fd, 0, os.SEEK_SET)
+    while chunk := os.read(fd, _CHUNK):
+        digest.update(chunk)
     return digest.hexdigest()
 
 
-def plan(container: Path) -> dict[str, Any]:
-    """Describe the migration without touching the disk."""
-    container = _require_container(container)
-    files, links = _walk(container)
-    moves: list[dict[str, str]] = []
-    duplicates: list[str] = []
+def _hash_regular(path: Path) -> tuple[str, os.stat_result]:
+    fd = os.open(path, os.O_RDONLY | _NOFOLLOW | _CLOEXEC)
+    try:
+        status = os.fstat(fd)
+        if not stat.S_ISREG(status.st_mode):
+            raise OSError(f"{path} is not a regular file")
+        return _hash_fd(fd), status
+    finally:
+        os.close(fd)
+
+
+def _case_variant(parent: Path, name: str) -> str | None:
+    try:
+        entries = os.listdir(parent)
+    except OSError:
+        return None
+    key = _key(name)
+    return next((entry for entry in entries if entry != name and _key(entry) == key), None)
+
+
+def _inspect_destination(container: Path, destination: str) -> tuple[str, Any]:
+    """Return ("absent", None), ("file", stat) or ("conflict", reason), checking every ancestor."""
+    current = container
+    parts = PurePosixPath(destination).parts
+    for index, part in enumerate(parts):
+        parent, current = current, current / part
+        relative = PurePosixPath(*parts[: index + 1]).as_posix()
+        try:
+            status = os.lstat(current)
+        except FileNotFoundError:
+            variant = _case_variant(parent, part)
+            if variant is not None:
+                return "conflict", f"{relative} differs only by case from existing {variant}"
+            return "absent", None
+        except NotADirectoryError:
+            return "conflict", f"an ancestor of {relative} is not a directory"
+        if stat.S_ISLNK(status.st_mode):
+            return "conflict", f"{relative} is a symlink"
+        if index < len(parts) - 1:
+            if not stat.S_ISDIR(status.st_mode):
+                return "conflict", f"{relative} is not a directory"
+        elif not stat.S_ISREG(status.st_mode):
+            return "conflict", "destination is not a regular file"
+        else:
+            return "file", status
+    return "conflict", "empty destination"
+
+
+def _plan(container: Path) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    files, links, hidden = _walk(container)
+    entries = [(source, destination) for source in files if (destination := classify(source)) not in (None, source)]
     conflicts: list[dict[str, str]] = []
     claimed: dict[str, str] = {}
-    for relative in files:
-        destination = classify(relative)
-        if destination is None or destination == relative:
-            continue
-        if destination in claimed:
-            conflicts.append({"source": relative, "destination": destination, "reason": f"also claimed by {claimed[destination]}"})
-            continue
-        claimed[destination] = relative
-        target = container / destination
-        if target.is_symlink() or (target.exists() and not target.is_file()):
-            conflicts.append({"source": relative, "destination": destination, "reason": "destination is not a regular file"})
-        elif target.exists():
-            if _sha256(target) == _sha256(container / relative):
-                duplicates.append(relative)
-            else:
-                conflicts.append({"source": relative, "destination": destination, "reason": "destination exists with different content"})
+    ancestors: dict[str, str] = {}
+    for source, destination in entries:
+        key = _key(destination)
+        if key in claimed:
+            conflicts.append({"source": source, "destination": destination, "reason": f"also claimed by {claimed[key]}"})
         else:
-            moves.append({"source": relative, "destination": destination})
-    return {
+            claimed[key] = source
+        for parent in PurePosixPath(destination).parents:
+            if parent.parts:
+                ancestors.setdefault(_key(parent.as_posix()), source)
+    moves: list[dict[str, str]] = []
+    duplicates: list[str] = []
+    expected: dict[str, dict[str, Any]] = {}
+    for source, destination in entries:
+        key = _key(destination)
+        if claimed.get(key) != source:
+            continue
+        if key in ancestors:
+            conflicts.append({"source": source, "destination": destination,
+                              "reason": f"is also a directory needed by {ancestors[key]}"})
+            continue
+        try:
+            source_sha, source_status = _hash_regular(container / source)
+        except OSError as error:
+            conflicts.append({"source": source, "destination": destination, "reason": f"source unreadable: {error}"})
+            continue
+        kind, detail = _inspect_destination(container, destination)
+        if kind == "conflict":
+            conflicts.append({"source": source, "destination": destination, "reason": detail})
+            continue
+        record = {"destination": destination, "sha256": source_sha, "identity": _identity(source_status)}
+        if kind == "absent":
+            moves.append({"source": source, "destination": destination})
+            expected[source] = record
+            continue
+        if os.path.samestat(source_status, detail) or detail.st_nlink != 1:
+            conflicts.append({"source": source, "destination": destination,
+                              "reason": "destination is the source itself or shares its data through a link"})
+            continue
+        try:
+            destination_sha, destination_status = _hash_regular(container / destination)
+        except OSError as error:
+            conflicts.append({"source": source, "destination": destination, "reason": f"destination unreadable: {error}"})
+            continue
+        if destination_sha != source_sha:
+            conflicts.append({"source": source, "destination": destination, "reason": "destination exists with different content"})
+            continue
+        duplicates.append(source)
+        expected[source] = {**record, "destination_identity": _identity(destination_status)}
+    report = {
         "container": str(container),
         "layout_version": LAYOUT_VERSION,
         "moves": moves,
         "deduplicated": duplicates,
         "conflicts": conflicts,
         "skipped_symlinks": sorted(links),
+        "kept_hidden": hidden,
     }
+    return report, expected
+
+
+def plan(container: Path) -> dict[str, Any]:
+    """Describe the migration without touching the disk."""
+    return _plan(_require_container(container))[0]
 
 
 # --------------------------------------------------------------------------- migration
 
 
-def _copy_verified(container: Path, source: str, destination: str) -> None:
-    source_path, target = container / source, container / destination
-    _safe_mkdir(container, str(PurePosixPath(destination).parent))
-    expected = _sha256(source_path)
-    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
+def _write_all(fd: int, data: bytes) -> None:
+    view = memoryview(data)
+    while view:
+        view = view[os.write(fd, view):]
+
+
+def _require_source(directory_fd: int, name: str, record: dict[str, Any], source: str) -> int:
+    fd = os.open(name, os.O_RDONLY | _NOFOLLOW | _CLOEXEC, dir_fd=directory_fd)
+    status = os.fstat(fd)
+    if not stat.S_ISREG(status.st_mode) or _identity(status) != record["identity"]:
+        os.close(fd)
+        raise WikiError("WIKI_SOURCE_CHANGED", f"{source} changed after the plan")
+    return fd
+
+
+def _require_unchanged_name(directory_fd: int, name: str, record: dict[str, Any], source: str) -> None:
+    status = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+    if not stat.S_ISREG(status.st_mode) or _identity(status) != record["identity"]:
+        raise WikiError("WIKI_SOURCE_CHANGED", f"{source} changed during the move")
+
+
+def _discard_created(directory_fd: int, name: str, fd: int) -> None:
+    """Remove a destination this run created, only while the name still points at it."""
     try:
-        with open(source_path, "rb") as reader, os.fdopen(descriptor, "wb") as writer:
-            descriptor = -1
-            shutil.copyfileobj(reader, writer)
-            writer.flush()
-            os.fsync(writer.fileno())
+        if os.path.samestat(os.stat(name, dir_fd=directory_fd, follow_symlinks=False), os.fstat(fd)):
+            os.unlink(name, dir_fd=directory_fd)
+    except OSError:
+        pass
+
+
+def _move_verified(root_fd: int, source: str, record: dict[str, Any]) -> None:
+    source_parts, source_name = _split(source)
+    target_parts, target_name = _split(record["destination"])
+    source_dir = _open_dir(root_fd, source_parts, create=False)
+    try:
+        source_fd = _require_source(source_dir, source_name, record, source)
+        try:
+            source_status = os.fstat(source_fd)
+            target_dir = _open_dir(root_fd, target_parts, create=True)
+            try:
+                target_fd = os.open(
+                    target_name,
+                    os.O_RDWR | os.O_CREAT | os.O_EXCL | _NOFOLLOW | _CLOEXEC,
+                    stat.S_IMODE(source_status.st_mode) or 0o644,
+                    dir_fd=target_dir,
+                )
+                try:
+                    digest = hashlib.sha256()
+                    while chunk := os.read(source_fd, _CHUNK):
+                        digest.update(chunk)
+                        _write_all(target_fd, chunk)
+                    os.fsync(target_fd)
+                    if digest.hexdigest() != record["sha256"] or _hash_fd(target_fd) != record["sha256"]:
+                        raise WikiError("WIKI_SOURCE_CHANGED", f"{source} content differs from the plan")
+                    os.utime(target_fd, ns=(source_status.st_atime_ns, source_status.st_mtime_ns))
+                    _require_unchanged_name(source_dir, source_name, record, source)
+                except BaseException:
+                    _discard_created(target_dir, target_name, target_fd)
+                    raise
+                finally:
+                    os.close(target_fd)
+            finally:
+                os.close(target_dir)
+            os.unlink(source_name, dir_fd=source_dir)
+        finally:
+            os.close(source_fd)
     finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-    shutil.copystat(source_path, target, follow_symlinks=False)
-    if _sha256(target) != expected:
-        target.unlink()
-        raise OSError(f"hash mismatch copying {source}")
+        os.close(source_dir)
 
 
-def _prune_empty(container: Path, relatives: list[str]) -> None:
-    candidates = sorted({PurePosixPath(item).parent for item in relatives}, key=lambda p: len(p.parts), reverse=True)
+def _remove_duplicate(root_fd: int, source: str, record: dict[str, Any]) -> None:
+    source_parts, source_name = _split(source)
+    target_parts, target_name = _split(record["destination"])
+    source_dir = _open_dir(root_fd, source_parts, create=False)
+    try:
+        source_fd = _require_source(source_dir, source_name, record, source)
+        try:
+            target_dir = _open_dir(root_fd, target_parts, create=False)
+            try:
+                target_fd = os.open(target_name, os.O_RDONLY | _NOFOLLOW | _CLOEXEC, dir_fd=target_dir)
+                try:
+                    target_status = os.fstat(target_fd)
+                    if (
+                        not stat.S_ISREG(target_status.st_mode)
+                        or os.path.samestat(target_status, os.fstat(source_fd))
+                        or _identity(target_status) != record["destination_identity"]
+                        or _hash_fd(target_fd) != record["sha256"]
+                        or _hash_fd(source_fd) != record["sha256"]
+                    ):
+                        raise WikiError("WIKI_SOURCE_CHANGED", f"{source} or its copy changed after the plan")
+                finally:
+                    os.close(target_fd)
+            finally:
+                os.close(target_dir)
+            _require_unchanged_name(source_dir, source_name, record, source)
+            os.unlink(source_name, dir_fd=source_dir)
+        finally:
+            os.close(source_fd)
+    finally:
+        os.close(source_dir)
+
+
+def _remove_empty_directory(root_fd: int, directory: PurePosixPath) -> bool:
+    try:
+        parent = _open_dir(root_fd, directory.parent.parts, create=False)
+    except OSError:
+        return False
+    try:
+        try:
+            fd = os.open(directory.name, os.O_RDONLY | _DIRECTORY | _NOFOLLOW | _CLOEXEC, dir_fd=parent)
+        except OSError:
+            return False
+        try:
+            entries = os.listdir(fd)
+            if entries == [FINDER_METADATA]:
+                if stat.S_ISREG(os.stat(FINDER_METADATA, dir_fd=fd, follow_symlinks=False).st_mode):
+                    os.unlink(FINDER_METADATA, dir_fd=fd)
+                    entries = []
+            if entries:
+                return False
+        finally:
+            os.close(fd)
+        try:
+            os.rmdir(directory.name, dir_fd=parent)
+        except OSError:
+            return False
+        return True
+    finally:
+        os.close(parent)
+
+
+def _prune_empty(root_fd: int, relatives: list[str]) -> None:
+    candidates = sorted(
+        {PurePosixPath(item).parent for item in relatives if PurePosixPath(item).parent.parts},
+        key=lambda path: len(path.parts),
+        reverse=True,
+    )
     for directory in candidates:
         current = directory
-        while current.parts:
-            path = container / current
-            if path.is_symlink() or not path.is_dir() or any(path.iterdir()):
-                break
-            path.rmdir()
+        while current.parts and _remove_empty_directory(root_fd, current):
             current = current.parent
 
 
-def _wikilink(relative: str) -> str:
-    return f"[[{PurePosixPath(relative).stem}]]"
+def _open_wiki_file(root_fd: int, name: str, flags: int) -> int:
+    fd = os.open(name, flags | _NOFOLLOW | _CLOEXEC, dir_fd=root_fd)
+    status = os.fstat(fd)
+    if not stat.S_ISREG(status.st_mode) or status.st_nlink != 1:
+        os.close(fd)
+        raise WikiError("WIKI_PATH_UNSAFE", f"{name} must be a regular file with a single link")
+    return fd
 
 
-def _index_pages(container: Path, moved: list[str]) -> None:
+def _read_wiki_file(root_fd: int, name: str) -> str:
+    fd = _open_wiki_file(root_fd, name, os.O_RDONLY)
+    try:
+        chunks = []
+        while chunk := os.read(fd, _CHUNK):
+            chunks.append(chunk)
+        return b"".join(chunks).decode("utf-8")
+    finally:
+        os.close(fd)
+
+
+def _replace_wiki_file(root_fd: int, name: str, text: str) -> None:
+    os.close(_open_wiki_file(root_fd, name, os.O_RDONLY))
+    temporary = f".{name}.{os.getpid()}.tmp"
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW | _CLOEXEC, 0o644, dir_fd=root_fd)
+    try:
+        _write_all(fd, text.encode("utf-8"))
+        os.fsync(fd)
+    except BaseException:
+        os.close(fd)
+        os.unlink(temporary, dir_fd=root_fd)
+        raise
+    os.close(fd)
+    os.rename(temporary, name, src_dir_fd=root_fd, dst_dir_fd=root_fd)
+
+
+def _append_log(root_fd: int, today: str, subject: str, lines: list[str]) -> None:
+    entry = f"\n## [{today}] migrate | {subject}\n" + "".join(f"- {line}\n" for line in lines)
+    fd = _open_wiki_file(root_fd, "log.md", os.O_WRONLY | os.O_APPEND)
+    try:
+        _write_all(fd, entry.encode("utf-8"))
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _link_target(page: str) -> str:
+    return page[:-3] if page.endswith(".md") else page
+
+
+def _unique_stems(pages: list[str]) -> set[str]:
+    counts: dict[str, int] = {}
+    for page in pages:
+        stem = PurePosixPath(page).stem
+        counts[stem] = counts.get(stem, 0) + 1
+    return {stem for stem, count in counts.items() if count == 1}
+
+
+def _is_indexed(text: str, page: str, unique: set[str]) -> bool:
+    """A page is indexed by its path link, or by its bare name when no other page shares it."""
+    targets = [_link_target(page)]
+    stem = PurePosixPath(page).stem
+    if stem in unique:
+        targets.append(stem)
+    return any(f"[[{target}]]" in text or f"[[{target}|" in text for target in targets)
+
+
+def _index_pages(container: Path, root_fd: int, moved: list[str]) -> None:
     """Add moved Layer-2 pages to index.md under their section, alphabetically."""
-    index = container / "index.md"
-    text = index.read_text(encoding="utf-8")
+    text = _read_wiki_file(root_fd, "index.md")
+    unique = _unique_stems(_layer_two_pages(container))
     added = False
     for prefix, title in PAGE_SECTIONS:
         pages = sorted(
             item for item in moved
-            if item.startswith(f"{prefix}/") and item.endswith(".md") and _wikilink(item) not in text
+            if item.startswith(f"{prefix}/") and item.endswith(".md") and not _is_indexed(text, item, unique)
         )
         if not pages:
             continue
         heading = f"## {title}\n"
         if heading not in text:
             text = text.rstrip("\n") + f"\n\n{heading}"
-        entries = "".join(f"- {_wikilink(item)} — migrated from the legacy layout; summary pending\n" for item in pages)
+        entries = "".join(
+            f"- [[{_link_target(item)}|{PurePosixPath(item).stem}]] — migrated from the legacy layout; summary pending\n"
+            for item in pages
+        )
         position = text.index(heading) + len(heading)
         text = text[:position] + entries + text[position:]
         added = True
     if added:
-        total = len(_layer_two_pages(container))
-        text = re.sub(r"Total pages: \d+", f"Total pages: {total}", text, count=1)
-        index.write_text(text, encoding="utf-8")
+        text = re.sub(r"Total pages: \d+", f"Total pages: {len(_layer_two_pages(container))}", text, count=1)
+        _replace_wiki_file(root_fd, "index.md", text)
 
 
-def _append_log(container: Path, today: str, subject: str, lines: list[str]) -> None:
-    entry = f"\n## [{today}] migrate | {subject}\n" + "".join(f"- {line}\n" for line in lines)
-    with open(container / "log.md", "a", encoding="utf-8") as handle:
-        handle.write(entry)
+def _require_safe_wiki_files(root_fd: int) -> None:
+    for name in ("index.md", "log.md"):
+        try:
+            os.close(_open_wiki_file(root_fd, name, os.O_RDONLY))
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            raise WikiError("WIKI_PATH_UNSAFE", f"{name}: {error.strerror or error}") from error
+
+
+def _has_container_marker(container: Path) -> bool:
+    return any(os.path.lexists(container / marker) for marker in CONTAINER_MARKERS)
 
 
 def migrate(container: Path, *, project: str, today: str) -> dict[str, Any]:
-    """Apply the plan: copy -> verify -> remove, all conflicts refused up front."""
+    """Apply the plan; every conflict is refused before the first move."""
     container = _require_container(container)
-    report = plan(container)
-    if report["conflicts"]:
-        raise WikiError(
-            "WIKI_MIGRATION_CONFLICT",
-            "; ".join(f"{item['source']} -> {item['destination']}: {item['reason']}" for item in report["conflicts"]),
-        )
-    created = init(container, project=project, today=today)
-    if not report["moves"] and not report["deduplicated"]:
-        report.update(status="ALREADY_MIGRATED" if not created else "INITIALIZED", created=created)
-        return report
-    moved: list[str] = []
+    if not _has_container_marker(container):
+        raise WikiError("WIKI_INIT_REQUIRED", f"{container} has no SCHEMA.md or binding; run init --apply first")
+    root_fd = _open_root(container)
     try:
-        for move in report["moves"]:
-            _copy_verified(container, move["source"], move["destination"])
-            (container / move["source"]).unlink()
-            moved.append(move["destination"])
-        for duplicate in report["deduplicated"]:
-            (container / duplicate).unlink()
-    except OSError as error:
-        _append_log(container, today, "Legacy migration interrupted", [
-            f"{move['source']} -> {move['destination']}" for move in report["moves"] if move["destination"] in moved
-        ] + [f"stopped: {error}"])
-        raise WikiError(
-            "WIKI_MIGRATION_INCOMPLETE",
-            f"{len(moved)} of {len(report['moves'])} files moved before: {error}. Every source not yet moved "
-            "is still in place; rerun migrate to continue.",
-        ) from error
-    _prune_empty(container, [move["source"] for move in report["moves"]] + report["deduplicated"])
-    _index_pages(container, moved)
-    _append_log(
-        container,
-        today,
-        "Legacy project folders moved into the LLM Wiki layout",
-        [f"{move['source']} -> {move['destination']}" for move in report["moves"]]
-        + [f"{item} (identical copy already in place, removed)" for item in report["deduplicated"]],
-    )
-    report.update(status="APPLIED", created=created)
-    return report
+        _require_safe_wiki_files(root_fd)
+        report, expected = _plan(container)
+        if report["conflicts"]:
+            raise WikiError(
+                "WIKI_MIGRATION_CONFLICT",
+                "; ".join(f"{item['source']} -> {item['destination']}: {item['reason']}" for item in report["conflicts"]),
+            )
+        created = init(container, project=project, today=today)
+        if not report["moves"] and not report["deduplicated"]:
+            report.update(status="ALREADY_MIGRATED" if not created else "INITIALIZED", created=created)
+            return report
+        done: list[str] = []
+        try:
+            for move in report["moves"]:
+                _move_verified(root_fd, move["source"], expected[move["source"]])
+                done.append(f"{move['source']} -> {move['destination']}")
+            for source in report["deduplicated"]:
+                _remove_duplicate(root_fd, source, expected[source])
+                done.append(f"{source} (identical copy already at {expected[source]['destination']}, removed)")
+        except (OSError, WikiError) as error:
+            try:
+                _append_log(root_fd, today, "Legacy migration interrupted", [*done, f"stopped: {error}"])
+            except (OSError, WikiError):
+                pass
+            raise WikiError(
+                "WIKI_MIGRATION_INCOMPLETE",
+                f"{len(done)} of {len(report['moves']) + len(report['deduplicated'])} files handled before: {error}. "
+                "Every source not yet handled is still in place; rerun migrate to continue.",
+            ) from error
+        _prune_empty(root_fd, [move["source"] for move in report["moves"]] + report["deduplicated"])
+        _index_pages(container, root_fd, [move["destination"] for move in report["moves"]])
+        _append_log(root_fd, today, "Legacy project folders moved into the LLM Wiki layout", done)
+        report.update(status="APPLIED", created=created)
+        return report
+    finally:
+        os.close(root_fd)
 
 
 # --------------------------------------------------------------------------- check
@@ -455,12 +806,15 @@ def _layer_two_pages(container: Path) -> list[str]:
     pages = []
     for prefix, _ in PAGE_SECTIONS:
         root = container / prefix
-        if root.is_dir() and not root.is_symlink():
-            pages.extend(
-                path.relative_to(container).as_posix()
-                for path in sorted(root.rglob("*.md"))
-                if path.is_file() and not path.is_symlink()
-            )
+        if not root.is_dir() or root.is_symlink():
+            continue
+        for current, dirnames, filenames in os.walk(root, followlinks=False):
+            here = Path(current)
+            dirnames[:] = sorted(name for name in dirnames if not _is_hidden(name) and not (here / name).is_symlink())
+            for name in sorted(filenames):
+                path = here / name
+                if name.endswith(".md") and not _is_hidden(name) and not path.is_symlink() and path.is_file():
+                    pages.append(path.relative_to(container).as_posix())
     return pages
 
 
@@ -469,18 +823,25 @@ def check(container: Path) -> dict[str, Any]:
     container = _require_container(container)
     findings: list[dict[str, str]] = []
     for relative in (*SKELETON_FILES, *DIRECTORIES):
-        if not (container / relative).exists():
+        if not os.path.lexists(container / relative):
             findings.append({"code": "WIKI_SKELETON_MISSING", "path": relative})
     for entry in sorted(container.iterdir()):
         name = entry.name
-        if name.startswith(HIDDEN_PREFIX) or name in WIKI_ROOTS or name in SKELETON_FILES or LOG_ROTATION.match(name):
+        if _is_hidden(name) or name.casefold() in WIKI_ROOTS:
+            continue
+        if not entry.is_dir() and classify(name) is None:
             continue
         findings.append({"code": "WIKI_LEGACY_ENTRY", "path": name})
-    index = container / "index.md"
-    if index.is_file():
-        text = index.read_text(encoding="utf-8")
-        for page in _layer_two_pages(container):
-            if _wikilink(page) not in text:
+    if os.path.lexists(container / "index.md"):
+        root_fd = _open_root(container)
+        try:
+            text = _read_wiki_file(root_fd, "index.md")
+        finally:
+            os.close(root_fd)
+        pages = _layer_two_pages(container)
+        unique = _unique_stems(pages)
+        for page in pages:
+            if not _is_indexed(text, page, unique):
                 findings.append({"code": "WIKI_PAGE_NOT_INDEXED", "path": page})
     return {"container": str(container), "layout_version": LAYOUT_VERSION, "findings": findings}
 
@@ -519,12 +880,17 @@ def main(argv: list[str] | None = None) -> int:
             today = _today(args.date)
             if not args.apply:
                 report = plan(container)
-                missing = [item for item in (*SKELETON_FILES, *DIRECTORIES) if not (container / item).exists()]
-                report["planned_skeleton"] = missing
+                report["planned_skeleton"] = [
+                    item for item in (*SKELETON_FILES, *DIRECTORIES) if not os.path.lexists(container / item)
+                ]
                 if args.command == "init":
                     report["moves"] = []
-                report["status"] = "BLOCKED" if report["conflicts"] and args.command == "migrate" else "READY"
-                code = 2 if report["status"] == "BLOCKED" else 0
+                    report["deduplicated"] = []
+                else:
+                    report["init_required"] = not _has_container_marker(container)
+                blocked = args.command == "migrate" and bool(report["conflicts"])
+                report["status"] = "BLOCKED" if blocked else "READY"
+                code = 2 if blocked else 0
             elif args.command == "init":
                 report = {"status": "APPLIED", "created": init(container, project=project, today=today)}
                 code = 0

@@ -695,6 +695,39 @@ class InstallerBehaviorTests(unittest.TestCase):
             again = self.run_installer(target, apply=True, obsidian_vault=vault, obsidian_project="Projects/App")
             self.assertEqual("ALREADY_INITIALIZED", json.loads(again.stdout)["status"])
 
+    def test_obsidian_install_refuses_unsafe_wiki_paths_with_a_stable_code(self) -> None:
+        cases = {
+            "concepts is a file": lambda c, o: (c / "concepts").write_text("x\n", encoding="utf-8"),
+            "raw is a symlink": lambda c, o: (c / "raw").symlink_to(o, target_is_directory=True),
+            "index.md is a dangling symlink": lambda c, o: (c / "index.md").symlink_to(o / "missing.md"),
+        }
+        for name, plant in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory(prefix="sdd-obsidian-wiki-unsafe-") as temp:
+                target, vault, container = self.make_obsidian_fixture(temp)
+                outside = Path(temp) / "outside"
+                outside.mkdir()
+                container.mkdir(parents=True, exist_ok=True)
+                plant(container, outside)
+
+                result = self.run_installer(target, apply=True, obsidian_vault=vault, obsidian_project="Projects/App")
+
+                self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+                self.assertIn("WIKI_PATH_UNSAFE", result.stdout + result.stderr)
+                self.assertEqual([], list(outside.iterdir()))
+                self.assertFalse((container / ".hermes").exists())
+
+    def test_obsidian_install_names_a_legacy_root_typesafe_lock(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-obsidian-legacy-lock-") as temp:
+            target, vault, container = self.make_obsidian_fixture(temp)
+            container.mkdir(parents=True, exist_ok=True)
+            (container / "skills-lock.json").write_text('{"version": 1, "skills": {}}\n', encoding="utf-8")
+
+            result = self.run_installer(target, apply=True, obsidian_vault=vault, obsidian_project="Projects/App")
+
+            self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+            self.assertIn("TYPESAFE_LOCK_LEGACY_LOCATION", result.stdout + result.stderr)
+            self.assertFalse((container / ".hermes").exists())
+
     def make_obsidian_fixture(self, temp: str) -> tuple[Path, Path, Path]:
         root = Path(temp)
         target = root / "repo"
