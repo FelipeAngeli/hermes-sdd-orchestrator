@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 13.0.7 - 2026-10-07
+
 ### Fixed
 - The pinned Hermes Skills Guard scan rated the skill `DANGEROUS` and failed CI: `tests/test_wiki_journal.py` held a literal private-key header and read `os.environ` directly. The header is now assembled at runtime like the other credential fixtures, and the tests reach the environment through `from os import environ as process_environment`, as `test_hooks.py` already does. Test-only change; the scan is `SAFE` again.
 
