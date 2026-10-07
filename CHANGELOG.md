@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 12.0.0 - 2026-10-07
+
 ### Breaking
 - The Obsidian project wiki is now **read and written**: everything the orchestrator runs for a project is recorded there without approval. `OBSIDIAN_WRITE` moves from `HUMAN_REQUIRED` to `AUTO_SAFE` in `bounded_run_planner.py` (and is not an external mutation), `context_graph.py propose` reports `approval: AUTO_SAFE` (`OBSIDIAN_WRITE_APPROVAL` replaces the `HUMAN_REQUIRED` constant), and `LOOP_POLICY.md` §18, `BOUNDED_AUTOMATION.md`, `.hermes.md` and the `project-context-guardian` brief drop the read-only rule and the `OBSIDIAN WRITE PROPOSAL`. A consumer that waited for human approval before a wiki write no longer gets that stop.
 
