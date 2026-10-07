@@ -242,10 +242,10 @@ def _looks_like_project(directory: Path) -> bool:
     )
 
 
-def _nested_containers(container: Path) -> list[str]:
+def _nested_containers(container: Path, *, guess_unmarked: bool) -> list[str]:
     nested: list[str] = []
     try:
-        children = sorted(os.listdir(container))
+        children = sorted(os.listdir(container)) if guess_unmarked else []
     except OSError:
         children = []
     for name in children:
@@ -278,9 +278,21 @@ def _require_container(container: Path) -> Path:
         raise WikiError("WIKI_VAULT_REQUIRED", f"{container} is not inside an Obsidian vault")
     if os.path.lexists(container / ".git"):
         raise WikiError("WIKI_CONTAINER_IS_REPOSITORY", f"{container} is a Git work tree, not a vault project")
-    nested = _nested_containers(container)
+    marked = _has_marker(container)
+    try:
+        nested = _nested_containers(container, guess_unmarked=not marked)
+    except OSError as error:
+        raise WikiError("WIKI_PATH_UNSAFE", f"cannot inspect {error.filename or container}: {error.strerror or error}") from error
     if nested:
-        raise WikiError("WIKI_CONTAINER_NESTED", f"{container} holds other wiki or project containers: {', '.join(nested[:5])}")
+        hint = "" if marked else (
+            " If this folder is a single project whose subfolders only group its own demands, mark it first "
+            "by installing the orchestrator into it or by adding a SCHEMA.md that starts with the "
+            "'layout_version' front matter, then rerun."
+        )
+        raise WikiError(
+            "WIKI_CONTAINER_NESTED",
+            f"{container} holds other wiki or project containers: {', '.join(nested[:5])}.{hint}",
+        )
     return container
 
 
@@ -596,7 +608,8 @@ def _retire_source(directory_fd: int, name: str, source_fd: int, record: dict[st
     The name is first renamed to a private hidden name, the renamed entry is
     compared with the open descriptor, and only that exact file is unlinked.
     A file saved over the name in the meantime is either never renamed or is
-    put back, so an edit can never be deleted by the check-then-unlink gap.
+    put back with an exclusive hard link, which never replaces a newer save,
+    so an edit can never be deleted by the check-then-unlink gap.
     """
     private = f".{name}.wiki-migrate-{secrets.token_hex(8)}"
     try:
@@ -610,15 +623,20 @@ def _retire_source(directory_fd: int, name: str, source_fd: int, record: dict[st
     if os.path.samestat(renamed, os.fstat(source_fd)) and _identity(renamed) == record["identity"]:
         os.unlink(private, dir_fd=directory_fd)
         return
-    try:
-        os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
-    except FileNotFoundError:
-        os.rename(private, name, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
-        raise WikiError("WIKI_SOURCE_CHANGED", f"{source} changed during the move") from None
-    raise WikiError(
-        "WIKI_SOURCE_CHANGED",
-        f"{source} changed during the move; the version that was there is kept as {private} next to it",
+    copy_note = (
+        f"the copy at {record['destination']} is the version planned before the change; "
+        "reconcile it by hand before rerunning"
     )
+    try:
+        os.link(private, name, src_dir_fd=directory_fd, dst_dir_fd=directory_fd, follow_symlinks=False)
+    except FileExistsError:
+        raise WikiError(
+            "WIKI_SOURCE_CHANGED",
+            f"{source} changed during the move; the newer save stays at {source}, the version that was there "
+            f"is kept as {private} next to it, and {copy_note}",
+        ) from None
+    os.unlink(private, dir_fd=directory_fd)
+    raise WikiError("WIKI_SOURCE_CHANGED", f"{source} changed during the move; {copy_note}")
 
 
 def _discard_created(directory_fd: int, name: str, fd: int) -> None:
@@ -1009,6 +1027,9 @@ def main(argv: list[str] | None = None) -> int:
                 code = 0
     except WikiError as error:
         report, code = {"status": "BLOCKED", "reason": error.code, "detail": error.detail}, 2
+    except OSError as error:
+        detail = f"{error.filename or container}: {error.strerror or error}"
+        report, code = {"status": "BLOCKED", "reason": "WIKI_PATH_UNSAFE", "detail": detail}, 2
     print(json.dumps(report, ensure_ascii=False, indent=None if args.json else 2))
     return code
 

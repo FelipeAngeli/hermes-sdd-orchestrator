@@ -612,6 +612,100 @@ class MigrationRaceTests(WikiTestCase):
         decomposed = unicodedata.normalize("NFD", "Decisões")
         self.assertEqual("concepts/x.md", wiki_layout.classify(f"{decomposed}/x.md"))
 
+    def test_restoring_the_source_never_replaces_a_newer_save(self) -> None:
+        self.initialized()
+        self.write("sessions/a.md", "v1\n")
+        path = self.container / "sessions/a.md"
+        real_rename, real_link = os.rename, os.link
+        state = {"renamed": False}
+
+        def rename_then_save(src, dst, *args, **kwargs):
+            real_rename(src, dst, *args, **kwargs)
+            if not state["renamed"] and str(dst).startswith(".a.md.wiki-migrate-"):
+                state["renamed"] = True
+                # an older save lands where the private name came from, and is renamed away with it
+                private = path.parent / dst
+                private.write_text("EDIT-OLDER\n", encoding="utf-8")
+                os.utime(private, ns=(1, 1))
+
+        def save_newest_then_link(src, dst, *args, **kwargs):
+            path.write_text("EDIT-NEWEST\n", encoding="utf-8")
+            return real_link(src, dst, *args, **kwargs)
+
+        wiki_layout.os.rename = rename_then_save
+        wiki_layout.os.link = save_newest_then_link
+        self.addCleanup(setattr, wiki_layout.os, "rename", real_rename)
+        self.addCleanup(setattr, wiki_layout.os, "link", real_link)
+
+        error = self.assert_blocked("WIKI_MIGRATION_INCOMPLETE")
+
+        self.assertEqual("EDIT-NEWEST\n", path.read_text(encoding="utf-8"))
+        leftovers = [p for p in path.parent.iterdir() if p.name.startswith(".a.md.wiki-migrate-")]
+        self.assertEqual(["EDIT-OLDER\n"], [p.read_text(encoding="utf-8") for p in leftovers])
+        self.assertIn("reconcile it by hand", error.detail)
+
+    def test_a_real_path_too_long_never_crashes_the_cli(self) -> None:
+        # Build the chain by descriptor, so no absolute path ever exceeds PATH_MAX here.
+        sessions = self.container / "sessions"
+        sessions.mkdir()
+        depth, name = 0, "d" * 200
+        fd = os.open(sessions, os.O_RDONLY)
+        try:
+            while depth < 40:
+                try:
+                    os.mkdir(name, dir_fd=fd)
+                    child = os.open(name, os.O_RDONLY, dir_fd=fd)
+                except OSError:
+                    break
+                os.close(fd)
+                fd, depth = child, depth + 1
+        finally:
+            os.close(fd)
+        self.addCleanup(self._remove_chain, sessions, name, depth)
+        if len(str(sessions)) + depth * (len(name) + 1) <= os.pathconf("/", "PC_PATH_MAX"):
+            self.skipTest("could not build a path longer than PATH_MAX here")
+        for arguments in (("migrate",), ("migrate", "--apply"), ("check",), ("init",)):
+            with self.subTest(arguments=arguments):
+                result = subprocess.run(
+                    [sys.executable, "-B", str(SCRIPT), *arguments, "--container", str(self.container), "--json"],
+                    text=True, capture_output=True, timeout=60,
+                )
+                self.assertNotIn("Traceback", result.stderr)
+                report = json.loads(result.stdout)
+                if result.returncode != 0:
+                    self.assertEqual(2, result.returncode)
+                    self.assertIn(report["reason"], {"WIKI_PATH_UNSAFE", "WIKI_INIT_REQUIRED"})
+
+    @staticmethod
+    def _remove_chain(root: Path, name: str, depth: int) -> None:
+        """Remove a descriptor-built chain bottom-up without forming long absolute paths."""
+        for remaining in range(depth, 0, -1):
+            fd = os.open(root, os.O_RDONLY)
+            try:
+                for _ in range(remaining - 1):
+                    child = os.open(name, os.O_RDONLY, dir_fd=fd)
+                    os.close(fd)
+                    fd = child
+                os.rmdir(name, dir_fd=fd)
+            except FileNotFoundError:
+                pass
+            finally:
+                os.close(fd)
+
+    def test_a_marked_project_may_group_demands_under_any_folder(self) -> None:
+        self.initialized()
+        for group in ("Archive", "_Completed", "Sprint 12"):
+            self.write(f"{group}/demand-1/sessions/s.md", f"{group}\n")
+        self.assertEqual([], wiki_layout.plan(self.container)["conflicts"])
+        self.assertEqual("APPLIED", self.migrate()["status"])
+
+    def test_an_unmarked_grouped_project_is_refused_with_a_hint(self) -> None:
+        self.write("Archive/demand-1/sessions/s.md", "s\n")
+        with self.assertRaises(wiki_layout.WikiError) as raised:
+            wiki_layout.init(self.container, project="App", today=TODAY)
+        self.assertEqual("WIKI_CONTAINER_NESTED", raised.exception.code)
+        self.assertIn("mark it first", raised.exception.detail)
+
 
 class CheckTests(WikiTestCase):
     def test_check_reports_missing_skeleton_legacy_folders_and_unindexed_pages(self) -> None:
