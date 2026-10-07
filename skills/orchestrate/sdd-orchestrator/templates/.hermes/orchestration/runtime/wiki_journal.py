@@ -95,7 +95,10 @@ _PLAIN_VALUE = re.compile(r"^(?:\d+(?:\.\d+)?|true|false|null|none|\[redacted\])
 _ALWAYS_SECRET_KEY = re.compile(r"(?i)passw|pwd|secret|credential|private[_-]?key|passphrase")
 _SECRET_PATTERNS = (
     # Well-known token shapes (private-key blocks are handled by _redact_key_blocks).
-    re.compile(_TOK + r"eyJ[A-Za-z0-9_-]{5,4096}\.[A-Za-z0-9_-]{5,8192}\.[A-Za-z0-9_-]{0,4096}"),
+    # The cheap lookahead requires the first dot before the expensive scan, so a
+    # failing position costs O(1) instead of O(n): "eyJ-eyJ-…" stays linear while
+    # a real token after a hyphen (x-auth-eyJ…) is still found.
+    re.compile(_T + r"(?=[A-Za-z0-9_-]{5,1024}\.)eyJ[A-Za-z0-9_-]{5,1024}\.[A-Za-z0-9_-]{5,8192}\.[A-Za-z0-9_-]{0,4096}"),
     re.compile(_T + r"(?:sk|rk|pk)[-_](?:live|test|proj|ant)?[-_]?[A-Za-z0-9_-]{16,512}"),
     re.compile(_T + r"github_pat_[A-Za-z0-9_]{20,512}"),
     re.compile(_T + r"gh[pousr]_[A-Za-z0-9]{20,512}"),
@@ -120,7 +123,7 @@ _SECRET_SUBSTITUTIONS = (
     # curl -u user:pw, --user user:pw, --user=user:pw
     (re.compile(r"((?:^|(?<=\s))(?:-u[ \t]{0,16}|--user(?:[ \t]{1,16}|=))['\"]?[^\s:'\"]{1,256}:)([^\s'\"]{1,512})", re.MULTILINE), r"\1[REDACTED]"),
     # --password X, --password=X, --pass X, sshpass -p X
-    (re.compile(r"(?i)((?:^|(?<=[\s(\[{\"',;=]))(?:--pass(?:word)?(?:[ \t]{1,16}|=)|sshpass[ \t]{1,16}-p[ \t]{0,16}))(\"[^\"\n]{0,512}\"|'[^'\n]{0,512}'|[^\s'\"]{1,512})", re.MULTILINE), r"\1[REDACTED]"),
+    (re.compile(r"(?i)((?:^|(?<=[^A-Za-z0-9_]))(?:--pass(?:word)?(?:[ \t]{1,16}|=)|sshpass[ \t]{1,16}-p[ \t]{0,16}))(\"[^\"\n]{0,512}\"|'[^'\n]{0,512}'|[^\s'\"]{1,512})", re.MULTILINE), r"\1[REDACTED]"),
     # mysql/mariadb -pSECRET glued to the flag; the gap to the flag is bounded so the scan stays linear
     (re.compile(r"(?i)(" + _T + r"(?:mysql|mariadb|mysqldump|mysqladmin)(?![A-Za-z0-9_])[^\n]{0,200}?\s-p)(\"[^\"\n]{0,512}\"|'[^'\n]{0,512}'|[^\s'\"]{1,512})"), r"\1[REDACTED]"),
     # natural language: "password is X", "senha: X"

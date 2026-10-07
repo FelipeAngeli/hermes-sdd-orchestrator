@@ -244,6 +244,10 @@ class RecordTests(JournalTestCase):
             "plus_runs": ("a1+" * size)[:size],
             "scheme_separators": ("a://" * size)[:size],
             "scheme_with_user": ("a://x:" * size)[:size],
+            "jwt_prefix_runs": ("eyJ-" * size)[:size],
+            "hyphen_then_jwt": ("-eyJ" * size)[:size],
+            "hyphens": "-" * size,
+            "hyphen_words": ("x-eyJ-" * size)[:size],
         }
         for name, text in inputs.items():
             with self.subTest(input=name):
@@ -297,11 +301,23 @@ class RecordTests(JournalTestCase):
                 with self.subTest(context=context, token=name):
                     self.assertNotIn(secret, self.wj.redact(f"{context}{token} tail"))
 
+    def test_a_jwt_is_redacted_whole_after_a_hyphen(self) -> None:
+        """A hyphen before the token must not leave the payload and signature in clear."""
+        jwt = fake("eyJhbGciOiJIUzI1NiJ9.", "eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U")
+        signature = "dozjgNryP4J3jVmNHl0w5N"
+        for context in ("session-", "x-auth-", "refresh-token-", "Set-Cookie--", "jwt-", "sk-", "AIza-", "glpat-", "-", "a-b-"):
+            with self.subTest(context=context):
+                redacted = self.wj.redact(context + jwt)
+                self.assertNotIn(signature, redacted)
+                self.assertNotIn("eyJzdWIiOiIxMjM0NTY3ODkw", redacted)
+        hyphen_in_header = fake("eyJhbG-iOiJIUzI1NiJ9.", "eyJzdWIiOiIxMjM0NTY3ODkwIn0.") + signature
+        self.assertNotIn(signature, self.wj.redact("token " + hyphen_in_header))
+
     def test_url_password_after_punctuation_and_sshpass_after_brackets_are_redacted(self) -> None:
         for context in ("-", ".", "+", "(", '"', "="):
             with self.subTest(context=context):
                 self.assertNotIn("urlpassword9", self.wj.redact(context + fake("postgres://user:", "urlpassword9@db/app")))
-        for context in ("(", '"', ",", "=", "[", "'"):
+        for context in ("(", '"', ",", "=", "[", "'", ":", "/", ".", "-", "+", "<", "|", "*"):
             with self.subTest(sshpass=context):
                 self.assertNotIn("sshsecret7", self.wj.redact(context + fake("sshpass -p ", "sshsecret7 ssh h")))
 

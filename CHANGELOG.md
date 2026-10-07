@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- pr-reviewer round 6 on 13.0.4: a JWT after any hyphen was left in clear (`x-auth-eyJ…`, `session-eyJ…`, `refresh-token-eyJ…`), and after `sk-` only the first segment was masked, leaving payload and signature readable. The JWT pattern now starts after any non-word character and a cheap lookahead requires the first `.` before the expensive scan, so it stays linear (`eyJ-eyJ-…` at 512 KiB: 0.32 s). `sshpass -p` and `--password` are also redacted after `:`, `/`, `.`, `-`, `+`, `<`, `|` and `*`, a gap that predates this branch. Compared with 13.0.1 and 13.0.2 across 450 token/context pairs: no leak and no regression.
+
 ## 13.0.4 - 2026-10-07
 
 ### Fixed
