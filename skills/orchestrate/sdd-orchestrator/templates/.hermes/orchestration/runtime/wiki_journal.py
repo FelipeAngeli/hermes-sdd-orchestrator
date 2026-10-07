@@ -95,10 +95,6 @@ _PLAIN_VALUE = re.compile(r"^(?:\d+(?:\.\d+)?|true|false|null|none|\[redacted\])
 _ALWAYS_SECRET_KEY = re.compile(r"(?i)passw|pwd|secret|credential|private[_-]?key|passphrase")
 _SECRET_PATTERNS = (
     # Well-known token shapes (private-key blocks are handled by _redact_key_blocks).
-    # The cheap lookahead requires the first dot before the expensive scan, so a
-    # failing position costs O(1) instead of O(n): "eyJ-eyJ-…" stays linear while
-    # a real token after a hyphen (x-auth-eyJ…) is still found.
-    re.compile(_T + r"(?=[A-Za-z0-9_-]{5,1024}\.)eyJ[A-Za-z0-9_-]{5,1024}\.[A-Za-z0-9_-]{5,8192}\.[A-Za-z0-9_-]{0,4096}"),
     re.compile(_T + r"(?:sk|rk|pk)[-_](?:live|test|proj|ant)?[-_]?[A-Za-z0-9_-]{16,512}"),
     re.compile(_T + r"github_pat_[A-Za-z0-9_]{20,512}"),
     re.compile(_T + r"gh[pousr]_[A-Za-z0-9]{20,512}"),
@@ -183,6 +179,57 @@ def _redact_key_blocks(text: str) -> str:
         position = end.end()
 
 
+_DOTTED_RUN = re.compile(r"[A-Za-z0-9_.-]+")
+_JWT_HEADER = "eyJ"
+_JWT_MAX_SEGMENTS = 5  # JWS has 3 segments, JWE has 5
+
+
+def _jwt_header_start(part: str) -> int:
+    """Index of the first ``eyJ`` in ``part`` that starts a token (at 0 or after '-'), else -1."""
+    index = part.find(_JWT_HEADER)
+    while index != -1:
+        if index == 0 or part[index - 1] == "-":
+            return index
+        index = part.find(_JWT_HEADER, index + 1)
+    return -1
+
+
+def _redact_jwt_run(run: str) -> str:
+    parts = run.split(".")
+    out: list[str] = []
+    index = 0
+    while index < len(parts):
+        part = parts[index]
+        start = _jwt_header_start(part)
+        payload = parts[index + 1] if index + 1 < len(parts) else ""
+        has_signature_slot = index + 2 < len(parts)
+        is_jwt = (
+            start != -1
+            and len(part) - start >= 8
+            and len(payload) >= 5
+            and (has_signature_slot or payload.startswith(_JWT_HEADER))
+        )
+        if not is_jwt:
+            out.append(part)
+            index += 1
+            continue
+        out.append(part[:start] + "[REDACTED]")
+        index += min(_JWT_MAX_SEGMENTS, len(parts) - index)
+    return ".".join(out)
+
+
+def _redact_jwts(text: str) -> str:
+    """Replace JWS/JWE tokens of any size in one linear pass over dotted token runs.
+
+    A header is ``eyJ`` at the start of a run segment or right after a '-'
+    (``x-auth-eyJ…``); the header, payload and every following dotted segment
+    (up to five, for JWE) are replaced, so no part of a large token survives.
+    """
+    if _JWT_HEADER not in text:
+        return text
+    return _DOTTED_RUN.sub(lambda match: _redact_jwt_run(match.group(0)) if _JWT_HEADER in match.group(0) else match.group(0), text)
+
+
 def redact(text: str) -> str:
     """Mask common credential shapes; the wiki is synced and must never hold a secret.
 
@@ -190,6 +237,7 @@ def redact(text: str) -> str:
     conversation or an artifact that is recorded.
     """
     text = _redact_key_blocks(text)
+    text = _redact_jwts(text)
     for pattern in _SECRET_PATTERNS:
         text = pattern.sub("[REDACTED]", text)
     for pattern, replacement in _SECRET_SUBSTITUTIONS:

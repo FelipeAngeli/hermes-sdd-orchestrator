@@ -313,6 +313,32 @@ class RecordTests(JournalTestCase):
         hyphen_in_header = fake("eyJhbG-iOiJIUzI1NiJ9.", "eyJzdWIiOiIxMjM0NTY3ODkwIn0.") + signature
         self.assertNotIn(signature, self.wj.redact("token " + hyphen_in_header))
 
+    def test_large_and_multi_segment_jwts_are_redacted_whole(self) -> None:
+        """Real tokens exceed any fixed bound: x5c headers, big payloads, JWE, unsigned two-part tokens."""
+        import base64
+
+        def part(value: dict) -> str:
+            return base64.urlsafe_b64encode(json.dumps(value).encode("utf-8")).decode("ascii").rstrip("=")
+
+        signature = fake("dozjgNryP4J3jVmNHl0w5N7ZbQZ8", "XrVqKkLmNoPqRsTuVwXyZ0123")
+        shapes = {
+            "payload_12k": (part({"alg": "RS256"}), part({"sub": "1", "data": "B" * 9000})),
+            "x5c_header": (part({"alg": "RS256", "x5c": ["A" * 2800]}), part({"sub": "1", "data": "B" * 1100})),
+            "huge_both": (part({"alg": "RS256", "x5c": ["A" * 9000]}), part({"sub": "1", "data": "B" * 9000})),
+        }
+        for name, (header, payload) in shapes.items():
+            for context in ("", "Bearer ", "x-auth-", "?jwt=", "sk-"):
+                with self.subTest(shape=name, context=context):
+                    redacted = self.wj.redact(f"{context}{header}.{payload}.{signature} tail")
+                    for segment in (header, payload, signature):
+                        self.assertNotIn(segment[-24:], redacted)
+        jwe = part({"alg": "RSA-OAEP", "enc": "A256GCM"}) + ".encryptedKEY0123.initVECTOR012.CIPHERtext0123456.authTAG012345"
+        self.assertEqual("x [REDACTED] y", self.wj.redact(f"x {jwe} y"))
+        unsigned = part({"alg": "none"}) + "." + part({"sub": "x"})
+        self.assertEqual("t [REDACTED]", self.wj.redact("t " + unsigned))
+        for ordinary in ("file.eyJ.txt", "see docs.example.com/eyJ", "version 1.2.3", "eyJ is a prefix"):
+            self.assertEqual(ordinary, self.wj.redact(ordinary))
+
     def test_url_password_after_punctuation_and_sshpass_after_brackets_are_redacted(self) -> None:
         for context in ("-", ".", "+", "(", '"', "="):
             with self.subTest(context=context):

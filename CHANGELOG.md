@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- Interrupted round-7 review on 13.0.5: the JWT pattern's 1024-character bound left the signature of large real tokens in clear (an `x5c` certificate header with a payload over 1024 characters; a payload over 8192 characters, already the case in 13.0.4), and a two-segment unsigned token or the last segments of a five-segment JWE were never redacted. JWTs are now found by one linear pass over dotted token runs instead of a regular expression: a header is `eyJ` at the start of a segment or after a `-`, and the header, payload and every following segment (up to five) are replaced, whatever their size.
+
 ## 13.0.5 - 2026-10-07
 
 ### Fixed
