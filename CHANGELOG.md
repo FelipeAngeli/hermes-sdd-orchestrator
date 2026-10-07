@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 11.0.0 - 2026-10-07
+
 ### Breaking
 - `wiki_layout.py migrate --apply` no longer initializes a bare folder: it requires a container already marked by `init --apply` or the installer (`SCHEMA.md` or a binding) and otherwise stops with `WIKI_INIT_REQUIRED`; the dry run reports `init_required`. It also refuses a vault root (`WIKI_CONTAINER_IS_VAULT`), a folder holding other project containers (`WIKI_CONTAINER_NESTED`), a Git work tree (`WIKI_CONTAINER_IS_REPOSITORY`) and a container reached through a symlink, so a scripted `migrate --apply` on such a path must point at one project folder and run `init --apply` first. Index lines for migrated pages are now path links (`[[concepts/a/plan|plan]]`) instead of bare names.
 
