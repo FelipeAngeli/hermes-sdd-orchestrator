@@ -77,8 +77,8 @@ LOCK_NAME = ".wiki-journal.lock"
 _SLUG_UNSAFE = re.compile(r"[^0-9A-Za-z\u00C0-\u024F._ -]+")
 _SPACES = re.compile(r"[\s_]+")
 _LINE_BREAKS = re.compile(r"[\r\n\u2028\u2029\x0b\x0c\x85]+")
-# Bounded on both sides and anchored at a word start so a long run of word
-# characters cannot make the scan quadratic.
+# Every repetition below is bounded and every pattern anchors on a literal, so
+# redaction stays linear in the input; record() also truncates before redacting.
 _SECRET_KEY = r"(?<![A-Za-z0-9_.-])[A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|access[_-]?key|secret|token|passw(?:or)?d|passwd|pwd|credential|private[_-]?key|client[_-]?secret|auth)[A-Za-z0-9_.-]{0,40}"
 _PLAIN_VALUE = re.compile(r"^(?:\d+(?:\.\d+)?|true|false|null|none|\[redacted\])$", re.IGNORECASE)
 # Keys whose values are credentials even when they look like plain numbers.
@@ -101,19 +101,19 @@ _SECRET_PATTERNS = (
 )
 _SECRET_SUBSTITUTIONS = (
     # scheme://user:password@host — the password may itself contain '@'; the last '@' before the host wins.
-    (re.compile(r"(\b[a-z][a-z0-9+.-]*://[^\s:/@]{1,256}:)([^\s/]{1,512})(@[^\s@/]+)", re.IGNORECASE), r"\1[REDACTED]\3"),
+    (re.compile(r"(\b[a-z][a-z0-9+.-]*://[^\s:/@]{0,256}:)([^\s]{1,512}?)(@[^\s@/]+(?:[/:?#\s]|$))", re.IGNORECASE | re.MULTILINE), r"\1[REDACTED]\3"),
     # Authorization schemes followed by a credential.
     (re.compile(r"(?i)\b((?:bearer|basic|token|digest)\s+)([A-Za-z0-9._~+/=-]{8,})"), r"\1[REDACTED]"),
     # Cookie / Set-Cookie headers carry session credentials.
-    (re.compile(r"(?im)^(\s*(?:set-)?cookie\s*:\s*)(.+)$"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)(\b(?:set-)?cookie\s*:\s*)([^\n\"']{1,4096})"), r"\1[REDACTED]"),
     # Azure-style connection strings.
     (re.compile(r"(?i)\b((?:AccountKey|SharedAccessKey|SharedAccessSignature|sig)=)([^;\s&]+)"), r"\1[REDACTED]"),
     # curl -u user:pw, --user user:pw, --user=user:pw
     (re.compile(r"((?:^|\s)(?:-u\s*|--user(?:\s+|=))['\"]?[^\s:'\"]+:)([^\s'\"]+)"), r"\1[REDACTED]"),
     # --password X, --password=X, --pass X, sshpass -p X
-    (re.compile(r"(?i)((?:^|\s)(?:--pass(?:word)?(?:\s+|=)|sshpass\s+-p\s*))(['\"]?)([^\s'\"]+)\2"), r"\1\2[REDACTED]\2"),
-    # mysql/mariadb/psql style -pSECRET glued to the flag
-    (re.compile(r"(?i)(\b(?:mysql|mariadb|mysqldump|mysqladmin)\b[^\n]*?\s-p)([^\s'\"]+)"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)((?:^|\s)(?:--pass(?:word)?(?:\s+|=)|sshpass\s+-p\s*))(\"[^\"\n]{0,512}\"|'[^'\n]{0,512}'|[^\s'\"]+)"), r"\1[REDACTED]"),
+    # mysql/mariadb -pSECRET glued to the flag; the gap to the flag is bounded so the scan stays linear
+    (re.compile(r"(?i)(\b(?:mysql|mariadb|mysqldump|mysqladmin)\b[^\n]{0,200}?\s-p)(\"[^\"\n]{0,512}\"|'[^'\n]{0,512}'|[^\s'\"]+)"), r"\1[REDACTED]"),
     # natural language: "password is X", "senha: X"
     (re.compile(r"(?i)\b((?:password|passphrase|senha|token|secret)\s+(?:is|é|eh|=)\s+)(\S+)"), r"\1[REDACTED]"),
 )
@@ -494,7 +494,8 @@ def record(
     when = when or _now()
     stamp = when.strftime("%Y%m%d-%H%M%S")
     clean_title = one_line(redact(title))
-    clean_body = _bounded(redact(body))
+    # Truncate before redacting so the scan is bounded, then redact what is kept.
+    clean_body = redact(_bounded(body))
     ticket = one_line(ticket, 120) if ticket else None
     stage = one_line(stage, 60) if stage else None
     session = one_line(session, 120) if session else None

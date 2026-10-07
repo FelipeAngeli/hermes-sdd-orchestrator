@@ -4,6 +4,10 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- pr-reviewer round 3 on 13.0.1: the `mysql -pSECRET` pattern added in 13.0.1 scanned quadratically (240 KB took 33 s, so a hook could exceed its 10 s timeout and drop the turn). Every pattern is now bounded and the body is truncated to `MAX_RECORD_BYTES` before redaction; a test bounds the time on adversarial input.
+- Redaction also covers URL passwords with an empty user or containing `/`, quoted `mysql -p'…'` and `--password "…"` values, and inline `Cookie:` headers such as `curl -H "Cookie: …"`.
+
 ## 13.0.1 - 2026-10-07
 
 ### Fixed

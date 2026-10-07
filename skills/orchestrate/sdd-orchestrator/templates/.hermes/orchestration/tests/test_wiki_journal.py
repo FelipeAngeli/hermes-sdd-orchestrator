@@ -213,6 +213,11 @@ class RecordTests(JournalTestCase):
             "cookie": (fake("Cookie: session=", "cookievalue5; other=1"), "cookievalue5"),
             "escaped_json": (fake('{\\"api_key\\": \\"', 'escapedsecret4\\"}'), "escapedsecret4"),
             "numeric_password": (fake("password: ", "123456"), "123456"),
+            "url_empty_user": (fake("redis://:", "redispass1@host:6379"), "redispass1"),
+            "url_slash": (fake("https://u:", "pa/sslash1@host/x"), "pa/sslash1"),
+            "mysql_quoted": (fake("mysql -u r -p'", "mysqlquoted1' db"), "mysqlquoted1"),
+            "password_quoted": (fake('tool --password "', 'a b quoted1"'), "a b quoted1"),
+            "cookie_inline": (fake('curl -H "Cookie: sid=', 'cookieinline1" x'), "cookieinline1"),
         }
         result = self.record(kind="stage", title="setup", stage="PLAN", body="\n".join(sample for sample, _ in samples.values()))
         text = (self.container / result["path"]).read_text(encoding="utf-8")
@@ -221,10 +226,36 @@ class RecordTests(JournalTestCase):
                 self.assertNotIn(value, text)
         self.assertIn("[REDACTED]", text)
 
+    def test_redaction_stays_linear_on_adversarial_input(self) -> None:
+        import time
+
+        size = self.wj.MAX_RECORD_BYTES
+        inputs = {
+            "mysql": "mysql " * (size // 6),
+            "urls": "http://a:b@c " * (size // 13),
+            "schemes": "a://:" * (size // 5),
+            "at_signs": "https://u:" + "@" * size,
+            "cookies": "Cookie: " * (size // 8),
+            "passwords": "--password " * (size // 11),
+            "keys": '"secret":' * (size // 9),
+            "words": "token " * (size // 6),
+        }
+        for name, text in inputs.items():
+            with self.subTest(input=name):
+                started = time.monotonic()
+                self.wj.redact(text)
+                self.assertLess(time.monotonic() - started, 3.0)
+
+    def test_oversized_body_is_truncated_before_redaction(self) -> None:
+        with mock.patch.object(self.wj, "redact", wraps=self.wj.redact) as spy:
+            self.record(kind="action", title="big", body="mysql " * (self.wj.MAX_RECORD_BYTES // 3))
+        self.assertTrue(all(len(call.args[0].encode("utf-8")) <= self.wj.MAX_RECORD_BYTES + 200 for call in spy.call_args_list))
+
     def test_redaction_keeps_ordinary_values(self) -> None:
         text = self.wj.redact('max_tokens: 4096\ntoken_count = 12\n"auth": true\nTOTAL=7\nport: 5432\nhttps://example.com/a@b')
         self.assertIn("port: 5432", text)
         self.assertIn("https://example.com/a@b", text)
+        self.assertEqual("see https://docs.x/y and mail me@x.com", self.wj.redact("see https://docs.x/y and mail me@x.com"))
         self.assertIn("max_tokens: 4096", text)
         self.assertIn("token_count = 12", text)
         self.assertIn('"auth": true', text)
