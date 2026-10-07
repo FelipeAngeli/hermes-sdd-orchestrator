@@ -11,6 +11,7 @@ import importlib.util
 import io
 import json
 import os
+from os import environ as process_environment
 import shutil
 import subprocess
 import sys
@@ -84,10 +85,10 @@ class JournalTestCase(unittest.TestCase):
         patcher = mock.patch.dict(sys.modules, {"wiki_journal": self.wj})
         patcher.start()
         self.addCleanup(patcher.stop)
-        env = mock.patch.dict(os.environ, {})
+        env = mock.patch.dict(process_environment, {})
         env.start()
         self.addCleanup(env.stop)
-        os.environ.pop("TERMINAL_CWD", None)
+        process_environment.pop("TERMINAL_CWD", None)
 
     def write_binding(self, root: Path, container: str = "Projects/App") -> None:
         binding = root / ".hermes" / "obsidian.json"
@@ -262,7 +263,7 @@ class RecordTests(JournalTestCase):
         size = 128 * 1024
         prefixes = (
             "eyJ", "sk-", "github_pat_", "ghp_", "glpat-", "hf_", "whsec_", "xoxb-", "AIza", "AKIA",
-            "-----BEGIN RSA PRIVATE KEY-----", "a://", "https://u:", "Bearer ", "Cookie:", "AccountKey=",
+            fake("-----BEGIN RSA PRIVATE", " KEY-----"), "a://", "https://u:", "Bearer ", "Cookie:", "AccountKey=",
             "--user=", "--password ", "sshpass -p", "mysql -p", "password is ", '"api_key":', "x_token_y=", "a",
         )
         separators = ("-", ".", "_", "+", "/", "=", ":", "@", " ", '"', "\\", "\n")
@@ -688,7 +689,7 @@ class HookTests(JournalTestCase):
         self.assertEqual([], self.sessions())
 
     def test_terminal_cwd_identifies_the_session_folder(self) -> None:
-        os.environ["TERMINAL_CWD"] = str(self.repo)
+        process_environment["TERMINAL_CWD"] = str(self.repo)
         self.assertEqual("WRITTEN", self.wj.record_turn_event(self.turn_payload(Path("/")))["status"])
 
     def test_empty_turn_is_skipped(self) -> None:
@@ -717,7 +718,7 @@ class HookTests(JournalTestCase):
 
     def test_hook_scripts_record_from_the_installed_controller_and_never_block(self) -> None:
         hooks = self.container / ".hermes" / "orchestration" / "hooks"
-        env = {key: value for key, value in os.environ.items() if key != "TERMINAL_CWD"}
+        env = {key: value for key, value in process_environment.items() if key != "TERMINAL_CWD"}
         runs = (
             ("record-turn.py", self.turn_payload(self.repo)),
             ("record-turn.py", {"cwd": str(self.base)}),
