@@ -4,6 +4,12 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- pr-reviewer round 2 on 13.0.0: redaction also covers PGP private-key blocks, URL passwords containing `@`, `curl --user=`/`-uUSER:PW`, `--password`/`--pass`, `sshpass -p`, `mysql -pSECRET`, `glpat-`, `hf_`, `npm_`, `whsec_`, Azure `AccountKey=`/`SharedAccessKey=`/`sig=`, `Cookie:` headers, backslash-escaped JSON keys, and numeric values assigned to password-like keys.
+- A session end already logged is skipped (`ALREADY_LOGGED`), so a resumed session finalized again adds no second `log.md` entry; 13.0.0 said "once per session" without enforcing it.
+- An executor result under a symlinked system folder (macOS `/tmp`, `/var`) is recorded again; a result file that is itself a symlink is still refused.
+- The glossary no longer lists an Obsidian write as a human checkpoint, and the subagent wiki mirror and the `wiki` field of `archive_invalid` are now tested.
+
 ## 13.0.0 - 2026-10-07
 
 ### Breaking

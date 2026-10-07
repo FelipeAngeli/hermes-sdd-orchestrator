@@ -199,6 +199,20 @@ class RecordTests(JournalTestCase):
             "curl": (fake("curl -u admin:", "curlsecret77 https://x"), "curlsecret77"),
             "prose": (fake("my password is ", "prosesecret55"), "prosesecret55"),
             "slack": (fake("https://hooks.slack.com/services/", "T000/B000/XXXXXXXXXXXXXXXX"), "XXXXXXXXXXXXXXXX"),
+            "pgp": (fake("-----BEGIN PGP PRIVATE", " KEY BLOCK-----\nlQOYBFpgpbody\n-----END PGP PRIVATE KEY BLOCK-----"), "lQOYBFpgpbody"),
+            "url_with_at": (fake("https://u:", "p@sswith@host/x"), "sswith"),
+            "curl_eq": (fake("curl --user=admin:", "pwcurlequal1 x"), "pwcurlequal1"),
+            "password_flag": (fake("tool --password ", "hunter9flag"), "hunter9flag"),
+            "sshpass": (fake("sshpass -p ", "sshsecret7 ssh host"), "sshsecret7"),
+            "mysql": (fake("mysql -u root -p", "mysqlsecret6 db"), "mysqlsecret6"),
+            "glpat": (fake("glpat-", "abcdefghij1234567890"), "abcdefghij1234567890"),
+            "hf": (fake("hf_", "abcdefghijklmnopqrstuv"), "abcdefghijklmnopqrstuv"),
+            "node_registry": (fake("npm_", "abcdefghijklmnopqrstuv12"), "abcdefghijklmnopqrstuv12"),
+            "whsec": (fake("whsec_", "abcdefghijklmnopqrstu"), "abcdefghijklmnopqrstu"),
+            "azure": (fake("AccountName=a;AccountKey=", "azurekeyvalue==;EndpointSuffix=x"), "azurekeyvalue"),
+            "cookie": (fake("Cookie: session=", "cookievalue5; other=1"), "cookievalue5"),
+            "escaped_json": (fake('{\\"api_key\\": \\"', 'escapedsecret4\\"}'), "escapedsecret4"),
+            "numeric_password": (fake("password: ", "123456"), "123456"),
         }
         result = self.record(kind="stage", title="setup", stage="PLAN", body="\n".join(sample for sample, _ in samples.values()))
         text = (self.container / result["path"]).read_text(encoding="utf-8")
@@ -208,7 +222,9 @@ class RecordTests(JournalTestCase):
         self.assertIn("[REDACTED]", text)
 
     def test_redaction_keeps_ordinary_values(self) -> None:
-        text = self.wj.redact('max_tokens: 4096\ntoken_count = 12\n"auth": true\nTOTAL=7')
+        text = self.wj.redact('max_tokens: 4096\ntoken_count = 12\n"auth": true\nTOTAL=7\nport: 5432\nhttps://example.com/a@b')
+        self.assertIn("port: 5432", text)
+        self.assertIn("https://example.com/a@b", text)
         self.assertIn("max_tokens: 4096", text)
         self.assertIn("token_count = 12", text)
         self.assertIn('"auth": true', text)
@@ -390,6 +406,18 @@ class ActionJournalMirrorTests(JournalTestCase):
                 self.assertNotIn("KEYBODY", text)
                 self.assertNotIn("Executor result", text)
 
+    def test_result_in_a_symlinked_system_folder_is_still_recorded(self) -> None:
+        alias = self.base / "tmp-alias"
+        alias.symlink_to(self.base, target_is_directory=True)
+        content = json.dumps({"executor_result": {"summary": "through alias"}}).encode("utf-8")
+        (self.base / "aliased.json").write_bytes(content)
+        result = self.wj.mirror_action(self.journal(path=alias / "aliased.json", content=content), outcome="RELEASED")
+        self.assertIn("through alias", (self.container / result["path"]).read_text(encoding="utf-8"))
+        link = self.base / "link.json"
+        link.symlink_to(self.base / "aliased.json")
+        result = self.wj.mirror_action(self.journal(path=link, content=content), outcome="RELEASED")
+        self.assertNotIn("through alias", (self.container / result["path"]).read_text(encoding="utf-8"))
+
     def test_a_fifo_never_blocks_the_mirror(self) -> None:
         fifo = self.base / "final.fifo"
         os.mkfifo(fifo)
@@ -447,6 +475,26 @@ class ActionJournalMirrorTests(JournalTestCase):
         result = self.aj.archive_interrupted_journal(path, self.repo / "history")
         self.assertEqual("INTERRUPTED", result["decision"])
         self.assertEqual("WRITTEN", result["wiki"]["status"], result["wiki"])
+
+    def test_archive_invalid_reports_the_wiki_record_without_the_invalid_body(self) -> None:
+        runtime = self.base / "runtime"
+        runtime.mkdir()
+        artifact = runtime / "final.json"
+        artifact.write_text("INVALID_BODY_NOT_RECORDED", encoding="utf-8")
+        value = self.full_journal("ARTIFACT_READY")
+        value["action"]["final_message_path"] = str(artifact)
+        value["action"]["invalid_fields"] = ["executor_result"]
+        value["artifact"] = {"exists": True, "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(), "validation_status": "INVALID"}
+        value["process"] = {"started_at": "2026-10-07T00:00:00Z", "finished_at": "2026-10-07T00:01:00Z", "exit_code": 0}
+        path = runtime / "ACTION_JOURNAL.json"
+        self.aj.atomic_write(path, value)
+        result = self.aj.archive_invalid_journal(path, self.repo / "history")
+        self.assertEqual("ARCHIVED_INVALID", result["decision"])
+        self.assertEqual("WRITTEN", result["wiki"]["status"], result["wiki"])
+        text = (self.container / result["wiki"]["path"]).read_text(encoding="utf-8")
+        self.assertIn("outcome: INVALID", text)
+        self.assertIn("invalid fields: executor_result", text)
+        self.assertNotIn("INVALID_BODY_NOT_RECORDED", text)
 
     def test_prepare_and_block_are_recorded(self) -> None:
         runtime = self.base / "runtime"
@@ -526,6 +574,8 @@ class HookTests(JournalTestCase):
         self.assertEqual("WRITTEN", result["status"], result)
         self.assertIn("session 20261007_120000_abc ended", self.log())
         self.assertEqual("SKIPPED", self.wj.record_session_end_event({"session_id": "unrelated"})["status"])
+        again = self.wj.record_session_end_event({"session_id": "20261007_120000_abc", "extra": {"reason": "resume"}})
+        self.assertEqual("ALREADY_LOGGED", again["reason"])
         self.assertEqual(1, self.log().count(" ended"))
 
     def test_hook_main_never_fails_and_prints_an_empty_object(self) -> None:

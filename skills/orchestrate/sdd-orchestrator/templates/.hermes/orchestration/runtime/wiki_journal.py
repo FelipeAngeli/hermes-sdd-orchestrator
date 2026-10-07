@@ -81,32 +81,46 @@ _LINE_BREAKS = re.compile(r"[\r\n\u2028\u2029\x0b\x0c\x85]+")
 # characters cannot make the scan quadratic.
 _SECRET_KEY = r"(?<![A-Za-z0-9_.-])[A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|access[_-]?key|secret|token|passw(?:or)?d|passwd|pwd|credential|private[_-]?key|client[_-]?secret|auth)[A-Za-z0-9_.-]{0,40}"
 _PLAIN_VALUE = re.compile(r"^(?:\d+(?:\.\d+)?|true|false|null|none|\[redacted\])$", re.IGNORECASE)
+# Keys whose values are credentials even when they look like plain numbers.
+_ALWAYS_SECRET_KEY = re.compile(r"(?i)passw|pwd|secret|credential|private[_-]?key|passphrase")
 _SECRET_PATTERNS = (
     # Whole blocks and well-known token shapes.
-    re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\Z)", re.DOTALL),
+    re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----.*?(?:-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|\Z)", re.DOTALL),
     re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*"),
     re.compile(r"\b(?:sk|rk|pk)[-_](?:live|test|proj|ant)?[-_]?[A-Za-z0-9_-]{16,}"),
     re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}"),
+    re.compile(r"\bglpat-[A-Za-z0-9_-]{16,}"),
+    re.compile(r"\bhf_[A-Za-z0-9]{20,}"),
+    re.compile(r"\bnpm_[A-Za-z0-9]{20,}"),
+    re.compile(r"\bwhsec_[A-Za-z0-9+/=]{16,}"),
     re.compile(r"\bxox[abposr]-[A-Za-z0-9-]{10,}"),
     re.compile(r"https://hooks\.slack\.com/services/[A-Za-z0-9/_-]+"),
     re.compile(r"\bAIza[0-9A-Za-z_-]{30,}"),
     re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
 )
 _SECRET_SUBSTITUTIONS = (
-    # scheme://user:password@host
-    (re.compile(r"(\b[a-z][a-z0-9+.-]*://[^\s:/@]+:)([^\s@/]+)(@)", re.IGNORECASE), r"\1[REDACTED]\3"),
-    # Authorization: Bearer|Basic|Token <value>
+    # scheme://user:password@host — the password may itself contain '@'; the last '@' before the host wins.
+    (re.compile(r"(\b[a-z][a-z0-9+.-]*://[^\s:/@]{1,256}:)([^\s/]{1,512})(@[^\s@/]+)", re.IGNORECASE), r"\1[REDACTED]\3"),
+    # Authorization schemes followed by a credential.
     (re.compile(r"(?i)\b((?:bearer|basic|token|digest)\s+)([A-Za-z0-9._~+/=-]{8,})"), r"\1[REDACTED]"),
-    # curl -u user:password / --user user:password
-    (re.compile(r"(\s(?:-u|--user)\s+['\"]?[^\s:'\"]+:)([^\s'\"]+)"), r"\1[REDACTED]"),
+    # Cookie / Set-Cookie headers carry session credentials.
+    (re.compile(r"(?im)^(\s*(?:set-)?cookie\s*:\s*)(.+)$"), r"\1[REDACTED]"),
+    # Azure-style connection strings.
+    (re.compile(r"(?i)\b((?:AccountKey|SharedAccessKey|SharedAccessSignature|sig)=)([^;\s&]+)"), r"\1[REDACTED]"),
+    # curl -u user:pw, --user user:pw, --user=user:pw
+    (re.compile(r"((?:^|\s)(?:-u\s*|--user(?:\s+|=))['\"]?[^\s:'\"]+:)([^\s'\"]+)"), r"\1[REDACTED]"),
+    # --password X, --password=X, --pass X, sshpass -p X
+    (re.compile(r"(?i)((?:^|\s)(?:--pass(?:word)?(?:\s+|=)|sshpass\s+-p\s*))(['\"]?)([^\s'\"]+)\2"), r"\1\2[REDACTED]\2"),
+    # mysql/mariadb/psql style -pSECRET glued to the flag
+    (re.compile(r"(?i)(\b(?:mysql|mariadb|mysqldump|mysqladmin)\b[^\n]*?\s-p)([^\s'\"]+)"), r"\1[REDACTED]"),
     # natural language: "password is X", "senha: X"
     (re.compile(r"(?i)\b((?:password|passphrase|senha|token|secret)\s+(?:is|é|eh|=)\s+)(\S+)"), r"\1[REDACTED]"),
 )
 _SECRET_ASSIGNMENT = re.compile(
     r"""(?ix)
-    (?P<key>["']?""" + _SECRET_KEY + r"""["']?\s*[:=]\s*)
-    (?P<value>"(?:[^"\\\n]|\\.)*"|'[^'\n]*'|[^\s,;}\]\)]+)
+    (?P<key>(?:\\?["'])?""" + _SECRET_KEY + r"""(?:\\?["'])?\s*[:=]\s*)
+    (?P<value>\\"(?:[^"\\\n]|\\[^"])*\\"|"(?:[^"\\\n]|\\.)*"|'[^'\n]*'|[^\s,;}\]\)]+)
     """
 )
 
@@ -123,9 +137,15 @@ class WikiJournalError(Exception):
 
 def _redact_assignment(match: re.Match[str]) -> str:
     value = match.group("value")
-    quote = value[0] if value[:1] in {'"', "'"} else ""
-    inner = value[1:-1] if quote and len(value) >= 2 else value
-    if not inner or _PLAIN_VALUE.match(inner):
+    if value.startswith('\\"') and value.endswith('\\"') and len(value) >= 4:
+        quote, inner = '\\"', value[2:-2]
+    elif value[:1] in {'"', "'"} and len(value) >= 2:
+        quote, inner = value[0], value[1:-1]
+    else:
+        quote, inner = "", value
+    if not inner:
+        return match.group(0)
+    if _PLAIN_VALUE.match(inner) and not (_ALWAYS_SECRET_KEY.search(match.group("key")) and inner.lower() not in {"true", "false", "null", "none", "[redacted]"}):
         return match.group(0)
     return f"{match.group('key')}{quote}[REDACTED]{quote}"
 
@@ -564,21 +584,30 @@ def safe_record_for_workspace(workspace: Path, **kwargs: Any) -> dict[str, Any]:
 def _read_validated_result(path_text: Any, expected_sha256: Any) -> str | None:
     """Return the executor's final message only when it is the validated result itself.
 
-    The file must be a non-blocking, single-link regular file reached without any
-    symlink, its SHA-256 must equal the journal's validated artifact hash, and it
-    must parse as an ``executor_result``/``review_result`` JSON object. Anything
-    else (another file, a FIFO, a key) is never read into the synced vault.
+    The file itself must be a non-blocking, single-link regular file that is not
+    a symlink (its folder is resolved, since macOS ``/tmp`` is one), its SHA-256
+    must equal the journal's validated artifact hash, and it must parse as an
+    ``executor_result``/``review_result`` JSON object. Anything else (another
+    file, a FIFO, a key) is never read into the synced vault.
     """
     import hashlib
 
     if not isinstance(path_text, str) or not os.path.isabs(path_text) or not isinstance(expected_sha256, str):
         return None
-    if os.path.realpath(path_text) != os.path.normpath(path_text):
+    # Resolve the folder (macOS /tmp and /var are system symlinks) but never the file itself.
+    folder, name = os.path.split(os.path.normpath(path_text))
+    if not name or name in {".", ".."}:
         return None
     try:
-        fd = os.open(path_text, os.O_RDONLY | os.O_NONBLOCK | wiki_layout._NOFOLLOW | wiki_layout._CLOEXEC)
+        directory = os.open(os.path.realpath(folder), os.O_RDONLY | wiki_layout._DIRECTORY | wiki_layout._CLOEXEC)
     except OSError:
         return None
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NONBLOCK | wiki_layout._NOFOLLOW | wiki_layout._CLOEXEC, dir_fd=directory)
+    except OSError:
+        return None
+    finally:
+        os.close(directory)
     try:
         status = os.fstat(fd)
         if not stat.S_ISREG(status.st_mode) or status.st_nlink != 1 or status.st_size > MAX_RECORD_BYTES:
@@ -721,10 +750,17 @@ def record_session_end_event(payload: Mapping[str, Any]) -> dict[str, Any]:
     if not _transcript_exists(container, session):
         return {"status": "SKIPPED", "reason": "NO_TRANSCRIPT"}
     extra = _extra(payload)
+    subject = one_line(f"session {session} ended")
     root_fd = wiki_layout._open_root(prepare_container(container))
     try:
         with _locked(root_fd):
-            _log(root_fd, "update", f"session {session} ended", [f"reason: {extra.get('reason') or 'finalized'}", f"platform: {extra.get('platform') or 'unknown'}"])
+            try:
+                current = wiki_layout._read_wiki_file(root_fd, "log.md")
+            except FileNotFoundError:
+                current = ""
+            if f"| {subject}\n" in current:
+                return {"status": "SKIPPED", "reason": "ALREADY_LOGGED"}
+            _log(root_fd, "update", subject, [f"reason: {extra.get('reason') or 'finalized'}", f"platform: {extra.get('platform') or 'unknown'}"])
     finally:
         os.close(root_fd)
     return {"status": "WRITTEN", "kind": "session_end", "path": "log.md"}
