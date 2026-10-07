@@ -60,7 +60,7 @@ The sibling `.hermes/skills/` directory contains three progressive playbooks: `s
 
 ## Opt-in Hermes hooks
 
-The installed `hooks/` directory mirrors the `agents/` and `sub-agents/` source layers. Its shell scripts connect Hermes events to the existing deterministic runtime: slice/vault scope at `pre_tool_call`, acceptance evidence at `pre_verify`, non-sensitive leaf-worker audit metadata at `subagent_stop`, and an optional bounded STATE summary at `pre_llm_call`.
+The installed `hooks/` directory mirrors the `agents/` and `sub-agents/` source layers. Its shell scripts connect Hermes events to the existing deterministic runtime: slice/vault scope at `pre_tool_call`, acceptance evidence at `pre_verify`, non-sensitive leaf-worker audit metadata at `subagent_stop`, an optional bounded STATE summary at `pre_llm_call`, and the wiki recorders: each turn of a session inside a served worktree at `post_llm_call` (`raw/transcripts/sessions/`) and the session's end at `on_session_finalize` (`log.md`).
 
 Installation only copies these files. It never edits a Hermes profile or grants hook consent. To activate them, inspect `hooks/README.md`, replace `<ABSOLUTE_PROJECT_ROOT>` in `hooks/hooks.example.yaml`, and merge it into a dedicated profile for this checkout. Absolute paths bind Hermes' persistent `(event, command)` consent to this repository. The controller must atomically maintain `STAGE_CONTEXT.json`, `HOOK_BINDING.json`, and `VERIFICATION_EVIDENCE.json` before an active implementation turn; the scope hook fails closed when live Git, STATE, journal, binding, and context cannot be proven consistent.
 

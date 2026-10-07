@@ -352,6 +352,15 @@ def release_action(path: Path) -> dict[str, Any]:
     return _save_transition(path, "RELEASED")
 
 
+def _mirror_to_wiki(value: dict[str, Any], outcome: str) -> dict[str, Any]:
+    """Record a finished action in the project's Obsidian wiki; never fails the journal."""
+    try:
+        import wiki_journal
+    except Exception as error:  # a partial install must not break recovery
+        return {"status": "SKIPPED", "reason": "WIKI_JOURNAL_UNAVAILABLE", "detail": str(error)}
+    return wiki_journal.mirror_action(value, outcome=outcome)
+
+
 def rollover_journal(path: Path, history_dir: Path) -> dict[str, str]:
     """Archive a verified released action and atomically open a pristine journal."""
     value = load_journal(path)
@@ -379,7 +388,8 @@ def rollover_journal(path: Path, history_dir: Path) -> dict[str, str]:
     recovery = recovery_decision(persisted)["decision"]
     if recovery != "DISPATCH_ALLOWED":
         raise JournalError("JOURNAL_ROLLOVER_INVALID", "New journal does not allow dispatch.")
-    return {"decision": "ROLLED_OVER", "archived_path": str(archived_path), "archived_sha256": archived_sha256, "new_journal_status": persisted["action"]["status"], "recovery_after_rollover": recovery}
+    wiki = _mirror_to_wiki(value, "RELEASED")
+    return {"decision": "ROLLED_OVER", "archived_path": str(archived_path), "archived_sha256": archived_sha256, "new_journal_status": persisted["action"]["status"], "recovery_after_rollover": recovery, "wiki": wiki}
 
 
 def archive_interrupted_allowed(value: dict[str, Any]) -> None:
@@ -425,6 +435,7 @@ def archive_interrupted_journal(path: Path, history_dir: Path) -> dict[str, str]
         "new_journal_status": persisted["action"]["status"],
         "recovery_after_archive": recovery,
         "parent_action_id": interrupted["action"]["id"],
+        "wiki": _mirror_to_wiki(interrupted, "INTERRUPTED"),
     }
 
 
@@ -475,6 +486,7 @@ def archive_invalid_journal(path: Path, history_dir: Path) -> dict[str, str]:
         "parent_action_id": blocked["action"]["id"],
         "parent_artifact_path": blocked["action"]["final_message_path"],
         "parent_artifact_sha256": blocked["artifact"]["sha256"],
+        "wiki": _mirror_to_wiki(blocked, "INVALID"),
     }
 
 
@@ -584,6 +596,7 @@ def prepare_action(path: Path, next_value: dict[str, Any]) -> None:
     if next_value["action"]["status"] != "PREPARED":
         raise JournalError("INVALID_TRANSITION", "New action must start PREPARED.")
     atomic_write(path, next_value)
+    _mirror_to_wiki(next_value, "PREPARED")
 
 
 def corrective_retry_allowed(used: int, maximum: int = 1) -> bool:
@@ -608,7 +621,23 @@ def record_incident(path: Path, *, ticket: str, stage: str, action_id: str, inci
     with path.open("a", encoding="utf-8") as handle:
         handle.write(entry)
         handle.flush(); os.fsync(handle.fileno())
+    _record_incident_in_wiki(path, identifier, entry, ticket=ticket, stage=stage)
     return identifier
+
+
+def _record_incident_in_wiki(path: Path, identifier: str, entry: str, *, ticket: str, stage: str) -> None:
+    """Mirror the incident into the wiki of the journal's workspace; never fails the caller."""
+    try:
+        import wiki_journal
+
+        # Read only the workspace path: an incident is often about a journal that no longer validates.
+        journal = json.loads((path.parent / "ACTION_JOURNAL.json").read_text(encoding="utf-8"))
+        wiki_journal.safe_record_for_workspace(
+            Path(journal["workspace"]["path"]), kind="incident", title=identifier, body=entry.strip(),
+            ticket=ticket, stage=stage,
+        )
+    except Exception:
+        pass
 
 
 def _save_transition(path: Path, target: str, update: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -674,7 +703,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "archive-invalid":
             if not args.history_dir: raise JournalError("PAYLOAD_REQUIRED", "archive-invalid requires --history-dir.")
             value = archive_invalid_journal(path, Path(args.history_dir))
-        elif args.command == "block": value = _save_transition(path, "BLOCKED")
+        elif args.command == "block":
+            value = _save_transition(path, "BLOCKED"); _mirror_to_wiki(value, "BLOCKED")
         elif args.command == "inspect": value = load_journal(path)
         else: value = recovery_decision(load_journal(path))
         print(json.dumps(value, sort_keys=True) if args.json else value)

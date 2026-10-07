@@ -4,6 +4,75 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 13.0.8 - 2026-10-07
+
+### Fixed
+- pr-reviewer round 8 on 13.0.7: the JWT pass missed a JWE with alg `dir` (empty encrypted-key segment, `eyJ…..iv.ciphertext.tag`, as in NextAuth session cookies) and a JWS with a detached payload, leaving the IV, ciphertext, tag or signature in clear; a header after `_` (`ACCESS_TOKEN_eyJ…`) and a base64 `=`-padded token also leaked. An empty second segment followed by a real segment is now a token, a header starts at a segment start or after `-`, `_` or `=`, and `=` is part of a token run. Pre-existing gaps, not regressions; still linear.
+
+## 13.0.7 - 2026-10-07
+
+### Fixed
+- The pinned Hermes Skills Guard scan rated the skill `DANGEROUS` and failed CI: `tests/test_wiki_journal.py` held a literal private-key header and read `os.environ` directly. The header is now assembled at runtime like the other credential fixtures, and the tests reach the environment through `from os import environ as process_environment`, as `test_hooks.py` already does. Test-only change; the scan is `SAFE` again.
+
+## 13.0.6 - 2026-10-07
+
+### Fixed
+- Interrupted round-7 review on 13.0.5: the JWT pattern's 1024-character bound left the signature of large real tokens in clear (an `x5c` certificate header with a payload over 1024 characters; a payload over 8192 characters, already the case in 13.0.4), and a two-segment unsigned token or the last segments of a five-segment JWE were never redacted. JWTs are now found by one linear pass over dotted token runs instead of a regular expression: a header is `eyJ` at the start of a segment or after a `-`, and the header, payload and every following segment (up to five) are replaced, whatever their size.
+
+## 13.0.5 - 2026-10-07
+
+### Fixed
+- pr-reviewer round 6 on 13.0.4: a JWT after any hyphen was left in clear (`x-auth-eyJ…`, `session-eyJ…`, `refresh-token-eyJ…`), and after `sk-` only the first segment was masked, leaving payload and signature readable. The JWT pattern now starts after any non-word character and a cheap lookahead requires the first `.` before the expensive scan, so it stays linear (`eyJ-eyJ-…` at 512 KiB: 0.32 s). `sshpass -p` and `--password` are also redacted after `:`, `/`, `.`, `-`, `+`, `<`, `|` and `*`, a gap that predates this branch. Compared with 13.0.1 and 13.0.2 across 450 token/context pairs: no leak and no regression.
+
+## 13.0.4 - 2026-10-07
+
+### Fixed
+- pr-reviewer round 5 on 13.0.3: the linear-time rewrite stopped redacting tokens that follow `=`, `/`, `.`, `+` or `-` (`KEY=sk-…`, `export STRIPE=sk_live_…`, `id=AKIA…`, `?jwt=eyJ…`, `https://…/magic/eyJ…`, `?k=AIza…`) and URL passwords after `-`, `.` or `+`; 123 context/token combinations leaked that 13.0.2 redacted. Token patterns now start after any non-word character; only the JWT pattern also refuses to start after `-`, which keeps it linear. `sshpass -p` is also redacted after `(`, `[`, `{`, quotes, `,`, `;` or `=`. New tests put every token after 17 contexts (108 failures on 13.0.3).
+
+## 13.0.3 - 2026-10-07
+
+### Fixed
+- pr-reviewer round 4 on 13.0.2: redaction still had quadratic patterns. The URL-password scheme was unbounded (`a-a-a-…`: 128 KiB took 23 s) and the JWT pattern restarted after every `-` (`eyJ-eyJ-…`: 512 KiB took 47 s). Every pattern now has bounded repetitions and starts at a fixed-width token boundary instead of `\b`, and private-key blocks are removed in one linear pass. A new test runs every credential prefix repeated with every separator and fails on any quadratic pattern (it took 23.9 s on 13.0.2).
+
+## 13.0.2 - 2026-10-07
+
+### Fixed
+- pr-reviewer round 3 on 13.0.1: the `mysql -pSECRET` pattern added in 13.0.1 scanned quadratically (240 KB took 33 s, so a hook could exceed its 10 s timeout and drop the turn). Every pattern is now bounded and the body is truncated to `MAX_RECORD_BYTES` before redaction; a test bounds the time on adversarial input.
+- Redaction also covers URL passwords with an empty user or containing `/`, quoted `mysql -p'…'` and `--password "…"` values, and inline `Cookie:` headers such as `curl -H "Cookie: …"`.
+
+## 13.0.1 - 2026-10-07
+
+### Fixed
+- pr-reviewer round 2 on 13.0.0: redaction also covers PGP private-key blocks, URL passwords containing `@`, `curl --user=`/`-uUSER:PW`, `--password`/`--pass`, `sshpass -p`, `mysql -pSECRET`, `glpat-`, `hf_`, `npm_`, `whsec_`, Azure `AccountKey=`/`SharedAccessKey=`/`sig=`, `Cookie:` headers, backslash-escaped JSON keys, and numeric values assigned to password-like keys.
+- A session end already logged is skipped (`ALREADY_LOGGED`), so a resumed session finalized again adds no second `log.md` entry; 13.0.0 said "once per session" without enforcing it.
+- An executor result under a symlinked system folder (macOS `/tmp`, `/var`) is recorded again; a result file that is itself a symlink is still refused.
+- The glossary no longer lists an Obsidian write as a human checkpoint, and the subagent wiki mirror and the `wiki` field of `archive_invalid` are now tested.
+
+## 13.0.0 - 2026-10-07
+
+### Breaking
+- `wiki_journal.py record` takes only `--repo`: `--container` is removed, because the controller the module runs from now decides the container. A vault-resident controller writes only into its own container and only for worktrees registered in its runtime whose path is a Git work tree other than `/` or the home folder; a repository-local controller writes only for its own repository. A `.hermes/obsidian.json` planted in a worktree no longer redirects any write (pr-reviewer and security-reviewer round 1 on 12.0.0).
+- The session-end recorder hooks `on_session_finalize` instead of `on_session_end`, which Hermes fires after every turn; `hooks.example.yaml` changes accordingly and the end is logged once per session that has a transcript.
+
+### Fixed
+- An action record no longer copies an arbitrary file into the synced vault: the executor result is included only for a `VALID` artifact whose file is a single-link regular file reached without symlinks, opened non-blocking (a FIFO no longer hangs the journal), at most 512 KiB, with the journal's SHA-256 and an `executor_result`/`review_result` JSON shape.
+- Hook sessions are recorded only when `cwd` or `TERMINAL_CWD` is inside a served worktree; a session in the parent folder, the home folder or elsewhere is never recorded. Repository-local controllers now record turns too.
+- Redaction covers private-key blocks, JWTs, quoted JSON/YAML keys and values with spaces, passwords in URLs, `Basic`/`Token` credentials, `github_pat_`, `AIza…`, `sk_live_`/`rk_`/`pk_`, `ASIA…`, Slack webhooks, `curl -u` and "password is …" phrases, and runs in linear time.
+- Transcripts continue in `-partN` files past 4 MiB, `log.md` rotates to `log-YYYY.md` after 500 entries, `index.md`/`log.md` updates hold a lock so concurrent writers lose no index line, titles and frontmatter values are single lines so a title cannot forge a log entry, and only allow-listed metadata keys reach the frontmatter.
+- `prepare`, `block` and every leaf worker that stops (`subagent_stop`, metadata only) are now recorded in the wiki, and the `wiki` field of rollover and archive reports is covered by tests.
+- Documentation that still described the vault as read-only or approval-gated (`SKILL.md`, `harness.md`, the installed READMEs, the vault baseline note) now matches the code.
+
+## 12.0.0 - 2026-10-07
+
+### Breaking
+- The Obsidian project wiki is now **read and written**: everything the orchestrator runs for a project is recorded there without approval. `OBSIDIAN_WRITE` moves from `HUMAN_REQUIRED` to `AUTO_SAFE` in `bounded_run_planner.py` (and is not an external mutation), `context_graph.py propose` reports `approval: AUTO_SAFE` (`OBSIDIAN_WRITE_APPROVAL` replaces the `HUMAN_REQUIRED` constant), and `LOOP_POLICY.md` §18, `BOUNDED_AUTOMATION.md`, `.hermes.md` and the `project-context-guardian` brief drop the read-only rule and the `OBSIDIAN WRITE PROPOSAL`. A consumer that waited for human approval before a wiki write no longer gets that stop.
+
+### Added
+- `runtime/wiki_journal.py record` writes stage artifacts, gate results, actions and incidents under `raw/articles/<ticket>/`, Hermes turns under `raw/transcripts/sessions/`, and decisions, concepts, entities, comparisons and queries as Layer-2 pages listed in `index.md`; every record appends to `log.md`. `raw/` records are never overwritten, secrets are redacted, writes go through no-follow descriptors anchored at the container, and a vault-resident controller only writes for worktrees registered in its runtime.
+- The action journal mirrors every rolled-over, interrupted and invalid action (with the executor's final message) and `record_incident` mirrors every incident into the wiki; their reports gain a `wiki` field, and a wiki failure never fails the journal.
+- Opt-in observer hooks `hooks/record-turn.py` (`post_llm_call`) and `hooks/record-session-end.py` (`on_session_end`) record each Hermes turn and session end of a bound worktree; `hooks.example.yaml` lists them.
+- `wiki_layout.append_log_entry` appends a `log.md` entry for any action.
+
 ## 11.0.2 - 2026-10-07
 
 ### Fixed

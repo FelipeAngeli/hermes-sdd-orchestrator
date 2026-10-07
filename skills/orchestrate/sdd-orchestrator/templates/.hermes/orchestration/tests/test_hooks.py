@@ -408,6 +408,44 @@ class VerificationAndLifecycleHookTests(unittest.TestCase):
         self.assertNotIn("child_summary", event)
         self.assertNotIn("tool_call_history", event)
 
+    def test_subagent_hook_mirrors_metadata_but_never_the_summary_into_the_wiki(self) -> None:
+        journal = action_journal.empty_journal({
+            "path": str(self.root.resolve()), "branch": "main", "head": "a" * 40,
+            "git_common_dir": str(self.root / ".git"),
+        })
+        journal["action"].update({"id": "ACT-9", "ticket": "APP-9", "stage": "IMPLEMENT", "attempt": 1, "status": "DISPATCHED"})
+        action_journal.atomic_write(self.orchestration / "ACTION_JOURNAL.json", journal)
+        payload = {"cwd": str(self.root), "session_id": "parent", "extra": {
+            "child_session_id": "child-9", "child_role": "TEST_RUNNER", "child_status": "completed",
+            "duration_ms": 7, "child_summary": "SUMMARY_MUST_NOT_LEAK",
+        }}
+        recorded: list[dict] = []
+        fake = mock.Mock()
+        fake.safe_record_for_workspace.side_effect = lambda workspace, **kwargs: recorded.append({"workspace": workspace, **kwargs}) or {"status": "WRITTEN"}
+        with mock.patch.dict(sys.modules, {"wiki_journal": fake}):
+            self.assertEqual({}, hook_runtime.run_subagent_hook(payload))
+        self.assertEqual(1, len(recorded))
+        record = recorded[0]
+        self.assertEqual(self.root.resolve(), Path(record["workspace"]).resolve())
+        self.assertEqual("action", record["kind"])
+        self.assertEqual("APP-9", record["ticket"])
+        self.assertIn("child-9", record["body"])
+        self.assertIn("TEST_RUNNER", record["body"])
+        self.assertNotIn("SUMMARY_MUST_NOT_LEAK", record["body"] + json.dumps(record["metadata"]))
+
+    def test_subagent_hook_ignores_wiki_failures(self) -> None:
+        journal = action_journal.empty_journal({
+            "path": str(self.root.resolve()), "branch": "main", "head": "a" * 40,
+            "git_common_dir": str(self.root / ".git"),
+        })
+        journal["action"].update({"id": "ACT-8", "ticket": "APP-8", "stage": "IMPLEMENT", "attempt": 1, "status": "DISPATCHED"})
+        action_journal.atomic_write(self.orchestration / "ACTION_JOURNAL.json", journal)
+        payload = {"cwd": str(self.root), "extra": {"child_session_id": "child-8"}}
+        fake = mock.Mock()
+        fake.safe_record_for_workspace.side_effect = RuntimeError("wiki down")
+        with mock.patch.dict(sys.modules, {"wiki_journal": fake}):
+            self.assertEqual({}, hook_runtime.run_subagent_hook(payload))
+
     def test_subagent_event_refuses_symlinked_history_parent(self) -> None:
         journal = action_journal.empty_journal({
             "path": str(self.root.resolve()), "branch": "main", "head": "a" * 40,
@@ -517,7 +555,7 @@ class VerificationAndLifecycleHookTests(unittest.TestCase):
             for line in text.splitlines()
             if line.startswith("  ") and not line.startswith("    ") and line.strip().endswith(":")
         }
-        self.assertEqual({"pre_tool_call", "pre_verify", "subagent_stop", "pre_llm_call"}, events)
+        self.assertEqual({"pre_tool_call", "pre_verify", "subagent_stop", "pre_llm_call", "post_llm_call", "on_session_finalize"}, events)
         self.assertNotIn('command: "python3 .hermes/', text)
         self.assertIn("<ABSOLUTE_PROJECT_ROOT>", text)
         for raw in (line for line in text.splitlines() if "command:" in line):

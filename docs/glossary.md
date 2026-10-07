@@ -24,7 +24,7 @@
 
 **MANUAL / PAUSED / BOUNDED_AUTO / LOCAL_DELIVERY.** The loop modes and the schema 2 delivery profile. See [FSM and bounded loop](components/fsm-and-loop.md#modes).
 
-**Human checkpoint.** Any action classified `HUMAN_REQUIRED`, for example commit, push, a protected-file change or an Obsidian write.
+**Human checkpoint.** Any action classified `HUMAN_REQUIRED`, for example commit, push, a protected-file change or a backend mutation. Writing to the project's Obsidian wiki is not one: it is `AUTO_SAFE`.
 
 **Vault binding.** `.hermes/obsidian.json`, which links a repository to its Obsidian project container. See [Obsidian vault](components/obsidian-vault.md).
 

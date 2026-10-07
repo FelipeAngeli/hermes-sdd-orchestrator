@@ -6,9 +6,11 @@ These scripts adapt Hermes shell-hook events to the SDD runtime. They are copied
 | --- | --- | --- | --- | --- |
 | `enforce-slice-scope.py` | `pre_tool_call` | `write_file|patch` | fail closed | Allows direct file-tool writes only under the current slice's `editable_paths` or inside the bound vault `project_container`; validates every V4A target and rewrites accepted paths to canonical absolute paths. |
 | `require-verification.py` | `pre_verify` | — | continue turn | Keeps a coding turn open until every in-scope acceptance check has `PASS` evidence. |
-| `record-subagent-stop.py` | `subagent_stop` | — | observe only | Writes one immutable event per leaf worker under `action-journal-history/subagent-events/`, linked to action ID and attempt; it stores a result digest, not summaries or tool history. |
+| `record-subagent-stop.py` | `subagent_stop` | — | observe only | Writes one immutable event per leaf worker under `action-journal-history/subagent-events/`, linked to action ID and attempt, and records the same metadata in the project wiki; it stores a result digest, not summaries or tool history. |
 | `inject-state-summary.py` | `pre_llm_call` | — | context only | Injects ticket, stage, mode, and executor-call usage without copying the STATE body. Optional in the example. |
-| `hooks.example.yaml` | configuration | — | — | Opt-in profile snippet for these four scripts. |
+| `record-turn.py` | `post_llm_call` | — | observe only | Appends the turn's user message and response to the project wiki (`raw/transcripts/sessions/`) when the session's `cwd` or `TERMINAL_CWD` is inside a worktree this controller serves; secrets are redacted first. |
+| `record-session-end.py` | `on_session_finalize` | — | observe only | Logs the end of a session that has a transcript in this wiki to `log.md`, once per session. |
+| `hooks.example.yaml` | configuration | — | — | Opt-in profile snippet for these six scripts. |
 | `README.md` | documentation | — | — | Installed operator reference and hook catalogue. |
 
 ## Controller inputs

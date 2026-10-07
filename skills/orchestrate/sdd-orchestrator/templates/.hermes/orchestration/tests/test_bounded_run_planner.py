@@ -501,11 +501,17 @@ class BoundedRunPlannerTests(unittest.TestCase):
                 self.assertIn("PLAN_STALE", planner.validate_plan(first, value))
 
     def test_human_actions_are_never_auto_executable(self) -> None:
-        for action in ("COMMIT", "PUSH", "LINEAR_UPDATE", "OBSIDIAN_WRITE", "DEV_E2E", "BACKEND_MUTATION"):
+        for action in ("COMMIT", "PUSH", "LINEAR_UPDATE", "DEV_E2E", "BACKEND_MUTATION"):
             with self.subTest(action=action):
                 result = planner.classify_action(action)
                 self.assertEqual("HUMAN_REQUIRED", result["classification"])
                 self.assertTrue(result["human_approval_required"])
+
+    def test_obsidian_wiki_write_is_auto_safe_and_not_an_external_mutation(self) -> None:
+        result = planner.classify_action("OBSIDIAN_WRITE")
+        self.assertEqual("AUTO_SAFE", result["classification"])
+        self.assertFalse(result["human_approval_required"])
+        self.assertNotIn("OBSIDIAN_WRITE", planner.EXTERNAL_MUTATION_ACTIONS)
 
     def test_rehashed_action_tampering_is_rejected_by_semantic_validation(self) -> None:
         mutations = (

@@ -432,7 +432,7 @@ class ProposalTests(GraphTestCase):
         self.assertEqual("PROPOSED", result["status"])
         self.assertFalse(result["written"])
         self.assertEqual("OBSIDIAN_WRITE", result["action"])
-        self.assertEqual("HUMAN_REQUIRED", result["approval"])
+        self.assertEqual("AUTO_SAFE", result["approval"])
         self.assertIn("graph_node: idempotent-refunds", result["content"])
         self.assertIn("decision_reason: A duplicated webhook must not refund twice", result["content"])
         self.assertIn("documented_by: [checkout-doc]", result["content"])
