@@ -67,7 +67,8 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/consolidate_runtime.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/state_format.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/wiki_layout.py",
-      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/wiki_journal.py"
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/wiki_journal.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/redaction.py"
     ],
     "docs/components/context-graph.md": [
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/context_graph.py"
