@@ -2,7 +2,7 @@
 
 [Docs index](../README.md) · Next: [Gates and stack detection](gates-and-stack-detection.md) · Related: [Obsidian vault](obsidian-vault.md), [FSM and bounded loop](fsm-and-loop.md)
 
-**Files:** `SKILL.md`, `scripts/install_project.py`, `vendor/typesafe-ai/SKILL.md`, `vendor/typesafe-ai/LICENSE`, `templates/.hermes.md`, `templates/.hermes/.env.example`, `orchestration/runtime/typesafe_connector.py`, and `orchestration/README.md` (the installed layout guide, `templates/.hermes/orchestration/README.md`).
+**Files:** `SKILL.md`, `scripts/install_project.py` with its implementation package `scripts/sdd_install/` (see [Installer modules](#installer-modules)), `vendor/typesafe-ai/SKILL.md`, `vendor/typesafe-ai/LICENSE`, `templates/.hermes.md`, `templates/.hermes/.env.example`, `orchestration/runtime/typesafe_connector.py`, and `orchestration/README.md` (the installed layout guide, `templates/.hermes/orchestration/README.md`).
 
 ## `SKILL.md`: Hermes entry point
 
@@ -81,6 +81,27 @@ Guarantees, all covered by [the packaging tests](testing.md#skill-suite-tests):
 - A second run returns `ALREADY_INITIALIZED`. A partially present state returns `LOCAL_STATE_REQUIRES_REVIEW`.
 
 An existing installation is **never upgraded automatically**. To pick up new template files, review and copy them by hand, or reinstall into a clean worktree.
+
+### Installer modules
+
+`scripts/install_project.py` is the only command-line entry point. It holds the argparse definition, the `AUTOMATIC_JEV_GOVERNANCE_REQUIRES_TYPESAFE_INSTALL`, `PYTHON_3_10_REQUIRED` and `JSONSCHEMA_REQUIRED` checks, and stays parseable by Python 3.9 so an old interpreter still gets the actionable report. Only then does it put its own directory first on `sys.path`, disable bytecode writing and import the `sdd_install` package next to it; a package of that name already imported from another copy of the skill is dropped first, so the entry point never runs foreign code. Module attributes of the entry point (`require_root`, `InstallError`, ...) resolve to the package. Everything else lives in the package:
+
+| Module | Responsibility |
+| --- | --- |
+| `scripts/sdd_install/__init__.py` | Imports the modules in dependency order and re-exports their names. |
+| `scripts/sdd_install/constants.py` | Paths, pinned TypeSafe digests, generated state paths, Obsidian layout names. |
+| `scripts/sdd_install/mode.py` | The per-run storage policy (`MODE`: credential file managed, tracked-destination guard, TypeSafe lock path) and the `storage_mode()` context manager that restores it. |
+| `scripts/sdd_install/errors.py` | `InstallError` (reason plus optional `next_step`, `next_command`, extra report keys) and duplicate-key-strict JSON. |
+| `scripts/sdd_install/gitops.py` | Every `git` subprocess call: root/branch preflight, tracked-path checks, protected roots, the target snapshot. |
+| `scripts/sdd_install/fsops.py` | Descriptor-anchored no-follow reads, exclusive creates, owned unlink/rename, locks and rollback; the only `ctypes` use (no-replace rename). |
+| `scripts/sdd_install/templates.py` | Template discovery, managed exclude entries, generated `STATE.md`, `PROJECT_SETUP.md`, journal and stack detection. |
+| `scripts/sdd_install/onboarding.py` | `PROJECT_SETUP.md` parsing, onboarding questions and answer rendering. |
+| `scripts/sdd_install/typesafe.py` | Vetted TypeSafe skill install, lock merge, credential placeholder and rollback. |
+| `scripts/sdd_install/exclude.py` | `.git/info/exclude` read/render (repository-local mode). |
+| `scripts/sdd_install/local_install.py` | `--local-storage` planning, the base apply transaction and `run_local_install`. |
+| `scripts/sdd_install/obsidian.py` | Obsidian storage resolution, overlap check, container planning/apply and `run_obsidian_install`. |
+| `scripts/sdd_install/report.py` | `BLOCKED` reports with their `next_step` and the text summary line. |
+| `scripts/sdd_install/cli.py` | Dispatches parsed arguments to the selected mode and prints the report. |
 
 ## Project onboarding (`PROJECT_SETUP.md`)
 

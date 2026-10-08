@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Changed
+- `scripts/install_project.py` (2959 lines) is split into the `scripts/sdd_install/` package (`constants`, `mode`, `errors`, `gitops`, `fsops`, `templates`, `onboarding`, `typesafe`, `exclude`, `local_install`, `obsidian`, `report`, `cli`). The entry point keeps argparse and the interpreter checks; CLI, exit codes and JSON keys are unchanged (verified against golden dry-run/apply reports in both storage modes). The per-run storage globals became one `MODE` object restored by a context manager.
+
 ## 13.0.9 - 2026-10-08
 
 ### Fixed

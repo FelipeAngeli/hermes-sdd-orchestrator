@@ -29,6 +29,8 @@ SKILL_ROOT = ROOT / "skills" / "orchestrate" / "sdd-orchestrator"
 TEMPLATES = SKILL_ROOT / "templates"
 ORCHESTRATION = TEMPLATES / ".hermes" / "orchestration"
 INSTALLER = SKILL_ROOT / "scripts" / "install_project.py"
+INSTALLER_PACKAGE = SKILL_ROOT / "scripts" / "sdd_install"
+INSTALLER_CONSTANTS = INSTALLER_PACKAGE / "constants.py"
 TYPESAFE_SOURCE_REF_FOR_TESTS = "65a39f393687675ce170e6094757de20370365b9"
 TYPESAFE_UPSTREAM_HASH_FOR_TESTS = "9cd84c5e535dec8dec59917c110f9c00b4a61faadb86b432ec7e41051170af12"
 TYPESAFE_FIXTURE = SKILL_ROOT / "vendor" / "typesafe-ai"
@@ -264,7 +266,8 @@ class BundleContractTests(unittest.TestCase):
         for visible_field in ("provider", "current stage", "remaining stages", "time per stage", "jev", "recent activity"):
             self.assertIn(visible_field, installed_readme)
 
-        installer = INSTALLER.read_text(encoding="utf-8")
+        # Constants are declared in constants.py and listed by managed_exclude_entries() in templates.py.
+        installer = INSTALLER_CONSTANTS.read_text(encoding="utf-8") + (INSTALLER_PACKAGE / "templates.py").read_text(encoding="utf-8")
         self.assertIn('TERMINAL_PROGRESS_PATH = f"{CONFIG_ROOT}/TERMINAL_PROGRESS.json"', installer)
         self.assertIn("TERMINAL_PROGRESS_PATH,", installer)
         self.assertIn('JEV_CACHE_LOCK_PATH = f"{CONFIG_ROOT}/.JEV_CACHE.json.lock"', installer)
@@ -953,7 +956,7 @@ class InstallerBehaviorTests(unittest.TestCase):
                 obsidian_vault=str(vault), obsidian_project="Projects/App", typesafe_ai=None,
                 automatic_jev_governance=False, apply=True,
             )
-            with mock.patch.object(module, "_target_snapshot", drifting):
+            with mock.patch.object(module.obsidian, "_target_snapshot", drifting):
                 with self.assertRaisesRegex(module.InstallError, "TARGET_WORKTREE_CHANGED"):
                     module.run_obsidian_install(args, target.resolve(), workspace)
             self.assertEqual([], list(vault.iterdir()))
@@ -982,14 +985,14 @@ class InstallerBehaviorTests(unittest.TestCase):
             workspace = module.require_root(str(target))[1]
             # Drift appears only after the base files and before the integration commits.
             args = self.obsidian_args(vault, "install")
-            with mock.patch.object(module, "_target_snapshot", self.drift_after(module, 2)):
+            with mock.patch.object(module.obsidian, "_target_snapshot", self.drift_after(module, 2)):
                 with self.assertRaisesRegex(module.InstallError, "TARGET_WORKTREE_CHANGED") as raised:
                     module.run_obsidian_install(args, target.resolve(), workspace)
             self.assertNotIn("ROLLBACK_FAILED", str(raised.exception))
             self.assertEqual([], list(vault.iterdir()))
             # The per-run storage policy is restored for later in-process callers.
-            self.assertTrue(module.CREDENTIAL_FILE_MANAGED)
-            self.assertTrue(module.TRACKED_DESTINATIONS_GUARDED)
+            self.assertTrue(module.mode.MODE.credential_file_managed)
+            self.assertTrue(module.mode.MODE.tracked_destinations_guarded)
 
     def test_obsidian_drift_during_typesafe_reinstall_leaves_the_container_unchanged(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-obsidian-rollback-existing-") as temp:
@@ -1001,7 +1004,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             workspace = module.require_root(str(target))[1]
             for choice in ("install", "none"):
                 with self.subTest(typesafe_ai=choice):
-                    with mock.patch.object(module, "_target_snapshot", self.drift_after(module, 2)):
+                    with mock.patch.object(module.obsidian, "_target_snapshot", self.drift_after(module, 2)):
                         with self.assertRaisesRegex(module.InstallError, "TARGET_WORKTREE_CHANGED") as raised:
                             module.run_obsidian_install(self.obsidian_args(vault, choice), target.resolve(), workspace)
                     self.assertNotIn("ROLLBACK_FAILED", str(raised.exception))
@@ -1846,7 +1849,7 @@ class InstallerBehaviorTests(unittest.TestCase):
                 "--json",
             ]
             with (
-                mock.patch.object(module, "install_typesafe_skill", side_effect=assert_locked),
+                mock.patch.object(module.local_install, "install_typesafe_skill", side_effect=assert_locked),
                 mock.patch.object(module.sys, "argv", argv),
                 contextlib.redirect_stdout(stdout),
             ):
@@ -2168,7 +2171,7 @@ class InstallerBehaviorTests(unittest.TestCase):
                 if calls == 1:
                     raise OSError("injected apply failure")
 
-            with mock.patch.object(module, "_create_project_file_nofollow", side_effect=fail_after_first_create):
+            with mock.patch.object(module.local_install, "_create_project_file_nofollow", side_effect=fail_after_first_create):
                 with self.assertRaises(OSError):
                     module._apply_base_install(resolved_target, workspace, planned)
 
@@ -2196,7 +2199,7 @@ class InstallerBehaviorTests(unittest.TestCase):
                     created_path.write_bytes(replacement)
                     raise OSError("injected apply failure")
 
-            with mock.patch.object(module, "_create_project_file_nofollow", side_effect=replace_first_created):
+            with mock.patch.object(module.local_install, "_create_project_file_nofollow", side_effect=replace_first_created):
                 with self.assertRaises((OSError, module.InstallError)):
                     module._apply_base_install(resolved_target, workspace, planned)
 
@@ -2299,7 +2302,7 @@ class InstallerBehaviorTests(unittest.TestCase):
                 )
                 module.install_typesafe_skill(resolved_target, onboarding_after)
 
-            with mock.patch.object(module, "_ensure_typesafe_env", side_effect=fail_typesafe_env):
+            with mock.patch.object(module.typesafe, "_ensure_typesafe_env", side_effect=fail_typesafe_env):
                 with self.assertRaises(module.InstallError):
                     module._apply_base_install(resolved_target, workspace, planned, install_typesafe)
 
@@ -2332,7 +2335,7 @@ class InstallerBehaviorTests(unittest.TestCase):
                     result["issue"] = "INJECTED_POST_ENV_FAILURE"
                 return result
 
-            with mock.patch.object(module, "typesafe_skill_status", side_effect=fail_after_env):
+            with mock.patch.object(module.typesafe, "typesafe_skill_status", side_effect=fail_after_env):
                 with self.assertRaises(module.InstallError):
                     module.install_typesafe_skill(target, onboarding_after)
 
@@ -2365,7 +2368,7 @@ class InstallerBehaviorTests(unittest.TestCase):
                 lock_path.write_bytes(replacement_lock)
                 raise module.InstallError("injected TypeSafe env failure")
 
-            with mock.patch.object(module, "_ensure_typesafe_env", side_effect=replace_owned_paths):
+            with mock.patch.object(module.typesafe, "_ensure_typesafe_env", side_effect=replace_owned_paths):
                 with self.assertRaises(module.InstallError):
                     module.install_typesafe_skill(target, onboarding_after)
 
@@ -2396,7 +2399,7 @@ class InstallerBehaviorTests(unittest.TestCase):
                 (skill_root / "LICENSE").symlink_to(external)
                 return descriptor, owned
 
-            with mock.patch.object(module, "_create_project_directory_owned", side_effect=replace_skill_root):
+            with mock.patch.object(module.typesafe, "_create_project_directory_owned", side_effect=replace_skill_root):
                 with self.assertRaises(module.InstallError):
                     module.install_typesafe_skill(target, onboarding_after)
 
@@ -2427,7 +2430,7 @@ class InstallerBehaviorTests(unittest.TestCase):
                     setup.write_bytes(replacement)
                 return result
 
-            with mock.patch.object(module, "_read_project_regular_snapshot", side_effect=replace_after_snapshot):
+            with mock.patch.object(module.typesafe, "_read_project_regular_snapshot", side_effect=replace_after_snapshot):
                 with self.assertRaises(module.InstallError):
                     module.install_typesafe_skill(target, onboarding_after)
 
@@ -2455,7 +2458,7 @@ class InstallerBehaviorTests(unittest.TestCase):
                     raise OSError("injected partial write")
                 real_write_all(descriptor, content)
 
-            with mock.patch.object(module, "_write_all", side_effect=fail_once):
+            with mock.patch.object(module.fsops, "_write_all", side_effect=fail_once):
                 with self.assertRaises(OSError):
                     module._write_onboarding_answer(target, "typesafe_ai", "none")
 
@@ -2479,7 +2482,7 @@ class InstallerBehaviorTests(unittest.TestCase):
                 lock.write_bytes(replacement)
                 raise OSError("injected apply failure")
 
-            with mock.patch.object(module, "_create_project_file_nofollow", side_effect=replace_lock_then_fail):
+            with mock.patch.object(module.local_install, "_create_project_file_nofollow", side_effect=replace_lock_then_fail):
                 with self.assertRaises((OSError, module.InstallError)):
                     module._apply_base_install(resolved_target, workspace, planned)
 
