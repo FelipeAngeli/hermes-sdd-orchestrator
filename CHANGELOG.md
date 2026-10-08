@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- `wiki_journal._redact_jwts` docstring described only the round-6 rule (header after `-`); it now states the 13.0.8 behavior (header after `-`, `_` or `=`, empty second segment for `dir` JWE and detached payloads) and the accepted over-redaction of names such as `report.eyJanuary.final.pdf` (pr-reviewer round 9, LOW). Documentation only; no behavior change.
+
 ## 13.0.8 - 2026-10-07
 
 ### Fixed
