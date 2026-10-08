@@ -2,7 +2,7 @@
 
 [Docs index](../README.md) · Related: [Stage agents](stage-agents.md), [Sub-agents](sub-agents.md), [Action journal](action-journal.md), [Gates](gates-and-stack-detection.md)
 
-**Files:** `contracts/EXECUTOR_CONTRACT.md`, `contracts/REVIEW_CONTRACT.md`, `schemas/EXECUTOR_RESULT_SCHEMA.json`, `schemas/REVIEW_RESULT_SCHEMA.json`, `runtime/validate_protocol.py`.
+**Files:** `contracts/EXECUTOR_CONTRACT.md`, `contracts/REVIEW_CONTRACT.md`, `schemas/EXECUTOR_RESULT_SCHEMA.json`, `schemas/REVIEW_RESULT_SCHEMA.json`, `runtime/validate_protocol.py`, `runtime/executor_launch.py`, `policies/EXECUTORS.md`.
 
 Every worker ends with **one JSON document**, written to a unique final-message file. Markdown, YAML, transcripts and JSONL events are never accepted as a substitute. Both envelopes use `schema_version: 3` and reject unknown properties. Each [stage agent](stage-agents.md) and [sub-agent](sub-agents.md) declares which schema applies in its `result_schema` frontmatter.
 
@@ -14,7 +14,7 @@ Used by `SPECIFY`, `CLARIFY`, `PLAN`, `TASKS`, `IMPLEMENT` and `TEST`, and by th
 
 **Acceptance evidence.** Each `acceptance_checks` item has a stable unique ID, criterion, verification method, verifier, nullable slice assignment, status and evidence. The controller-owned mapping includes ID, criterion, verification method, verifier and a non-whitespace slice assignment for every check; workers cannot downgrade a HUMAN check to AGENT, replace its method or erase its slice. SPECIFY through PLAN always keep checks `PLANNED` with null evidence; TASKS success requires a non-empty set with every check assigned to a slice. For IMPLEMENT, the controller supplies exactly one current slice ID and disjoint completed-slice IDs; the completed set is mandatory even when explicitly empty, so omission cannot downgrade prior checks to future checks. The payload's TDD slice must match the controller-selected current ID exactly. Current/completed checks pass while future checks remain planned. TEST success requires every check at `PASS`. Every REVIEW status must match the same mapping. Context and acceptance text cannot be whitespace-only.
 
-For Codex, the controller passes the schema with `--output-schema` and reads `--output-last-message`.
+Workers are dispatched only through [`executor_launch.py run`](#executor_launchpy-and-executorsmd); the controller never writes a `claude` or `codex` command line.
 
 **Write scope and evidence citations.** SPECIFY, CLARIFY, PLAN, TASKS and TEST are analysis-only, so any reported `modified_paths`/`created_paths` is rejected. IMPLEMENT must receive controller-declared `editable_paths` for every status. Each pattern must be anchored and not match-all (`editable_pattern_is_safe`). Every written path must be repository-relative, non-traversing and matched segment by segment by one of them (`path_matches`; `*` does not cross `/`). A current-slice (IMPLEMENT) or TEST `PASS` from an `AGENT` verifier must cite, in backticks, one of the commands the controller bound to that check (`check_verifiers`), and that command must be recorded as exit `0` with `PASS` or be the GREEN command. "Done", a self-chosen command or another check's verifier is not evidence. **Read-only roles.** With `role` set to one of `READ_ONLY_ROLES` (`PROJECT_CONTEXT_GUARDIAN`, `DATA_FLOW_TRACER`) and only in that role's declared stages, an IMPLEMENT-stage result reports no writes and no TDD slices. It keeps unverified checks `PLANNED` without evidence and carries completed-slice checks forward as `PASS` with evidence. The editable-path, TDD and citation requirements do not apply to it. With `required_commands`, a successful IMPLEMENT/TEST must record each required verifier as passing.
 
@@ -27,6 +27,43 @@ For Codex, the controller passes the schema with `--output-schema` and reads `--
 Used by `REVIEW` and the audit sub-agents. The root is `review_result`, with these fields: `status` (`APPROVED`, `CHANGES_REQUIRED`, `BLOCKED`), `reviewed_paths`, `findings` (severity, path, description, evidence), `baseline`, `ownership`, `acceptance` (`expected_check_ids`, independent verification and ID-matched evidence-backed checks), `e2e` (`files_modified`, `execution_performed` and `violation` are kept separate), `forbidden_actions`, `gate_status` and `next_step`.
 
 `APPROVED` requires the controller's authoritative acceptance mapping, exact ID and criterion coverage with passing evidence, a preserved baseline with no violations, valid ownership with no violations, no unresolved findings and `focused_tests`/`format`/`analyze` at `PASS`. Baseline and ownership booleans must agree with their violation arrays for every review status. Green technical gates do not substitute for checking the accepted observable outcomes. Gate values are defined in [Gates](gates-and-stack-detection.md#gate-order-gatesmd). The reviewer is read-only and cannot declare DONE.
+
+## `executor_launch.py` and `EXECUTORS.md`
+
+`runtime/executor_launch.py` is the only way to start a worker. It reads `policies/EXECUTORS.md`, a project-owned file with one fenced JSON block (`executors_version: 1`, `stages: {STAGE: {executor, model, timeout_seconds, max_turns}}`, optional `tools`, `permission_mode`, `sandbox`). Defaults, also used when the file is absent: `SPECIFY`, `CLARIFY`, `PLAN` and `REVIEW` on `claude`; `TASKS`, `IMPLEMENT` and `TEST` on `codex`; `timeout_seconds` 900 for PLAN and IMPLEMENT, 600 otherwise; `model: null` (CLI default). A stage omitted from the block keeps its default; an invalid block is `POLICY_INVALID` (`POLICY_SOURCES`: `FILE`, `DEFAULTS`).
+
+```text
+executor_launch.py schema --stage PLAN [--role CODE_REVIEWER]
+executor_launch.py preflight --executor claude|codex [--model M] [--probe]
+executor_launch.py build --stage S --prompt-file P --journal J --final F [--executor E] [--model M] [--timeout SEC] [--role R] [--repo DIR] [--add-dir DIR] [--policy FILE]
+executor_launch.py run   (same flags as build)
+```
+
+- `schema` prints the **transport schema**: the stage's result schema (`REVIEW_RESULT_SCHEMA.json` for REVIEW, the role brief's `result_schema` with `--role`) without `$schema`, `$id` and `$comment`, with local `$ref`s inlined and `$defs` dropped. The Claude CLI rejects `--json-schema` with a draft 2020-12 `$schema` reference; the transport schema validates exactly like the source for Draft 2020-12 and Draft 7. An external or recursive `$ref` is `SCHEMA_UNSUPPORTED`; a role not allowed in the stage is `ROLE_UNKNOWN`.
+- `preflight` checks that the CLI is on PATH, that `--version` runs and that its help lists the flags the launcher uses; it makes no model call. `--probe` adds one minimal real call that proves login and model. Result `READY` or `BLOCKED` with `reason` (`PREFLIGHT_REASONS`: `EXECUTOR_UNAVAILABLE`, `EXECUTOR_CLI_UNSUPPORTED`, `MODEL_INVALID`, `MODEL_REJECTED`) and `model_check` (`MODEL_CHECKS`: `NOT_PROBED`, `ACCEPTED`, `REJECTED`, `TIMEOUT`).
+- `build` prints the exact argv, working directory, stdin file and timeout that `run` would use, without touching the journal.
+- `run` performs one journaled dispatch:
+  1. refuses before any process starts unless `action_journal.py recover` is `DISPATCH_ALLOWED` (`DISPATCH_NOT_ALLOWED`), the journal is `PREPARED` (`JOURNAL_NOT_PREPARED`) for the same stage, final path and executor (`JOURNAL_MISMATCH`), the prompt file's SHA-256 equals `prompt_hash` (`PROMPT_HASH_MISMATCH`), and no final-message file exists (`ARTIFACT_PENDING`). Other refusals: `EXECUTOR_UNAVAILABLE`, `PROMPT_MISSING`, `REPOSITORY_INVALID`, `STAGE_UNKNOWN`;
+  2. calls `record-process --started` (adding `--prompt-sha256 <hex>` when the journal CLI supports it); a refusal is `JOURNAL_REFUSED` and nothing runs;
+  3. runs the CLI **in the foreground**, without a shell, with the journal's `workspace.path` (or `--repo`) as working directory, the prompt on stdin, and a hard timeout. On timeout it sends SIGTERM then SIGKILL to the whole process group. Directories outside the repository, such as a vault runtime whose path contains non-ASCII characters, are passed with `--add-dir`, never as working directory;
+  4. **always** calls `record-process --finished --exit-code N` in a `finally` block: the CLI exit code, `124` on timeout, `125` when the launcher itself fails, `127` when the binary cannot be executed. A failure here is `JOURNAL_FINISH_FAILED`;
+  5. extracts the final message — Claude: `structured_output` of the `--output-format json` envelope (falling back to the textual `result`); Codex: the `--output-last-message` file — writes it atomically to `--final`, and calls `record-artifact`.
+
+  Claude argv: `claude -p --output-format json --json-schema <transport> --no-session-persistence --tools <tools, default Read,Grep,Glob> [--max-turns N] [--model M] [--permission-mode P] [--add-dir D]`. Codex argv: `codex exec --ephemeral --color never --cd <repository> --sandbox <read-only|workspace-write> --output-schema <final>.transport-schema.json --output-last-message <final>.last-message.tmp [--model M] [--add-dir D] -`; the sandbox defaults to `workspace-write` for IMPLEMENT and TEST and `read-only` otherwise. The temporary transport-schema file is always removed.
+
+`run` prints `{status, exit_code, final, executor, stage, duration_seconds, stderr_tail, next_step, next_command}`. Statuses (`LAUNCH_STATUSES`):
+
+| Status | Meaning | `next_command` |
+| --- | --- | --- |
+| `ARTIFACT_READY` | Final message is a JSON object; journal `ARTIFACT_READY`. | `validate_protocol.py --action <STAGE> --result <final> --context <verifier-context.json> --json` |
+| `OUTPUT_INVALID` | Exit 0 but the final message is not a JSON object; kept as evidence, journal `ARTIFACT_READY` (`CONTRACT_INVALID`). | `action_journal.py ... classify-invalid --invalid-field <field>` |
+| `EXECUTOR_TIMEOUT` | Hard timeout; process group killed; exit `124` recorded. | `action_journal.py ... archive-interrupted --history-dir <journal dir>/action-journal-history` |
+| `EXECUTOR_FAILED` | Non-zero exit recorded. | same archive command |
+| `EXECUTOR_NO_OUTPUT` | Exit 0 without any final message. | same archive command |
+| `LAUNCHER_ERROR` | The launcher failed after `--started`; exit `125`/`127` recorded. | same archive command |
+| `JOURNAL_FINISH_FAILED` | `--finished` or `record-artifact` was refused. | `action_journal.py ... inspect` |
+
+Every refusal status above carries a `next_step`, and a `next_command` when one exists. `READY` (from `preflight`/`build`) and `ARTIFACT_READY` exit `0`; everything else exits `2`. Its behavior is pinned by `tests/test_executor_launch.py` with fake `claude`/`codex` executables on a temporary PATH ([Testing](testing.md#installed-controller-tests)).
 
 ## `validate_protocol.py`
 

@@ -4,6 +4,10 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+- `runtime/executor_launch.py` (`schema`, `preflight`, `build`, `run`) is the only way to dispatch a Claude or Codex worker: it derives a transport schema without `$schema` (the Claude CLI rejected the draft 2020-12 reference), refuses unless the journal is `PREPARED` with `DISPATCH_ALLOWED` and a matching prompt hash, runs the CLI in the foreground from the repository with a hard timeout that kills the process group, always records `record-process --finished` (`124` on timeout), extracts `structured_output` (Claude) or the last-message file (Codex) atomically and returns `status`/`next_step`/`next_command`.
+- `policies/EXECUTORS.md`: project-owned stage → executor/model/timeout/max-turns map (defaults: Claude for SPECIFY/CLARIFY/PLAN/REVIEW, Codex for TASKS/IMPLEMENT/TEST, 900 s for PLAN/IMPLEMENT, 600 s otherwise). `contracts/EXECUTOR_CONTRACT.md` now documents dispatch for both executors only through the launcher.
+
 ## 13.0.9 - 2026-10-08
 
 ### Fixed
