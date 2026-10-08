@@ -226,9 +226,12 @@ def _redact_jwt_run(run: str) -> str:
 def _redact_jwts(text: str) -> str:
     """Replace JWS/JWE tokens of any size in one linear pass over dotted token runs.
 
-    A header is ``eyJ`` at the start of a run segment or right after a '-'
-    (``x-auth-eyJ…``); the header, payload and every following dotted segment
-    (up to five, for JWE) are replaced, so no part of a large token survives.
+    A header is ``eyJ`` at the start of a run segment or right after a '-', '_'
+    or '=' (``x-auth-eyJ…``, ``ACCESS_TOKEN_eyJ…``, ``jwt=eyJ…``); the header,
+    payload and every following dotted segment (up to five, for JWE; an empty
+    second segment for ``dir`` JWE and detached payloads) are replaced, so no
+    part of a large token survives. Over-redaction such as
+    ``report.eyJanuary.final.pdf`` is accepted: this is a safety net.
     """
     if _JWT_HEADER not in text:
         return text
