@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Changed
+- Secret redaction moved from `runtime/wiki_journal.py` into its own module `runtime/redaction.py` (`redact` is its only public name; `wiki_journal.redact` still works) with unit tests in `tests/test_redaction.py`. Internal module split, no behavior change: the patterns are byte-identical and the unused `_TOK` pattern was dropped.
+
 ## 13.0.9 - 2026-10-08
 
 ### Fixed
