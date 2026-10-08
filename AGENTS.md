@@ -30,7 +30,7 @@ Every pull request in this repository is reviewed with the `pr-reviewer` sub-age
 1. Load `skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/sub-agents/pr-reviewer.md` as the reviewer's brief.
 2. Read the PR's real base before building the diff: `BASE=$(gh pr view <n> --json baseRefName --jq .baseRefName)`, `git fetch origin "$BASE"`, then `git diff $(git merge-base "origin/$BASE" HEAD)..HEAD`. Give the reviewer that full diff, the commits, PR description, existing reviews and checks from `gh pr view <n> --json title,body,commits,reviews,comments,statusCheckRollup,baseRefName,headRefName,headRefOid`. Never assume the base is `main`; stacked PRs have a different base.
 3. The result is a `review_result` (see `docs/components/contracts-and-schemas.md`). Report it to the user. Post it to GitHub only when the user asks.
-4. When it names a specialist (`security-reviewer`, `dependency-auditor`…), run that sub-agent next only if a pending merge decision depends on its answer.
+4. When it names a sub-agent (`security-reviewer`, `data-flow-tracer`), run it next only if a pending merge decision depends on its answer; when it names a playbook (`sdd-tech-lead`, `sdd-tdd`…), apply that skill's reference to the finding.
 5. Merge only after the verdict is `APPROVED` and the user authorizes the merge.
 
 ## Documentation is part of every orchestration change

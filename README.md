@@ -112,45 +112,33 @@ The installed entrypoint keeps worker context small and stage-specific, with one
 
 `pr-reviewer` ships with every installation, so any project can use it. In **this** repository it reviews every pull request and every earlier review of it (see [AGENTS.md](AGENTS.md#pull-request-review)).
 
-`sub-agents/` holds narrow leaf-worker briefs the controller may select when a stage needs a specialist. They are dispatched only by the controller, never by another agent, and never own STATE or transitions. All are language- and stack-agnostic.
+`sub-agents/` holds four narrow leaf-worker briefs the controller may select when a pending decision needs an independent worker. They are dispatched only by the controller, never by another agent, and never own STATE or transitions. All are language- and stack-agnostic.
 
 | Brief | Stages | Purpose |
 | --- | --- | --- |
 | `project-context-guardian` | SPECIFY, PLAN, IMPLEMENT | Cache-first project context, required before PLAN and IMPLEMENT; records code/doc divergences. |
-| `investigator` | SPECIFY, CLARIFY, PLAN | Bounded codebase investigation before a decision is made. |
-| `data-flow-tracer` | PLAN, IMPLEMENT | One demand's path: UI → state → service → repository → API and back. |
-| `impact-analyst` | PLAN, TASKS | Full blast radius of one proposed contract or behavior change. |
-| `tdd-implementer` | IMPLEMENT | One authorized vertical slice under strict RED → minimal → GREEN. |
-| `test-runner` | TEST | Focused test execution with exact commands and exit codes. |
-| `code-reviewer` | REVIEW | Delivered changes against requirements, ownership, tests and gates. |
-| `security-reviewer` | REVIEW | Exploitable flaws plus disclosure: secrets, storage, auth, logs. |
-| `tdd-guardian` | TEST, REVIEW | Whether the suite would go red if the rule broke. |
-| `regression-hunter` | TEST, REVIEW | What previously worked and may have stopped. |
-| `api-contract-auditor` | PLAN, REVIEW | Client models against the specification and the deployed server. |
-| `performance-auditor` | PLAN, REVIEW | Work the system does that it does not need to do. |
-| `architecture-guardian` | PLAN, REVIEW | Violations of the project's own declared architectural rules. |
-| `migration-safety-auditor` | PLAN, REVIEW | Concrete schema/data rollout: compatibility, backfills, locks, restartability and recovery. |
-| `spec-consistency-guardian` | TASKS, REVIEW | Breaks in the chain SPEC → PLAN → TASKS → CODE → TESTS. |
-| `dependency-auditor` | PLAN, REVIEW | Versions, duplication, compatibility and unmaintained packages. |
-| `release-readiness-auditor` | REVIEW | Whether this can ship: READY, BLOCKED or READY_WITH_RISK. |
+| `data-flow-tracer` | SPECIFY, CLARIFY, PLAN, TASKS, IMPLEMENT | One bounded code question: investigation, data-flow trace (UI → state → service → repository → API and back) or impact map of a contract change. |
 | `pr-reviewer` | REVIEW | One pull request as it will merge — scope, tests, checks, breaking changes, changelog, commits — plus an audit of every earlier review. Host-neutral; never posts on its own. |
-| `documentation-writer` | IMPLEMENT, REVIEW | Documentation, ADRs, README and diagrams realigned with the code. |
+| `security-reviewer` | REVIEW | Exploitable flaws plus disclosure: secrets, storage, auth, logs. |
 
-The nine audit roles return findings only when evidence supports them, and each is bound by the failure mode specific to its domain:
+The first two are read-only even when dispatched during IMPLEMENT. The reviewers keep the workspace read-only, repair nothing, and report proven findings separately from unproven suspicions.
 
-- The **TDD guardian** proves a weak test by mutating production code and observing which tests stay green, because reading a test yields an opinion while mutating it yields a fact.
-- The **regression hunter** runs the suites of consumers the change did not touch; a consumer whose tests pass without exercising the affected path is reported as uncovered risk, not as safe.
-- The **API contract auditor** ranks its sources — deployed runtime over served specification over server source over committed spec, with client models last — instead of trusting whichever is nearest, and never invents a contract element to close a gap.
-- The **performance auditor** reports a cost only with a measurement or a counted operation behind it, states the input size at which it matters, and may conclude that nothing is worth changing; a role rewarded for findings will produce them.
-- The **architecture guardian** cites the project's declared rule behind every violation. An undeclared convention is raised as a question, never enforced, since every codebase violates someone's preferred architecture.
-- The **migration safety auditor** reconstructs the ordered rollout and intermediate application/schema combinations; green generated SQL does not prove data preservation, lock bounds, restartability or recovery.
-- The **spec consistency guardian** walks SPEC → PLAN → TASKS → CODE → TESTS in both directions and never infers a missing requirement: inferring one would turn unauthorized scope into retroactively justified scope, which is the failure it exists to catch.
-- The **dependency auditor** prefers what the project already depends on over anything new, and hands a vulnerability to the security reviewer and a layer violation to the architecture guardian instead of ruling on them; two roles over one domain let each assume the other checked it.
-- The **release readiness auditor** returns READY, BLOCKED or READY_WITH_RISK. An unverified item is BLOCKED, never READY_WITH_RISK — not knowing is not the same as knowing and accepting — and the risk verdict requires a named human who accepted it.
+## Project-local playbooks
 
-All nine keep the workspace read-only, revert every temporary step, repair nothing, and report proven findings separately from unproven suspicions.
+Every other specialty is a project-local skill in `.hermes/skills/` that the stage worker loads itself as a `playbook` — no extra dispatch, no extra worker. Each stage brief's `Playbooks` section names what to load.
 
-`documentation-writer` is the only writing role among these, and its risk runs the other way: a read-only auditor produces a wrong finding that review can reject, while a writer produces fluent prose describing code that does not exist, which readers trust because it reads well. It verifies every symbol, command and path against the repository before writing it, deletes documentation whose subject is gone, and records an unexplained decision as an open question rather than inventing a rationale. Like the implementer, it writes only to paths the controller assigns.
+| Skill | Stages | Purpose |
+| --- | --- | --- |
+| `sdd-product-owner` | SPECIFY, CLARIFY, TASKS, REVIEW | Value, scope, observable acceptance, `deliverable_kind` (CODE, DECISION_DOC, BOTH) with request quotes, SPEC → TESTS traceability. |
+| `sdd-tech-lead` | PLAN, TASKS, REVIEW | Declared architecture rules, dependencies, performance budgets, operability, reversibility, security pointers. |
+| `sdd-architecture-decisions` | PLAN | Evidence-based design options and ADRs. |
+| `sdd-api-contracts` | PLAN, IMPLEMENT, REVIEW | Client models against specification and deployed server, with ranked sources. |
+| `sdd-database-design-migrations` | PLAN, IMPLEMENT, REVIEW | Schema/data design, expand/contract rollout and the rollout-safety audit. |
+| `sdd-backend-engineering`, `sdd-frontend-engineering` | PLAN, IMPLEMENT | Backend and React/Next.js implementation procedure. |
+| `sdd-tdd` | IMPLEMENT, TEST, REVIEW | RED → GREEN slices and mutation proof that a suite can fail. |
+| `sdd-release-readiness` | REVIEW | READY, BLOCKED or READY_WITH_RISK; regressions in untouched consumers; documentation kept true to the code. |
+
+Product owner and tech lead are knowledge the worker applies, **not approver gates**. An approval a request names ("approved by the PO") resolves through `PROJECT_SETUP.md` `approvers` (default: the requester); the requester's approval is recorded as a HUMAN check, or a waiver as `WAIVED` with `waiver: {by, reason, quote, recorded_at}`. It never blocks IMPLEMENT unless the request literally says so.
 
 ## Architecture
 

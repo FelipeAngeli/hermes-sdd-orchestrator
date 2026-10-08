@@ -4,6 +4,16 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Breaking
+- Sub-agents consolidated from 19 to 4 (`project-context-guardian`, `data-flow-tracer`, `pr-reviewer`, `security-reviewer`). Removed briefs: `investigator`, `impact-analyst`, `tdd-implementer`, `test-runner`, `code-reviewer`, `tdd-guardian`, `regression-hunter`, `api-contract-auditor`, `performance-auditor`, `documentation-writer`, `architecture-guardian`, `spec-consistency-guardian`, `release-readiness-auditor`, `dependency-auditor`, `migration-safety-auditor`. Their content moved into project-local playbooks the stage worker loads itself (see `docs/components/sub-agents.md` for the mapping); `code-reviewer`, `tdd-implementer` and `test-runner` duplicated stage briefs and their unique rules moved into `agents/review.md`, `agents/implement.md` and `agents/test.md`. Controllers that dispatched a removed role must load the playbook instead.
+- `EXECUTOR_RESULT_SCHEMA.json` and `REVIEW_RESULT_SCHEMA.json`: every acceptance check now requires a `waiver` field (`null` unless `status` is `WAIVED`). Worker results without it are schema-invalid.
+- `data-flow-tracer` (`DATA_FLOW_TRACER`) absorbs investigation and impact analysis; its `allowed_stages` and `READ_ONLY_ROLES` entry grow to SPECIFY, CLARIFY, PLAN, TASKS and IMPLEMENT.
+
+### Added
+- Project-local skills `sdd-product-owner` (scope, observable acceptance, `deliverable_kind` CODE | DECISION_DOC | BOTH with request quotes, traceability, approvals resolved through PROJECT_SETUP `approvers`), `sdd-tech-lead` (declared architecture, dependencies, performance, operability, reversibility), `sdd-api-contracts`, `sdd-tdd` and `sdd-release-readiness`; `sdd-database-design-migrations` gains `references/rollout-safety-audit.md`. Product owner and tech lead are knowledge the worker applies, never approver gates, and never block IMPLEMENT unless the request literally says so.
+- Acceptance status `WAIVED` with a required `waiver: {by, reason, quote, recorded_at}` record. `validate_protocol.py` accepts it wherever `PASS` is required (IMPLEMENT current/completed slices, TEST success, read-only carry-forward, REVIEW `APPROVED`); an AGENT check is waivable only with the identical controller-supplied `recorded_waivers` entry (new `--context` key and `recorded_waivers` keyword), and waiver rejections return `next_step`/`next_command`.
+- Every stage brief has a `Playbooks` section naming the skills to load; `agents/specify.md` requires `deliverable_kind` and `implementation_in_scope` with request quotes and forbids inventing human approval gates the request does not literally require. `DISPATCH_POLICY.md` routing table gains a playbook column.
+
 ## 13.0.9 - 2026-10-08
 
 ### Fixed

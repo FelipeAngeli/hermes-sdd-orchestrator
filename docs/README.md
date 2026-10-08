@@ -27,7 +27,7 @@ Each page owns a set of files (see [doc-map.json](doc-map.json)) and is the sing
 | [Contracts and schemas](components/contracts-and-schemas.md) | Executor and review result envelopes, their JSON Schemas and the protocol validator |
 | [Gates and stack detection](components/gates-and-stack-detection.md) | Validation gates, `GATES.md` configuration, `detect_stack.py` for any language |
 | [Stage agents](components/stage-agents.md) | One brief per FSM stage |
-| [Sub-agents and dispatch](components/sub-agents.md) | The 19 specialist briefs, including the global `pr-reviewer` and the "do not dispatch" default |
+| [Sub-agents and dispatch](components/sub-agents.md) | The 4 sub-agent briefs (including the global `pr-reviewer`), the playbooks that replaced the other specialists, and the "do not dispatch" default |
 | [Repository-local Hermes hooks](components/hooks.md) | Opt-in shell hooks for slice scope, verification evidence, bounded STATE context and sub-agent audit events |
 | [Obsidian vault](components/obsidian-vault.md) | Vault binding, write containment, worktree bootstrap and migrations |
 | [Context graph](components/context-graph.md) | Modules, rules, tests and decisions as connected notes; querying related context before acting |

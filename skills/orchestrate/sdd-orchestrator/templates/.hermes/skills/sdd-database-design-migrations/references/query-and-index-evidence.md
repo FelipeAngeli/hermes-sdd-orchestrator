@@ -28,4 +28,4 @@ Name the exact queries improved and writes made more expensive. Check duplicate/
 
 ## Verification
 
-Compare before/after plans or counted operations at a stated cardinality. Keep correctness tests separate from performance evidence. Route general performance judgment to `performance-auditor` when a pending release decision depends on it.
+Compare before/after plans or counted operations at a stated cardinality. Keep correctness tests separate from performance evidence. Apply `sdd-tech-lead` (`references/performance.md`) when a pending release decision depends on general performance judgment.

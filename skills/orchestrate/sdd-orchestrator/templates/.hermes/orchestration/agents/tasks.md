@@ -20,6 +20,11 @@ Convert the approved plan into ordered, independently verifiable vertical slices
 5. Put dependency and integration work before consumers that require it.
 6. Include completion evidence and explicit out-of-scope boundaries.
 7. For each slice, name its editable paths, required project-local playbooks and the observable verifier of each check (focused test, static analysis, schema validation, STATE or log inspection, or a human decision), including at least one verifier that exists before the slice. A playbook requirement names the slice and why its guidance changes the work.
+8. Assign a role-approval check (product owner, tech lead) to the slice or REVIEW it actually verifies; never order it before IMPLEMENT unless the request literally requires that.
+
+## Playbooks
+
+Load `sdd-product-owner` to keep every task traced to a requirement with no unauthorized scope, and `sdd-tech-lead` to order slices so boundaries, contracts and rollback points precede their consumers. Bind `sdd-tdd` to every implementation slice, plus `sdd-api-contracts` or `sdd-database-design-migrations` to slices that touch them.
 
 ## Boundaries
 

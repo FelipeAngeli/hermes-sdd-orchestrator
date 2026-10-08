@@ -59,16 +59,18 @@ The controller chooses the smallest safe path. Escalating beyond the minimum pat
 
 Routing suggestions by change shape, each still subject to the dispatch question:
 
-| Change | Typical specialists |
-| --- | --- |
-| UI or copy | none beyond implement, test, review |
-| API or contract | `api-contract-auditor`, then `impact-analyst` when the contract is shared |
-| Architectural | `impact-analyst`, `architecture-guardian` |
-| Database schema/data migration | `migration-safety-auditor` when rollout, mixed-version compatibility or recovery remains a pending decision |
-| Pre-release | `regression-hunter`, `security-reviewer` when the change touches its surfaces |
-| Pull request | `pr-reviewer` for the whole PR and its prior reviews; it names the specialists above when a deeper finding needs one |
+| Change | Typical specialists | Playbooks the stage worker loads |
+| --- | --- | --- |
+| UI or copy | none beyond implement, test, review | `sdd-frontend-engineering` |
+| API or contract | `data-flow-tracer` (impact) when the contract is shared | `sdd-api-contracts`, `sdd-tech-lead` |
+| Architectural | `data-flow-tracer` (impact) | `sdd-tech-lead`, `sdd-architecture-decisions` |
+| Database schema/data migration | none; the rollout-safety audit is a playbook reference | `sdd-database-design-migrations` |
+| Pre-release | `security-reviewer` when the change touches its surfaces | `sdd-release-readiness`, `sdd-tdd` |
+| Pull request | `pr-reviewer` for the whole PR and its prior reviews; it names the owner when a deeper finding needs one | `sdd-product-owner`, `sdd-tech-lead` |
 
-A row in this table is a starting point, never an obligation. A specialist listed here and not needed for a named decision is still not dispatched. The table names only briefs that ship in `sub-agents/`; adding a row for a role that does not exist would send the controller looking for a brief it cannot load.
+A row in this table is a starting point, never an obligation. A specialist listed here and not needed for a named decision is still not dispatched. The specialist column names only briefs that ship in `sub-agents/`, and the playbook column only skills that ship in `.hermes/skills/` (`project-context-guardian`, `data-flow-tracer`, `pr-reviewer`, `security-reviewer`); adding a row for a role that does not exist would send the controller looking for a brief it cannot load.
+
+Playbooks are project-local skills under `.hermes/skills/` that the stage worker loads itself, declared in the stage-context manifest's playbooks list. They cost no dispatch and are never a separate worker. Product owner (`sdd-product-owner`) and tech lead (`sdd-tech-lead`) are playbooks, not sub-agents and not approver gates: an approval a request names is resolved through the approvers record in `PROJECT_SETUP.md` (default: the requester) and recorded as a HUMAN check or `WAIVED` evidence, and it never blocks IMPLEMENT unless the request literally says so.
 
 ## Bounded iteration
 

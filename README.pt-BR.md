@@ -112,45 +112,33 @@ O ponto de entrada instalado mantém o contexto dos workers pequeno e específic
 
 `pr-reviewer` acompanha toda instalação, portanto qualquer projeto pode usá-lo. **Neste** repositório, ele revisa todo pull request e todas as revisões anteriores desse PR (veja [AGENTS.md](AGENTS.md#pull-request-review)).
 
-`sub-agents/` contém briefs de leaf workers específicos que o controlador pode selecionar quando um estágio precisa de um especialista. Eles são despachados somente pelo controlador, nunca por outro agente, e nunca controlam STATE ou transições. Todos são independentes de linguagem e stack.
+`sub-agents/` contém quatro briefs de leaf workers que o controlador pode selecionar quando uma decisão pendente precisa de um worker independente. Eles são despachados somente pelo controlador, nunca por outro agente, e nunca controlam STATE ou transições. Todos são independentes de linguagem e stack.
 
-| Brief | Estágios | Finalidade |
+| Brief | Estágios | Propósito |
 | --- | --- | --- |
-| `project-context-guardian` | SPECIFY, PLAN, IMPLEMENT | Contexto de projeto com cache primeiro, obrigatório antes de PLAN e IMPLEMENT; registra divergências entre código e documentação. |
-| `investigator` | SPECIFY, CLARIFY, PLAN | Investigação limitada da base de código antes de uma decisão. |
-| `data-flow-tracer` | PLAN, IMPLEMENT | Caminho de uma demanda: UI → estado → serviço → repositório → API e retorno. |
-| `impact-analyst` | PLAN, TASKS | Raio de impacto completo de uma mudança proposta de contrato ou comportamento. |
-| `tdd-implementer` | IMPLEMENT | Uma fatia vertical autorizada sob RED → mínimo → GREEN estrito. |
-| `test-runner` | TEST | Execução focada de testes com comandos e códigos de saída exatos. |
-| `code-reviewer` | REVIEW | Mudanças entregues comparadas com requisitos, ownership, testes e gates. |
-| `security-reviewer` | REVIEW | Falhas exploráveis e divulgação: segredos, armazenamento, autenticação e logs. |
-| `tdd-guardian` | TEST, REVIEW | Verifica se a suíte ficaria vermelha caso a regra quebrasse. |
-| `regression-hunter` | TEST, REVIEW | O que funcionava antes e pode ter deixado de funcionar. |
-| `api-contract-auditor` | PLAN, REVIEW | Modelos do cliente comparados à especificação e ao servidor implantado. |
-| `performance-auditor` | PLAN, REVIEW | Trabalho desnecessário realizado pelo sistema. |
-| `architecture-guardian` | PLAN, REVIEW | Violações das regras arquiteturais declaradas pelo próprio projeto. |
-| `migration-safety-auditor` | PLAN, REVIEW | Rollout concreto de schema/dados: compatibilidade, backfills, locks, reinício e recuperação. |
-| `spec-consistency-guardian` | TASKS, REVIEW | Quebras na cadeia SPEC → PLAN → TASKS → CODE → TESTS. |
-| `dependency-auditor` | PLAN, REVIEW | Versões, duplicação, compatibilidade e pacotes sem manutenção. |
-| `release-readiness-auditor` | REVIEW | Se a entrega pode sair: READY, BLOCKED ou READY_WITH_RISK. |
-| `pr-reviewer` | REVIEW | Um pull request como será integrado — escopo, testes, checks, breaking changes, changelog e commits — além da auditoria de revisões anteriores. Neutro em relação ao host; nunca publica sozinho. |
-| `documentation-writer` | IMPLEMENT, REVIEW | Documentação, ADRs, README e diagramas alinhados ao código real. |
+| `project-context-guardian` | SPECIFY, PLAN, IMPLEMENT | Contexto do projeto com cache, obrigatório antes de PLAN e IMPLEMENT; registra divergências entre código e documentação. |
+| `data-flow-tracer` | SPECIFY, CLARIFY, PLAN, TASKS, IMPLEMENT | Uma pergunta de código limitada: investigação, rastreio do fluxo de dados (UI → estado → serviço → repositório → API e volta) ou mapa de impacto de uma mudança de contrato. |
+| `pr-reviewer` | REVIEW | Um pull request como será mesclado — escopo, testes, checks, breaking changes, changelog, commits — mais uma auditoria de cada revisão anterior. Neutro quanto ao host; nunca publica por conta própria. |
+| `security-reviewer` | REVIEW | Falhas exploráveis e exposição: segredos, armazenamento, autenticação, logs. |
 
-Os nove papéis de auditoria retornam findings somente quando há evidência, e cada um é limitado pelo modo de falha específico de seu domínio:
+Os dois primeiros são somente leitura mesmo quando despachados durante IMPLEMENT. Os revisores mantêm o workspace somente leitura, não fazem reparos e separam findings provados de suspeitas não provadas.
 
-- O **TDD guardian** prova um teste fraco alterando o código de produção e observando quais testes permanecem verdes, pois ler um teste produz uma opinião, enquanto alterá-lo produz um fato.
-- O **regression hunter** executa as suítes dos consumidores que a mudança não tocou; um consumidor cujos testes passam sem exercitar o caminho afetado é reportado como risco sem cobertura, não como seguro.
-- O **API contract auditor** ordena suas fontes — runtime implantado acima da especificação servida, acima do código do servidor, acima da especificação commitada, com os modelos do cliente por último — em vez de confiar na fonte mais próxima, e nunca inventa um elemento de contrato para fechar uma lacuna.
-- O **performance auditor** reporta um custo somente com uma medição ou contagem de operações, informa o tamanho de entrada no qual ele importa e pode concluir que nada merece mudança; um papel recompensado por encontrar problemas produzirá ruído.
-- O **architecture guardian** cita a regra declarada pelo projeto por trás de cada violação. Uma convenção não declarada é apresentada como pergunta, nunca imposta, pois toda base de código viola a arquitetura preferida por alguém.
-- O **migration safety auditor** reconstrói o rollout ordenado e as combinações intermediárias entre aplicação e schema; SQL gerado e verde não prova preservação de dados, limites de lock, reinício ou recuperação.
-- O **spec consistency guardian** percorre SPEC → PLAN → TASKS → CODE → TESTS nas duas direções e nunca infere um requisito ausente: inferir um requisito transformaria escopo não autorizado em escopo justificado retroativamente, justamente a falha que ele deve detectar.
-- O **dependency auditor** prefere o que o projeto já usa a qualquer dependência nova e encaminha vulnerabilidades ao security reviewer e violações de camada ao architecture guardian em vez de decidir por eles; dois papéis sobre o mesmo domínio fazem cada um presumir que o outro verificou.
-- O **release readiness auditor** retorna READY, BLOCKED ou READY_WITH_RISK. Um item não verificado é BLOCKED, nunca READY_WITH_RISK — não saber é diferente de saber e aceitar — e o veredito de risco exige uma pessoa identificada que o aceitou.
+## Playbooks locais do projeto
 
-Todos os nove mantêm o workspace somente leitura, revertem cada etapa temporária, não fazem reparos e separam findings provados de suspeitas não provadas.
+Toda outra especialidade é uma skill local em `.hermes/skills/` que o próprio worker do estágio carrega como `playbook` — sem despacho extra, sem worker extra. A seção `Playbooks` de cada brief de estágio diz o que carregar.
 
-`documentation-writer` é o único papel de escrita entre eles, e seu risco é inverso: um auditor somente leitura produz um finding incorreto que a revisão pode rejeitar, enquanto um writer produz prosa fluente descrevendo código inexistente, na qual leitores confiam porque parece correta. Ele verifica cada símbolo, comando e caminho no repositório antes de escrever, remove documentação cujo assunto deixou de existir e registra uma decisão sem explicação como pergunta aberta em vez de inventar uma justificativa. Assim como o implementer, escreve somente nos caminhos atribuídos pelo controlador.
+| Skill | Estágios | Propósito |
+| --- | --- | --- |
+| `sdd-product-owner` | SPECIFY, CLARIFY, TASKS, REVIEW | Valor, escopo, aceite observável, `deliverable_kind` (CODE, DECISION_DOC, BOTH) com citações do pedido, rastreabilidade SPEC → TESTS. |
+| `sdd-tech-lead` | PLAN, TASKS, REVIEW | Regras de arquitetura declaradas, dependências, orçamentos de desempenho, operabilidade, reversibilidade, indicações de segurança. |
+| `sdd-architecture-decisions` | PLAN | Opções de design e ADRs baseados em evidência. |
+| `sdd-api-contracts` | PLAN, IMPLEMENT, REVIEW | Modelos do cliente comparados à especificação e ao servidor implantado, com fontes ranqueadas. |
+| `sdd-database-design-migrations` | PLAN, IMPLEMENT, REVIEW | Design de schema/dados, rollout expand/contract e a auditoria de segurança do rollout. |
+| `sdd-backend-engineering`, `sdd-frontend-engineering` | PLAN, IMPLEMENT | Procedimento de implementação backend e React/Next.js. |
+| `sdd-tdd` | IMPLEMENT, TEST, REVIEW | Fatias RED → GREEN e prova por mutação de que a suíte pode falhar. |
+| `sdd-release-readiness` | REVIEW | READY, BLOCKED ou READY_WITH_RISK; regressões em consumidores não tocados; documentação fiel ao código. |
+
+Product owner e tech lead são conhecimento que o worker aplica, **não gates de aprovação**. Uma aprovação citada no pedido ("aprovado pelo PO") é resolvida por `approvers` em `PROJECT_SETUP.md` (padrão: o solicitante); a aprovação do solicitante vira um check HUMAN, ou uma dispensa vira `WAIVED` com `waiver: {by, reason, quote, recorded_at}`. Ela nunca bloqueia IMPLEMENT, a menos que o pedido diga isso literalmente.
 
 ## Arquitetura
 

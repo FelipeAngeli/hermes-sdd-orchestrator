@@ -47,16 +47,18 @@ This brief is language- and host-neutral. It applies to any repository, and the 
 
 ## Deference
 
-Hand deep findings to the specialist that owns them instead of ruling on them yourself. Report a suspicion and name the owner:
+Hand deep findings to their owner instead of ruling on them yourself. Report a suspicion and name the owner:
 
-- exploitable flaws and disclosure → `security-reviewer`;
-- new or changed dependencies → `dependency-auditor`;
-- layer and boundary violations → `architecture-guardian`;
-- behavior that may have broken in untouched consumers → `regression-hunter`;
-- test suites that may not prove the rule → `tdd-guardian`;
-- API or schema drift → `api-contract-auditor`.
+- exploitable flaws and disclosure → the `security-reviewer` sub-agent;
+- consumers the change did not touch, or a blast radius the diff does not show → the `data-flow-tracer` sub-agent (impact question);
+- new or changed dependencies, layer and boundary violations, performance cost → the `sdd-tech-lead` playbook (`references/dependencies.md`, `references/architecture-compliance.md`, `references/performance.md`);
+- test suites that may not prove the rule → the `sdd-tdd` playbook (mutation proof);
+- API or schema drift → the `sdd-api-contracts` playbook;
+- migration rollout safety → the `sdd-database-design-migrations` playbook;
+- release surfaces, regressions and documentation drift → the `sdd-release-readiness` playbook;
+- requirement traceability and unauthorized scope → the `sdd-product-owner` playbook.
 
-The controller decides whether to dispatch them, following `policies/DISPATCH_POLICY.md`.
+Playbooks are project-local skills the REVIEW worker loads itself; they are never dispatched as separate workers. The controller decides whether to dispatch a sub-agent, following `policies/DISPATCH_POLICY.md`.
 
 ## Evidence rules
 
