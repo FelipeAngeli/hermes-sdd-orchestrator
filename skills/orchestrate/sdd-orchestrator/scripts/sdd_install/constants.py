@@ -27,11 +27,6 @@ TYPESAFE_VENDOR = ROOT.parent / "vendor" / "typesafe-ai"
 TYPESAFE_OFFICIAL_COMMAND = (
     "npx", "skills", "add", "typesafe-ai/skills", "--skill", "typesafe-ai",
 )
-PROJECT_SKILLS = (
-    ".hermes/skills/sdd-backend-engineering",
-    ".hermes/skills/sdd-architecture-decisions",
-    ".hermes/skills/sdd-database-design-migrations",
-)
 STATE_PATHS = (
     f"{CONFIG_ROOT}/STATE.md",
     f"{CONFIG_ROOT}/PROJECT_SETUP.md",
@@ -42,6 +37,28 @@ STATE_PATHS = (
 OBSIDIAN_RUNTIME_SUBPATH = ".hermes-runtime"
 OBSIDIAN_BINDING_PATH = ".hermes/obsidian.json"
 WORKTREE_RUNTIME_FILES = ("STATE.md", "INCIDENTS.md", "ACTION_JOURNAL.json")
-#: Controller files the owner is told to edit after install. Created when
-#: absent, never compared, so a second worktree can share the container.
-OBSIDIAN_USER_CONFIGURED = frozenset({f"{CONFIG_ROOT}/policies/GATES.md"})
+#: Controller files the owner edits after install, in both storage modes.
+#: Created from the template when absent, never compared or replaced once the
+#: controller is installed (a fresh install never adopts a foreign copy), so a
+#: second worktree can share an Obsidian container and a rerun keeps the gates.
+OWNER_FILES = frozenset({
+    f"{CONFIG_ROOT}/policies/GATES.md",
+    f"{CONFIG_ROOT}/policies/EXECUTORS.md",
+})
+#: Generated owner record; like OWNER_FILES it is never rewritten by an upgrade.
+PROJECT_SETUP_PATH = f"{CONFIG_ROOT}/PROJECT_SETUP.md"
+
+#: Written once at fresh install time, inside the install transaction, and by
+#: `--upgrade --apply` as its commit point. Never created implicitly for an
+#: older installation.
+INSTALL_MANIFEST_PATH = f"{CONFIG_ROOT}/INSTALL_MANIFEST.json"
+INSTALL_MANIFEST_VERSION = 1
+UPGRADE_BACKUPS_PATH = f"{CONFIG_ROOT}/upgrade-backups"
+UPGRADE_LOCK_PATH = f"{CONFIG_ROOT}/.upgrade.lock"
+SKILL_MANIFEST = ROOT.parent / "SKILL.md"
+
+#: Shown in every install report: Finder and Obsidian hide dot-directories.
+HIDDEN_CONTROLLER_NOTE = (
+    "The controller lives in the hidden .hermes directory (dot-prefixed folders are hidden by Finder and "
+    "Obsidian); open controller_location directly, or press Cmd+Shift+. in Finder to show it."
+)

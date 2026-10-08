@@ -63,6 +63,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="authorize automatic, potentially billed Jev classifications (requires --typesafe-ai install)",
     )
+    parser.add_argument(
+        "--upgrade",
+        action="store_true",
+        help="plan (and with --apply, perform) an upgrade of an existing installation to this skill version",
+    )
+    parser.add_argument(
+        "--accept-current-as-baseline",
+        action="store_true",
+        help="with --upgrade and no INSTALL_MANIFEST.json, treat the current controller files as unmodified",
+    )
     parser.add_argument("--json", action="store_true", help="emit a machine-readable report")
     return parser
 
@@ -79,6 +89,16 @@ def main() -> int:
     args = build_parser().parse_args()
     if args.automatic_jev_governance and args.typesafe_ai != "install":
         return _blocked_early(args, "AUTOMATIC_JEV_GOVERNANCE_REQUIRES_TYPESAFE_INSTALL")
+    if args.accept_current_as_baseline and not args.upgrade:
+        return _blocked_early(
+            args, "ACCEPT_BASELINE_REQUIRES_UPGRADE", "Add --upgrade; the baseline flag only applies to an upgrade."
+        )
+    if args.upgrade and args.typesafe_ai:
+        return _blocked_early(
+            args,
+            "UPGRADE_EXCLUSIVE_OPTIONS",
+            "Run --upgrade alone, then rerun the installer with --typesafe-ai for the integration.",
+        )
     if sys.version_info < (3, 10):
         return _blocked_early(
             args, "PYTHON_3_10_REQUIRED", "Install or select Python 3.10 or newer, then rerun the installer."

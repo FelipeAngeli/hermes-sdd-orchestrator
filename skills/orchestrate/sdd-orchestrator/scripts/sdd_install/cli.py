@@ -8,6 +8,7 @@ from .gitops import require_root
 from .local_install import run_local_install
 from .mode import storage_mode
 from .obsidian import run_obsidian_install
+from .upgrade import run_upgrade
 from .report import REPORTED_ERRORS, blocked_report, render
 
 
@@ -17,7 +18,9 @@ def run(args) -> int:
         target, workspace = require_root(args.target)
         if args.local_storage and (args.obsidian_vault or args.obsidian_project):
             raise InstallError("STORAGE_MODE_CONFLICT")
-        if args.local_storage:
+        if args.upgrade:
+            report = run_upgrade(args, target, workspace)
+        elif args.local_storage:
             with storage_mode(obsidian=False):
                 report = run_local_install(args, target, workspace)
         else:

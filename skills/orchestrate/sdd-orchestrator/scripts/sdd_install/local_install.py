@@ -1,12 +1,22 @@
 """Repository-local (`--local-storage`) planning and apply transaction."""
 from __future__ import annotations
 
+import hashlib
 import os
 import stat
 import sys
 from pathlib import Path
 
-from .constants import CONFIG_ROOT, STATE_PATHS, TEMPLATE, TYPESAFE_ANSWER_DISABLED, TYPESAFE_ANSWER_ENABLED
+from .constants import (
+    CONFIG_ROOT,
+    HIDDEN_CONTROLLER_NOTE,
+    INSTALL_MANIFEST_PATH,
+    OWNER_FILES,
+    STATE_PATHS,
+    TEMPLATE,
+    TYPESAFE_ANSWER_DISABLED,
+    TYPESAFE_ANSWER_ENABLED,
+)
 from .errors import InstallError
 from .exclude import (
     _open_git_info,
@@ -32,6 +42,7 @@ from .fsops import (
     _write_all,
 )
 from .gitops import is_tracked
+from .manifest import install_manifest
 from .onboarding import (
     _render_onboarding_answer,
     _require_typesafe_record_target,
@@ -42,30 +53,73 @@ from .templates import detect_stack, empty_journal, project_setup, state, templa
 from .typesafe import _preflight_typesafe_install, install_typesafe_skill
 
 
-def _plan_base_files(target: Path) -> tuple[list[str], list[str]]:
-    planned: list[str] = []
-    for source in template_files():
-        relative = source.relative_to(TEMPLATE).as_posix()
-        if is_tracked(target, relative):
-            raise InstallError(f"TRACKED_DESTINATION_PATH: {relative}")
-        existing = _read_project_file_nofollow(target, relative)
-        if existing is not None and existing != source.read_bytes():
-            raise InstallError(f"CONFIG_CONFLICT: {relative}")
-        if existing is None:
-            planned.append(relative)
+def _plan_base_files(target: Path, customized: list[str] | None = None) -> tuple[list[str], list[str]]:
+    """Return (missing files to create, present runtime state files).
 
+    Owner files (GATES.md, EXECUTORS.md) are trusted only once this installer
+    created the runtime state; their edits are then listed in `customized`.
+    """
     existing_state: list[str] = []
     for relative in STATE_PATHS:
         if is_tracked(target, relative):
             raise InstallError(f"TRACKED_DESTINATION_PATH: {relative}")
         if _read_project_file_nofollow(target, relative) is not None:
             existing_state.append(relative)
+    previously_installed = len(existing_state) == len(STATE_PATHS)
+
+    planned: list[str] = []
+    owner_missing: list[str] = []
+    for source in template_files():
+        relative = source.relative_to(TEMPLATE).as_posix()
+        if is_tracked(target, relative):
+            raise InstallError(f"TRACKED_DESTINATION_PATH: {relative}")
+        existing = _read_project_file_nofollow(target, relative)
+        owner = previously_installed and relative in OWNER_FILES
+        if existing is not None and existing != source.read_bytes():
+            if not owner:
+                raise InstallError(f"CONFIG_CONFLICT: {relative}")
+            if customized is not None:
+                customized.append(f"{relative}:sha256:{hashlib.sha256(existing).hexdigest()}")
+        if existing is None:
+            (owner_missing if owner else planned).append(relative)
+
     if existing_state:
-        if len(existing_state) != len(STATE_PATHS) or planned:
+        if not previously_installed or planned:
             raise InstallError(f"LOCAL_STATE_REQUIRES_REVIEW: {', '.join(existing_state)}")
     else:
         planned.extend(STATE_PATHS)
+        if _read_project_file_nofollow(target, INSTALL_MANIFEST_PATH) is None:
+            planned.append(INSTALL_MANIFEST_PATH)
+    planned.extend(owner_missing)
     return planned, existing_state
+
+
+def _generated_content(relative: str, target: Path, workspace: dict[str, str]) -> bytes | None:
+    """Bytes of a generated (non-template) file, computed only when planned."""
+    if relative == f"{CONFIG_ROOT}/STATE.md":
+        return state(workspace).encode("utf-8")
+    if relative == f"{CONFIG_ROOT}/PROJECT_SETUP.md":
+        return project_setup().encode("utf-8")
+    if relative == f"{CONFIG_ROOT}/INCIDENTS.md":
+        return b"# SDD Orchestration Incidents\n\nNo incidents recorded.\n"
+    if relative == f"{CONFIG_ROOT}/ACTION_JOURNAL.json":
+        return empty_journal(target, workspace).encode("utf-8")
+    if relative == INSTALL_MANIFEST_PATH:
+        return install_manifest("LOCAL")
+    return None
+
+
+def _create_planned_files(target, workspace, planned_set, created_files, created_directories) -> None:
+    for source in template_files():
+        relative = source.relative_to(TEMPLATE).as_posix()
+        if relative in planned_set:
+            _create_project_file_nofollow(target, relative, source.read_bytes(), created_files, created_directories)
+    # The manifest is generated last so a fresh install records exactly what it wrote.
+    for relative in (*STATE_PATHS, INSTALL_MANIFEST_PATH):
+        if relative in planned_set:
+            content = _generated_content(relative, target, workspace)
+            assert content is not None
+            _create_project_file_nofollow(target, relative, content, created_files, created_directories)
 
 
 def _apply_base_install_portable(
@@ -73,6 +127,7 @@ def _apply_base_install_portable(
     workspace: dict[str, str],
     expected_planned: list[str],
     after_base,
+    replan=None,
 ) -> list[str]:
     index_path = Path(workspace["git_dir"]) / "index.lock"
     exclude_path = _portable_exclude_path(workspace)
@@ -95,7 +150,7 @@ def _apply_base_install_portable(
         exclude_before = _read_portable_exclude(workspace)
         exclude_after = _render_exclude(exclude_before)
         exclude_changed = exclude_after != (exclude_before or b"")
-        locked_planned, _ = _plan_base_files(target)
+        locked_planned, _ = (replan or _plan_base_files)(target)
         if locked_planned != expected_planned:
             raise InstallError("INSTALL_STATE_CHANGED")
 
@@ -122,32 +177,7 @@ def _apply_base_install_portable(
             if _path_identity(exclude_path) != exclude_identity:
                 raise InstallError("EXCLUDE_CHANGED_DURING_APPLY")
 
-        planned_set = set(expected_planned)
-        for source in template_files():
-            relative = source.relative_to(TEMPLATE).as_posix()
-            if relative in planned_set:
-                _create_project_file_nofollow(
-                    target,
-                    relative,
-                    source.read_bytes(),
-                    created_files,
-                    created_directories,
-                )
-        generated = {
-            f"{CONFIG_ROOT}/STATE.md": state(workspace).encode("utf-8"),
-            f"{CONFIG_ROOT}/PROJECT_SETUP.md": project_setup().encode("utf-8"),
-            f"{CONFIG_ROOT}/INCIDENTS.md": b"# SDD Orchestration Incidents\n\nNo incidents recorded.\n",
-            f"{CONFIG_ROOT}/ACTION_JOURNAL.json": empty_journal(target, workspace).encode("utf-8"),
-        }
-        for relative in STATE_PATHS:
-            if relative in planned_set:
-                _create_project_file_nofollow(
-                    target,
-                    relative,
-                    generated[relative],
-                    created_files,
-                    created_directories,
-                )
+        _create_planned_files(target, workspace, set(expected_planned), created_files, created_directories)
         if exclude_changed and exclude_descriptor is not None:
             if _path_identity(exclude_path) != exclude_identity:
                 raise InstallError("EXCLUDE_CHANGED_DURING_APPLY")
@@ -233,9 +263,15 @@ def _apply_base_install(
     workspace: dict[str, str],
     expected_planned: list[str],
     after_base=None,
+    replan=None,
 ) -> list[str]:
+    """Create `expected_planned` and repair exclusions under the Git index lock.
+
+    `replan` re-plans under the lock (default `_plan_base_files`); `--upgrade`
+    passes its own so it can reuse this transaction for the exclusions.
+    """
     if os.name != "posix":
-        return _apply_base_install_portable(target, workspace, expected_planned, after_base)
+        return _apply_base_install_portable(target, workspace, expected_planned, after_base, replan)
 
     git_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     git_directory = os.open(workspace["git_dir"], git_flags)
@@ -264,7 +300,7 @@ def _apply_base_install(
         exclude_after = _render_exclude(exclude_before)
         exclude_changed = exclude_after != (exclude_before or b"")
 
-        locked_planned, _ = _plan_base_files(target)
+        locked_planned, _ = (replan or _plan_base_files)(target)
         if locked_planned != expected_planned:
             raise InstallError("INSTALL_STATE_CHANGED")
 
@@ -291,32 +327,7 @@ def _apply_base_install(
             if _identity_at(info, "exclude") != exclude_identity:
                 raise InstallError("EXCLUDE_CHANGED_DURING_APPLY")
 
-        planned_set = set(expected_planned)
-        for source in template_files():
-            relative = source.relative_to(TEMPLATE).as_posix()
-            if relative in planned_set:
-                _create_project_file_nofollow(
-                    target,
-                    relative,
-                    source.read_bytes(),
-                    created_files,
-                    created_directories,
-                )
-        generated = {
-            f"{CONFIG_ROOT}/STATE.md": state(workspace).encode("utf-8"),
-            f"{CONFIG_ROOT}/PROJECT_SETUP.md": project_setup().encode("utf-8"),
-            f"{CONFIG_ROOT}/INCIDENTS.md": b"# SDD Orchestration Incidents\n\nNo incidents recorded.\n",
-            f"{CONFIG_ROOT}/ACTION_JOURNAL.json": empty_journal(target, workspace).encode("utf-8"),
-        }
-        for relative in STATE_PATHS:
-            if relative in planned_set:
-                _create_project_file_nofollow(
-                    target,
-                    relative,
-                    generated[relative],
-                    created_files,
-                    created_directories,
-                )
+        _create_planned_files(target, workspace, set(expected_planned), created_files, created_directories)
         if exclude_changed and info is not None and exclude_descriptor is not None:
             if _identity_at(info, "exclude") != exclude_identity:
                 raise InstallError("EXCLUDE_CHANGED_DURING_APPLY")
@@ -405,7 +416,8 @@ def _apply_base_install(
 
 def run_local_install(args, target: Path, workspace: dict[str, str]) -> dict[str, object]:
     """Plan and, with --apply, commit the repository-local installation."""
-    planned, existing_state = _plan_base_files(target)
+    customized: list[str] = []
+    planned, existing_state = _plan_base_files(target, customized)
     exclude_planned = exclude_update_planned(workspace)
     if args.typesafe_ai and existing_state:
         _require_typesafe_record_target(target)
@@ -433,6 +445,9 @@ def run_local_install(args, target: Path, workspace: dict[str, str]) -> dict[str
         "target": str(target),
         "planned": planned,
         "exclude_update_planned": exclude_planned,
+        "preserved_owner_files": customized,
+        "controller_location": str(target / CONFIG_ROOT),
+        "hidden_controller_note": HIDDEN_CONTROLLER_NOTE,
         "applied": False,
         "stack": detect_stack(target),
         "onboarding": onboarding,

@@ -26,6 +26,11 @@ def blocked_report(error: BaseException) -> dict[str, object]:
     report: dict[str, object] = {"status": "BLOCKED", "reason": reason}
     if reason in _NEXT_STEPS:
         report["next_step"] = _NEXT_STEPS[reason]
+    elif reason.startswith("CONFIG_CONFLICT: "):
+        report["next_step"] = (
+            "An installed controller file differs from this skill's template. If this is an older installation, "
+            "rerun the same command with --upgrade (dry run) to see what changes; otherwise restore the file."
+        )
     for key in ("next_step", "next_command"):
         value = getattr(error, key, None)
         if value:

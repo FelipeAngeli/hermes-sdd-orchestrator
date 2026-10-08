@@ -153,20 +153,25 @@ def onboarding_questions(
     automatic_jev_governance: bool = False,
 ) -> dict[str, object]:
     """Return only unresolved project-local questions after installation."""
+    # `choices` is what a controller offers the user, `none` always first so a
+    # project without the integration is never pushed into a follow-up question.
     questions = [
         {
             "id": "issue_tracker",
-            "prompt": "Which issue tracker should the orchestrator read, and may it create or update issues?",
+            "prompt": "Which issue tracker should the orchestrator read, and may it create or update issues? Answer `none` if the project has no tracker.",
+            "choices": ["none", "read only", "read and write"],
             "accepted_answers": ["JSON object with provider, project, read, and write", "none"],
         },
         {
             "id": "obsidian",
-            "prompt": "Should the orchestrator connect this project to an Obsidian vault?",
+            "prompt": "Should the orchestrator connect this project to an Obsidian vault? Answer `none` to skip.",
+            "choices": ["none", "connect a vault"],
             "accepted_answers": ["JSON object with absolute vault and relative project_container", "none"],
         },
         {
             "id": "typesafe_ai",
-            "prompt": "Should the orchestrator install TypeSafe, and may it send automatic, potentially billed semantic classifications to Jev?",
+            "prompt": "Should the orchestrator install TypeSafe, and may it send automatic, potentially billed semantic classifications to Jev? Answer `none` to skip TypeSafe.",
+            "choices": ["none", "install without automatic Jev", "install with automatic Jev"],
             "accepted_answers": [
                 "JSON object with install true and automatic_semantic_governance true or false",
                 "none",
@@ -174,7 +179,8 @@ def onboarding_questions(
         },
         {
             "id": "project_tools",
-            "prompt": "Which other project-specific tools must the orchestrator use, and with what permissions?",
+            "prompt": "Which other project-specific tools must the orchestrator use, and with what permissions? Answer `none` if there are none.",
+            "choices": ["none", "list tools"],
             "accepted_answers": ["JSON array of tool, purpose, read, and write objects", "none"],
         },
     ]

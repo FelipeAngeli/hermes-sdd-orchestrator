@@ -4,8 +4,22 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Removed
+- The unused `PROJECT_SKILLS` installer constant (project skills are copied with the rest of the template tree).
+
+### Added
+- `install_project.py --upgrade` (dry run, report `UPGRADE_READY`) and `--upgrade --apply` (`UPGRADED`, then `ALREADY_CURRENT`) update an existing installation in both storage modes: pristine files per the manifest are replaced, owner edits block (`UPGRADE_CONFLICT` with `MODIFIED_BY_OWNER`/`UNKNOWN_BASELINE`), obsolete pristine files are removed, edited ones are kept with an `OBSOLETE_MODIFIED` warning. Apply holds `.upgrade.lock`, re-plans (`UPGRADE_STATE_CHANGED`), backs up to `upgrade-backups/<UTC>-<from>-to-<to>/` with `BACKUP_MANIFEST.json`, replaces atomically keeping file modes, writes the manifest last and rolls back in reverse (`UPGRADE_ROLLBACK_FAILED`). Preconditions: `UPGRADE_NOT_INSTALLED`, `UPGRADE_DOWNGRADE_REFUSED`, `UPGRADE_CONTROLLER_BUSY`, `UPGRADE_MANIFEST_INVALID`. `--accept-current-as-baseline` adopts the current files of an installation without a manifest.
+- A fresh install writes `.hermes/orchestration/INSTALL_MANIFEST.json` (skill version, storage, per-file SHA-256, owner files) in the same transaction; it is never created for an existing installation by a plain rerun.
+- Install reports carry `controller_location`, `hidden_controller_note` and, in Obsidian mode, an `obsidian_url` and `warnings` with `CONTAINER_PATH_SHELL_UNSAFE` for non-ASCII or shell-special container paths. Onboarding questions carry `choices` with `none` first.
+- `policies/EXECUTORS.md` is an owner file like `GATES.md` (kept once installed, created from the template when absent).
+
 ### Changed
 - `scripts/install_project.py` (2959 lines) is split into the `scripts/sdd_install/` package (`constants`, `mode`, `errors`, `gitops`, `fsops`, `templates`, `onboarding`, `typesafe`, `exclude`, `local_install`, `obsidian`, `report`, `cli`). The entry point keeps argparse and the interpreter checks; CLI, exit codes and JSON keys are unchanged (verified against golden dry-run/apply reports in both storage modes). The per-run storage globals became one `MODE` object restored by a context manager.
+
+### Fixed
+- In `--local-storage` mode, rerunning the installer after configuring `policies/GATES.md` returned `CONFIG_CONFLICT`; the file is now an owner file in both modes and listed under `preserved_owner_files`.
+- The Obsidian dry run now refuses a container nested in, or holding, another project container with `WIKI_CONTAINER_NESTED` and a sibling-container `next_step`/`next_command`, instead of returning `READY` and failing later in `wiki_journal`.
+- `CONFIG_CONFLICT` reports now point to `--upgrade` in their `next_step`.
 
 ## 13.0.9 - 2026-10-08
 

@@ -5,15 +5,19 @@ import datetime
 import hashlib
 import json
 import os
+import shlex
 import stat
 import sys
+import urllib.parse
 from pathlib import Path, PurePosixPath
 
 from .constants import (
     CONFIG_ROOT,
     OBSIDIAN_BINDING_PATH,
     OBSIDIAN_RUNTIME_SUBPATH,
-    OBSIDIAN_USER_CONFIGURED,
+    HIDDEN_CONTROLLER_NOTE,
+    INSTALL_MANIFEST_PATH,
+    OWNER_FILES,
     TEMPLATE,
     TYPESAFE_ANSWER_DISABLED,
     TYPESAFE_ANSWER_ENABLED,
@@ -30,6 +34,7 @@ from .fsops import (
     _rollback_created_paths,
 )
 from .gitops import _protected_roots, _target_snapshot
+from .manifest import install_manifest
 from .mode import MODE, storage_mode
 from .onboarding import _render_onboarding_answer, _require_typesafe_record_target, onboarding_questions
 from .templates import (
@@ -181,7 +186,7 @@ def _plan_obsidian_files(
     # Owner-edited files are trusted only in a container this installer already
     # set up; a fresh container never adopts gate commands it did not write.
     user_configured = (
-        {f"{project}/{relative}" for relative in OBSIDIAN_USER_CONFIGURED} if previously_installed else set()
+        {f"{project}/{relative}" for relative in OWNER_FILES} if previously_installed else set()
     )
     customized: list[str] = []
     for relative, content in expected.items():
@@ -214,6 +219,10 @@ def _plan_obsidian_files(
         planned[f"{runtime}/STATE.md"] = state(workspace).encode("utf-8")
         planned[f"{runtime}/INCIDENTS.md"] = b"# SDD Orchestration Incidents\n\nNo incidents recorded.\n"
         planned[f"{runtime}/ACTION_JOURNAL.json"] = empty_journal(target, workspace).encode("utf-8")
+    # Written only by a fresh install, never implicitly for an older container.
+    manifest = f"{project}/{INSTALL_MANIFEST_PATH}"
+    if not previously_installed and _read_project_file_nofollow(vault, manifest) is None:
+        planned[manifest] = install_manifest("OBSIDIAN")
     return planned, runtime, customized
 
 
@@ -242,6 +251,94 @@ def _apply_obsidian_files(vault: Path, planned: dict[str, bytes], after_base=Non
         raise
 
 
+#: Characters an executor CLI or a naive shell interpolation may refuse or
+#: misread in a working directory; a plain space is common and handled.
+_SHELL_SPECIAL = frozenset("$`\"'\\!*?[]{}()<>|&;#~=%^")
+
+
+def container_path_warnings(container: Path) -> list[str]:
+    """`CONTAINER_PATH_SHELL_UNSAFE` when the path may be refused as a workdir."""
+    text = str(container)
+    unsafe = sorted({char for char in text if ord(char) > 126 or ord(char) < 32 or char in _SHELL_SPECIAL})
+    if not unsafe:
+        return []
+    shown = " ".join(repr(char) for char in unsafe[:8])
+    return [
+        f"CONTAINER_PATH_SHELL_UNSAFE: {text} contains {shown}; some executor CLIs refuse such a working "
+        "directory. Run executors with the repository as working directory and pass container paths as "
+        "arguments, or choose a plain-ASCII container."
+    ]
+
+
+def obsidian_url(vault: Path, project: str) -> str:
+    """Link that opens the container's wiki index in the Obsidian app."""
+    return (
+        f"obsidian://open?vault={urllib.parse.quote(vault.name, safe='')}"
+        f"&file={urllib.parse.quote(f'{project}/index.md', safe='')}"
+    )
+
+
+def _is_project_folder(directory: Path, wiki) -> bool:
+    if wiki._has_marker(directory):
+        return True
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return False
+    return any(wiki._key(name) in wiki.CONTROLLER_SIGNS for name in names)
+
+
+def _reject_nested_container(vault: Path, project: str, args, target: Path) -> None:
+    """Refuse in the dry run what `wiki_layout` would refuse after install.
+
+    The container may neither sit inside another project container nor hold
+    one; both would make every later wiki command fail with
+    `WIKI_CONTAINER_NESTED`.
+    """
+    wiki = _wiki_module()
+    parts = PurePosixPath(project).parts
+    for depth in range(1, len(parts)):
+        ancestor = vault.joinpath(*parts[:depth])
+        if ancestor.is_symlink() or not ancestor.is_dir():
+            break
+        if _is_project_folder(ancestor, wiki):
+            sibling = "/".join((*parts[: depth - 1], " ".join(parts[depth - 1:])))
+            raise _nested_error(
+                f"{vault.joinpath(*parts)} would be nested inside the project container {ancestor}",
+                sibling, args, target,
+            )
+    container = vault / project
+    if container.is_dir() and not container.is_symlink():
+        try:
+            nested = wiki._nested_containers(container, guess_unmarked=not wiki._has_marker(container))
+        except OSError as error:
+            raise InstallError(f"WIKI_PATH_UNSAFE: cannot inspect {error.filename or container}") from error
+        if nested:
+            raise _nested_error(
+                f"{container} holds other project containers: {', '.join(nested[:5])}",
+                f"{project} Project", args, target,
+            )
+
+
+def _nested_error(detail: str, sibling: str, args, target: Path) -> InstallError:
+    command = " ".join(
+        shlex.quote(part)
+        for part in (
+            sys.executable, str(Path(sys.argv[0]).resolve()) if sys.argv and sys.argv[0] else "install_project.py",
+            "--target", str(target), "--obsidian-vault", str(args.obsidian_vault), "--obsidian-project", sibling,
+            "--json",
+        )
+    )
+    return InstallError(
+        f"WIKI_CONTAINER_NESTED: {detail}",
+        next_step=(
+            f"Use a sibling container instead, for example --obsidian-project '{sibling}', so no project folder "
+            "contains another. Nothing was written; never move a container or edit its binding by hand."
+        ),
+        next_command=command,
+    )
+
+
 def run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict[str, object]:
     with storage_mode(obsidian=True):
         return _run_obsidian_install(args, target, workspace)
@@ -257,6 +354,7 @@ def _run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict
             f"TYPESAFE_LOCK_LEGACY_LOCATION: {legacy_lock}; move it to {container / TYPESAFE_LOCK_PATH_OBSIDIAN} "
             "(wiki_layout.py migrate does this together with the legacy notes) and run the installer again"
         )
+    _reject_nested_container(vault, project, args, target)
     target_before = _target_snapshot(target)
 
     def require_target_unchanged() -> None:
@@ -300,6 +398,10 @@ def _run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict
         "target_writes": [],
         "preserved_owner_files": customized,
         "exclude_update_planned": False,
+        "controller_location": str(container / CONFIG_ROOT),
+        "obsidian_url": obsidian_url(vault, project),
+        "hidden_controller_note": HIDDEN_CONTROLLER_NOTE,
+        "warnings": container_path_warnings(container),
         "applied": False,
         "stack": detect_stack(target),
         "onboarding": onboarding,

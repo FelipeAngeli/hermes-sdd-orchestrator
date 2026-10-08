@@ -8,6 +8,9 @@ from pathlib import Path
 
 from .constants import (
     CONFIG_ROOT,
+    INSTALL_MANIFEST_PATH,
+    UPGRADE_BACKUPS_PATH,
+    UPGRADE_LOCK_PATH,
     JEV_CACHE_LOCK_PATH,
     JEV_CACHE_PATH,
     STATE_PATHS,
@@ -41,6 +44,9 @@ def managed_exclude_entries() -> tuple[str, ...]:
         JEV_CACHE_LOCK_PATH,
         TERMINAL_PROGRESS_LOCK_PATH,
         f"{CONFIG_ROOT}/action-journal-history/",
+        INSTALL_MANIFEST_PATH,
+        UPGRADE_LOCK_PATH,
+        f"{UPGRADE_BACKUPS_PATH}/",
     ]
     return tuple(dict.fromkeys(f"/{relative}" for relative in relative_paths))
 
