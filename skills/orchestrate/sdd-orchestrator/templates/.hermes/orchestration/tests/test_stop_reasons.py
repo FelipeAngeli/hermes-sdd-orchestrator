@@ -153,6 +153,21 @@ class StopReasonRegistryTests(unittest.TestCase):
         self.assertEqual("HUMAN", described["kind"])
         self.assertIn(" abandon ", described["next_command"])
 
+    def test_a_tampered_state_is_abandoned_instead_of_reprinting_the_loop(self) -> None:
+        """STATE_MODIFIED_DURING_ACTION names `abandon`: `next` alone would only reprint the stop."""
+        described = stop_reasons.describe("STATE_MODIFIED_DURING_ACTION")
+        self.assertEqual("BLOCKED", described["kind"])
+        self.assertIn(" abandon ", described["next_command"])
+        self.assertNotRegex(described["next_command"], r"sdd\.py next$")
+
+    def test_an_unreadable_controller_policy_is_not_resolved_by_confirming_it(self) -> None:
+        """A policy file that cannot be hashed is restored; confirming it would pin the empty digest."""
+        self.assertIn("CONTROLLER_POLICY_UNREADABLE", stop_reasons.STOP_REASONS)
+        described = stop_reasons.describe("CONTROLLER_POLICY_UNREADABLE")
+        self.assertEqual("BLOCKED", described["kind"])
+        self.assertNotIn("confirm-policy", described["next_command"])
+        self.assertIn("restore", described["next_step"].lower())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -95,7 +95,8 @@ EMITTED_STOP_REASONS = (
     "REVIEW_CHANGES_REQUIRED", "REVIEW_BLOCKED", "OWNERSHIP_VIOLATION", "DONE_GATES_NOT_PASSED",
     "ACTION_RECOVERY_REQUIRED", "DONE", "CI_TIMEOUT", "LOOP_PAUSED", "EXECUTOR_UNAVAILABLE",
     "CONTROLLER_POLICY_CHANGED_DURING_DEMAND", "CONTROLLER_POLICY_UNPINNED",
-    "CONTROLLER_POLICY_CONFIRMATION_REQUIRED", "STATE_MODIFIED_DURING_ACTION",
+    "CONTROLLER_POLICY_CONFIRMATION_REQUIRED", "CONTROLLER_POLICY_UNREADABLE",
+    "STATE_MODIFIED_DURING_ACTION",
 )
 GATE_FAILURE_STOP_REASONS = {
     "focused_tests": "FOCUSED_TESTS_FAILED", "format": "FORMAT_FAILED", "analyze": "ANALYZE_FAILED", "ci": "CI_FAILED",
@@ -851,7 +852,22 @@ def gate_settled(name: str, entry: dict[str, Any], row: dict[str, Any]) -> bool:
 
 
 def gates_step(ctx: Ctx, names: tuple[str, ...]) -> dict[str, Any] | None:
-    """Run every gate not yet settled under the current GATES.md; a changed row is re-run, never trusted."""
+    """Run every gate not yet settled under the current GATES.md; a changed row is re-run, never trusted.
+
+    Two policy checks bracket the gate decision, so `next` never prints a command batch
+    that can only refuse:
+
+    * an **unreadable** policy file is surfaced first. Without GATES.md every row reads
+      as unconfigured, which would stop with the misleading `GATE_COMMAND_UNCONFIGURED`
+      (resolved by `next`, hence a loop) instead of naming the missing file.
+    * a policy whose **hash moved** is checked once a gate would actually run: `gate`
+      itself would refuse with the same `CONTROLLER_POLICY_*` code at exit 2, which is a
+      stop disguised as a command batch.
+    """
+    unreadable = sorted(name for name, digest in policy_digests().items() if not digest)
+    if unreadable:
+        error = unreadable_policy_error(unreadable)
+        return stopped(ctx, stop(error.code, next_command=error.next_command, **error.extra) | {"next_step": error.next_step})
     table = gate_table()
     gates = ctx.state.get("gates") or {}
     commands = []
@@ -874,6 +890,10 @@ def gates_step(ctx: Ctx, names: tuple[str, ...]) -> dict[str, Any] | None:
         commands.append(sdd("gate", "--name", name))
     if not commands:
         return None
+    try:
+        controller_policy_check(ctx.state)
+    except SddError as exc:
+        return stopped(ctx, stop(exc.code, next_command=exc.next_command, **exc.extra) | {"next_step": exc.next_step})
     return step("GATES", commands, "Run the gates in order (each records its result in STATE and the wiki), then `sdd.py next`.")
 
 
@@ -938,6 +958,12 @@ def decision_request_stop(ctx: Ctx) -> dict[str, Any] | None:
 
 
 def decide_next(ctx: Ctx) -> dict[str, Any]:
+    tampered = state_tamper_stop(ctx)
+    if tampered is not None:
+        # STATE was rewritten outside the journal's state commit: every step that reads it
+        # (VALIDATE, ACCEPT, a transition) would refuse with the same code at exit 2. End the
+        # turn with the stop and its `abandon` exit instead of printing a failing batch.
+        return stopped(ctx, stop(tampered.code, next_command=tampered.next_command, **tampered.extra) | {"next_step": tampered.next_step})
     if ctx.stage == "IDLE":
         if not ctx.pristine():
             return recovery_step(ctx) or stopped(ctx, stop("ACTION_RECOVERY_REQUIRED"))
@@ -988,6 +1014,12 @@ def decide_next(ctx: Ctx) -> dict[str, Any]:
     acceptance = ctx.delivery.get("acceptance") or {}
     if ctx.stage in {"TASKS", "IMPLEMENT", "TEST", "REVIEW"} and any(check.get("verifier") == "AGENT" for check in acceptance.values()) \
             and not (gate_table().get("focused_tests") or {}).get("command"):
+        # A missing GATES.md reads as "no command"; name the unreadable file instead of the row,
+        # whose own resolution is `next` and would loop.
+        unreadable = sorted(name for name, digest in policy_digests().items() if not digest)
+        if unreadable:
+            error = unreadable_policy_error(unreadable)
+            return stopped(ctx, stop(error.code, next_command=error.next_command, **error.extra) | {"next_step": error.next_step})
         return stopped(ctx, stop("GATE_COMMAND_UNCONFIGURED", gate="focused_tests"))
     plan = plan_dispatch(ctx)
     if plan["status"] == "STOP":
@@ -1332,22 +1364,55 @@ def state_tamper_error(journal: dict[str, Any], current_hash: str) -> SddError |
     commit may change STATE while an action is open. A different hash here means
     something outside the loop rewrote STATE during the dispatch — in
     ``--local-storage`` mode the writing worker itself can reach it. Folding the
-    result in would accept the worker's STATE as the controller's, so the loop stops
-    instead and the user restores STATE from the append-only history.
+    result in would accept the worker's STATE as the controller's, so the loop stops.
+
+    The exit is ``sdd.py abandon``: it archives the open action without folding its
+    result into STATE and rewrites every per-demand block (ticket, stage, delivery,
+    gates, ownership, baseline) back to its IDLE default, which is the only
+    deterministic way to drop whatever the writer injected. Nothing in the worktree
+    is reverted and the refusal plus this incident are recorded in ``closed_demands``,
+    so the user decides what to keep before the next ``sdd.py start``.
     """
     expected = ((journal.get("fingerprints") or {}).get("state_before")) or None
     if expected is not None and expected == current_hash:
         return None
+    action_id = (journal.get("action") or {}).get("id")
+    reason = f"STATE modified during action {action_id} (outside the journal state commit)"
     return SddError("STATE_MODIFIED_DURING_ACTION",
-                    f"STATE changed while action {(journal.get('action') or {}).get('id')} was open"
+                    f"STATE changed while action {action_id} was open"
                     + ("" if expected is not None else " and the prepared fingerprint is missing")
                     + "; only the journal's state commit may write it.",
-                    next_step="Something outside the loop rewrote STATE during the dispatch (in --local-storage mode a writing worker can reach it). "
-                              "Restore STATE from the last committed copy in the journal history (`action_journal.py paths` names it), never by hand, "
-                              "then archive this action with the printed command.",
-                    next_command=sdd("next"),
-                    action_id=(journal.get("action") or {}).get("id"),
+                    next_step="Something outside the loop rewrote STATE during the dispatch (in --local-storage mode a writing worker can reach it), "
+                              "so this demand's STATE can no longer be trusted and no result is folded into it. Tell the user, then run the printed "
+                              "`sdd.py abandon` with their words: it archives the open action as evidence (never redispatched) and returns STATE to "
+                              "IDLE with every per-demand block reset, reverting nothing in the worktree. `sdd.py start` then re-runs the demand from "
+                              "the user's request. Never repair STATE by hand.",
+                    next_command=sdd("abandon", "--reason", reason, "--quote", "<user words>"),
+                    action_id=action_id,
                     expected_sha256=expected, actual_sha256=current_hash)
+
+
+def state_tamper_stop(ctx: Ctx) -> SddError | None:
+    """The tamper check of ``accept``, reusable by ``next``: None when STATE is still the controller's.
+
+    An action whose STATE commit already landed (``expected_after_hash`` reread, or a
+    ``STATE_COMMITTED``/``RELEASED`` journal) is not a tamper: that write *is* the
+    journal's own. Everything else with a recorded ``state_before`` is compared.
+    """
+    if ctx.pristine():
+        return None
+    if ctx.journal["action"]["status"] in {"STATE_COMMITTED", "RELEASED"}:
+        return None
+    try:
+        current_hash = sha256_bytes(ctx.state_path.read_bytes())
+    except OSError:
+        return None
+    commit = ctx.journal["state_commit"]
+    if commit["expected_after_hash"] and current_hash == commit["expected_after_hash"]:
+        return None
+    if ((ctx.journal.get("fingerprints") or {}).get("state_before")) is None:
+        return None
+    return state_tamper_error(ctx.journal, current_hash)
 
 
 def cmd_accept(ctx: Ctx, _args: argparse.Namespace) -> dict[str, Any]:
@@ -1668,15 +1733,38 @@ def archive_demand(ctx: Ctx, data: dict[str, Any], summary: dict[str, Any]) -> N
     data["resume"] = {"last_gate": None, "next_action": None, "next_command": sdd("next")}
 
 
+def abandon_tampered_action(ctx: Ctx) -> dict[str, Any] | None:
+    """Archive the action open over a tampered STATE so ``abandon`` can return STATE to IDLE.
+
+    ``abandon`` normally requires a pristine journal, but ``STATE_MODIFIED_DURING_ACTION``
+    is precisely a stop with an action still open: the result is never folded in, so the
+    action is archived as BLOCKED evidence (never redispatched) and the journal reopens
+    pristine. Returns the archive record, or None when no tamper is in effect.
+    """
+    if state_tamper_stop(ctx) is None:
+        return None
+    action_id = ctx.journal["action"]["id"]
+    try:
+        if ctx.journal["action"]["status"] != "BLOCKED":
+            aj.block_action(ctx.journal_path)
+        archived = aj.archive_blocked_journal(
+            ctx.journal_path, ctx.history_dir,
+            f"STATE modified outside the journal state commit while {action_id} was open; result discarded, demand abandoned")
+    except aj.JournalError as exc:
+        raise SddError("ACTION_RECOVERY_REQUIRED", str(exc), next_step=exc.next_step, next_command=exc.next_command or sdd("next")) from exc
+    ctx.reload()
+    return {"action_id": action_id, "archived_path": archived["archived_path"], "archived_sha256": archived["archived_sha256"]}
+
+
 def cmd_abandon(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     """Any stage -> IDLE after the user refuses to continue: the only exit of a demand that will not reach DONE.
 
     This is the resolution of a refused human decision (`HUMAN_DECISION_REQUIRED`,
-    `REVIEW_CHANGES_REQUIRED`, a spent budget the user will not raise…): nothing is reverted in
-    the worktree, the refusal is recorded verbatim in `closed_demands`, and STATE returns to IDLE
-    so `sdd.py start` accepts the next demand.
+    `REVIEW_CHANGES_REQUIRED`, a spent budget the user will not raise…) and of
+    `STATE_MODIFIED_DURING_ACTION`: nothing is reverted in the worktree, the refusal is
+    recorded verbatim in `closed_demands`, and STATE returns to IDLE so `sdd.py start`
+    accepts the next demand.
     """
-    ctx.require_pristine()
     if ctx.stage == "IDLE":
         raise SddError("IDLE_NO_DEMAND", "No demand is active; there is nothing to abandon.")
     if ctx.stage == "DONE":
@@ -1684,12 +1772,17 @@ def cmd_abandon(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     if not args.reason.strip() or not args.quote.strip():
         raise SddError("ABANDON_REQUESTED", "--reason and the user's literal --quote (their refusal or their request to drop it) are required.",
                        next_command=sdd("abandon", "--reason", args.reason.strip() or "<reason>", "--quote", "<user words>"))
+    # A tampered STATE is the one case with an action still open; it is archived first.
+    tampered_action = abandon_tampered_action(ctx)
+    ctx.require_pristine()
     data = copy.deepcopy(ctx.state)
     stop_reason = (((data.get("loop") or {}).get("control") or {}).get("stop_reason")) or "NONE"
     pending = human_checks_due(ctx, ctx.stage, current_slice(ctx) if ctx.stage == "IMPLEMENT" else None)
     summary = demand_summary(ctx, data, outcome="ABANDONED")
     summary["abandon"] = {"reason": args.reason, "quote": args.quote, "by": args.by, "at": now(),
-                          "stop_reason": stop_reason, "pending_human_checks": pending}
+                          "stop_reason": "STATE_MODIFIED_DURING_ACTION" if tampered_action else stop_reason,
+                          "pending_human_checks": pending,
+                          **({"discarded_action": tampered_action} if tampered_action else {})}
     kept = {"slices": (ctx.delivery.get("slices") or {}).get("completed") or [],
             "agent_owned": (data.get("ownership") or {}).get("agent_owned") or []}
     summary["left_in_worktree"] = kept["agent_owned"]
@@ -1702,8 +1795,10 @@ def cmd_abandon(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
                 f"{', '.join(kept['agent_owned']) or 'none'}", stage=summary["stage_reached"])
     return {"status": "ABANDONED", "ticket": summary["ticket"], "stage_reached": summary["stage_reached"],
             "completed_slices": kept["slices"], "left_in_worktree": kept["agent_owned"],
+            **({"discarded_action": tampered_action} if tampered_action else {}),
             "next_step": "STATE is IDLE and nothing was reverted: the agent's files are still in the worktree for the user to keep or discard. "
-                         "Report what was left, then start the next demand from the user's request.",
+                         + ("The open action was archived as evidence and its result was never folded into STATE. " if tampered_action else "")
+                         + "Report what was left, then start the next demand from the user's request.",
             "next_command": sr.describe("IDLE_NO_DEMAND")["next_command"]}
 
 
@@ -1826,6 +1921,31 @@ def confirm_policy_command(name: str) -> str:
     return sdd("confirm-policy", "--name", name, "--by", "requester", "--quote", "<user words confirming the policy change>")
 
 
+def restore_policy_command(name: str) -> str:
+    """Exact command that puts a missing or unreadable controller policy file back from Git."""
+    return shlex.join(["git", "checkout", "--", str(CONTROLLER_POLICY_FILES[name])])
+
+
+def unreadable_policy_error(names: list[str]) -> SddError:
+    """A controller policy file that cannot be hashed is restored, never confirmed.
+
+    ``confirm-policy`` on a missing or unreadable file would pin the empty digest,
+    which ``controller_policy_check`` reads back as "no pin": the controller would
+    confirm forever without ever passing the check. The only progress is putting the
+    file back (Git, or the installer), so that is the printed command.
+    """
+    return SddError("CONTROLLER_POLICY_UNREADABLE",
+                    f"{', '.join(names)} cannot be read (missing, not a regular file or unreadable); its SHA-256 cannot be pinned.",
+                    next_step="Put the policy file back before anything else: restore it from Git with the printed command (or reinstall the "
+                              "controller with `install_project.py --upgrade`). Confirming it is refused while it cannot be read, because the "
+                              "pin would stay empty and every gate would ask for the same confirmation again. Once the file is back, "
+                              "`sdd.py next` prints the confirmation command if its content changed.",
+                    next_command=restore_policy_command(names[0]),
+                    unreadable=names,
+                    restore_commands=[restore_policy_command(name) for name in names],
+                    policies={name: str(CONTROLLER_POLICY_FILES[name]) for name in names})
+
+
 def controller_policy_check(data: dict[str, Any]) -> dict[str, str]:
     """Refuse any host gate run unless every controller policy still matches its pinned hash.
 
@@ -1838,6 +1958,9 @@ def controller_policy_check(data: dict[str, Any]) -> dict[str, str]:
     tell the owner's edit from a worker's.
     """
     current = policy_digests()
+    unreadable = sorted(name for name, digest in current.items() if not digest)
+    if unreadable:
+        raise unreadable_policy_error(unreadable)
     recorded = (data.get("delivery") or {}).get("controller_policies") or {}
     unpinned = sorted(name for name in current if not (recorded.get(name) or {}).get("sha256"))
     if unpinned:
@@ -1869,7 +1992,11 @@ def cmd_confirm_policy(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
         raise SddError("CONTROLLER_POLICY_CONFIRMATION_REQUIRED",
                        f"Confirming {name} needs the user's literal words in --quote.",
                        next_command=confirm_policy_command(name))
-    digest = sha256_file(CONTROLLER_POLICY_FILES[name]) or ""
+    digest = sha256_file(CONTROLLER_POLICY_FILES[name])
+    if not digest:
+        # Pinning "" would be read back as "no pin": the next gate would ask for the same
+        # confirmation, forever. The file is restored first.
+        raise unreadable_policy_error([name])
     data = copy.deepcopy(ctx.state)
     policies = data.setdefault("delivery", {}).setdefault("controller_policies", {})
     policies[name] = {"sha256": digest, "recorded_at": now(), "by": args.by, "quote": args.quote}
