@@ -510,6 +510,31 @@ def _semantic_governor() -> Any:
     return module
 
 
+def _verified_shadow_request(
+    record: dict[str, Any], value: dict[str, Any], report: dict[str, Any], governor: Any
+) -> bool:
+    """Prove SHADOW from the same typed request whose governor fingerprint is cached."""
+    request = record.get("request")
+    try:
+        import decision_orchestration
+
+        request = decision_orchestration.validate_request(request)
+        if (
+            request["mode"] != "SHADOW"
+            or record.get("mode") != "SHADOW"
+            or request["ticket"] != value["ticket"]
+            or request["binding"]["stage"] != value["stage"]
+        ):
+            return False
+        expected = governor.fingerprint(
+            decision_orchestration.governor_request(request),
+            provider=report["provider"],
+        )
+    except (ImportError, KeyError, TypeError, ValueError):
+        return False
+    return expected == record["fingerprint"] == report["fingerprint"]
+
+
 def _check_semantic_governance(value: dict[str, Any]) -> list[dict[str, str]]:
     """Fail closed: only an explicit non-consent record disables the gate."""
     if value["stage"] not in GOVERNANCE_STAGES:
@@ -544,7 +569,11 @@ def _check_semantic_governance(value: dict[str, Any]) -> list[dict[str, str]]:
             "JEV_GOVERNANCE_RECORD_UNVERIFIED",
             f"fingerprint {fingerprint[:12]} is not a valid governor decision for {value['ticket']} in {JEV_CACHE_PATH}",
         )]
-    if report["status"] == "REVIEW" and not record["review_resolution"]:
+    if (
+        report["status"] == "REVIEW"
+        and not record["review_resolution"]
+        and not _verified_shadow_request(record, value, report, governor)
+    ):
         return [_finding(
             "JEV_GOVERNANCE_REVIEW_UNRESOLVED",
             "Jev returned REVIEW; record the human resolution instead of inventing a route",

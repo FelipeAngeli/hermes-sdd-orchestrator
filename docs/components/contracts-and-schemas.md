@@ -2,9 +2,17 @@
 
 [Docs index](../README.md) · Related: [Stage agents](stage-agents.md), [Sub-agents](sub-agents.md), [Action journal](action-journal.md), [Gates](gates-and-stack-detection.md)
 
-**Files:** `contracts/EXECUTOR_CONTRACT.md`, `contracts/REVIEW_CONTRACT.md`, `schemas/EXECUTOR_RESULT_SCHEMA.json`, `schemas/REVIEW_RESULT_SCHEMA.json`, `runtime/validate_protocol.py`, `runtime/executor_launch.py`, `policies/EXECUTORS.md`.
+**Files:** `contracts/EXECUTOR_CONTRACT.md`, `contracts/REVIEW_CONTRACT.md`, `schemas/EXECUTOR_RESULT_SCHEMA.json`, `schemas/REVIEW_RESULT_SCHEMA.json`, `schemas/DECISION_REQUEST_SCHEMA.json`, `schemas/DECISION_RECEIPT_SCHEMA.json`, `runtime/decision_orchestration.py`, `runtime/validate_protocol.py`, `runtime/executor_launch.py`, `policies/EXECUTORS.md`.
 
 Every worker ends with **one JSON document**, written to a unique final-message file. Markdown, YAML, transcripts and JSONL events are never accepted as a substitute. Both envelopes use `schema_version: 3` and reject unknown properties. Each [stage agent](stage-agents.md) and [sub-agent](sub-agents.md) declares which schema applies in its `result_schema` frontmatter.
+
+## Typed Jev decisions
+
+`runtime/decision_orchestration.py` is a subordinate, side-effect-free decision primitive. `DECISION_REQUEST_SCHEMA.json` bounds one decision to a ticket, stage and STATE SHA-256; a closed candidate map with printable names of at most 64 characters; a deterministic baseline; compact scalar signals; evidence IDs; and one mode: `OFF`, `SHADOW`, `ACTIVE` or `FALLBACK`. Supported kinds cover task, skill, agent, model, context, risk, completion and escalation decisions. The module converts the whole control binding (ID, kind, mode, stage/STATE and baseline), not only semantic evidence, to one `semantic_governor` choice request so its cache fingerprint authenticates the operating mode used by the stage gate.
+
+`DECISION_RECEIPT_SCHEMA.json` records baseline, Jev recommendation, confidence/disposition/provenance/fingerprint, effective mode, agreement, whether a recommendation was applied, review status and observed request bytes, elapsed milliseconds, calls, token usage and provider billing. State that matches the shared redactor is rejected before evaluation. `OFF` never calls Jev; `SHADOW` never changes the baseline; `ACTIVE` can apply only a decided closed candidate; `FALLBACK` preserves the baseline on `REVIEW`. An explicit user lock always wins, and `COMPLETION_ASSESSMENT` cannot select `COMPLETE` while deterministic readiness is false.
+
+The first controller integration is deliberately narrower than the generic contract: `sdd.py govern` runs `AGENT_SELECTION` in `SHADOW` before PLAN and IMPLEMENT. It compares `STAGE_AGENT` with `DATA_FLOW_TRACER`, stores the receipt in `delivery.semantic_decisions`, and exposes the typed request plus cached governor fingerprint/mode to the stage manifest. The checker recomputes that request's provider-specific fingerprint before allowing a `SHADOW` `REVIEW` to preserve the baseline; a caller-written `mode: SHADOW` without the bound request cannot bypass human review. No recommendation is executed in this rollout.
 
 ## Executor result
 

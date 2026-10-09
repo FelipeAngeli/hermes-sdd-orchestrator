@@ -182,6 +182,96 @@ class SddGuardTests(e2e.ControllerEndToEndTests):
         checked = run(shlex.split(result["next_command"]), cwd=self.repo, env=self.env)
         self.assertEqual(0, checked.returncode, checked.stdout)
 
+    def test_next_prints_a_shadow_governance_command_instead_of_a_jev_dead_end(self) -> None:
+        self.craft(stage="PLAN")
+        setup = self.container / ".hermes" / "orchestration" / "PROJECT_SETUP.md"
+        text = setup.read_text(encoding="utf-8")
+        setup.write_text(
+            text.replace(
+                "typesafe_ai: UNRESOLVED",
+                'typesafe_ai: {"install":true,"automatic_semantic_governance":true}',
+            ),
+            encoding="utf-8",
+        )
+        self.edit_state(lambda data: data["delivery"]["accepted"].pop("plan", None))
+
+        code, result = self.call("next")
+
+        self.assertEqual(0, code, result)
+        self.assertEqual("GOVERN", result["step"])
+        self.assertFalse(result["end_turn"])
+        self.assertEqual(1, len(result["commands"]))
+        self.assertIn(" govern", result["commands"][0])
+
+    def test_implement_requires_a_fresh_stage_bound_shadow_decision(self) -> None:
+        self.craft(stage="IMPLEMENT")
+        setup = self.container / ".hermes" / "orchestration" / "PROJECT_SETUP.md"
+        setup.write_text(
+            setup.read_text(encoding="utf-8").replace(
+                "typesafe_ai: UNRESOLVED",
+                'typesafe_ai: {"install":true,"automatic_semantic_governance":true}',
+            ),
+            encoding="utf-8",
+        )
+
+        def stale_plan_receipt(data: dict) -> None:
+            data["delivery"]["accepted"].pop("implement-s1", None)
+            data["delivery"]["semantic_governance"] = {"fingerprint": "a" * 64, "review_resolution": None, "mode": "SHADOW"}
+            data["delivery"]["semantic_decisions"] = [{"binding": {"stage": "PLAN"}}]
+
+        self.edit_state(stale_plan_receipt)
+
+        code, result = self.call("next")
+
+        self.assertEqual(0, code, result)
+        self.assertEqual("GOVERN", result["step"])
+
+    def test_govern_records_a_shadow_receipt_and_unblocks_dispatch(self) -> None:
+        self.craft(stage="PLAN")
+        setup = self.container / ".hermes" / "orchestration" / "PROJECT_SETUP.md"
+        setup.write_text(
+            setup.read_text(encoding="utf-8").replace(
+                "typesafe_ai: UNRESOLVED",
+                'typesafe_ai: {"install":true,"automatic_semantic_governance":true}',
+            ),
+            encoding="utf-8",
+        )
+        self.edit_state(lambda data: data["delivery"]["accepted"].pop("plan", None))
+        connector = self.container / ".hermes" / "orchestration" / "runtime" / "typesafe_connector.py"
+        connector.write_text(
+            """#!/usr/bin/env python3
+import json, sys
+if 'preflight' in sys.argv:
+    print(json.dumps({'status': 'READY'}))
+else:
+    payload = json.load(sys.stdin)
+    options = list(payload['questions']['selection']['criteria'])
+    choice = options[1]
+    provider = sys.argv[sys.argv.index('--provider') + 1]
+    print(json.dumps({'status': 'OK', 'provider': provider, 'result': {
+        'model': 'jev-1.13.0',
+        'answers': {'selection': {'type': 'choice', 'choice': choice,
+                    'probabilities': {item: (0.91 if item == choice else 0.09) for item in options},
+                    'confidence': 0.91}},
+        'usage': {'input_tokens': 12, 'output_tokens': 3}}}))
+""",
+            encoding="utf-8",
+        )
+
+        code, governed = self.call("govern")
+        self.assertEqual(0, code, governed)
+        self.assertEqual("GOVERNED", governed["status"])
+        self.assertEqual("SHADOW", governed["receipt"]["configured_mode"])
+        self.assertFalse(governed["receipt"]["outcome"]["applied"])
+        self.assertEqual("DECIDED", governed["receipt"]["recommendation"]["disposition"], governed)
+
+        code, following = self.call("next")
+        self.assertEqual(0, code, following)
+        self.assertEqual("PREPARE", following.get("step"), following)
+        governance = self.state()["delivery"]["semantic_governance"]
+        self.assertIn("request", governance)
+        self.assertEqual("SHADOW", governance["request"]["mode"])
+
     # -- F7: controller card keeps the profile/consent and sub-agent rules ---------------
     def test_controller_card_forbids_profile_edits_consent_and_stage_sub_agents(self) -> None:
         card = " ".join((e2e.SKILL_ROOT / "templates" / ".hermes.md").read_text(encoding="utf-8").split())

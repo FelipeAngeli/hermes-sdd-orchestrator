@@ -16,6 +16,7 @@ RUNTIME = Path(__file__).resolve().parents[1] / "runtime"
 sys.path.insert(0, str(RUNTIME))
 import stage_context as ctx  # noqa: E402
 import validate_protocol  # noqa: E402
+import decision_orchestration  # noqa: E402
 
 SCRIPT = RUNTIME / "stage_context.py"
 SHA = "a" * 64
@@ -843,6 +844,56 @@ class SemanticGovernanceGateTests(unittest.TestCase):
         self.assertIn("JEV_GOVERNANCE_REVIEW_UNRESOLVED", errors_of(value))
         value["semantic_governance"]["review_resolution"] = "Owner classified risk as HIGH on 2026-10-06"
         self.assertTrue(ctx.check(value)["valid"])
+
+    def test_a_shadow_label_without_a_bound_request_cannot_bypass_review(self) -> None:
+        self.consent()
+        value = context("PLAN")
+        value["semantic_governance"] = {
+            "fingerprint": self.decide(confidence=0.6),
+            "review_resolution": None,
+            "mode": "SHADOW",
+        }
+
+        self.assertIn("JEV_GOVERNANCE_REVIEW_UNRESOLVED", errors_of(value))
+
+    def test_a_fingerprint_bound_shadow_request_may_fall_back_without_human_resolution(self) -> None:
+        self.consent()
+        request = {
+            "schema_version": 1,
+            "decision_id": "APP-1:PLAN:route",
+            "ticket": "APP-1",
+            "kind": "AGENT_SELECTION",
+            "mode": "SHADOW",
+            "binding": {"stage": "PLAN", "state_sha256": "b" * 64},
+            "baseline": {"value": "STAGE_AGENT", "user_locked": False, "deterministic_ready": True},
+            "candidates": {"STAGE_AGENT": "primary stage route", "DATA_FLOW_TRACER": "cross-boundary trace"},
+            "state": {"summary": "Shared contract has incomplete evidence.", "signals": {}, "evidence_ids": []},
+        }
+        governor = ctx._semantic_governor()
+        report = governor.decide(
+            decision_orchestration.governor_request(request),
+            lambda payload: {
+                "status": "OK",
+                "result": {
+                    "model": "jev-1.13.0",
+                    "answers": {"selection": {"type": "choice", "choice": "DATA_FLOW_TRACER",
+                        "probabilities": {"STAGE_AGENT": 0.4, "DATA_FLOW_TRACER": 0.6}, "confidence": 0.6}},
+                    "usage": {"input_tokens": 10, "output_tokens": 2},
+                },
+            },
+            cache_path=self.cache_path,
+        )
+        value = context("PLAN")
+        value["semantic_governance"] = {
+            "fingerprint": report["fingerprint"],
+            "review_resolution": None,
+            "mode": "SHADOW",
+            "request": request,
+        }
+
+        result = ctx.check(value)
+
+        self.assertTrue(result["valid"], result["errors"])
 
     def test_a_malformed_setup_fails_closed(self) -> None:
         self.setup_path.write_text("no yaml record here\n", encoding="utf-8")

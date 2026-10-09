@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "DECISION_REQUEST_SCHEMA.json",
+  "title": "Typed Jev decision request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "decision_id", "ticket", "kind", "mode", "binding", "baseline", "candidates", "state"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "decision_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "ticket": {"type": "string", "minLength": 1, "maxLength": 64},
+    "kind": {
+      "enum": ["TASK_CLASSIFICATION", "SKILL_SELECTION", "AGENT_SELECTION", "MODEL_SELECTION", "CONTEXT_RELEVANCE", "RISK_ASSESSMENT", "COMPLETION_ASSESSMENT", "ESCALATION"]
+    },
+    "mode": {"enum": ["OFF", "SHADOW", "ACTIVE", "FALLBACK"]},
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "state_sha256"],
+      "properties": {
+        "stage": {"enum": ["SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST", "REVIEW"]},
+        "state_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "user_locked", "deterministic_ready"],
+      "properties": {
+        "value": {"type": "string", "minLength": 1, "maxLength": 64},
+        "user_locked": {"type": "boolean"},
+        "deterministic_ready": {"type": "boolean"}
+      }
+    },
+    "candidates": {
+      "type": "object",
+      "minProperties": 2,
+      "maxProperties": 32,
+      "propertyNames": {"minLength": 1, "maxLength": 64, "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"},
+      "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 512}
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "signals", "evidence_ids"],
+      "properties": {
+        "summary": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "signals": {
+          "type": "object",
+          "maxProperties": 32,
+          "additionalProperties": {"type": ["string", "number", "boolean"]}
+        },
+        "evidence_ids": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {"type": "string", "minLength": 1, "maxLength": 256}
+        }
+      }
+    }
+  }
+}
