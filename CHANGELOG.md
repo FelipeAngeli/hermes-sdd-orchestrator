@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 14.0.1 - 2026-10-09
+
 ### Fixed
 - 14.0.0 is unreleased on this branch, so the follow-up changes below are recorded as fixes to it:
   the controller surface it introduced (stop reasons, `transition`, `waive`, budgets, `EXECUTORS.md`) is
