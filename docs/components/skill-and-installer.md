@@ -161,6 +161,8 @@ For TypeSafe, `--typesafe-ai install` is only a preview until combined with `--a
 
 After explicit automatic Jev consent through `--automatic-jev-governance` and a READY connector preflight, the controller has standing authorization and does not ask before every inference. TypeSafe installation alone is not consent. Deterministic facts, calculations, Git state, schema validation, permissions and final FSM transitions stay in code. Remaining semantic classifications are sent through `runtime/semantic_governor.py decide` as one batch.
 
+`runtime/decision_orchestration.py` adds the typed subordinate layer used by the controller. It accepts only bounded closed candidates and returns an auditable receipt; precedence is deterministic gates and explicit user choices, then Jev, then the deterministic fallback. Its generic contract supports `OFF`, `SHADOW`, `ACTIVE` and `FALLBACK`, while the initial `sdd.py govern` integration is fixed to `SHADOW`: one stage/STATE-bound `AGENT_SELECTION` observation before PLAN and IMPLEMENT, with no recommendation executed. A shadow `REVIEW` preserves the baseline and does not become a human checkpoint; legacy or active review records still require a human resolution.
+
 ```text
 python3 .hermes/orchestration/runtime/semantic_governor.py decide \
   --input .hermes/orchestration/JEV_REQUEST.json \

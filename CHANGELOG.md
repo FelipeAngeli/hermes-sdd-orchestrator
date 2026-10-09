@@ -4,6 +4,16 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.1.1 - 2026-10-09
+
+### Fixed
+- Jev receipts are now refreshed after routing-relevant STATE changes within PLAN or IMPLEMENT, including scope approval, a subsequent implementation slice and REVIEW-to-IMPLEMENT reopen. The manifest carries the current canonical STATE hash and `stage_context.py` rejects a typed request whose binding is stale.
+
+## 15.1.0 - 2026-10-09
+
+### Added
+- A subordinate, typed Jev decision layer: `decision_orchestration.py` and strict request/receipt schemas implement closed-candidate `OFF`/`SHADOW`/`ACTIVE`/`FALLBACK` decisions with explicit-choice and deterministic-completion precedence, redaction before evaluation, and observed latency/token/billing receipts. `sdd.py next` now emits a `GOVERN` step before PLAN and IMPLEMENT under explicit automatic consent; the initial rollout is SHADOW-only, persists stage/STATE-bound receipts, binds the operating mode into the cached governor fingerprint, never executes Jev's recommendation, and lets only fingerprint-verified low-confidence shadow observations fall back without creating a false human checkpoint. The evaluation report includes a reproducible six-workload fixture and sanitized pilot records, while explicitly withholding performance claims below the preregistered sample size.
+
 ## 15.0.1 - 2026-10-09
 
 ### Fixed

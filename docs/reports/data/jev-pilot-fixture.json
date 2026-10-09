@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "protocol": {
+    "pairs_per_workload": 1,
+    "claim_allowed": false,
+    "stage": "PLAN",
+    "modes": ["OFF", "SHADOW"],
+    "cache_repeat_workload": "W6-cache"
+  },
+  "workloads": [
+    {
+      "id": "W1-copy",
+      "kind": "RISK_ASSESSMENT",
+      "candidates": {"LOW": "copy only", "MEDIUM": "bounded behavior"},
+      "baseline": "MEDIUM",
+      "gold": "LOW",
+      "expect_review": false,
+      "summary": "Isolated copy change; no runtime behavior."
+    },
+    {
+      "id": "W2-module",
+      "kind": "RISK_ASSESSMENT",
+      "candidates": {"LOW": "no runtime behavior", "MEDIUM": "one-module behavior"},
+      "baseline": "MEDIUM",
+      "gold": "MEDIUM",
+      "expect_review": false,
+      "summary": "Behavior changes inside one module; public contracts intact."
+    },
+    {
+      "id": "W3-contract",
+      "kind": "AGENT_SELECTION",
+      "candidates": {"STAGE_AGENT": "single-module route", "DATA_FLOW_TRACER": "cross-boundary contract tracing"},
+      "baseline": "STAGE_AGENT",
+      "gold": "DATA_FLOW_TRACER",
+      "expect_review": false,
+      "summary": "Shared API contract affects producer and consumer boundaries."
+    },
+    {
+      "id": "W4-auth",
+      "kind": "RISK_ASSESSMENT",
+      "candidates": {"HIGH": "security-sensitive but reversible", "CRITICAL": "credential or authorization boundary with destructive exposure risk"},
+      "baseline": "HIGH",
+      "gold": "CRITICAL",
+      "expect_review": false,
+      "summary": "Credential migration changes authorization and secret-handling boundaries."
+    },
+    {
+      "id": "W5-ambiguous",
+      "kind": "RISK_ASSESSMENT",
+      "candidates": {"LOW": "isolated non-runtime change", "HIGH": "cross-boundary security behavior"},
+      "baseline": "LOW",
+      "gold": null,
+      "expect_review": true,
+      "summary": "Evidence is intentionally incomplete and supports incompatible risk classes."
+    },
+    {
+      "id": "W6-cache",
+      "kind": "RISK_ASSESSMENT",
+      "candidates": {"LOW": "no runtime behavior", "MEDIUM": "one-module behavior"},
+      "baseline": "MEDIUM",
+      "gold": "MEDIUM",
+      "expect_review": false,
+      "summary": "Behavior changes inside one module; public contracts intact."
+    }
+  ]
+}

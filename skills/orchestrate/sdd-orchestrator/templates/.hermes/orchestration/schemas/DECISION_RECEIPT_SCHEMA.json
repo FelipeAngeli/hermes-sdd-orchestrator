@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "DECISION_RECEIPT_SCHEMA.json",
+  "title": "Auditable Jev decision receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "decision_id", "ticket", "kind", "binding", "configured_mode", "effective_mode", "baseline", "recommendation", "outcome", "metrics"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "decision_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "ticket": {"type": "string", "minLength": 1, "maxLength": 64},
+    "kind": {
+      "enum": ["TASK_CLASSIFICATION", "SKILL_SELECTION", "AGENT_SELECTION", "MODEL_SELECTION", "CONTEXT_RELEVANCE", "RISK_ASSESSMENT", "COMPLETION_ASSESSMENT", "ESCALATION"]
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "state_sha256"],
+      "properties": {
+        "stage": {"enum": ["SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST", "REVIEW"]},
+        "state_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "configured_mode": {"enum": ["OFF", "SHADOW", "ACTIVE", "FALLBACK"]},
+    "effective_mode": {"enum": ["OFF", "SHADOW", "ACTIVE", "FALLBACK"]},
+    "baseline": {"type": "string", "minLength": 1, "maxLength": 64},
+    "recommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "confidence", "disposition", "provenance", "fingerprint"],
+      "properties": {
+        "value": {"type": ["string", "null"]},
+        "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "disposition": {"enum": ["NOT_CALLED", "DECIDED", "REVIEW"]},
+        "provenance": {"enum": ["NOT_CALLED", "LIVE_JEV", "CACHE"]},
+        "fingerprint": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selected", "applied", "agreement", "requires_review", "reason"],
+      "properties": {
+        "selected": {"type": "string"},
+        "applied": {"type": "boolean"},
+        "agreement": {"enum": ["NOT_EVALUATED", "AGREE", "DISAGREE"]},
+        "requires_review": {"type": "boolean"},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_bytes", "jev_calls", "elapsed_ms", "input_tokens", "output_tokens", "billing"],
+      "properties": {
+        "request_bytes": {"type": "integer", "minimum": 0},
+        "jev_calls": {"type": "integer", "minimum": 0, "maximum": 1},
+        "elapsed_ms": {"type": "integer", "minimum": 0},
+        "input_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "output_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "billing": {"type": "object"}
+      }
+    }
+  }
+}

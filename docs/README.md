@@ -8,6 +8,7 @@ Documentation of the Hermes SDD Orchestrator. Every page is kept in sync with th
 | --- | --- |
 | Understand the whole system in five minutes | [Overview](overview.md) |
 | See how the layers depend on each other | [Architecture](ARCHITECTURE.md) |
+| Review the Jev decision-layer diagnosis and benchmark protocol | [Jev decision-layer evaluation](reports/jev-decision-layer-evaluation.md) |
 | Install the orchestrator in a project | [Skill and installer](components/skill-and-installer.md) → [Gates and stack detection](components/gates-and-stack-detection.md) |
 | Follow one demand from request to DONE | [Overview — life of a demand](overview.md#life-of-a-demand) |
 | Change the orchestration | [Maintaining the docs](maintaining-docs.md) and [CONTRIBUTING](../CONTRIBUTING.md) |

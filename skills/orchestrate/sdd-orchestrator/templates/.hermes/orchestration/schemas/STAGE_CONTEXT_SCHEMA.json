@@ -357,7 +357,7 @@
       ]
     },
     "semantic_governance": {
-      "description": "Required for PLAN and IMPLEMENT when PROJECT_SETUP.md records automatic Jev consent: the fingerprint of the semantic_governor.py decide report for this ticket, and the human resolution when that report is REVIEW.",
+      "description": "Required for PLAN and IMPLEMENT when PROJECT_SETUP.md records automatic Jev consent: the cached semantic_governor.py fingerprint, typed request and canonical current routing-STATE SHA-256. REVIEW needs human resolution unless a current verified SHADOW request preserves the deterministic baseline.",
       "anyOf": [
         {
           "type": "null"
@@ -383,6 +383,21 @@
                   "type": "null"
                 }
               ]
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "SHADOW",
+                "ACTIVE",
+                "FALLBACK"
+              ]
+            },
+            "request": {
+              "type": "object"
+            },
+            "current_state_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
             }
           }
         }

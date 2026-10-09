@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -83,7 +84,7 @@ STAGE_PLAYBOOKS = {
 IMPLEMENT_PLAYBOOK = {"CODE": "sdd-tdd", "DECISION_DOC": "sdd-release-readiness"}
 DOC_SLICE = "DOC"
 #: Step names printed in ``step``; each maps to a fixed command batch.
-STEPS = ("RECOVER", "PREPARE", "REPREPARE", "DISPATCH", "VALIDATE", "CLASSIFY_INVALID", "ACCEPT", "ROLLOVER", "TRANSITION", "GATES", "STOP")
+STEPS = ("RECOVER", "GOVERN", "PREPARE", "REPREPARE", "DISPATCH", "VALIDATE", "CLASSIFY_INVALID", "ACCEPT", "ROLLOVER", "TRANSITION", "GATES", "STOP")
 EMITTED_STOP_REASONS = (
     "IDLE_NO_DEMAND", "STATE_INCONSISTENT", "BASELINE_DRIFT_EXTERNAL", "PREEXISTING_FILE_MODIFIED",
     "EXECUTOR_TIMEOUT", "EXECUTOR_FAILED", "RETRY_BUDGET_REACHED", "EXECUTOR_CALL_BUDGET_REACHED",
@@ -124,6 +125,17 @@ def now() -> str:
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def semantic_state_sha256(state: dict[str, Any]) -> str:
+    """Hash routing-relevant STATE while excluding governance's own receipts."""
+    material = copy.deepcopy(state)
+    delivery = material.get("delivery")
+    if isinstance(delivery, dict):
+        delivery.pop("semantic_governance", None)
+        delivery.pop("semantic_decisions", None)
+    encoded = json.dumps(material, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
+    return sha256_bytes(encoded.encode("utf-8"))
 
 
 def sha256_file(path: Path) -> str | None:
@@ -577,7 +589,10 @@ def build_manifest(ctx: Ctx, data: dict[str, Any], stage: str, *, role: str | No
         }
     governance = delivery.get("semantic_governance")
     if governance:
-        manifest["semantic_governance"] = governance
+        manifest["semantic_governance"] = {
+            **copy.deepcopy(governance),
+            "current_state_sha256": semantic_state_sha256(data),
+        }
     return manifest
 
 
@@ -1151,6 +1166,22 @@ def decide_next(ctx: Ctx) -> dict[str, Any]:
         return stopped(ctx, stop("OWNERSHIP_VIOLATION", paths=review["ownership_violations"][:10]))
     if ctx.stage == "REVIEW" and review.get("status") in {"CHANGES_REQUIRED", "BLOCKED"}:
         return stopped(ctx, stop("REVIEW_CHANGES_REQUIRED" if review["status"] == "CHANGES_REQUIRED" else "REVIEW_BLOCKED"))
+    semantic_decisions = ctx.delivery.get("semantic_decisions") or []
+    latest_decision_binding = (
+        (semantic_decisions[-1].get("binding") or {})
+        if semantic_decisions and isinstance(semantic_decisions[-1], dict)
+        else {}
+    )
+    decision_is_current = (
+        latest_decision_binding.get("stage") == ctx.stage
+        and latest_decision_binding.get("state_sha256") == semantic_state_sha256(ctx.state)
+    )
+    if ctx.stage in {"PLAN", "IMPLEMENT"} and not decision_is_current:
+        import semantic_governor
+
+        if semantic_governor.consent_state(PROJECT_SETUP) == semantic_governor.CONSENT_ENABLED:
+            return step("GOVERN", [sdd("govern")],
+                        f"Evaluate one typed {ctx.stage} routing decision in SHADOW mode before dispatch.")
     if stage_complete(ctx):
         gate_stage = "TEST" if ctx.profile == "CODE" else "IMPLEMENT"
         if ctx.stage in {gate_stage, "REVIEW"}:
@@ -1236,6 +1267,109 @@ def cmd_next(ctx: Ctx, _args: argparse.Namespace) -> dict[str, Any]:
     result = decide_next(ctx)
     result.setdefault("stage", ctx.stage)
     return result
+
+
+def cmd_govern(ctx: Ctx, _args: argparse.Namespace) -> dict[str, Any]:
+    """Evaluate one closed routing choice in SHADOW mode and persist its receipt."""
+    import decision_orchestration
+    import semantic_governor
+
+    ctx.require_pristine()
+    if ctx.stage not in {"PLAN", "IMPLEMENT"}:
+        raise SddError("STEP_MISMATCH", "Semantic routing runs only before PLAN or IMPLEMENT dispatch.", next_command=sdd("next"))
+    prior_decisions = ctx.delivery.get("semantic_decisions") or []
+    prior_binding = (
+        (prior_decisions[-1].get("binding") or {})
+        if prior_decisions and isinstance(prior_decisions[-1], dict)
+        else {}
+    )
+    state_sha256 = semantic_state_sha256(ctx.state)
+    if prior_binding.get("stage") == ctx.stage and prior_binding.get("state_sha256") == state_sha256:
+        raise SddError("STEP_MISMATCH", "This stage and STATE already have a semantic-governance receipt.", next_command=sdd("next"))
+    if semantic_governor.consent_state(PROJECT_SETUP) != semantic_governor.CONSENT_ENABLED:
+        raise SddError("JEV_GOVERNANCE_REQUIRED", "Automatic Jev governance has no explicit consent.", next_command=sdd("next"))
+
+    accepted = ctx.delivery.get("accepted") or {}
+    request = {
+        "schema_version": 1,
+        "decision_id": f"{ctx.ticket}:{ctx.stage}:agent-route",
+        "ticket": ctx.ticket,
+        "kind": "AGENT_SELECTION",
+        "mode": "SHADOW",
+        "binding": {"stage": ctx.stage, "state_sha256": state_sha256},
+        "baseline": {"value": "STAGE_AGENT", "user_locked": False, "deterministic_ready": True},
+        "candidates": {
+            "STAGE_AGENT": "Use the stage's deterministic primary executor route.",
+            "DATA_FLOW_TRACER": "Investigate cross-boundary data flow before the primary stage route.",
+        },
+        "state": {
+            "summary": str((ctx.state.get("ticket") or {}).get("objective") or "Bounded SDD delivery"),
+            "signals": {
+                "stage": ctx.stage,
+                "profile": ctx.profile,
+                "deliverable_kind": ctx.delivery.get("deliverable_kind") or "CODE",
+                "acceptance_count": len(ctx.delivery.get("acceptance") or {}),
+                "pending_slice": current_slice(ctx) or "NONE",
+            },
+            "evidence_ids": sorted(str(value.get("action_id")) for value in accepted.values() if isinstance(value, dict) and value.get("action_id"))[:64],
+        },
+    }
+    report_box: dict[str, Any] = {}
+    live: dict[str, Any] = {}
+    env_file = ORCHESTRATION.parent / ".env"
+
+    def connector(payload: dict[str, Any]) -> dict[str, Any]:
+        live["started"] = time.monotonic()
+        live["progress"] = semantic_governor._start_progress(
+            semantic_governor.DEFAULT_PROGRESS_PATH, payload, "typesafe"
+        )
+        live["phase"] = (
+            live["progress"][1]
+            if live["progress"] is not None
+            else semantic_governor._phase_from_state(payload["state"])
+        )
+        semantic_governor._announce_start(payload, "typesafe", live["phase"])
+        return semantic_governor._connector_evaluator("typesafe", env_file, "300", ctx.repo)(payload)
+
+    def evaluate(payload: dict[str, Any]) -> dict[str, Any]:
+        report = semantic_governor.decide(
+            payload,
+            connector,
+            provider="typesafe",
+            cache_path=semantic_governor.DEFAULT_CACHE_PATH,
+            prepare=lambda: semantic_governor._connector_prepare("typesafe", env_file, PROJECT_SETUP),
+        )
+        report_box["value"] = report
+        report_box["request"] = payload
+        return report
+
+    try:
+        receipt = decision_orchestration.decide(request, evaluate)
+    except (decision_orchestration.DecisionError, semantic_governor.GovernanceError) as exc:
+        raise SddError("JEV_GOVERNANCE_REQUIRED", str(exc), next_command=sdd("next")) from exc
+    report = report_box.get("value") or {}
+    data = copy.deepcopy(ctx.state)
+    delivery = data.setdefault("delivery", {})
+    delivery["semantic_governance"] = {
+        "fingerprint": receipt["recommendation"]["fingerprint"],
+        "review_resolution": None,
+        "mode": receipt["configured_mode"],
+        "request": request,
+    }
+    delivery.setdefault("semantic_decisions", []).append(receipt)
+    ctx.write_state(data, f"Jev {receipt['configured_mode']} {receipt['kind']} receipt {receipt['decision_id']}")
+    if report.get("provenance") == "LIVE_JEV":
+        semantic_governor._finish_progress(
+            semantic_governor.DEFAULT_PROGRESS_PATH, live.get("progress"), report
+        )
+        semantic_governor._announce(
+            report_box["request"],
+            report,
+            provider="typesafe",
+            phase=live.get("phase", "não informada"),
+            elapsed_seconds=time.monotonic() - live.get("started", time.monotonic()),
+        )
+    return {"status": "GOVERNED", "receipt": receipt, "next_step": "Run `sdd.py next`.", "next_command": sdd("next")}
 
 
 def reopen_length(path: tuple[str, ...]) -> int:
@@ -2409,7 +2543,7 @@ def record_wiki(ctx: Ctx, kind: str, title: str, body: str, *, stage: str | None
 # ----------------------------------------------------------------------------- CLI
 
 COMMANDS = {
-    "status": cmd_status, "next": cmd_next, "start": cmd_start, "snapshot": cmd_snapshot, "manifest": cmd_manifest,
+    "status": cmd_status, "next": cmd_next, "govern": cmd_govern, "start": cmd_start, "snapshot": cmd_snapshot, "manifest": cmd_manifest,
     "prepare": cmd_prepare, "reject": cmd_reject, "accept": cmd_accept, "transition": cmd_transition, "waive": cmd_waive,
     "answer": cmd_answer, "unblock": cmd_unblock, "budget": cmd_budget, "gate": cmd_gate, "reopen": cmd_reopen,
     "request-decision": cmd_request_decision, "rebaseline": cmd_rebaseline, "approve-scope": cmd_approve_scope,
@@ -2425,6 +2559,7 @@ def parser() -> argparse.ArgumentParser:
     commands = result.add_subparsers(dest="command", required=True)
     commands.add_parser("status", help="One compact JSON with paths, stage, recovery, budgets left and the next action.")
     commands.add_parser("next", help="Print the exact command batch for the next step, or the stop and its resolution command.")
+    commands.add_parser("govern", help="Run the typed Jev routing decision printed by `next` and persist its SHADOW receipt.")
     start = commands.add_parser("start", help="IDLE -> SPECIFY: capture the baseline and print the one preview with limits.")
     start.add_argument("--ticket", required=True)
     start.add_argument("--title", required=True)
