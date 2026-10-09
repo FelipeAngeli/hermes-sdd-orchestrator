@@ -269,7 +269,7 @@ class SddGuardTests(e2e.ControllerEndToEndTests):
         # user's confirmation once (CONTROLLER_POLICY_CHANGED_DURING_DEMAND); record it as the stop instructs.
         code, confirmed = self.call("gate", "--name", "ci", "--confirm-policy", "gates", "--quote", "sim, habilitei o CI")
         self.assertEqual(0, code, confirmed)
-        self.assertEqual("GATES_POLICY_CONFIRMED", confirmed["status"])
+        self.assertEqual("CONTROLLER_POLICY_CONFIRMED", confirmed["status"])
         progress = self.call("next")[1]
         self.assertEqual("GATES", progress.get("step"), progress)
         self.assertTrue(any("gate --name ci" in item for item in progress["commands"]))
