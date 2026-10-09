@@ -48,12 +48,13 @@ argv = sys.argv[1:]
 if "--version" in argv:
     print(f"{name} 99.0.0"); sys.exit(0)
 prompt = sys.stdin.read()
-log = Path(os.environ["FAKE_EXECUTOR_LOG"])
+fake_dir = Path(sys.argv[0]).resolve().parent  # the launcher's allow-listed environment drops FAKE_* variables
+log = fake_dir / "calls.jsonl"
 match = re.search(r"## Controller data \(authoritative\)\s*```json\n(.*?)\n```", prompt, re.S)
 data = json.loads(match.group(1))
 with log.open("a", encoding="utf-8") as handle:
     handle.write(json.dumps({"executor": name, "stage": data["stage"], "role": data["role"], "prompt_bytes": len(prompt.encode())}) + "\n")
-marker = Path(os.environ["FAKE_EXECUTOR_DIR"]) / f"timeout-{data['stage']}"
+marker = fake_dir / f"timeout-{data['stage']}"
 if data["role"] is None and marker.exists():
     marker.unlink()
     time.sleep(60)

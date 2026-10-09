@@ -15,6 +15,10 @@ All notable changes to the orchestration are recorded here. Every change under `
 - `sdd.py reopen` (FIX slice in IMPLEMENT after a failed gate or REVIEW, also inside IMPLEMENT for DECISION_DOC), `request-decision`, `answer --check`, `gate --rerun --quote`, `rebaseline`, `approve-scope`, `close` (DONE → IDLE, summary in `closed_demands`), `pause`/`resume`, `reprepare` (archive an undispatched PREPARED action and refund its executor call), `budget --raise prompt_bytes`. `start` output gains `limits_explained`.
 - Stop reasons `LOOP_PAUSED` and `EXECUTOR_UNAVAILABLE`; `sdd.py next` step `REPREPARE`; `stop_reasons.USER_PLACEHOLDERS`.
 
+### Changed
+- `policies/EXECUTORS.md` accepts the top-level owner flag `allow_bypass_permissions` (default `false`); `permission_mode: bypassPermissions` without it is refused with `EXECUTOR_POLICY_UNSAFE`. The file documents its trust model (owner-only edits, worker isolation, `setsid` grandchildren escape the process-group kill).
+- `executor_launch.py build|run` gain `--read-dir DIR` (read-only directory: `--add-dir` for a read-only Claude worker, dropped for Codex) and `sdd.py gate` gains `--confirm-gates-policy` (records the user's confirmation of a changed `GATES.md`, runs no gate). `preflight` now requires `--config` in the Codex help.
+
 ### Fixed
 - `install_project.py --upgrade` no longer applies over a running controller whose `STATE.md` carries the JSON payload `sdd.py` writes: STATE is parsed with the template's `state_format.py` (JSON or YAML) and `UPGRADE_CONTROLLER_BUSY` is raised for `loop.control.loop_active: true`, `stage.status: RUNNING` or an unparseable/symlinked STATE, with the rerun `--upgrade` as `next_command`.
 - `--upgrade` of an installation without `INSTALL_MANIFEST.json` (v13 and older) now handles the 15 sub-agent briefs 14.0.0 retired (`RETIRED_TEMPLATE_PATHS`): with `--accept-current-as-baseline` they are backed up and removed; without it each is reported as an `OBSOLETE_UNVERIFIED` warning naming the exact rerun command. Previously they stayed on disk silently.
@@ -25,6 +29,11 @@ All notable changes to the orchestration are recorded here. Every change under `
 - Dead ends: `GATE_TIMEOUT` stayed TIMEOUT forever; a missing executor re-printed DISPATCH while the journal stayed PREPARED; enabling or disabling CI after REVIEW looped on `DONE_GATES_NOT_PASSED` (a gate whose GATES.md row changed is now re-run, DONE re-reads the CI policy, and an enabled CI with its run budget spent stops with `CI_RUN_BUDGET_REACHED`); baseline drift, protected-file changes and ownership violations had no command; a DONE demand blocked every new `start`.
 - PAUSED mode is honored: `sdd.py next` prints no PREPARE/DISPATCH while paused.
 - Controller card (`.hermes.md`) again forbids editing Hermes profile configuration or granting hook consent and states that stage agents never dispatch sub-agents.
+- Security: in Obsidian mode `sdd.py` passed the controller container as `--add-dir`, which `codex exec --sandbox workspace-write` treats as writable, so an IMPLEMENT/TEST worker could edit `policies/GATES.md` or STATE and get host command execution through `sdd.py gate`. The container is now passed as `--read-dir`; a writing worker (Codex `workspace-write`, or Claude with write tools) runs with `--config sandbox_workspace_write.writable_roots=[]` and any `--add-dir` outside the repository or under `.hermes` is refused with `ADD_DIR_WRITABLE_REFUSED`.
+- Security: `sdd.py gate` pins the SHA-256 of `GATES.md` in `delivery.gates_policy` and refuses `GATES_CHANGED_DURING_DEMAND` (with the `--confirm-gates-policy` next command) when it changed during the demand.
+- Security: the worker process gets an allow-listed environment (`PATH`, `HOME`, `LANG`, `LC_*`, `TMPDIR`, `USER`, `SHELL`, `TERM`, … plus its own `ANTHROPIC_*`/`CLAUDE_*` or `OPENAI_*`/`CODEX_*`); `TYPESAFE_*`, `JEV_*`, `HERMES_*` and other `*_API_KEY`/`*_TOKEN` no longer leak to it.
+- SIGTERM/SIGHUP to `executor_launch.py run` no longer leaves the journal `DISPATCHED` and the worker alive: the process group is killed (TERM, then KILL), `record-process --finished --exit-code 125` is recorded and `LAUNCHER_INTERRUPTED` is returned with the archive command.
+- Security: `{files}` expansion in `sdd.py gate` refuses an agent-owned path with a `-`-prefixed segment (`AGENT_OWNED_PATH_UNSAFE`) instead of passing it as an option, and `validate_protocol` rejects such written paths and editable patterns.
 
 ## 14.0.0 - 2026-10-08
 

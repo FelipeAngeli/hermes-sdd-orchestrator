@@ -724,6 +724,16 @@ def baseline_stop(ctx: Ctx) -> dict[str, Any] | None:
     return None
 
 
+def dispatch_dir_arguments(storage: str) -> list[str]:
+    """Extra launcher directories: the Obsidian container is only ever *read* by a worker.
+
+    ``--read-dir`` reaches a read-only Claude worker as ``--add-dir`` and is dropped for Codex,
+    whose sandbox reads the filesystem; a writing worker never gets the container (or the
+    runtime) as a writable root, so it cannot edit GATES.md, STATE or the journal.
+    """
+    return ["--read-dir", str(CONTROLLER_ROOT)] if storage == "OBSIDIAN" else []
+
+
 def recovery_step(ctx: Ctx) -> dict[str, Any] | None:
     """Map the journal's recover decision to one step; None when dispatch is allowed with a pristine journal."""
     decision = ctx.recovery
@@ -743,8 +753,7 @@ def recovery_step(ctx: Ctx) -> dict[str, Any] | None:
         arguments = ["run", "--stage", action["stage"], "--journal", str(ctx.journal_path), "--prompt-file", str(action["prompt"]), "--final", str(action["final"])]
         if action["role"]:
             arguments += ["--role", action["role"]]
-        if ctx.storage == "OBSIDIAN":
-            arguments += ["--add-dir", str(CONTROLLER_ROOT)]
+        arguments += dispatch_dir_arguments(ctx.storage)
         size_check = ["check", "--context", str(action["manifest"]), "--prompt-file", str(action["prompt"]), "--json"]
         if action["role"]:
             size_check += ["--role", action["role"]]
@@ -1636,11 +1645,78 @@ def cmd_budget(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     return {"status": "RAISED", "budget": args.raise_name, "max": maximum + args.by, "next_step": "Run `sdd.py next`.", "next_command": sdd("next")}
 
 
+def gate_argv(gate_command: str, files: list[str]) -> list[str]:
+    """Expand ``{files}`` into separate arguments; a path segment starting with ``-`` is refused, never passed as an option."""
+    tokens = shlex.split(gate_command)
+    if "{files}" in tokens:
+        unsafe = sorted(path for path in files if any(segment.startswith("-") for segment in str(path).split("/")))
+        if unsafe:
+            raise SddError("AGENT_OWNED_PATH_UNSAFE",
+                           f"Agent-owned path(s) {', '.join(unsafe)} start with '-' and would become options of the gate command.",
+                           next_step="Rename or remove the file(s) in the repository and drop them from STATE ownership through a reopened stage; "
+                                     "gate commands never receive a '-'-prefixed path.",
+                           next_command=sdd("status"))
+    argv: list[str] = []
+    for token in tokens:
+        argv.extend(files if token == "{files}" else [token])
+    return argv
+
+
+def _iso_epoch(value: str | None) -> float | None:
+    try:
+        return datetime.strptime(str(value), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+    except ValueError:
+        return None
+
+
+def gates_policy_check(data: dict[str, Any], gate: str) -> str:
+    """Verify policies/GATES.md against the hash pinned for this demand; pin it on first use.
+
+    The pinned hash is ``delivery.gates_policy.sha256`` (set by the first gate run or by
+    ``gate --confirm-gates-policy``). Without one, a GATES.md modified after
+    ``delivery.started_at`` is refused too: the gate commands run on the host, outside any
+    worker sandbox, so only the human may change them mid-demand.
+    """
+    current = sha256_file(GATES_POLICY) or ""
+    delivery = data.setdefault("delivery", {})
+    pinned = (delivery.get("gates_policy") or {}).get("sha256")
+    changed = pinned is not None and pinned != current
+    if pinned is None:
+        started = _iso_epoch(delivery.get("started_at"))
+        try:
+            modified = GATES_POLICY.stat().st_mtime
+        except OSError:
+            modified = None
+        changed = started is not None and modified is not None and modified > started + 1
+    if changed:
+        raise SddError("GATES_CHANGED_DURING_DEMAND",
+                       f"policies/GATES.md changed during demand {(data.get('ticket') or {}).get('id')}; no gate runs until the user re-confirms it.",
+                       next_step="Show the user the GATES.md diff. Only if they confirm the new gate commands, record their words with the printed "
+                                 "command; otherwise restore GATES.md and run `sdd.py next`.",
+                       next_command=sdd("gate", "--name", gate, "--confirm-gates-policy", "--quote", "<user words confirming the GATES.md change>"),
+                       gates_policy=str(GATES_POLICY), sha256=current, pinned_sha256=pinned)
+    if pinned is None:
+        delivery["gates_policy"] = {"sha256": current, "recorded_at": now(), "by": "first gate run"}
+    return current
+
+
 def cmd_gate(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     ctx.require_pristine()
     name = args.name
+    if getattr(args, "confirm_gates_policy", False):
+        if not (args.quote or "").strip():
+            raise SddError("GATE_CONFIRMATION_REQUIRED", "--confirm-gates-policy needs the user's literal confirmation in --quote.",
+                           next_command=sdd("gate", "--name", name, "--confirm-gates-policy", "--quote", "<user words confirming the GATES.md change>"))
+        data = copy.deepcopy(ctx.state)
+        digest = sha256_file(GATES_POLICY) or ""
+        data.setdefault("delivery", {})["gates_policy"] = {"sha256": digest, "recorded_at": now(), "by": args.by, "quote": args.quote}
+        ctx.write_state(data, f"GATES.md {digest[:12]} confirmed by {args.by}: \"{args.quote}\"")
+        record_wiki(ctx, "gate", "GATES.md confirmed", f"SHA-256 {digest}\nConfirmed by {args.by}: {args.quote}", stage=ctx.stage)
+        return {"status": "GATES_POLICY_CONFIRMED", "sha256": digest, "next_step": "Run `sdd.py next`; the gates run with the confirmed commands.",
+                "next_command": sdd("next")}
     row = gate_table().get(name) or {"unconfigured": True}
     data = copy.deepcopy(ctx.state)
+    gates_policy_check(data, name)
     gates = data.setdefault("gates", {})
     order = {"format": ("focused_tests",), "analyze": ("focused_tests", "format"), "ci": ("focused_tests", "format", "analyze")}
     missing = [item for item in order.get(name, ()) if (gates.get(item) or {}).get("status") != "PASS"]
@@ -1673,9 +1749,7 @@ def cmd_gate(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
             raise SddError("CI_RUN_BUDGET_REACHED", "The CI-run budget is spent.")
         set_budget(data, "ci_runs", used=used + 1)
     files = list((data.get("ownership") or {}).get("agent_owned") or [])
-    argv: list[str] = []
-    for token in shlex.split(row["command"]):
-        argv.extend(files if token == "{files}" else [token])
+    argv = gate_argv(row["command"], files)
     try:
         completed = subprocess.run(argv, cwd=str(ctx.repo), capture_output=True, text=True, timeout=row["timeout"], check=False)
         status, exit_code, tail = ("PASS" if completed.returncode == 0 else "FAIL"), completed.returncode, (completed.stdout + completed.stderr)[-MAX_OUTPUT_TAIL:]
@@ -1771,6 +1845,8 @@ def parser() -> argparse.ArgumentParser:
     gate = commands.add_parser("gate", help="Run one configured gate from policies/GATES.md, or confirm a NOT_APPLICABLE one.")
     gate.add_argument("--name", required=True, choices=GATE_NAMES)
     gate.add_argument("--not-applicable", action="store_true")
+    gate.add_argument("--confirm-gates-policy", action="store_true",
+                      help="Record the user's confirmation (--quote) of a GATES.md changed during the demand; runs no gate.")
     gate.add_argument("--by", default="requester")
     gate.add_argument("--quote")
     gate.add_argument("--rerun", action="store_true", help="Run a TIMEOUT gate again with the same GATES.md row (needs --quote).")

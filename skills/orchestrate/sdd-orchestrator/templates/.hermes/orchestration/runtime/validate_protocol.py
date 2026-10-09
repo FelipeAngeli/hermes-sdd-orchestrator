@@ -285,14 +285,16 @@ def _validate_authoritative_acceptance(
 
 
 def _is_safe_relative(path: str) -> bool:
-    """A canonical repository-relative path: no root, home, empty, `.` or `..` segment.
+    """A canonical repository-relative path: no root, home, empty, `.`, `..` or `-`-prefixed segment.
 
     Segments are checked on the raw string because PurePosixPath silently
     drops `.` and empty segments, which would let `./**` pass as anchored.
+    A segment starting with `-` is refused because written paths become gate
+    arguments (`{files}`), where `--config=x` would turn into an option.
     """
     if not isinstance(path, str) or not path or path.startswith(("/", "~")) or "\\" in path:
         return False
-    return all(segment not in {"", ".", ".."} for segment in path.split("/"))
+    return all(segment not in {"", ".", ".."} and not segment.startswith("-") for segment in path.split("/"))
 
 
 def editable_pattern_is_safe(pattern: str) -> bool:
@@ -357,7 +359,7 @@ def _validate_write_scope(
     for field, index, path in written:
         prefix = f"$.executor_result.{field}[{index}]"
         if not _is_safe_relative(path):
-            errors.append(_error(prefix, "written paths must be canonical repository-relative paths (no '/', '~', '.', '..' or empty segments)"))
+            errors.append(_error(prefix, "written paths must be canonical repository-relative paths (no '/', '~', '.', '..', empty or '-'-prefixed segments)"))
         elif not any(path_matches(path, pattern) for pattern in editable_paths):
             errors.append(_error(prefix, f"{path} is outside the slice editable_paths"))
     return errors

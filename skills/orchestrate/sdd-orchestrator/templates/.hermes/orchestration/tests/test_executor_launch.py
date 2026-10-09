@@ -40,10 +40,19 @@ from pathlib import Path
 
 name = Path(sys.argv[0]).name
 args = sys.argv[1:]
-mode = os.environ.get("FAKE_MODE", "success")
-record = os.environ.get("FAKE_RECORD")
+# The launcher passes an allow-listed environment, so the test drives the fake through a file.
+config_path = Path(sys.argv[0]).resolve().parent / "fake-config.json"
+config = json.loads(config_path.read_text()) if config_path.is_file() else {}
+mode = config.get("mode", "success")
+record = config.get("record")
+child = None
+if mode == "sleep":
+    import subprocess
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"]).pid
 if record:
-    Path(record).write_text(json.dumps({"argv": args, "cwd": os.getcwd(), "pid": os.getpid()}))
+    Path(record + ".tmp").write_text(json.dumps({"argv": args, "cwd": os.getcwd(), "pid": os.getpid(), "child": child,
+                                                 "env": sorted(os.environ)}))
+    os.replace(record + ".tmp", record)
 
 def value(flag):
     return args[args.index(flag) + 1] if flag in args else None
@@ -55,7 +64,7 @@ if "--help" in args:
     if name == "claude":
         print("--print --output-format --json-schema --no-session-persistence --model --tools --add-dir --max-turns")
     else:
-        print("--output-schema --output-last-message --ephemeral --model --sandbox --cd --add-dir")
+        print("--output-schema --output-last-message --ephemeral --model --sandbox --cd --add-dir --config")
     raise SystemExit(0)
 if value("--model") == "bad-model":
     print("model not found", file=sys.stderr)
@@ -66,7 +75,7 @@ if mode == "sleep":
 if mode == "fail":
     print("upstream failure", file=sys.stderr)
     raise SystemExit(3)
-result = json.loads(os.environ.get("FAKE_RESULT", "{}"))
+result = config.get("result", {})
 if name == "claude":
     schema = value("--json-schema")
     if schema is not None and "$schema" in json.loads(schema):
@@ -192,7 +201,8 @@ class FakeCliMixin:
             target.chmod(0o755)
         return bin_dir
 
-    def environment(self, bin_dir: Path, **values: str):
+    def environment(self, bin_dir: Path, config: dict | None = None, **values: str):
+        (bin_dir / "fake-config.json").write_text(json.dumps(config or {}), encoding="utf-8")
         updates = {"PATH": f"{bin_dir}{os.pathsep}{process_environment.get('PATH', '')}", **values}
         return mock.patch.dict(process_environment, updates)
 
@@ -271,10 +281,11 @@ class LaunchRunTests(FakeCliMixin, unittest.TestCase):
     def launch_args(self, stage: str, *extra: str) -> list[str]:
         return ["--stage", stage, "--prompt-file", str(self.prompt), "--journal", str(self.journal), "--final", str(self.final), *extra]
 
-    def run_launcher(self, command: str, stage: str, *extra: str, mode: str = "success", result: dict | None = None) -> tuple[int, dict]:
+    def run_launcher(self, command: str, stage: str, *extra: str, mode: str = "success", result: dict | None = None,
+                     env: dict[str, str] | None = None) -> tuple[int, dict]:
         buffer = io.StringIO()
-        values = {"FAKE_MODE": mode, "FAKE_RECORD": str(self.record), "FAKE_RESULT": json.dumps(result or executor_fixture(stage))}
-        with self.environment(self.bin, **values), redirect_stdout(buffer):
+        config = {"mode": mode, "record": str(self.record), "result": result or executor_fixture(stage)}
+        with self.environment(self.bin, config, **(env or {})), redirect_stdout(buffer):
             code = launch.main([command, *self.launch_args(stage, *extra)])
         return code, json.loads(buffer.getvalue())
 
@@ -296,9 +307,11 @@ class LaunchRunTests(FakeCliMixin, unittest.TestCase):
 
     def test_build_codex_argv_keeps_repository_as_working_root(self) -> None:
         self.prepare("IMPLEMENT", "codex")
-        code, built = self.run_launcher("build", "IMPLEMENT", "--add-dir", str(self.runtime))
+        code, built = self.run_launcher("build", "IMPLEMENT")
         self.assertEqual(0, code, built)
         argv = built["argv"]
+        self.assertNotIn("--add-dir", argv)
+        self.assertEqual("sandbox_workspace_write.writable_roots=[]", argv[argv.index("--config") + 1])
         self.assertEqual(["exec", "--ephemeral"], argv[1:3])
         self.assertEqual(str(self.repo), argv[argv.index("--cd") + 1])
         self.assertEqual("workspace-write", argv[argv.index("--sandbox") + 1])
@@ -439,10 +452,258 @@ class LaunchRunTests(FakeCliMixin, unittest.TestCase):
         self.assertEqual(sha256_bytes(self.prompt.read_bytes()), started[started.index("--prompt-sha256") + 1])
         self.assertIn(("record-process", "--finished", "--exit-code", "0"), calls)
 
+    # ------------------------------------------------------------------ security (PR #45 review)
+
+    def test_writing_stage_refuses_add_dir_under_the_controller_or_outside_the_repository(self) -> None:
+        self.prepare("IMPLEMENT", "codex")
+        for directory in (launch.CONTROLLER_ROOT, launch.ORCHESTRATION_ROOT / "policies", self.runtime, self.base):
+            with self.subTest(directory=str(directory)):
+                code, result = self.run_launcher("build", "IMPLEMENT", "--add-dir", str(directory))
+                self.assertEqual((2, "ADD_DIR_WRITABLE_REFUSED"), (code, result["status"]), result)
+                self.assertNotIn("argv", result)
+                self.assertTrue(result["next_step"])
+        code, result = self.run_launcher("run", "IMPLEMENT", "--add-dir", str(launch.CONTROLLER_ROOT))
+        self.assertEqual("ADD_DIR_WRITABLE_REFUSED", result["status"])
+        self.assertFalse(self.record.exists(), "nothing may be dispatched")
+        self.assertEqual("PREPARED", self.journal_value()["action"]["status"])
+        inside = self.repo / "docs"
+        inside.mkdir()
+        code, built = self.run_launcher("build", "IMPLEMENT", "--add-dir", str(inside))
+        self.assertEqual(0, code, built)
+
+    def test_read_only_stage_may_read_the_controller_container(self) -> None:
+        self.prepare("PLAN", "claude")
+        code, built = self.run_launcher("build", "PLAN", "--add-dir", str(launch.CONTROLLER_ROOT))
+        self.assertEqual(0, code, built)
+        self.assertEqual("Read,Grep,Glob", built["argv"][built["argv"].index("--tools") + 1])
+
+    def test_claude_with_write_tools_is_a_writing_worker(self) -> None:
+        policy = self.base / "EXECUTORS.md"
+        policy.write_text('```json\n{"executors_version": 1, "stages": {"PLAN": {"executor": "claude", "tools": "Read,Edit"}}}\n```\n', encoding="utf-8")
+        self.prepare("PLAN", "claude")
+        code, result = self.run_launcher("build", "PLAN", "--policy", str(policy), "--add-dir", str(launch.CONTROLLER_ROOT))
+        self.assertEqual("ADD_DIR_WRITABLE_REFUSED", result["status"], result)
+
+    def test_sdd_obsidian_dispatch_never_gives_a_writing_worker_the_container(self) -> None:
+        import sdd
+
+        self.assertEqual([], sdd.dispatch_dir_arguments("LOCAL"))
+        extra = sdd.dispatch_dir_arguments("OBSIDIAN")
+        self.assertEqual(["--read-dir", str(sdd.CONTROLLER_ROOT)], extra)
+        for stage in ("IMPLEMENT", "TEST"):
+            self.final.unlink(missing_ok=True)
+            self.journal.unlink(missing_ok=True)
+            self.prepare(stage, "codex")
+            code, built = self.run_launcher("build", stage, *extra)
+            self.assertEqual(0, code, built)
+            argv = built["argv"]
+            self.assertNotIn("--add-dir", argv, "Codex --add-dir is a writable root")
+            self.assertIn("sandbox_workspace_write.writable_roots=[]", argv)
+            self.assertNotIn(str(sdd.CONTROLLER_ROOT), argv)
+        self.final.unlink(missing_ok=True)
+        self.journal.unlink(missing_ok=True)
+        self.prepare("PLAN", "claude")
+        code, built = self.run_launcher("build", "PLAN", *extra)
+        self.assertEqual(0, code, built)
+        self.assertEqual(str(sdd.CONTROLLER_ROOT), built["argv"][built["argv"].index("--add-dir") + 1])
+        policy = self.base / "EXECUTORS.md"
+        policy.write_text('```json\n{"executors_version": 1, "stages": {"PLAN": {"executor": "claude", "tools": "default"}}}\n```\n', encoding="utf-8")
+        code, result = self.run_launcher("build", "PLAN", "--policy", str(policy), *extra)
+        self.assertEqual("ADD_DIR_WRITABLE_REFUSED", result["status"], result)
+
+    def test_worker_environment_is_allow_listed(self) -> None:
+        secret = "synthetic-" + "v" * 12
+        names = {
+            "TYPESAFE" + "_API_KEY": secret, "JEV_AI" + "_API_KEY": secret, "HERMES_" + "GATEWAY_TOKEN": secret,
+            "OTHER_SERVICE" + "_API_KEY": secret, "GITHUB" + "_TOKEN": secret, "AWS_SECRET" + "_ACCESS_KEY": secret,
+            "ANTHROPIC" + "_API_KEY": secret, "CLAUDE_CONFIG_DIR": "/tmp/claude-config", "OPENAI" + "_API_KEY": secret,
+            "CODEX_HOME": "/tmp/codex-home", "LC_ALL": "C.UTF-8", "LANG": "C.UTF-8", "HOME": "/tmp/home",
+        }
+        with mock.patch.dict(process_environment, names):
+            codex = launch.worker_environment("codex")
+            claude = launch.worker_environment("claude")
+        for kept in ("PATH", "HOME", "LANG", "LC_ALL", "OPENAI" + "_API_KEY", "CODEX_HOME"):
+            self.assertIn(kept, codex)
+        for kept in ("ANTHROPIC" + "_API_KEY", "CLAUDE_CONFIG_DIR"):
+            self.assertIn(kept, claude)
+        for dropped in ("TYPESAFE" + "_API_KEY", "JEV_AI" + "_API_KEY", "HERMES_" + "GATEWAY_TOKEN", "OTHER_SERVICE" + "_API_KEY",
+                        "GITHUB" + "_TOKEN", "AWS_SECRET" + "_ACCESS_KEY"):
+            self.assertNotIn(dropped, codex)
+            self.assertNotIn(dropped, claude)
+        self.assertNotIn("ANTHROPIC" + "_API_KEY", codex)
+        self.assertNotIn("OPENAI" + "_API_KEY", claude)
+
+    def test_dispatched_worker_never_receives_unrelated_secrets(self) -> None:
+        secret = "synthetic-" + "w" * 12
+        self.prepare("TASKS", "codex")
+        env = {"TYPESAFE" + "_API_KEY": secret, "JEV_AI" + "_API_KEY": secret, "OPENAI" + "_API_KEY": secret}
+        code, result = self.run_launcher("run", "TASKS", env=env)
+        self.assertEqual(0, code, result)
+        seen = json.loads(self.record.read_text(encoding="utf-8"))["env"]
+        self.assertIn("OPENAI" + "_API_KEY", seen)
+        self.assertNotIn("TYPESAFE" + "_API_KEY", seen)
+        self.assertNotIn("JEV_AI" + "_API_KEY", seen)
+
+    def test_bypass_permissions_needs_the_explicit_owner_flag(self) -> None:
+        policy = self.base / "EXECUTORS.md"
+        stage = '"REVIEW": {"executor": "claude", "permission_mode": "bypassPermissions"}'
+        policy.write_text(f'```json\n{{"executors_version": 1, "stages": {{{stage}}}}}\n```\n', encoding="utf-8")
+        with self.assertRaises(launch.LaunchError) as raised:
+            launch.load_policy(policy)
+        self.assertEqual("EXECUTOR_POLICY_UNSAFE", raised.exception.status)
+        self.assertIn("allow_bypass_permissions", raised.exception.next_step)
+        policy.write_text(f'```json\n{{"executors_version": 1, "allow_bypass_permissions": true, "stages": {{{stage}}}}}\n```\n', encoding="utf-8")
+        self.assertEqual("bypassPermissions", launch.load_policy(policy)["stages"]["REVIEW"]["permission_mode"])
+        policy.write_text('```json\n{"executors_version": 1, "allow_bypass_permissions": "yes", "stages": {}}\n```\n', encoding="utf-8")
+        with self.assertRaises(launch.LaunchError) as raised:
+            launch.load_policy(policy)
+        self.assertEqual("POLICY_INVALID", raised.exception.status)
+
+    def test_sigterm_records_the_finish_and_kills_the_executor_group(self) -> None:
+        import signal
+
+        self.prepare("PLAN", "claude")
+        (self.bin / "fake-config.json").write_text(json.dumps({"mode": "sleep", "record": str(self.record)}), encoding="utf-8")
+        env = {key: value for key, value in process_environment.items()}
+        env["PATH"] = f"{self.bin}{os.pathsep}{env.get('PATH', '')}"
+        process = subprocess.Popen([sys.executable, str(SCRIPT), "run", *self.launch_args("PLAN")], env=env,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        deadline = time.monotonic() + 30
+        while not self.record.exists() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        self.assertTrue(self.record.exists(), "the fake executor never started")
+        recorded = json.loads(self.record.read_text(encoding="utf-8"))
+        process.send_signal(signal.SIGTERM)
+        stdout, stderr = process.communicate(timeout=60)
+        result = json.loads(stdout)
+        self.assertEqual("LAUNCHER_INTERRUPTED", result["status"], stdout + stderr)
+        self.assertIn("archive-interrupted", result["next_command"])
+        value = self.journal_value()
+        self.assertEqual(("PROCESS_FINISHED", 125), (value["action"]["status"], value["process"]["exit_code"]))
+        for pid in (recorded["pid"], recorded["child"]):
+            deadline = time.monotonic() + 10
+            alive = True
+            while alive and time.monotonic() < deadline:
+                try:
+                    os.kill(pid, 0)
+                    time.sleep(0.1)
+                except ProcessLookupError:
+                    alive = False
+            self.assertFalse(alive, f"process {pid} of the executor group survived")
+        with self.assertRaises(ProcessLookupError):
+            os.killpg(recorded["pid"], 0)
+
     def test_launcher_source_never_uses_a_shell(self) -> None:
         source = SCRIPT.read_text(encoding="utf-8")
         self.assertNotIn("shell=True", source)
         self.assertNotIn("os.system", source)
+
+
+class DashPrefixedPathTests(unittest.TestCase):
+    def test_validate_protocol_refuses_any_dash_prefixed_segment(self) -> None:
+        import validate_protocol
+
+        for path in ("--config=x", "-rf", "src/-x.py", "src/--help/a.py"):
+            with self.subTest(path=path):
+                self.assertFalse(validate_protocol._is_safe_relative(path))
+                self.assertFalse(validate_protocol.editable_pattern_is_safe(path))
+        for path in ("src/a-b.py", "src/x-/y.py", "tests/test_a.py"):
+            with self.subTest(path=path):
+                self.assertTrue(validate_protocol._is_safe_relative(path))
+
+
+class GateCommandSecurityTests(unittest.TestCase):
+    """`sdd.py gate`: dash-prefixed {files} and a GATES.md changed during the demand are refused."""
+
+    def setUp(self) -> None:
+        import sdd
+
+        self.sdd = sdd
+        temp = tempfile.TemporaryDirectory(prefix="gate-security-")
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        self.gates = self.root / "GATES.md"
+        self.marker = self.root / "ran"
+        self.write_gates(f"`{shlex.quote(sys.executable)} -c \"import pathlib,sys; pathlib.Path(sys.argv[1]).write_text(repr(sys.argv[2:]))\" {self.marker} {{files}}`")
+        for patcher in (mock.patch.object(sdd, "GATES_POLICY", self.gates), mock.patch.object(sdd, "record_wiki")):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.written: list[str] = []
+
+    def write_gates(self, focused: str) -> None:
+        self.gates.write_text("| Gate | Command | Executor | Timeout |\n| --- | --- | --- | --- |\n"
+                              f"| Focused tests | {focused} | host | 30 s |\n", encoding="utf-8")
+
+    def ctx(self, agent_owned: list[str], *, started_at: str = "2999-01-01T00:00:00Z", gates_policy: dict | None = None):
+        test = self
+        delivery = {"started_at": started_at}
+        if gates_policy is not None:
+            delivery["gates_policy"] = gates_policy
+
+        class FakeCtx:
+            repo = self.root
+            stage = "TEST"
+            ticket = "T-1"
+            state = {"ownership": {"agent_owned": agent_owned}, "gates": {}, "delivery": delivery}
+
+            def require_pristine(self) -> None:
+                return None
+
+            def write_state(self, data: dict, log: str) -> None:
+                test.written.append(log)
+                self.state = data
+
+        return FakeCtx()
+
+    def gate(self, ctx, *, confirm: bool = False, quote: str | None = None) -> dict:
+        args = mock.Mock(name="args", not_applicable=False, by="requester", quote=quote, confirm_gates_policy=confirm)
+        args.name = "focused_tests"
+        return self.sdd.cmd_gate(ctx, args)
+
+    def test_dash_prefixed_agent_owned_path_is_refused_before_running(self) -> None:
+        for path in ("--config=x", "src/-rf", "-x.py"):
+            with self.subTest(path=path), self.assertRaises(self.sdd.SddError) as raised:
+                self.gate(self.ctx(["src/ok.py", path]))
+            self.assertEqual("AGENT_OWNED_PATH_UNSAFE", raised.exception.code)
+            self.assertIn(path, str(raised.exception))
+            self.assertTrue(raised.exception.next_step)
+            self.assertFalse(self.marker.exists())
+
+    def test_safe_paths_are_passed_as_arguments(self) -> None:
+        result = self.gate(self.ctx(["src/ok.py", "tests/test_ok.py"]))
+        self.assertEqual("PASS", result["status"])
+        self.assertEqual("['src/ok.py', 'tests/test_ok.py']", self.marker.read_text(encoding="utf-8"))
+
+    def test_gates_changed_after_the_recorded_hash_is_refused(self) -> None:
+        ctx = self.ctx(["src/ok.py"])
+        self.assertEqual("PASS", self.gate(ctx)["status"])
+        recorded = ctx.state["delivery"]["gates_policy"]["sha256"]
+        self.assertEqual(hashlib.sha256(self.gates.read_bytes()).hexdigest(), recorded)
+        self.marker.unlink()
+        self.write_gates(f"`{shlex.quote(sys.executable)} -c \"print(1)\"`")
+        with self.assertRaises(self.sdd.SddError) as raised:
+            self.gate(ctx)
+        self.assertEqual("GATES_CHANGED_DURING_DEMAND", raised.exception.code)
+        self.assertIn("--confirm-gates-policy", raised.exception.next_command)
+        self.assertTrue(raised.exception.next_step)
+
+    def test_gates_edited_after_the_demand_started_is_refused_without_a_recorded_hash(self) -> None:
+        earlier = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))
+        with self.assertRaises(self.sdd.SddError) as raised:
+            self.gate(self.ctx(["src/ok.py"], started_at=earlier))
+        self.assertEqual("GATES_CHANGED_DURING_DEMAND", raised.exception.code)
+        self.assertFalse(self.marker.exists())
+
+    def test_confirm_gates_policy_records_the_users_hash(self) -> None:
+        ctx = self.ctx(["src/ok.py"], gates_policy={"sha256": "0" * 64})
+        with self.assertRaises(self.sdd.SddError):
+            self.gate(ctx, confirm=True, quote="")
+        result = self.gate(ctx, confirm=True, quote="yes, I changed the gates")
+        self.assertEqual("GATES_POLICY_CONFIRMED", result["status"])
+        self.assertFalse(self.marker.exists(), "confirmation never runs the gate")
+        self.assertEqual(hashlib.sha256(self.gates.read_bytes()).hexdigest(), ctx.state["delivery"]["gates_policy"]["sha256"])
+        self.assertEqual("yes, I changed the gates", ctx.state["delivery"]["gates_policy"]["quote"])
+        self.assertEqual("PASS", self.gate(ctx)["status"])
 
 
 if __name__ == "__main__":

@@ -21,11 +21,15 @@ import subprocess
 import sys
 import tempfile
 import time
+from os import environ as process_environment
 from pathlib import Path
 from typing import Any
 
 RUNTIME_ROOT = Path(__file__).resolve().parent
 ORCHESTRATION_ROOT = RUNTIME_ROOT.parent
+#: Directory holding ``.hermes/`` (the repository, or the Obsidian project container).
+CONTROLLER_ROOT = ORCHESTRATION_ROOT.parent.parent
+CONTROLLER_HERMES_ROOT = ORCHESTRATION_ROOT.parent
 SCHEMAS_ROOT = ORCHESTRATION_ROOT / "schemas"
 SUB_AGENTS_ROOT = ORCHESTRATION_ROOT / "sub-agents"
 DEFAULT_POLICY_PATH = ORCHESTRATION_ROOT / "policies" / "EXECUTORS.md"
@@ -45,7 +49,8 @@ LAUNCH_STATUSES = (
     "EXECUTOR_TIMEOUT", "LAUNCHER_ERROR", "JOURNAL_FINISH_FAILED", "DISPATCH_NOT_ALLOWED",
     "JOURNAL_NOT_PREPARED", "JOURNAL_MISMATCH", "PROMPT_HASH_MISMATCH", "ARTIFACT_PENDING",
     "EXECUTOR_UNAVAILABLE", "JOURNAL_REFUSED", "POLICY_INVALID", "ROLE_UNKNOWN", "STAGE_UNKNOWN",
-    "PROMPT_MISSING", "REPOSITORY_INVALID", "SCHEMA_UNSUPPORTED",
+    "PROMPT_MISSING", "REPOSITORY_INVALID", "SCHEMA_UNSUPPORTED", "ADD_DIR_WRITABLE_REFUSED", "EXECUTOR_POLICY_UNSAFE",
+    "LAUNCHER_INTERRUPTED",
 )
 PREFLIGHT_REASONS = ("EXECUTOR_UNAVAILABLE", "EXECUTOR_CLI_UNSUPPORTED", "MODEL_INVALID", "MODEL_REJECTED")
 MODEL_CHECKS = ("NOT_PROBED", "ACCEPTED", "REJECTED", "TIMEOUT")
@@ -60,7 +65,7 @@ PROBE_TIMEOUT_SECONDS = 120
 MODEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,127}$")
 REQUIRED_HELP_FLAGS = {
     "claude": ("--print", "--output-format", "--json-schema", "--no-session-persistence", "--model", "--tools", "--add-dir"),
-    "codex": ("--output-schema", "--output-last-message", "--ephemeral", "--model", "--sandbox", "--cd", "--add-dir"),
+    "codex": ("--output-schema", "--output-last-message", "--ephemeral", "--model", "--sandbox", "--cd", "--add-dir", "--config"),
 }
 
 DEFAULT_STAGE_POLICY: dict[str, dict[str, Any]] = {
@@ -74,7 +79,22 @@ DEFAULT_STAGE_POLICY: dict[str, dict[str, Any]] = {
 }
 STAGE_KEYS = {"executor", "model", "timeout_seconds", "max_turns", "tools", "permission_mode", "sandbox"}
 DEFAULT_CLAUDE_TOOLS = "Read,Grep,Glob"
+#: Claude tools that cannot change a file; any other tool (or ``default``) makes the worker a writer.
+READ_ONLY_CLAUDE_TOOLS = frozenset({"Read", "Grep", "Glob", "LS", "NotebookRead"})
 WRITING_STAGES = {"IMPLEMENT", "TEST"}
+POLICY_KEYS = {"executors_version", "stages", "allow_bypass_permissions"}
+BYPASS_PERMISSION_MODE = "bypassPermissions"
+#: Codex treats ``--add-dir`` as an extra *writable* root; a writing Codex worker gets none at all.
+CODEX_NO_EXTRA_WRITABLE_ROOTS = "sandbox_workspace_write.writable_roots=[]"
+#: Environment the worker inherits: nothing else (no TYPESAFE_*, JEV_*, HERMES_* or foreign *_API_KEY/*_TOKEN).
+WORKER_ENV_NAMES = frozenset({
+    "PATH", "HOME", "LANG", "TMPDIR", "TEMP", "TMP", "USER", "LOGNAME", "SHELL", "TERM", "TZ", "COLORTERM",
+    "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS",
+    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+})
+WORKER_ENV_PREFIXES = ("LC_",)
+EXECUTOR_ENV_PREFIXES = {"claude": ("ANTHROPIC_", "CLAUDE_"), "codex": ("OPENAI_", "CODEX_")}
 
 
 class LaunchError(Exception):
@@ -109,7 +129,7 @@ def load_policy(path: Path | None = None) -> dict[str, Any]:
     fix = f"Fix the fenced json block in {policy_path} (see policies/EXECUTORS.md in the template)."
     stages = copy.deepcopy(DEFAULT_STAGE_POLICY)
     if not policy_path.is_file():
-        return {"source": "DEFAULTS", "path": str(policy_path), "stages": stages}
+        return {"source": "DEFAULTS", "path": str(policy_path), "stages": stages, "allow_bypass_permissions": False}
     block = _extract_json_block(policy_path.read_text(encoding="utf-8"))
     if block is None:
         raise LaunchError("POLICY_INVALID", "EXECUTORS.md has no fenced json block.", fix)
@@ -117,8 +137,11 @@ def load_policy(path: Path | None = None) -> dict[str, Any]:
         value = json.loads(block)
     except json.JSONDecodeError as exc:
         raise LaunchError("POLICY_INVALID", f"EXECUTORS.md json block is not valid JSON: {exc}", fix) from exc
-    if not isinstance(value, dict) or set(value) - {"executors_version", "stages"} or value.get("executors_version") != 1:
-        raise LaunchError("POLICY_INVALID", "EXECUTORS.md must contain {executors_version: 1, stages: {...}} only.", fix)
+    if not isinstance(value, dict) or set(value) - POLICY_KEYS or value.get("executors_version") != 1:
+        raise LaunchError("POLICY_INVALID", "EXECUTORS.md must contain {executors_version: 1, stages: {...}} and optionally allow_bypass_permissions only.", fix)
+    allow_bypass = value.get("allow_bypass_permissions", False)
+    if not isinstance(allow_bypass, bool):
+        raise LaunchError("POLICY_INVALID", "allow_bypass_permissions must be true or false.", fix)
     configured = value.get("stages", {})
     if not isinstance(configured, dict):
         raise LaunchError("POLICY_INVALID", "stages must be an object.", fix)
@@ -129,8 +152,13 @@ def load_policy(path: Path | None = None) -> dict[str, Any]:
             raise LaunchError("POLICY_INVALID", f"{stage} accepts only {sorted(STAGE_KEYS)}.", fix)
         merged = {**stages[stage], **entry}
         _validate_stage_entry(stage, merged, fix)
+        if merged.get("permission_mode") == BYPASS_PERMISSION_MODE and not allow_bypass:
+            raise LaunchError("EXECUTOR_POLICY_UNSAFE",
+                              f"{stage}: permission_mode {BYPASS_PERMISSION_MODE} lets the worker run any tool without a check.",
+                              f"Remove permission_mode from {stage} in {policy_path}, or, as the project owner who accepts that risk, "
+                              "add \"allow_bypass_permissions\": true next to executors_version.")
         stages[stage] = merged
-    return {"source": "FILE", "path": str(policy_path), "stages": stages}
+    return {"source": "FILE", "path": str(policy_path), "stages": stages, "allow_bypass_permissions": allow_bypass}
 
 
 def _validate_stage_entry(stage: str, entry: dict[str, Any], fix: str) -> None:
@@ -177,6 +205,48 @@ def stage_settings(policy: dict[str, Any], stage: str, *, executor: str | None, 
     elif settings.get("sandbox") is None:
         settings["sandbox"] = "workspace-write" if stage in WRITING_STAGES else "read-only"
     return settings
+
+
+def is_writing_worker(settings: dict[str, Any]) -> bool:
+    """True when the worker can change files: a Codex workspace-write sandbox or Claude with any non-read tool."""
+    if settings["executor"] == "codex":
+        return settings.get("sandbox") == "workspace-write"
+    tools = (settings.get("tools") or "").strip()
+    if tools == "default":
+        return True
+    return any(tool.strip() and tool.strip() not in READ_ONLY_CLAUDE_TOOLS for tool in tools.split(","))
+
+
+def _inside(path: Path, root: Path) -> bool:
+    resolved, base = path.resolve(), root.resolve()
+    return resolved == base or base in resolved.parents
+
+
+def check_extra_dirs(stage: str, settings: dict[str, Any], repository: Path, add_dirs: list[str], read_dirs: list[str]) -> None:
+    """Refuse any extra directory a writing worker could write outside the repository (ADD_DIR_WRITABLE_REFUSED).
+
+    ``--add-dir`` is writable for Codex and for a Claude worker with write tools, so a writing worker
+    gets it only inside the repository and never under the controller's ``.hermes`` directory.
+    ``--read-dir`` is only for reading: a read-only Claude worker receives it as ``--add-dir``; Codex
+    never needs it (both sandboxes read the filesystem); a writing Claude worker cannot hold it.
+    """
+    writing = is_writing_worker(settings)
+    for directory in add_dirs:
+        path = Path(directory)
+        if not path.is_absolute():
+            raise LaunchError("ADD_DIR_WRITABLE_REFUSED", f"--add-dir {directory} must be an absolute path.", "Pass absolute directories only.")
+        if writing and (not _inside(path, repository) or _inside(path, CONTROLLER_HERMES_ROOT)):
+            raise LaunchError("ADD_DIR_WRITABLE_REFUSED",
+                              f"{stage} runs a writing worker ({settings['executor']}); --add-dir {directory} would be writable outside the repository.",
+                              "Drop --add-dir. Pass directories the worker only reads with --read-dir; the controller container and runtime are never writable by a worker.")
+    for directory in read_dirs:
+        if not Path(directory).is_absolute():
+            raise LaunchError("ADD_DIR_WRITABLE_REFUSED", f"--read-dir {directory} must be an absolute path.", "Pass absolute directories only.")
+        if writing and settings["executor"] == "claude" and not _inside(Path(directory), repository):
+            raise LaunchError("ADD_DIR_WRITABLE_REFUSED",
+                              f"{stage} gives Claude write tools ({settings.get('tools')}); Claude --add-dir {directory} would also be writable.",
+                              "Run this stage on codex (its workspace-write sandbox reads the filesystem and writes only the repository), "
+                              "or keep the Claude tools read-only (Read,Grep,Glob) in policies/EXECUTORS.md.")
 
 
 # --------------------------------------------------------------------------- schema
@@ -248,8 +318,8 @@ def stage_transport_schema(stage: str, role: str | None = None) -> dict[str, Any
 
 # --------------------------------------------------------------------------- preflight
 
-def _run_quiet(argv: list[str], timeout: int, cwd: str | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, cwd=cwd, stdin=subprocess.DEVNULL, check=False)
+def _run_quiet(argv: list[str], timeout: int, cwd: str | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, cwd=cwd, env=env, stdin=subprocess.DEVNULL, check=False)
 
 
 def preflight(executor: str, model: str | None, probe: bool) -> dict[str, Any]:
@@ -300,7 +370,7 @@ def _probe(executor: str, binary: str, model: str | None) -> dict[str, Any]:
             argv += ["--model", model] if model else []
             argv += ["-o", str(Path(scratch) / "probe.txt"), "Reply with the single word OK."]
         try:
-            completed = _run_quiet(argv, PROBE_TIMEOUT_SECONDS, cwd=scratch)
+            completed = _run_quiet(argv, PROBE_TIMEOUT_SECONDS, cwd=scratch, env=worker_environment(executor))
         except subprocess.TimeoutExpired:
             return {"model_check": "TIMEOUT", "probe_exit_code": TIMEOUT_EXIT_CODE}
         accepted = completed.returncode == 0
@@ -319,9 +389,11 @@ def _side_paths(final: Path) -> tuple[Path, Path]:
     return final.with_name(final.name + ".transport-schema.json"), final.with_name(final.name + ".last-message.tmp")
 
 
-def build_argv(*, stage: str, settings: dict[str, Any], schema: dict[str, Any], repository: Path, final: Path, add_dirs: list[str], binary: str) -> list[str]:
+def build_argv(*, stage: str, settings: dict[str, Any], schema: dict[str, Any], repository: Path, final: Path, add_dirs: list[str], binary: str,
+               read_dirs: list[str] | None = None) -> list[str]:
     schema_file, last_message = _side_paths(final)
     if settings["executor"] == "claude":
+        add_dirs = [*add_dirs, *(read_dirs or [])]
         argv = [binary, "-p", "--output-format", "json", "--json-schema", json.dumps(schema, separators=(",", ":"), ensure_ascii=False),
                 "--no-session-persistence", "--tools", settings["tools"]]
         if settings.get("max_turns"):
@@ -337,6 +409,8 @@ def build_argv(*, stage: str, settings: dict[str, Any], schema: dict[str, Any], 
             "--output-schema", str(schema_file), "--output-last-message", str(last_message)]
     if settings.get("model"):
         argv += ["--model", settings["model"]]
+    if is_writing_worker(settings):
+        argv += ["--config", CODEX_NO_EXTRA_WRITABLE_ROOTS]
     for directory in add_dirs:
         argv += ["--add-dir", directory]
     argv.append("-")
@@ -377,8 +451,10 @@ def _plan(args: argparse.Namespace) -> dict[str, Any]:
     prompt = Path(args.prompt_file)
     if not prompt.is_file():
         raise LaunchError("PROMPT_MISSING", f"Prompt file {prompt} does not exist.", "Write the prompt file, record its SHA-256 in the prepared journal, then retry.")
+    check_extra_dirs(args.stage, settings, repository, list(args.add_dir), list(args.read_dir))
     binary = shutil.which(settings["executor"]) or settings["executor"]
-    argv = build_argv(stage=args.stage, settings=settings, schema=schema, repository=repository, final=final, add_dirs=list(args.add_dir), binary=binary)
+    argv = build_argv(stage=args.stage, settings=settings, schema=schema, repository=repository, final=final, add_dirs=list(args.add_dir), binary=binary,
+                      read_dirs=list(args.read_dir))
     return {"policy": policy, "settings": settings, "schema": schema, "journal": journal, "journal_value": journal_value,
             "repository": repository, "final": final, "prompt": prompt, "argv": argv}
 
@@ -449,23 +525,85 @@ def _check_dispatch(plan: dict[str, Any], stage: str) -> str:
 
 # --------------------------------------------------------------------------- run
 
+def worker_environment(executor: str) -> dict[str, str]:
+    """Allow-listed environment for the worker: base variables plus the executor's own auth and config."""
+    prefixes = (*WORKER_ENV_PREFIXES, *EXECUTOR_ENV_PREFIXES[executor])
+    return {name: value for name, value in process_environment.items() if name in WORKER_ENV_NAMES or name.startswith(prefixes)}
+
+
+class LauncherInterrupted(BaseException):
+    """SIGTERM/SIGHUP received while a dispatch is in flight; converted so the finally blocks run."""
+
+    def __init__(self, signum: int) -> None:
+        super().__init__(f"launcher received signal {signum}")
+        self.signum = signum
+
+
+class _SignalGuard:
+    """Turn the first SIGTERM/SIGHUP into LauncherInterrupted; later ones are ignored.
+
+    ``hold()`` blocks the signals around journal writes so a signal can never split them;
+    a blocked signal is delivered (and raised) on ``release()``.
+    """
+
+    SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+
+    def __init__(self) -> None:
+        self.raised = False
+        self.previous: dict[int, Any] = {}
+
+    def _handler(self, signum: int, _frame: Any) -> None:
+        if not self.raised:
+            self.raised = True
+            raise LauncherInterrupted(signum)
+
+    def __enter__(self) -> "_SignalGuard":
+        try:
+            for sig in self.SIGNALS:
+                self.previous[sig] = signal.signal(sig, self._handler)
+        except ValueError:  # not the main thread: keep the default behavior
+            self.previous.clear()
+        return self
+
+    def hold(self) -> None:
+        if self.previous:
+            signal.pthread_sigmask(signal.SIG_BLOCK, self.SIGNALS)
+
+    def release(self) -> None:
+        if self.previous:
+            signal.pthread_sigmask(signal.SIG_UNBLOCK, self.SIGNALS)
+
+    def __exit__(self, *_exc: Any) -> None:
+        self.raised = True  # a signal still pending after the journal is recorded is dropped
+        self.release()
+        for sig, handler in self.previous.items():
+            signal.signal(sig, handler)
+
+
 def _terminate_group(process: subprocess.Popen[bytes]) -> None:
-    for sig, wait in ((signal.SIGTERM, TERMINATE_GRACE_SECONDS), (signal.SIGKILL, TERMINATE_GRACE_SECONDS)):
-        try:
-            os.killpg(process.pid, sig)
-        except (ProcessLookupError, PermissionError):
-            pass
-        try:
-            process.wait(timeout=wait)
-            return
-        except subprocess.TimeoutExpired:
-            continue
+    """SIGTERM the whole group, wait the grace period, then SIGKILL whatever is left of the group."""
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        pass
+    try:
+        process.wait(timeout=TERMINATE_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    try:
+        process.wait(timeout=TERMINATE_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        pass
 
 
-def _spawn(argv: list[str], *, cwd: Path, prompt: Path, timeout: int) -> tuple[int, bytes, bytes, bool]:
+def _spawn(argv: list[str], *, cwd: Path, prompt: Path, timeout: int, env: dict[str, str]) -> tuple[int, bytes, bytes, bool]:
     """Run in the foreground in its own process group; kill the whole group on timeout."""
     with prompt.open("rb") as stdin, tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
-        process = subprocess.Popen(argv, cwd=str(cwd), stdin=stdin, stdout=out, stderr=err, start_new_session=True)
+        process = subprocess.Popen(argv, cwd=str(cwd), stdin=stdin, stdout=out, stderr=err, start_new_session=True, env=env)
         timed_out = False
         try:
             process.wait(timeout=timeout)
@@ -546,12 +684,21 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         raise LaunchError("EXECUTOR_UNAVAILABLE", f"{settings['executor']} is not on PATH.", "Install the CLI or select another executor in policies/EXECUTORS.md; the journal stays PREPARED.",
                           _command(_python(), Path(__file__), "preflight", "--executor", settings["executor"]))
     prompt_hash = _check_dispatch(plan, args.stage)
+    with _SignalGuard() as guard:
+        return _dispatch(args, plan, prompt_hash, guard)
+
+
+def _dispatch(args: argparse.Namespace, plan: dict[str, Any], prompt_hash: str, guard: _SignalGuard) -> dict[str, Any]:
+    journal: Path = plan["journal"]
+    settings = plan["settings"]
     schema_file, last_message = _side_paths(plan["final"])
     started = ["record-process", "--started"]
     if _journal_supports("--prompt-sha256"):
         started += ["--prompt-sha256", prompt_hash]
+    guard.hold()
     code, payload = _journal_cli(journal, *started)
     if code != 0:
+        guard.release()
         raise LaunchError("JOURNAL_REFUSED", f"record-process --started refused: {payload.get('status')}: {payload.get('message')}",
                           "Nothing was dispatched. Resolve the journal error, then retry run.",
                           _command(_python(), ACTION_JOURNAL_SCRIPT, "--journal", journal, "--json", "recover"))
@@ -559,18 +706,24 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     stdout = stderr = b""
     timed_out = False
     launcher_error: str | None = None
+    interrupted: int | None = None
     began = time.monotonic()
     try:
+        guard.release()  # a signal that arrived while recording --started is raised here, inside the try
         if settings["executor"] == "codex":
             _atomic_write(schema_file, json.dumps(plan["schema"], indent=2, ensure_ascii=False).encode("utf-8"))
             if last_message.exists():
                 last_message.unlink()
-        exit_code, stdout, stderr, timed_out = _spawn(plan["argv"], cwd=plan["repository"], prompt=plan["prompt"], timeout=settings["timeout_seconds"])
+        exit_code, stdout, stderr, timed_out = _spawn(plan["argv"], cwd=plan["repository"], prompt=plan["prompt"], timeout=settings["timeout_seconds"],
+                                                      env=worker_environment(settings["executor"]))
+    except LauncherInterrupted as exc:  # _spawn already killed the executor process group
+        exit_code, interrupted, launcher_error = LAUNCHER_ERROR_EXIT_CODE, exc.signum, str(exc)
     except FileNotFoundError as exc:
         exit_code, launcher_error = NOT_FOUND_EXIT_CODE, str(exc)
     except Exception as exc:  # recorded below; the journal must never stay DISPATCHED
         launcher_error = f"{type(exc).__name__}: {exc}"
     finally:
+        guard.hold()
         finish_code, finish_payload = _journal_cli(journal, "record-process", "--finished", "--exit-code", str(exit_code))
     duration = round(time.monotonic() - began, 3)
     base = {"executor": settings["executor"], "stage": args.stage, "exit_code": exit_code, "final": str(plan["final"]),
@@ -579,6 +732,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if finish_code != 0:
             return {**base, "status": "JOURNAL_FINISH_FAILED", "next_step": f"record-process --finished failed ({finish_payload.get('status')}). Inspect the journal; do not redispatch.",
                     "next_command": _command(_python(), ACTION_JOURNAL_SCRIPT, "--journal", journal, "--json", "inspect")}
+        if interrupted is not None:
+            return {**base, "status": "LAUNCHER_INTERRUPTED", "signal": interrupted,
+                    "next_step": "The launcher was stopped by a signal; the executor process group was killed and exit 125 recorded. Archive the interrupted action, then `sdd.py next` prepares the retry.",
+                    "next_command": _archive_command(journal)}
         if launcher_error is not None:
             return {**base, "status": "LAUNCHER_ERROR", "message": launcher_error, "next_step": "The process result is recorded. Archive the interrupted action, fix the launcher error, then prepare a retry with parent_action_id.",
                     "next_command": _archive_command(journal)}
@@ -624,7 +781,10 @@ def _add_launch_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model", help="Override the stage model from policies/EXECUTORS.md.")
     parser.add_argument("--timeout", type=int, help="Override timeout_seconds (1-7200).")
     parser.add_argument("--repo", help="Repository used as cwd; defaults to the journal workspace.path.")
-    parser.add_argument("--add-dir", action="append", default=[], help="Extra directory the executor may read (e.g. a vault path); repeatable.")
+    parser.add_argument("--add-dir", action="append", default=[],
+                        help="Extra directory passed as the CLI's --add-dir (writable for Codex and for Claude with write tools; a writing worker gets it only inside the repository); repeatable.")
+    parser.add_argument("--read-dir", action="append", default=[],
+                        help="Directory the worker only reads (e.g. the Obsidian controller container): --add-dir for a read-only Claude worker, omitted for Codex; repeatable.")
     parser.add_argument("--policy", help="EXECUTORS.md path; defaults to policies/EXECUTORS.md.")
 
 
