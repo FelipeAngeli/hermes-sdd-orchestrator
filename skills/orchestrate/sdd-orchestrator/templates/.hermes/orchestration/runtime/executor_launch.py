@@ -63,8 +63,15 @@ TERMINATE_GRACE_SECONDS = 5
 TAIL_CHARACTERS = 2000
 PROBE_TIMEOUT_SECONDS = 120
 MODEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,127}$")
+#: Every Claude call (dispatch and probe) loads only the user's own settings and no MCP server or skill.
+#: ``-p`` runs with cwd = the repository and skips the workspace-trust dialog, so without these flags
+#: the CLI would load ``.claude/settings.json``/``settings.local.json`` (hooks run as the user, outside
+#: every tool restriction), ``.mcp.json`` servers and ``.claude/skills`` — all files a writing worker
+#: can create. ``--bare`` is not used: it also stops OAuth/keychain auth (``ANTHROPIC_API_KEY`` only).
+CLAUDE_ISOLATION_ARGS = ("--setting-sources", "user", "--strict-mcp-config", "--disable-slash-commands")
 REQUIRED_HELP_FLAGS = {
-    "claude": ("--print", "--output-format", "--json-schema", "--no-session-persistence", "--model", "--tools", "--add-dir"),
+    "claude": ("--print", "--output-format", "--json-schema", "--no-session-persistence", "--model", "--tools", "--add-dir",
+               "--setting-sources", "--strict-mcp-config", "--disable-slash-commands"),
     "codex": ("--output-schema", "--output-last-message", "--ephemeral", "--model", "--sandbox", "--cd", "--add-dir", "--config"),
 }
 
@@ -217,9 +224,30 @@ def is_writing_worker(settings: dict[str, Any]) -> bool:
     return any(tool.strip() and tool.strip() not in READ_ONLY_CLAUDE_TOOLS for tool in tools.split(","))
 
 
+def _identity(path: Path) -> tuple[int, int] | None:
+    try:
+        status = path.stat()
+    except OSError:
+        return None
+    return status.st_dev, status.st_ino
+
+
 def _inside(path: Path, root: Path) -> bool:
+    """True when ``path`` is ``root`` or below it, comparing files rather than spellings.
+
+    ``Path.resolve()`` keeps the caller's letter case on a case-insensitive filesystem
+    (``/X/REPO`` and ``/x/repo`` are the same directory), so the textual test alone lets an
+    alias escape. Each existing ancestor of ``path`` is compared to ``root`` by
+    ``(st_dev, st_ino)``, as the installer does for ``OBSIDIAN_VAULT_OVERLAPS_TARGET``;
+    the textual test stays for paths that do not exist yet.
+    """
     resolved, base = path.resolve(), root.resolve()
-    return resolved == base or base in resolved.parents
+    if resolved == base or base in resolved.parents:
+        return True
+    target = _identity(base)
+    if target is None:
+        return False
+    return any(_identity(candidate) == target for candidate in (resolved, *resolved.parents))
 
 
 def check_extra_dirs(stage: str, settings: dict[str, Any], repository: Path, add_dirs: list[str], read_dirs: list[str]) -> None:
@@ -249,7 +277,8 @@ def check_extra_dirs(stage: str, settings: dict[str, Any], repository: Path, add
                               "or keep the Claude tools read-only (Read,Grep,Glob) in policies/EXECUTORS.md.")
 
 
-MIGRATE_SCRIPT = RUNTIME_ROOT / "migrate_to_vault.py"
+#: Where ``install_project.py`` sits in the installed skill; the controller only names it.
+INSTALL_COMMAND = "python3 <installed-skill>/scripts/install_project.py --target {repository} --obsidian-vault <vault> --obsidian-project <project> --json"
 
 
 def check_controller_isolation(stage: str, settings: dict[str, Any], repository: Path) -> None:
@@ -281,10 +310,13 @@ def check_controller_isolation(stage: str, settings: dict[str, Any], repository:
         f"{stage} runs a writing worker ({settings['executor']}) whose writable root {repository} contains the controller "
         f"at {CONTROLLER_HERMES_ROOT}: it could rewrite the gate commands, the executor policy, the controller's own runtime, "
         "STATE or the journal, together with every hash the controller would check them against.",
-        "Move the controller out of the repository before any writing stage: `migrate_to_vault.py --repo <repository> --apply` "
-        "installs it in the Obsidian container, which is never a writable root for a worker. Until then this stage cannot be "
-        "dispatched; a read-only stage still runs. Run it through `sdd.py`, which prints the exact command and records the stop.",
-        _command(_python(), MIGRATE_SCRIPT, "--repo", repository, "--apply"))
+        "This stage cannot be dispatched while the controller lives in the repository; a read-only stage still runs. "
+        "The exit is to abandon the demand (`sdd.py abandon`), reinstall the controller in Obsidian mode with "
+        "`install_project.py --obsidian-vault <vault>` (its container is never a writable root for a worker), then start again. "
+        f"The reinstall dry run is `{INSTALL_COMMAND.format(repository=shlex.quote(str(repository)))}`; "
+        "`sdd.py next` prints the whole sequence as `exit_commands`.",
+        f"{shlex.quote(sys.executable)} {shlex.quote(str(Path(__file__).resolve().parent / 'sdd.py'))} abandon "
+        "--reason 'controller shares the writing worker filesystem' --quote '<user words>'")
 
 
 # --------------------------------------------------------------------------- schema
@@ -379,7 +411,8 @@ def preflight(executor: str, model: str | None, probe: bool) -> dict[str, Any]:
     result["missing_flags"] = missing
     if version.returncode != 0 or missing:
         return {**result, "status": "BLOCKED", "reason": "EXECUTOR_CLI_UNSUPPORTED",
-                "next_step": f"Upgrade the {executor} CLI: it must support {', '.join(REQUIRED_HELP_FLAGS[executor])}.", "next_command": None}
+                "next_step": f"Upgrade the {executor} CLI: it must support {', '.join(REQUIRED_HELP_FLAGS[executor])}"
+                             + (f" (missing: {', '.join(missing)})." if missing else "."), "next_command": None}
     if model is not None and not MODEL_PATTERN.match(model):
         return {**result, "status": "BLOCKED", "reason": "MODEL_INVALID",
                 "next_step": "Use a plain model name (letters, digits, . _ : / - [ ]) in policies/EXECUTORS.md.", "next_command": None}
@@ -400,7 +433,7 @@ def _probe(executor: str, binary: str, model: str | None) -> dict[str, Any]:
     """One minimal real call that proves login and model acceptance; never used by the dispatch path."""
     with tempfile.TemporaryDirectory(prefix="sdd-executor-probe-") as scratch:
         if executor == "claude":
-            argv = [binary, "-p", "--output-format", "json", "--no-session-persistence", "--max-turns", "1", "--tools", ""]
+            argv = [binary, "-p", "--output-format", "json", "--no-session-persistence", *CLAUDE_ISOLATION_ARGS, "--max-turns", "1", "--tools", ""]
             argv += ["--model", model] if model else []
             argv.append("Reply with the single word OK.")
         else:
@@ -433,7 +466,7 @@ def build_argv(*, stage: str, settings: dict[str, Any], schema: dict[str, Any], 
     if settings["executor"] == "claude":
         add_dirs = [*add_dirs, *(read_dirs or [])]
         argv = [binary, "-p", "--output-format", "json", "--json-schema", json.dumps(schema, separators=(",", ":"), ensure_ascii=False),
-                "--no-session-persistence", "--tools", settings["tools"]]
+                "--no-session-persistence", *CLAUDE_ISOLATION_ARGS, "--tools", settings["tools"]]
         if settings.get("max_turns"):
             argv += ["--max-turns", str(settings["max_turns"])]
         if settings.get("model"):
