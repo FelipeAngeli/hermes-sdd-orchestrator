@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.0.1 - 2026-10-09
+
 ### Fixed
 - 15.0.0 is unreleased on this branch, so the `sdd.py restore-policy` command below is recorded as part of the fixes to it.
 - `CONTROLLER_WRITABLE_BY_WORKER` is no longer a dead end (pr-reviewer round 4 on #45, BLOCKING). Its exit `migrate_to_vault.py --repo <repo> --apply` failed when executed (exit 2 `BINDING_MISSING` on a `--local-storage` install, refused an open demand, and by design kept `runtime/*.py` and `policies/` in the repository). The stop now prints `exit_commands`: `abandon`, `install_project.py --obsidian-vault <vault> --obsidian-project <project>` dry run and `--apply`, `mv` of the in-repository controller into `<vault>/<project>/.hermes-local-controller-backup/`, `confirm-policy` for the new container's policies and the new controller's `start`; a test executes every printed command and reaches `PREPARE`.
