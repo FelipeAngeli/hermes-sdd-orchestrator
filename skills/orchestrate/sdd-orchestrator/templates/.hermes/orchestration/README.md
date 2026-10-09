@@ -26,18 +26,20 @@ This directory separates controller concerns while keeping mutable local state a
 
 ## Commands
 
+The controller drives a demand only through the single entry point; it never needs the other tools' `--help`:
+
+```text
+python3 .hermes/orchestration/runtime/sdd.py status    # compact JSON: paths, stage, recovery, budgets left, next_command
+python3 .hermes/orchestration/runtime/sdd.py next      # the exact command batch for the next step, or the stop and its next_command
+python3 .hermes/orchestration/runtime/sdd.py start --ticket <id> --title <t> --objective <o> [--deliverable-kind CODE|DECISION_DOC|BOTH]
+```
+
+Other subcommands (`snapshot`, `manifest`, `prepare`, `accept`, `reject`, `transition`, `waive`, `answer`, `unblock`, `budget --raise`, `gate`) appear inside the printed batches or as the `next_command` of a stop. Stop reasons and their single next action: `policies/LOOP_POLICY.md` §9 (generated from `runtime/stop_reasons.py`).
+
 Run the installed protocol suite:
 
 ```text
 python3 -m unittest discover -s .hermes/orchestration/tests -p 'test_*.py'
-```
-
-Inspect individual runtime tools with `--help`, for example:
-
-```text
-python3 .hermes/orchestration/runtime/action_journal.py --help
-python3 .hermes/orchestration/runtime/bounded_run_planner.py --help
-python3 .hermes/orchestration/runtime/bounded_run_driver.py --help
 ```
 
 ## Terminal progress
@@ -92,7 +94,7 @@ Configure project-specific validation in `policies/GATES.md` before starting a d
 
 Before dispatching a worker, load the matching brief from `agents/` together with only the applicable contract, policy excerpt and scoped project evidence. The brief never grants STATE or transition authority. Executor schema version 3 carries evidence-backed facts, material assumptions/questions and stable acceptance-check IDs through every stage. TASKS produces the controller's authoritative non-empty acceptance mapping: ID, criterion, verification method, verifier and slice assignment. Workers may change only status and evidence. IMPLEMENT receives exactly one current slice ID plus an explicit disjoint completed set and may not add another TDD slice; TEST and every REVIEW status must match the full mapping rather than treating payload-declared values or green gates as authority.
 
-Before each dispatch, the controller checks a per-stage context manifest with `runtime/stage_context.py`. The manifest holds scoped excerpts, the `project-context-guardian` result required before PLAN and IMPLEMENT, the `semantic_governance` Jev decision those stages need when automatic Jev consent is recorded, and the slice's editable paths and observable verifiers. An approved slice hash is reused rather than asked for again. When a valid result fails verification, `runtime/correction_loop.py` decides whether one more correction is allowed or the loop pauses with an explicit `stop_reason`. Both tools only read controller-owned files and never write state.
+Before each dispatch, the printed batch writes the per-stage context manifest (`sdd.py manifest`, hashes computed, `limits.max_prompt_bytes` default 48 KB) and checks it with `runtime/stage_context.py`. The manifest holds scoped excerpts, the `project-context-guardian` result required before PLAN and IMPLEMENT, the `semantic_governance` Jev decision those stages need when automatic Jev consent is recorded, and the slice's editable paths and observable verifiers. An approved slice hash is reused rather than asked for again. When a valid result fails verification, `runtime/correction_loop.py` decides whether one more correction is allowed or the loop pauses with an explicit `stop_reason`. Both tools only read controller-owned files and never write state.
 
 When a stage needs a narrower role, the controller may select one matching brief from `sub-agents/` instead, subject to `policies/DISPATCH_POLICY.md`, whose default is **not** to dispatch: a specialist runs only when the controller can name the pending decision that depends on its answer, and only when a deterministic tool cannot answer the question first. Stage agents never dispatch sub-agents; the one-leaf-worker invariant remains unchanged. A successful specialized action returns evidence to the controller but never completes or transitions the enclosing stage by itself.
 

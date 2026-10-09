@@ -18,6 +18,8 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/bounded_run_planner.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/bounded_run_driver.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/bounded_loop_driver.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/sdd.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/stop_reasons.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/terminal_progress.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/BOUNDED_RUN_PLAN_SCHEMA.json"
     ],

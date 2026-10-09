@@ -154,6 +154,12 @@ answers:
   project_tools: UNRESOLVED
 ```
 
+Who may approve or waive a HUMAN acceptance check (`sdd.py waive --by`). Every role defaults to the requester; replace a value only when the project names a different person.
+
+```json
+{"approvers": {"product_owner": "requester", "tech_lead": "requester"}}
+```
+
 ## Onboarding rules
 
 - Ask only about orchestrator connectivity, never product requirements or implementation preferences.

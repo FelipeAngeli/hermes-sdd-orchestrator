@@ -179,7 +179,7 @@ def onboarding_questions(
         },
         {
             "id": "project_tools",
-            "prompt": "Which other project-specific tools must the orchestrator use, and with what permissions? Answer `none` if there are none.",
+            "prompt": "Which other project-specific tools must the orchestrator use, and with what permissions? Answer `none` if there are none. (Approvers for HUMAN acceptance checks default to the requester; edit the `approvers` JSON block in PROJECT_SETUP.md only if someone else approves.)",
             "choices": ["none", "list tools"],
             "accepted_answers": ["JSON array of tool, purpose, read, and write objects", "none"],
         },

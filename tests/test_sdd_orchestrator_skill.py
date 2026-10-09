@@ -431,7 +431,7 @@ class BundleContractTests(unittest.TestCase):
             self.assertIn(concept, entrypoint)
         self.assertIn("Schema 1 BOUNDED_AUTO requires a fresh deterministic preview", skill)
         self.assertIn("Schema 2 LOCAL_DELIVERY uses its existing explicit authorization", skill)
-        self.assertIn("Este fallback aplica-se somente a ações MANUAL", loop_policy)
+        self.assertIn("This fallback applies only to MANUAL actions", loop_policy)
 
     def test_controller_requires_scoped_project_onboarding_before_first_demand(self) -> None:
         entrypoint = normalized((TEMPLATES / ".hermes.md").read_text(encoding="utf-8"))

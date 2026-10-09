@@ -230,16 +230,38 @@ def load_notes(repo_root: Path, subpath: str | None) -> list[tuple[str, str]]:
 # --------------------------------------------------------------------------- graph
 
 
+#: Note roots that are never graph notes: the installed controller and its
+#: project-local skills (whose SKILL.md frontmatter nests `metadata: hermes:`),
+#: the Obsidian app folder and the per-worktree runtime.
+SKIPPED_NOTE_ROOTS = (".hermes", ".obsidian", ".trash", ".hermes-runtime")
+_GRAPH_KEY_LINE = re.compile(r"^graph_node\s*:", re.M)
+
+
+def skipped_note(note_path: str) -> bool:
+    """Whether a note path lies under a root the graph never scans."""
+    parts = PurePosixPath(note_path).parts
+    return bool(parts) and parts[0] in SKIPPED_NOTE_ROOTS
+
+
+def _declares_graph_node(text: str) -> bool:
+    """Cheap pre-check: only a frontmatter with a top-level ``graph_node`` key is a graph note."""
+    head = text.split("\n---", 1)[0]
+    return bool(_GRAPH_KEY_LINE.search(head))
+
+
 def build(notes: list[tuple[str, str]]) -> dict[str, Any]:
     """Build the graph from notes and report every structural finding.
 
     A note without ``graph_node`` is not part of the graph and is ignored, so an
-    ordinary project note never becomes a finding.
+    ordinary project note never becomes a finding — including notes whose
+    frontmatter uses nesting the strict graph parser refuses (installed skills).
+    A note that does declare ``graph_node`` is parsed strictly. Notes under
+    ``SKIPPED_NOTE_ROOTS`` are never read as graph notes.
     """
     nodes: dict[str, dict[str, Any]] = {}
     findings: list[dict[str, str]] = []
     for note_path, text in notes:
-        if not text.startswith("---"):
+        if not text.startswith("---") or skipped_note(note_path) or not _declares_graph_node(text):
             continue  # an ordinary note is not part of the graph
         try:
             fields = parse_frontmatter(text)

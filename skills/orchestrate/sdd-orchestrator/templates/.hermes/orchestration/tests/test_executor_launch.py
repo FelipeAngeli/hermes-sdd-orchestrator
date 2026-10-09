@@ -128,10 +128,10 @@ class TransportSchemaTests(unittest.TestCase):
         printed = json.loads(completed.stdout)
         self.assertNotIn("$schema", printed)
         self.assertIn("executor_result", printed["properties"])
-        reviewer = launch.stage_transport_schema("REVIEW", "CODE_REVIEWER")
+        reviewer = launch.stage_transport_schema("REVIEW", "SECURITY_REVIEWER")
         self.assertIn("review_result", reviewer["properties"])
         with self.assertRaises(launch.LaunchError) as raised:
-            launch.stage_transport_schema("PLAN", "CODE_REVIEWER")
+            launch.stage_transport_schema("PLAN", "SECURITY_REVIEWER")
         self.assertEqual("ROLE_UNKNOWN", raised.exception.status)
 
     def test_external_and_recursive_references_are_refused_with_next_step(self) -> None:

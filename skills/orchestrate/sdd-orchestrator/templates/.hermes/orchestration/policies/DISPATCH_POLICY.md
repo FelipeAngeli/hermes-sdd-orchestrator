@@ -8,7 +8,7 @@ This inverts the previous rule. The bundle said the controller *may* select a sp
 
 ## The dispatch question
 
-Before dispatching any sub-agent, record three things in the action journal entry:
+Before dispatching any sub-agent, record three things in the stage-context manifest's `dispatch` block (`schemas/STAGE_CONTEXT_SCHEMA.json`; `stage_context.py check` refuses a role dispatch without it with `DISPATCH_QUESTION_REQUIRED`, and `sdd.py manifest` fills it for the guardian):
 
 - `pending_decision` — name the pending decision the answer resolves. Not a topic, a decision: "whether slice S3 may proceed without a migration", not "check the database".
 - `deterministic_attempt` — record which deterministic tool was tried and why it was insufficient.
@@ -74,13 +74,11 @@ Playbooks are project-local skills under `.hermes/skills/` that the stage worker
 
 ## Bounded iteration
 
-The loop is `OBSERVE → ANALYZE → ACT → VERIFY → LEARN`, and the controller decides after `LEARN` whether another iteration is warranted.
-
-Every run declares `max_iterations` before starting, alongside the budgets already defined in `BOUNDED_AUTOMATION.md` and `LOOP_POLICY.md`, which this policy does not replace.
+The loop is `OBSERVE → ANALYZE → ACT → VERIFY → LEARN`, and the controller decides after `LEARN` whether another iteration is warranted. Its bounds are the budgets of `LOOP_POLICY.md` §4 and the LOCAL_DELIVERY limits of `BOUNDED_AUTOMATION.md`; this policy adds no separate iteration counter.
 
 Stop when the objective is met, when the evidence is sufficient for the pending decision, when a blocker requires a human, or when any budget is exhausted.
 
-A repeated iteration over unchanged evidence is forbidden. Record an evidence digest for each iteration; if an iteration ends with the same digest it began with, the loop has stopped learning and must terminate rather than re-analyze. Loops that re-run analysis without new evidence burn budget to produce the conclusion they already had.
+A repeated iteration over unchanged evidence is forbidden. `runtime/correction_loop.py decide` enforces it: it compares each attempt's evidence digest with the previous one and stops with `NO_PROGRESS` (unchanged evidence) or `NO_NEW_HYPOTHESIS` (a hypothesis already tried) instead of re-analyzing. Loops that re-run analysis without new evidence burn budget to produce the conclusion they already had.
 
 ## Result discipline
 
