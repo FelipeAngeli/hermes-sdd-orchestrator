@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 14.0.0 - 2026-10-08
+
 ### Breaking
 - `bounded_run_driver.py` stop reasons follow `LOOP_POLICY.md` §9 exactly: budget stops use singular names (`EXECUTOR_CALL_BUDGET_REACHED`, `RETRY_BUDGET_REACHED`, `TDD_SLICE_BUDGET_REACHED`, … instead of `EXECUTOR_CALLS_BUDGET_REACHED`, `CORRECTIVE_RETRIES_BUDGET_REACHED`, …), gate failures use the named reasons (`FOCUSED_TESTS_FAILED`, `FORMAT_FAILED`, `ANALYZE_FAILED`, `CI_FAILED`, `CI_TIMEOUT`, `REVIEW_BLOCKED`, `REVIEW_CHANGES_REQUIRED`) instead of `GATE_<NAME>_<VALUE>`, a recovery stop uses `RECOVERY_RECONCILIATION_REQUIRED` (the journal decision moves to `recovery`), and `REPLAN_REQUIRED` reports `terminal_reason: PLAN_COMPLETE` instead of `PROJECTION_COMPLETE`. Automation matching the old literals must switch to the §9 names.
 - Sub-agent dispatches (`stage_context.py check --role`) require the manifest's new `dispatch` block (`pending_decision`, `deterministic_attempt`, `if_empty`); a role manifest without it fails with `DISPATCH_QUESTION_REQUIRED`.
