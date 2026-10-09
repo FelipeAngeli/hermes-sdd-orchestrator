@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 14.0.2 - 2026-10-09
+
 ### Fixed
 - 14.0.0 and 14.0.1 exist only on this unmerged branch and were never tagged, so the renames below
   (`gate --confirm-gates-policy` → `confirm-policy --name <policy>`, `GATES_CHANGED_DURING_DEMAND` →
