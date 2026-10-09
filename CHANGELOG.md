@@ -4,6 +4,12 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- `install_project.py --upgrade` no longer applies over a running controller whose `STATE.md` carries the JSON payload `sdd.py` writes: STATE is parsed with the template's `state_format.py` (JSON or YAML) and `UPGRADE_CONTROLLER_BUSY` is raised for `loop.control.loop_active: true`, `stage.status: RUNNING` or an unparseable/symlinked STATE, with the rerun `--upgrade` as `next_command`.
+- `--upgrade` of an installation without `INSTALL_MANIFEST.json` (v13 and older) now handles the 15 sub-agent briefs 14.0.0 retired (`RETIRED_TEMPLATE_PATHS`): with `--accept-current-as-baseline` they are backed up and removed; without it each is reported as an `OBSOLETE_UNVERIFIED` warning naming the exact rerun command. Previously they stayed on disk silently.
+- `action_journal.py recover` no longer loops when the final-message path is a symlink to a regular file: presence is one no-follow regular-file test in `recover`, `record-artifact`, `archive-interrupted`, `archive-invalid` and `classify-invalid`, so the symlink counts as missing and `recover` returns `ARCHIVE_INTERRUPTED_REQUIRED`. Before dispatch, anything at the path (dangling symlink or directory included) still blocks with `ARTIFACT_PENDING`.
+- `action_journal.py` refuses ticket and action ids that are not safe path components (`TICKET_PATTERN` of `sdd.py`; `..`, `.`, separators, leading dash): `prepare` returns `ACTION_ID_UNSAFE`, history writes `HISTORY_PATH_UNSAFE`, and `recover` on such a journal returns `BLOCKED`/`JOURNAL_INCONSISTENT` with `block`; `archive-blocked` and `rollover` file the evidence under `NO-TICKET/NO-ACTION-<hash>`. A ticket `..` previously wrote one level above the history directory.
+
 ## 14.0.0 - 2026-10-08
 
 ### Breaking
