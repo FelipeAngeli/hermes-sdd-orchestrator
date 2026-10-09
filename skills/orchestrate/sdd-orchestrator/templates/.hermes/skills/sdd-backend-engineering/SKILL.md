@@ -19,7 +19,7 @@ Project-local playbook for planning and implementing backend behavior. Project r
 
 Use when a slice changes an API handler, service/use case, authorization path, integration, background job, cache, transaction boundary or operational failure behavior.
 
-Do not use for frontend-only work, pure schema migrations with no application behavior, or a review that already belongs to a controller-selected specialist.
+Do not use for frontend-only work, pure schema migrations with no application behavior, or a review that already belongs to a controller-selected sub-agent.
 
 ## Prerequisites
 

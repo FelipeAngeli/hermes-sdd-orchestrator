@@ -662,13 +662,13 @@ class BoundedRunDriverTests(unittest.TestCase):
             "mode": "PAUSED",
             "loop_active": False,
             "stop_reason": "NONE",
-            "last_run": {"stop_reason": "EXECUTOR_CALLS_BUDGET_REACHED"},
+            "last_run": {"stop_reason": "EXECUTOR_CALL_BUDGET_REACHED"},
         })
 
         result = driver.evaluate_next(value, plan)
 
         self.assertEqual("COMPLETE", result["decision"])
-        self.assertEqual("EXECUTOR_CALLS_BUDGET_REACHED", result["terminal_reason"])
+        self.assertEqual("EXECUTOR_CALL_BUDGET_REACHED", result["terminal_reason"])
         self.assertNotEqual("EXECUTE_NEXT", result["decision"])
 
     def test_closed_bounded_run_preserves_human_required_reason(self) -> None:
@@ -707,7 +707,7 @@ class BoundedRunDriverTests(unittest.TestCase):
         value["loop"]["budgets"]["executor_calls"]["used"] = 8
         result = driver.evaluate_next(value, plan)
         self.assertEqual("STOP_BUDGET", result["decision"])
-        self.assertEqual("EXECUTOR_CALLS_BUDGET_REACHED", result["stop_reason"])
+        self.assertEqual("EXECUTOR_CALL_BUDGET_REACHED", result["stop_reason"])
 
     def test_human_required_stops(self) -> None:
         value, plan = self.approved()

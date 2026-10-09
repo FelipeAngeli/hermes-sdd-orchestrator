@@ -13,7 +13,7 @@ This directory separates controller concerns while keeping mutable local state a
     ├── policies/    # FSM, gates, recovery and bounded automation
     ├── runtime/     # deterministic Python tools and explicit connectors
     ├── schemas/     # JSON Schema documents
-    ├── sub-agents/  # specialized leaf-worker briefs
+    ├── sub-agents/  # four leaf-worker briefs (context, data flow, PR, security)
     ├── tests/       # installed protocol tests
     ├── STATE.md
     ├── PROJECT_SETUP.md
@@ -26,18 +26,20 @@ This directory separates controller concerns while keeping mutable local state a
 
 ## Commands
 
+The controller drives a demand only through the single entry point; it never needs the other tools' `--help`:
+
+```text
+python3 .hermes/orchestration/runtime/sdd.py status    # compact JSON: paths, stage, recovery, budgets left, next_command
+python3 .hermes/orchestration/runtime/sdd.py next      # the exact command batch for the next step, or the stop and its next_command
+python3 .hermes/orchestration/runtime/sdd.py start --ticket <id> --title <t> --objective <o> [--deliverable-kind CODE|DECISION_DOC|BOTH]
+```
+
+Other subcommands (`snapshot`, `manifest`, `prepare`, `accept`, `reject`, `transition`, `waive`, `answer`, `unblock`, `budget --raise`, `gate`) appear inside the printed batches or as the `next_command` of a stop. Stop reasons and their single next action: `policies/LOOP_POLICY.md` §9 (generated from `runtime/stop_reasons.py`).
+
 Run the installed protocol suite:
 
 ```text
 python3 -m unittest discover -s .hermes/orchestration/tests -p 'test_*.py'
-```
-
-Inspect individual runtime tools with `--help`, for example:
-
-```text
-python3 .hermes/orchestration/runtime/action_journal.py --help
-python3 .hermes/orchestration/runtime/bounded_run_planner.py --help
-python3 .hermes/orchestration/runtime/bounded_run_driver.py --help
 ```
 
 ## Terminal progress
@@ -56,7 +58,7 @@ Every mutation immediately renders the updated dashboard; `--json` keeps the sam
 
 ## Project-local engineering skills
 
-The sibling `.hermes/skills/` directory contains three progressive playbooks: `sdd-backend-engineering`, `sdd-architecture-decisions` and `sdd-database-design-migrations`. They guide PLAN/IMPLEMENT; existing specialist sub-agents remain the independent auditors. Installation does not trust a repository or mutate global skills. After inspection, run `hermes skills trust` in the repository and start a new session so Hermes can discover them. Stage-context schema 2 binds `project_root` to the canonical live Git workspace and records every required `SKILL.md`/reference path and hash; `stage_context.py check` verifies actual bytes/frontmatter and refuses extra, missing or changed guidance. Regenerate schema-1 manifests.
+The sibling `.hermes/skills/` directory contains the progressive playbooks `sdd-product-owner`, `sdd-tech-lead`, `sdd-architecture-decisions`, `sdd-api-contracts`, `sdd-backend-engineering`, `sdd-frontend-engineering`, `sdd-database-design-migrations`, `sdd-tdd` and `sdd-release-readiness`. The stage worker loads them itself; `pr-reviewer` and `security-reviewer` remain the independent reviewers. Installation does not trust a repository or mutate global skills. After inspection, run `hermes skills trust` in the repository and start a new session so Hermes can discover them. Stage-context schema 2 binds `project_root` to the canonical live Git workspace and records every required `SKILL.md`/reference path and hash; `stage_context.py check` verifies actual bytes/frontmatter and refuses extra, missing or changed guidance. Regenerate schema-1 manifests.
 
 ## Opt-in Hermes hooks
 
@@ -92,18 +94,10 @@ Configure project-specific validation in `policies/GATES.md` before starting a d
 
 Before dispatching a worker, load the matching brief from `agents/` together with only the applicable contract, policy excerpt and scoped project evidence. The brief never grants STATE or transition authority. Executor schema version 3 carries evidence-backed facts, material assumptions/questions and stable acceptance-check IDs through every stage. TASKS produces the controller's authoritative non-empty acceptance mapping: ID, criterion, verification method, verifier and slice assignment. Workers may change only status and evidence. IMPLEMENT receives exactly one current slice ID plus an explicit disjoint completed set and may not add another TDD slice; TEST and every REVIEW status must match the full mapping rather than treating payload-declared values or green gates as authority.
 
-Before each dispatch, the controller checks a per-stage context manifest with `runtime/stage_context.py`. The manifest holds scoped excerpts, the `project-context-guardian` result required before PLAN and IMPLEMENT, the `semantic_governance` Jev decision those stages need when automatic Jev consent is recorded, and the slice's editable paths and observable verifiers. An approved slice hash is reused rather than asked for again. When a valid result fails verification, `runtime/correction_loop.py` decides whether one more correction is allowed or the loop pauses with an explicit `stop_reason`. Both tools only read controller-owned files and never write state.
+Before each dispatch, the printed batch writes the per-stage context manifest (`sdd.py manifest`, hashes computed, `limits.max_prompt_bytes` default 48 KB) and checks it with `runtime/stage_context.py`. The manifest holds scoped excerpts, the `project-context-guardian` result required before PLAN and IMPLEMENT, the `semantic_governance` Jev decision those stages need when automatic Jev consent is recorded, and the slice's editable paths and observable verifiers. An approved slice hash is reused rather than asked for again. When a valid result fails verification, `runtime/correction_loop.py` decides whether one more correction is allowed or the loop pauses with an explicit `stop_reason`. Both tools only read controller-owned files and never write state.
 
 When a stage needs a narrower role, the controller may select one matching brief from `sub-agents/` instead, subject to `policies/DISPATCH_POLICY.md`, whose default is **not** to dispatch: a specialist runs only when the controller can name the pending decision that depends on its answer, and only when a deterministic tool cannot answer the question first. Stage agents never dispatch sub-agents; the one-leaf-worker invariant remains unchanged. A successful specialized action returns evidence to the controller but never completes or transitions the enclosing stage by itself.
 
-`tdd-guardian.md` and `regression-hunter.md` are audit roles for TEST and REVIEW. The guardian answers whether the suite would go red if the rule broke, by mutating production code and reverting each mutation; the hunter answers what previously worked and may have stopped, by running the suites of consumers the change did not touch. Both are read-only, repair nothing, and mark every finding as proven or unproven. Grant them an explicit mutation and execution budget, and treat residue in the workspace as a blocker.
+Four sub-agents ship: `project-context-guardian.md` (cache-first project context, required before PLAN and IMPLEMENT), `data-flow-tracer.md` (bounded investigation, data-flow trace or impact map for one question in SPECIFY through IMPLEMENT), `pr-reviewer.md` (one pull request as it will merge) and `security-reviewer.md` (exploitable flaws and disclosure: hardcoded credentials, insecure storage, authentication and authorization gaps, sensitive data in logs or telemetry; it never reproduces a discovered secret and reports a committed secret as compromised and requiring rotation). The first two are read-only roles validated with `role`.
 
-`api-contract-auditor.md` is an audit role for PLAN and REVIEW. It answers whether the client models still match the API, comparing them against the published specification and the deployed server across field names, types, nullability, enums, endpoint lifecycle and error envelopes. It ranks its sources instead of picking the convenient one, never invents a contract element to close a gap, and reports an unresolvable divergence as a gap for human decision. Tell it which environment is authoritative, and authorize any live call explicitly.
-
-`security-reviewer.md` covers exploitable flaws and disclosure together: hardcoded credentials, insecure storage, authentication and authorization gaps, and sensitive data reaching logs or telemetry. It never reproduces a discovered secret value anywhere, and reports a committed secret as compromised and requiring rotation, because deleting the line does not revoke the credential.
-
-`performance-auditor.md` is an audit role for PLAN and REVIEW. It looks for work the system does not need to do: duplicate requests, missing or wrong caching, N+1 and unindexed queries, unbounded results, recomputation and rebuilds, blocked critical paths, wasteful allocation and undisposed resources. Every finding carries a measurement or a counted operation and the input size at which it matters, and concluding that nothing is worth changing is an accepted result — a brief that rewards findings produces noise. Authorize any load test or shared-environment benchmark explicitly.
-
-`documentation-writer.md` is the only writing role among these: it reads the implemented code and brings technical documentation, ADRs, README and diagrams back in line with it. Assign its writable paths explicitly, as with the implementer. It treats existing documentation as a claim to verify rather than text to paraphrase, deletes documentation for code that no longer exists, and records an unexplained decision as an open question instead of inventing a rationale. It never edits code to match the text: a mismatch is reported, and the controller decides which side is wrong.
-
-`architecture-guardian.md` is an audit role for PLAN and REVIEW. It reports layer traversal, wrong dependency direction, misplaced services, leaking abstractions and circular module dependencies — but only against rules the project itself declares, quoting the document, configuration or lint setting behind each finding. An undeclared convention is raised as a question, never enforced, and an inherited violation is reported separately from one the change introduced. Point it at the architecture documents and boundary tooling that state the rules; without them it has nothing legitimate to enforce.
+Everything else a stage needs — product-owner and tech-lead judgment, API contracts, migration safety, TDD and mutation proof, release readiness, regressions and documentation — is a project-local playbook in `.hermes/skills/` that the stage worker loads itself; see each stage brief's `Playbooks` section. Product owner and tech lead are knowledge, never approver gates: a named approval resolves through `PROJECT_SETUP.md` `approvers` (default: the requester) and is recorded as a HUMAN check or as `WAIVED` with a `waiver` record.

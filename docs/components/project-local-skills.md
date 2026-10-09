@@ -4,9 +4,9 @@
 
 **Files:** `templates/.hermes/skills/*`.
 
-These skills carry reusable engineering procedure into the target repository without adding generic reviewer roles. Hermes discovers them under `<project-root>/.hermes/skills/` only for sessions in that checkout. Installation copies them but never edits profile configuration or trust; the user explicitly runs `hermes skills trust` for the repository, and a new session then sees them as project skills.
+These skills carry reusable engineering and role judgment (product owner, tech lead, TDD, release readiness) into the target repository without adding reviewer workers. Each [stage brief](stage-agents.md) names the skills to load in its `Playbooks` section. Hermes discovers them under `<project-root>/.hermes/skills/` only for sessions in that checkout. Installation copies them but never edits profile configuration or trust; the user explicitly runs `hermes skills trust` for the repository, and a new session then sees them as project skills.
 
-Project rules, code, accepted decisions and authoritative contracts override every generic skill rule. Skills answer **how to do the work** inside PLAN/IMPLEMENT. Sub-agents answer a named independent question; they remain controller-selected, isolated and budgeted. The controller never dispatches a generic backend or architecture reviewer merely because a skill exists.
+Project rules, code, accepted decisions and authoritative contracts override every generic skill rule. Skills answer **how to do the work** inside every stage. Sub-agents answer a named independent question; they remain controller-selected, isolated and budgeted. The controller never dispatches a generic backend or architecture reviewer merely because a skill exists.
 
 ## Catalogue
 
@@ -29,6 +29,29 @@ Project rules, code, accepted decisions and authoritative contracts override eve
 | `templates/.hermes/skills/sdd-frontend-engineering/references/react-and-next-boundaries.md` | React state/effects/compiler guidance and Next.js rendering/data boundaries. |
 | `templates/.hermes/skills/sdd-frontend-engineering/references/composition-and-accessibility.md` | Component composition, design-token reuse, interaction states and accessibility floor. |
 | `templates/.hermes/skills/sdd-frontend-engineering/references/performance-and-delivery.md` | Evidence-led waterfall, bundle, render and client-performance decisions. |
+| `templates/.hermes/skills/sdd-product-owner/SKILL.md` | Product-owner judgment applied by the stage worker (SPECIFY, CLARIFY, TASKS, REVIEW): value, scope, observable acceptance, `deliverable_kind` with request quotes, approvals resolved through `approvers`; never an approver gate. |
+| `templates/.hermes/skills/sdd-product-owner/references/deliverable-kind.md` | `deliverable_kind` (CODE, DECISION_DOC, BOTH) and `implementation_in_scope` from request quotes; at most one material question. |
+| `templates/.hermes/skills/sdd-product-owner/references/approvals-and-waivers.md` | Named approvals resolved through PROJECT_SETUP `approvers` (default requester), HUMAN evidence and `WAIVED` records; never blocks IMPLEMENT unless the request says so. |
+| `templates/.hermes/skills/sdd-product-owner/references/acceptance-and-scope.md` | Value, inclusions, exclusions and observable acceptance criteria with verifier. |
+| `templates/.hermes/skills/sdd-product-owner/references/traceability-audit.md` | SPEC → PLAN → TASKS → CODE → TESTS walk, break types and evidence rules (formerly `spec-consistency-guardian`). |
+| `templates/.hermes/skills/sdd-tech-lead/SKILL.md` | Tech-lead judgment applied by the stage worker (PLAN, TASKS, REVIEW): declared rules, dependencies, performance, operability, reversibility; never an approver gate. |
+| `templates/.hermes/skills/sdd-tech-lead/references/architecture-compliance.md` | Violations of declared architecture rules only, inherited vs introduced (formerly `architecture-guardian`). |
+| `templates/.hermes/skills/sdd-tech-lead/references/dependencies.md` | Manifest/lockfile evidence, duplication, maintenance and prefer-what-exists (formerly `dependency-auditor`). |
+| `templates/.hermes/skills/sdd-tech-lead/references/performance.md` | Counted or measured cost at a stated input size, waste surfaces and leaks (formerly `performance-auditor`). |
+| `templates/.hermes/skills/sdd-tech-lead/references/operability-and-reversibility.md` | Failure signals, points of irreversibility and security-by-design pointers to `security-reviewer`. |
+| `templates/.hermes/skills/sdd-api-contracts/SKILL.md` | Client models, API specifications and servers kept in agreement across PLAN, IMPLEMENT and REVIEW (formerly `api-contract-auditor`). |
+| `templates/.hermes/skills/sdd-api-contracts/references/source-hierarchy.md` | Ranked contract sources and rollout order for a contract change. |
+| `templates/.hermes/skills/sdd-api-contracts/references/contract-surfaces.md` | Field, type, nullability, enum, collection, endpoint, request, response and semantic surfaces. |
+| `templates/.hermes/skills/sdd-api-contracts/references/evidence-and-limits.md` | Citation rules, client-written fixtures and live-call authorization limits. |
+| `templates/.hermes/skills/sdd-tdd/SKILL.md` | Test-first slices and proof that a suite can fail, for IMPLEMENT, TEST and REVIEW (formerly `tdd-guardian`, `tdd-implementer`, `test-runner`). |
+| `templates/.hermes/skills/sdd-tdd/references/test-design.md` | Tests derived from business rules, RED before code, test-quality rules. |
+| `templates/.hermes/skills/sdd-tdd/references/mutation-proof.md` | One-at-a-time production mutations, reverted, with a byte-identical baseline. |
+| `templates/.hermes/skills/sdd-tdd/references/focused-validation.md` | Authorized focused commands, failure classification and acceptance evidence. |
+| `templates/.hermes/skills/sdd-release-readiness/SKILL.md` | READY / BLOCKED / READY_WITH_RISK from evidence near DONE (formerly `release-readiness-auditor`, `regression-hunter`, `documentation-writer`). |
+| `templates/.hermes/skills/sdd-release-readiness/references/verdict-and-surfaces.md` | Verdict rules and release surfaces: config, migrations, flags, dependencies, rollback. |
+| `templates/.hermes/skills/sdd-release-readiness/references/regression-hunt.md` | Untouched consumers, non-local reach and consumer suites. |
+| `templates/.hermes/skills/sdd-release-readiness/references/documentation-sync.md` | Documentation, ADRs, README and diagrams verified against the code. |
+| `templates/.hermes/skills/sdd-database-design-migrations/references/rollout-safety-audit.md` | Ordered rollout, mixed-version compatibility, locks, restartability and recovery audit (formerly `migration-safety-auditor`). |
 
 ## Selection
 
@@ -59,13 +82,16 @@ The slice contract separately lists the skill name and slice IDs that require it
 
 | Need | Mechanism |
 | --- | --- |
-| Backend, architecture or database implementation guidance | Load the applicable project skill and relevant references. |
-| Compliance with declared architecture | Existing `architecture-guardian`. |
-| API/server/client divergence | Existing `api-contract-auditor`. |
-| Measured query/index performance | Existing `performance-auditor`. |
-| Migration rollout/data/recovery judgment not answered deterministically | `migration-safety-auditor`. |
+| Scope, acceptance, deliverable kind, traceability | `sdd-product-owner`, loaded by the stage worker. |
+| Declared architecture, dependencies, performance, reversibility | `sdd-tech-lead`, loaded by the stage worker. |
+| API/server/client divergence | `sdd-api-contracts`. |
+| Migration rollout/data/recovery judgment | `sdd-database-design-migrations` (`references/rollout-safety-audit.md`). |
+| Whether tests can fail; focused validation | `sdd-tdd`. |
+| Release verdict, regressions, documentation truth | `sdd-release-readiness`. |
+| Bounded code evidence, data-flow trace or impact map | `data-flow-tracer` sub-agent. |
+| Independent PR or security review | `pr-reviewer` or `security-reviewer` sub-agent. |
 
-The default remains **do not dispatch**. A migration specialist runs only when the journal names the pending decision, deterministic attempt and effect of `NO_FINDINGS`.
+Playbooks are never dispatched and never act as approvers. Product-owner and tech-lead approvals named in a request resolve through `PROJECT_SETUP.md` `approvers` (default: the requester) and are recorded as HUMAN evidence or `WAIVED`; they never block IMPLEMENT unless the request literally says so. The default for sub-agents remains **do not dispatch**.
 
 ## Security and lifecycle
 
@@ -77,7 +103,7 @@ The default remains **do not dispatch**. A migration specialist runs only when t
 
 ## Verification
 
-- Packaging tests require exactly these four skill directories, valid portable frontmatter, required sections and at least three references each.
+- Packaging tests require exactly these nine skill directories, valid portable frontmatter, required sections and at least three references each.
 - Documentation tests require this catalogue to match every installed project-skill file in both directions.
 - Stage-context tests cover missing, extra, duplicate, unsafe, unknown-slice and byte/frontmatter-mismatched playbooks/references and prove loaded guidance changes the approved slice hash.
 - Installer regression tests prove the installer adds exclusions only for bundled skill directories, does not newly hide unrelated project skills and preserves user-owned exclusion entries.

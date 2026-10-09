@@ -46,7 +46,7 @@ Details: [Skill and installer](components/skill-and-installer.md).
 
 Details: [Project-local engineering skills](components/project-local-skills.md).
 
-`templates/.hermes/skills/` contains reusable backend, architecture and database procedure for PLAN/IMPLEMENT. These playbooks are trusted and discovered by Hermes at the project boundary; they do not dispatch, own state or replace evidence-driven specialist review. The controller records each required playbook descriptor in the stage manifest, and the harness binds it to slice approval.
+`templates/.hermes/skills/` contains reusable role and engineering procedure (product owner, tech lead, architecture decisions, API contracts, backend, frontend, database, TDD, release readiness) for every stage. These playbooks are trusted and discovered by Hermes at the project boundary; they do not dispatch, own state or replace evidence-driven specialist review. The controller records each required playbook descriptor in the stage manifest, and the harness binds it to slice approval.
 
 ### Agents
 
@@ -90,7 +90,7 @@ Details: [Contracts and schemas](components/contracts-and-schemas.md).
 
 Details: [Sub-agents and dispatch](components/sub-agents.md).
 
-`sub-agents/` contains specialized leaf-worker briefs for investigation, impact analysis, TDD implementation, focused test execution, security review, code review, test-suite auditing, regression hunting, API contract auditing, performance auditing, migration safety, documentation maintenance and architectural conformance. They are dispatched directly by the controller, never by another agent, and do not own STATE or transitions.
+`sub-agents/` contains four leaf-worker briefs: project context, bounded data-flow/impact investigation, pull-request review and security review. They are dispatched directly by the controller, never by another agent, and do not own STATE or transitions. Product-owner, tech-lead, API-contract, migration-safety, TDD and release-readiness judgment are project-local playbooks the stage worker loads itself.
 
 Six of them return findings only when evidence supports them. The TDD guardian decides whether a suite actually tests behavior by mutating production code and observing which tests stay green; the regression hunter decides whether a change broke existing behavior by running the suites of the consumers the change did not touch; the API contract auditor compares client models against the published specification and the deployed server, ranking the sources rather than choosing the convenient one; the performance auditor reports a cost only with a measurement or a counted operation behind it, and may conclude that nothing is worth changing; the architecture guardian reports a violation only by quoting the project's own declared rule; and the migration safety auditor reconstructs rollout order, mixed-version states, data conversion, locks, interruption and recovery instead of treating generated SQL as proof. All six keep the workspace read-only, repair nothing, and separate proven findings from unproven suspicions.
 
@@ -121,7 +121,7 @@ project skills ──scoped briefing──► agents
 ## Change rules
 
 - Put stage-specific worker instructions in `agents/`; keep controller authority out of them.
-- Put reusable engineering procedure in project `skills/`, load references progressively, and bind required playbooks to slices; do not duplicate specialist auditors.
+- Put reusable engineering procedure in project `skills/`, load references progressively, and bind required playbooks to slices; do not add a sub-agent where a playbook suffices.
 - Put executable controller behavior in `runtime/` and cover it in installed `tests/`.
 - Keep `hooks/` as thin opt-in event adapters over `runtime/`; they never own policy, STATE transitions, profile configuration or consent.
 - Put JSON validation shapes in `schemas/`; do not embed duplicate schemas in Python.

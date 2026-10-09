@@ -8,12 +8,12 @@ platforms: [linux, macos, windows]
 metadata:
   hermes:
     tags: [architecture, ADR, boundaries, DDD, trade-offs]
-    related_skills: [sdd-backend-engineering, sdd-database-design-migrations]
+    related_skills: [sdd-tech-lead, sdd-backend-engineering, sdd-database-design-migrations]
 ---
 
 # SDD Architecture Decisions
 
-Project-local playbook for making one consequential design decision from repository evidence. It guides PLAN; the existing `architecture-guardian` independently audits compliance with declared project rules.
+Project-local playbook for making one consequential design decision from repository evidence. It guides PLAN; compliance with declared project rules is judged with `sdd-tech-lead` (`references/architecture-compliance.md`), and REVIEW stays independent.
 
 ## When to Use
 

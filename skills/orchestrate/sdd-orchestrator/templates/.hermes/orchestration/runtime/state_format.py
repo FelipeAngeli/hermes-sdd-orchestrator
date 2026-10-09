@@ -29,6 +29,19 @@ FENCE_RE = re.compile(r"^(?P<before>.*?)```yaml\s*\n(?P<body>.*?)```(?P<after>.*
 #: A state payload must have these to be recognisable as orchestration state.
 REQUIRED_KEYS = ("schema_version", "stage")
 
+#: Delivery profiles: the ordered stages a demand passes through. ``DECISION_DOC``
+#: delivers a document (ADR, spike report) through IMPLEMENT; TASKS and TEST are
+#: recorded as skipped with the profile as reason.
+FSM_ORDER = ("IDLE", "SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST", "REVIEW", "DONE")
+PROFILES = {
+    "CODE": ("SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST", "REVIEW", "DONE"),
+    "DECISION_DOC": ("SPECIFY", "CLARIFY", "PLAN", "IMPLEMENT", "REVIEW", "DONE"),
+}
+#: Backward transitions allowed with a recorded human reason (a reopened stage).
+#: A stage never transitions to itself: a failure inside IMPLEMENT (the DECISION_DOC
+#: gate stage) reopens in place with ``sdd.py reopen`` (a FIX slice), not a transition.
+REOPEN_TARGETS = {"TEST": ("IMPLEMENT",), "REVIEW": ("IMPLEMENT",)}
+
 
 class StateFormatError(Exception):
     def __init__(self, code: str, message: str, *, detail: str = ""):
@@ -107,6 +120,108 @@ def normalise(text: str) -> str:
             "Normalised STATE did not re-parse to the same value; refusing to convert.",
         )
     return result
+
+
+def dump(text: str, data: Dict[str, Any], *, log: str | None = None) -> str:
+    """Return STATE.md with ``data`` as its JSON payload, prose preserved, plus one log line.
+
+    Like ``normalise`` the result is re-parsed and refused unless it reads back
+    identically, so a transition can never silently lose state.
+    """
+    before, _, after = split_fence(text)
+    missing = [key for key in REQUIRED_KEYS if key not in data]
+    if missing:
+        raise StateFormatError("STATE_SHAPE_UNRECOGNISED", "STATE payload lacks required orchestration keys.", detail=", ".join(missing))
+    if log:
+        line = " ".join(str(log).replace("```", "'''").split())
+        after = after.rstrip("\n") + f"\n- {line}\n"
+    payload = json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True)
+    result = f"{before}```yaml\n{payload}\n```{after}"
+    if parse(result) != data:
+        raise StateFormatError("STATE_ROUND_TRIP_FAILED", "Serialised STATE did not re-parse to the same value; refusing to write it.")
+    return result
+
+
+def profile_path(profile: str) -> Tuple[str, ...]:
+    if profile not in PROFILES:
+        raise StateFormatError("STATE_PROFILE_UNKNOWN", f"Unknown delivery profile {profile!r}.", detail=", ".join(PROFILES))
+    return PROFILES[profile]
+
+
+def next_stage(profile: str, current: str) -> str:
+    path = profile_path(profile)
+    if current == "IDLE":
+        return path[0]
+    if current not in path or current == "DONE":
+        raise StateFormatError("STATE_TRANSITION_INVALID", f"{current} has no next stage in the {profile} profile.")
+    return path[path.index(current) + 1]
+
+
+def apply_transition(
+    data: Dict[str, Any],
+    target: str,
+    *,
+    profile: str,
+    provenance: Dict[str, Any] | None = None,
+    clarify_skip_reason: str | None = None,
+    reopen_reason: str | None = None,
+) -> Dict[str, Any]:
+    """Return a copy of ``data`` moved to ``target``; refuse any transition the profile forbids.
+
+    Forward: every stage strictly between current and target must be absent from
+    the profile (recorded as skipped with the profile as reason) or be CLARIFY
+    with an explicit ``clarify_skip_reason``. Backward: only ``REOPEN_TARGETS``
+    with a ``reopen_reason``. Same stage: always refused. Provenance of the left
+    stage is recorded.
+    """
+    import copy as _copy
+
+    path = profile_path(profile)
+    stage = data.get("stage") or {}
+    current = stage.get("current")
+    if current not in FSM_ORDER or target not in FSM_ORDER:
+        raise StateFormatError("STATE_TRANSITION_INVALID", f"Unknown stage in transition {current!r} -> {target!r}.")
+    if target == current:
+        raise StateFormatError("STATE_TRANSITION_INVALID", f"{current} -> {current} is not a transition (it would spend stage_transitions without progress); "
+                               "reopen the work in place with `sdd.py reopen`.")
+    result = _copy.deepcopy(data)
+    moved = result["stage"]
+    moved.setdefault("completed", [])
+    moved.setdefault("skipped", [])
+    if FSM_ORDER.index(target) < FSM_ORDER.index(current):
+        if target not in REOPEN_TARGETS.get(current, ()) or not (reopen_reason or "").strip():
+            raise StateFormatError("STATE_TRANSITION_INVALID", f"{current} -> {target} is not a permitted reopen (needs a recorded reason).")
+        reopened = FSM_ORDER[FSM_ORDER.index(target):FSM_ORDER.index(current) + 1]
+        moved["completed"] = [item for item in moved["completed"] if item not in reopened]
+        moved["current"], moved["status"] = target, "RUNNING"
+        result.setdefault("stage_provenance", {})[f"{current}->REOPEN"] = {"reason": reopen_reason}
+        return result
+    if target not in path:
+        raise StateFormatError("STATE_TRANSITION_INVALID", f"{target} is not part of the {profile} profile ({' -> '.join(path)}).")
+    if current != "IDLE" and current not in path:
+        raise StateFormatError("STATE_TRANSITION_INVALID", f"{current} is not part of the {profile} profile.")
+    between = FSM_ORDER[FSM_ORDER.index(current) + 1:FSM_ORDER.index(target)]
+    for skipped in between:
+        if skipped not in path:
+            reason = f"not part of the {profile} delivery profile"
+        elif skipped == "CLARIFY" and (clarify_skip_reason or "").strip():
+            reason = clarify_skip_reason
+        else:
+            raise StateFormatError("STATE_TRANSITION_INVALID", f"{current} -> {target} would skip {skipped}; only CLARIFY may be skipped, with a recorded reason.")
+        moved["skipped"] = [item for item in moved["skipped"] if (item.get("stage") if isinstance(item, dict) else item) != skipped]
+        moved["skipped"].append({"stage": skipped, "reason": reason})
+    if current != "IDLE" and current not in moved["completed"]:
+        moved["completed"].append(current)
+    if current != "IDLE" and provenance is not None:
+        result.setdefault("stage_provenance", {})[current] = provenance
+    moved["current"] = target
+    moved["status"] = "DONE" if target == "DONE" else "RUNNING"
+    return result
+
+
+def skipped_stage_names(data: Dict[str, Any]) -> List[str]:
+    """Skipped stages as names; entries may be plain names (legacy) or {stage, reason}."""
+    return [item.get("stage") if isinstance(item, dict) else item for item in (data.get("stage") or {}).get("skipped", [])]
 
 
 # ---------------------------------------------------------------------------

@@ -54,7 +54,23 @@
         "max_lines_per_source": {
           "type": "integer",
           "minimum": 1
+        },
+        "max_prompt_bytes": {
+          "description": "Upper bound for the worker prompt built from this manifest; stage_context.py check --prompt-file enforces it (default 49152 when absent).",
+          "type": "integer",
+          "minimum": 1024
         }
+      }
+    },
+    "dispatch": {
+      "description": "DISPATCH_POLICY dispatch question for a sub-agent (role) dispatch: the pending decision its answer resolves, the deterministic tool tried first, and what changes on NO_FINDINGS.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pending_decision", "deterministic_attempt", "if_empty"],
+      "properties": {
+        "pending_decision": {"type": "string", "minLength": 1},
+        "deterministic_attempt": {"type": "string", "minLength": 1},
+        "if_empty": {"type": "string", "minLength": 1}
       }
     },
     "project_context": {

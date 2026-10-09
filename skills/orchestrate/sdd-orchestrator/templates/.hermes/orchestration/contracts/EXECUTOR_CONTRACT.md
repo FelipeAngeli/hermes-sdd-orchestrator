@@ -6,7 +6,24 @@ This contract applies only to external execution actions: `SPECIFY`, `CLARIFY`, 
 
 The final executor message is one JSON document with root `executor_result` and `schema_version: 3`. Markdown, literal YAML, JSONL events, transcripts, tool logs, and free text are not substitutes for that JSON document.
 
-For Codex, the controller selects `../schemas/EXECUTOR_RESULT_SCHEMA.json` before dispatch and uses both `--output-schema` and `--output-last-message`. Only the unique final-message file is supplied to the validator. Process exit code and optional transcript diagnostics remain separate from the result document.
+## Dispatch
+
+The controller never writes a `claude` or `codex` command line. After `action_journal.py prepare` (status `PREPARED`, the prompt file's SHA-256 as `prompt_hash`, a unique absolute `final_message_path`), it runs exactly one command:
+
+```text
+python3 .hermes/orchestration/runtime/executor_launch.py run --stage <STAGE> --prompt-file <prompt> --journal <journal> --final <final-message> [--role <ROLE>] [--add-dir <dir>]
+```
+
+`../policies/EXECUTORS.md` selects the executor, model, timeout and turn limit per stage. `executor_launch.py build` with the same arguments prints the exact argv without running it. The launcher:
+
+- refuses unless `recover` is `DISPATCH_ALLOWED`, the journal is `PREPARED` for this stage, final path, executor and prompt hash, and no final-message file exists yet;
+- derives the transport schema from `../schemas/EXECUTOR_RESULT_SCHEMA.json` (or the role's/REVIEW schema): `$schema` removed and local `$ref`s inlined, because the Claude CLI rejects the draft 2020-12 meta-schema reference;
+- records `record-process --started`, runs the CLI in the foreground with the repository as working directory, the prompt on stdin and a hard timeout that kills the whole process group, and always records `record-process --finished --exit-code <n>` (`124` on timeout), even when the launcher itself fails;
+- writes the final message atomically, records `record-artifact`, and prints `{status, exit_code, final, next_step, next_command}`.
+
+Claude runs as `claude -p --output-format json --json-schema <transport schema> --no-session-persistence --tools <tools> [--max-turns N] [--model M]`; the final message is the envelope's `structured_output`. Codex runs as `codex exec --ephemeral --cd <repository> --sandbox <mode> --output-schema <transport schema file> --output-last-message <file> [--model M] -`; the final message is that last-message file. Paths outside the repository (for example an Obsidian vault runtime) are passed with `--add-dir`, never used as working directory.
+
+Only the unique final-message file is supplied to the validator. Process exit code, `stderr_tail` and optional transcript diagnostics remain separate from the result document.
 
 The controller supplies the stage-specific contract in the prompt, validates schema, semantics, paths, symbols, and ownership, then decides the state transition. `next_step` is only a recommendation; it never starts work automatically and cannot be `DONE`.
 
@@ -36,7 +53,8 @@ The controller supplies the stage-specific contract in the prompt, validates sch
       "verifier": "AGENT",
       "slice_id": null,
       "status": "PLANNED",
-      "evidence": null
+      "evidence": null,
+      "waiver": null
     }],
     "stage_payload": {"summary": "", "tasks": [], "impact_files": [], "decisions": []},
     "tdd_slices": [],
@@ -45,7 +63,7 @@ The controller supplies the stage-specific contract in the prompt, validates sch
 }
 ```
 
-All listed fields are required, including empty arrays. `consulted_paths`, `modified_paths`, and `created_paths` are arrays of objects containing exactly `path: string`; standalone strings are invalid. Context and acceptance text must contain a non-whitespace character. `context_assessment` keeps evidence-backed facts separate from assumptions and unresolved questions. Every assumption and question declares whether it is material. SPECIFY may succeed with unresolved material context only when `next_step.stage` is `CLARIFY`; from CLARIFY onward, a material assumption needs explicit validation and a material unresolved question prevents `SUCCESS`. Each `acceptance_checks` item has a stable unique `id`, criterion, verification method, `AGENT` or `HUMAN` verifier, nullable `slice_id`, current status and evidence. `stage_payload.summary` is a string and `tasks`, `impact_files`, and `decisions` are arrays of strings.
+All listed fields are required, including empty arrays. `consulted_paths`, `modified_paths`, and `created_paths` are arrays of objects containing exactly `path: string`; standalone strings are invalid. Context and acceptance text must contain a non-whitespace character. `context_assessment` keeps evidence-backed facts separate from assumptions and unresolved questions. Every assumption and question declares whether it is material. SPECIFY may succeed with unresolved material context only when `next_step.stage` is `CLARIFY`; from CLARIFY onward, a material assumption needs explicit validation and a material unresolved question prevents `SUCCESS`. Each `acceptance_checks` item has a stable unique `id`, criterion, verification method, `AGENT` or `HUMAN` verifier, nullable `slice_id`, current status (`PLANNED`, `PASS`, `FAIL`, `BLOCKED` or `WAIVED`), evidence and `waiver`. `stage_payload.summary` is a string and `tasks`, `impact_files`, and `decisions` are arrays of strings.
 
 `stage.value` is one of `SPECIFY`, `CLARIFY`, `PLAN`, `TASKS`, `IMPLEMENT`, or `TEST`. `next_step.stage` may recommend one of those stages or `REVIEW`; it must not be `DONE`.
 
@@ -56,6 +74,8 @@ For new or revised TASKS, use the existing `stage_payload.tasks` strings to refe
 ## Acceptance verification
 
 SPECIFY, CLARIFY and PLAN keep every check `PLANNED` with `evidence: null` for every result status; they define how an outcome will be checked without pretending it already passed. TASKS success requires a non-empty check set and assigns every criterion to the `slice_id` that will verify it. For every IMPLEMENT and TEST result status, the controller supplies the same non-empty authoritative ID → criterion/verification method/verifier/slice mapping, every authoritative and returned check has a non-whitespace slice assignment, and the worker returns the complete non-empty check set; omission or replacement with empty data makes the result contract-invalid. For IMPLEMENT success it also supplies exactly one `current_slice_ids` entry and the disjoint set of already completed slice IDs; the latter must be passed explicitly even when empty, and omission fails closed. The reported `tdd_slices` must exactly equal that current set. TEST success uses the same authoritative mapping. An IMPLEMENT result carries the complete check set: checks assigned to current or completed slices must be `PASS` with evidence, while checks for later slices remain `PLANNED`. TEST with `SUCCESS` requires every check to be `PASS` with non-whitespace evidence. A passing command is relevant evidence only when it exercises the named criterion. Human-verifiable criteria use `verifier: HUMAN` and may pass only with an explicit human decision recorded as evidence.
+
+Every check carries `waiver`, `null` unless `status` is `WAIVED`. `WAIVED` records that the approver (PROJECT_SETUP `approvers`, default the requester) explicitly waived the check: it requires non-whitespace evidence and `waiver: {by, reason, quote, recorded_at}` — who, why, the literal quote and an ISO-8601 timestamp with offset. Wherever `PASS` is required (current/completed IMPLEMENT slices, TEST success, a read-only role's carried-forward checks), a recorded `WAIVED` satisfies it. A HUMAN check may carry its own waiver record. An `AGENT` (command-verified) check may be `WAIVED` only when the controller supplies the identical record in the `recorded_waivers` context; when the controller supplies `recorded_waivers`, every waiver must match its entry exactly. A required command bound only to waived checks is not demanded. SPECIFY, CLARIFY, PLAN, TASKS and future slices can never be waived. A role-approval check (product owner, tech lead) never blocks IMPLEMENT unless the request literally requires it. Rejections carry `next_step` and `next_command`.
 
 ## Write scope and evidence citations
 

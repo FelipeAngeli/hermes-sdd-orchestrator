@@ -58,7 +58,7 @@
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["id", "criterion", "verification_method", "verifier", "slice_id", "status", "evidence"],
+                "required": ["id", "criterion", "verification_method", "verifier", "slice_id", "status", "evidence", "waiver"],
                 "additionalProperties": false,
                 "properties": {
                   "id": {"$ref": "#/$defs/text"},
@@ -66,8 +66,9 @@
                   "verification_method": {"$ref": "#/$defs/text"},
                   "verifier": {"type": "string", "enum": ["AGENT", "HUMAN"]},
                   "slice_id": {"$ref": "#/$defs/text"},
-                  "status": {"type": "string", "enum": ["PASS", "FAIL", "BLOCKED"]},
-                  "evidence": {"$ref": "#/$defs/text"}
+                  "status": {"type": "string", "enum": ["PASS", "FAIL", "BLOCKED", "WAIVED"]},
+                  "evidence": {"$ref": "#/$defs/text"},
+                  "waiver": {"anyOf": [{"$ref": "#/$defs/waiver"}, {"type": "null"}]}
                 }
               }
             }
@@ -130,6 +131,17 @@
       "required": ["path"],
       "additionalProperties": false,
       "properties": {"path": {"$ref": "#/$defs/text"}}
+    },
+    "waiver": {
+      "type": "object",
+      "required": ["by", "reason", "quote", "recorded_at"],
+      "additionalProperties": false,
+      "properties": {
+        "by": {"$ref": "#/$defs/text"},
+        "reason": {"$ref": "#/$defs/text"},
+        "quote": {"$ref": "#/$defs/text"},
+        "recorded_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\\.[0-9]+)?)?(Z|[+-][0-9]{2}:[0-9]{2})$"}
+      }
     }
   }
 }

@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -764,6 +767,280 @@ class ActionJournalTests(unittest.TestCase):
         with self.assertRaises(journal.JournalError) as transition_error:
             journal.transition(persisted_blocked, "RELEASED")
         self.assertEqual("INVALID_TRANSITION", transition_error.exception.code)
+
+
+class JournalExitTests(unittest.TestCase):
+    """Every journal state has a deterministic, machine-readable way out through the CLI."""
+
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory(prefix="action journal exits-")
+        self.addCleanup(self.tempdir.cleanup)
+        self.root = Path(self.tempdir.name).resolve() / "workspace"
+        self.root.mkdir()
+        self.path = self.root / "ACTION_JOURNAL.json"
+        self.history = self.root / "action-journal-history"
+        self.workspace = {"path": str(self.root), "branch": "dev", "head": "a" * 40, "git_common_dir": str(self.root / ".git")}
+
+    def cli(self, command: str, *extra: str, expect: int = 0) -> dict:
+        result = subprocess.run(
+            [sys.executable, "-B", str(SCRIPT), "--journal", str(self.path), "--json", *extra, command],
+            text=True, capture_output=True, check=False, timeout=30,
+        )
+        self.assertEqual(expect, result.returncode, result.stdout + result.stderr)
+        return json.loads(result.stdout)
+
+    def prepared(self, action_id: str = "APP-439-01", **updates: object) -> dict:
+        value = payload(self.root, status="PREPARED")
+        value["process"] = {"started_at": None, "finished_at": None, "exit_code": None}
+        value["state_commit"]["expected_before_hash"] = None
+        updates.setdefault("final_message_path", str(self.root / f"{action_id}.json"))
+        value["action"].update(id=action_id, **updates)
+        return value
+
+    def start(self, value: dict | None = None) -> dict:
+        value = value or self.prepared()
+        journal.atomic_write(self.path, journal.empty_journal(self.workspace))
+        self.cli("prepare", "--payload", json.dumps(value))
+        return value
+
+    def test_started_requires_prepared_and_matching_prompt_hash(self) -> None:
+        value = self.start()
+        mismatch = self.cli("record-process", "--started", "--prompt-sha256", sha256_text("other"), expect=2)
+        self.assertEqual("PROMPT_HASH_MISMATCH", mismatch["status"])
+        self.assertTrue(mismatch["next_step"])
+        self.assertEqual("PREPARED", journal.load_journal(self.path)["action"]["status"])
+
+        started = self.cli("record-process", "--started", "--prompt-sha256", value["action"]["prompt_hash"])
+        self.assertEqual("DISPATCHED", started["action"]["status"])
+        again = self.cli("record-process", "--started", expect=2)
+        self.assertEqual("DISPATCH_NOT_PREPARED", again["status"])
+        self.assertIn("recover", again["next_command"])
+
+    def test_started_refuses_idle_journal_and_existing_final_message(self) -> None:
+        journal.atomic_write(self.path, journal.empty_journal(self.workspace))
+        self.assertEqual("DISPATCH_NOT_PREPARED", self.cli("record-process", "--started", expect=2)["status"])
+        value = self.start()
+        Path(value["action"]["final_message_path"]).write_text("stale", encoding="utf-8")
+        self.assertEqual("ARTIFACT_PENDING", self.cli("record-process", "--started", expect=2)["status"])
+
+    def test_finished_is_idempotent_for_a_launcher_finally_block(self) -> None:
+        self.start()
+        self.cli("record-process", "--started")
+        first = self.cli("record-process", "--finished", "--exit-code", "124")
+        second = self.cli("record-process", "--finished", "--exit-code", "124")
+        self.assertEqual("PROCESS_FINISHED", second["action"]["status"])
+        self.assertEqual(first["process"], second["process"])
+        conflict = self.cli("record-process", "--finished", "--exit-code", "0", expect=2)
+        self.assertEqual("PROCESS_RESULT_CONFLICT", conflict["status"])
+        self.assertTrue(conflict["next_step"])
+
+    def test_finished_before_started_is_refused_with_guidance(self) -> None:
+        self.start()
+        refused = self.cli("record-process", "--finished", "--exit-code", "1", expect=2)
+        self.assertEqual("PROCESS_NOT_STARTED", refused["status"])
+        self.assertEqual("PREPARED", journal.load_journal(self.path)["action"]["status"])
+
+    def test_record_artifact_without_final_file_keeps_process_finished(self) -> None:
+        value = self.start()
+        self.cli("record-process", "--started")
+        self.cli("record-process", "--finished", "--exit-code", "1")
+        missing = self.cli("record-artifact", expect=2)
+        self.assertEqual("ARTIFACT_MISSING", missing["status"])
+        self.assertIn("archive-interrupted", missing["next_command"])
+        self.assertEqual("PROCESS_FINISHED", journal.load_journal(self.path)["action"]["status"])
+
+        Path(value["action"]["final_message_path"]).mkdir()
+        self.assertEqual("ARTIFACT_MISSING", self.cli("record-artifact", expect=2)["status"])
+        Path(value["action"]["final_message_path"]).rmdir()
+        outside = Path(self.tempdir.name) / "outside.json"
+        outside.write_text("{}", encoding="utf-8")
+        Path(value["action"]["final_message_path"]).symlink_to(outside)
+        self.assertEqual("ARTIFACT_MISSING", self.cli("record-artifact", expect=2)["status"])
+        Path(value["action"]["final_message_path"]).unlink()
+
+        archived = self.cli("archive-interrupted", "--history-dir", str(self.history))
+        self.assertEqual("INTERRUPTED", archived["decision"])
+
+    def test_timeout_sequence_recover_names_archive_interrupted_then_parented_prepare(self) -> None:
+        self.start()
+        self.cli("record-process", "--started")
+        waiting = self.cli("recover")
+        self.assertEqual("WAIT_OR_MANUAL_REVIEW", waiting["decision"])
+        self.assertIn("record-process --finished", waiting["next_command"])
+        self.cli("record-process", "--finished", "--exit-code", "124")
+
+        decision = self.cli("recover")
+
+        self.assertEqual("ARCHIVE_INTERRUPTED_REQUIRED", decision["decision"])
+        self.assertEqual("EXECUTOR_PROCESS_ENDED_WITHOUT_ARTIFACT", decision["stop_reason"])
+        self.assertIn(f"--history-dir {shlex.quote(str(self.history))}", decision["next_command"])
+        self.assertIn("archive-interrupted", decision["next_command"])
+        archived = self.cli("archive-interrupted", "--history-dir", str(self.history))
+        self.assertEqual("DISPATCH_ALLOWED", self.cli("recover")["decision"])
+        self.assertIn("parent_action_id", archived["next_step"])
+        retry = self.prepared("APP-439-02", parent_action_id="APP-439-01", attempt=2)
+        self.assertEqual("APP-439-01", self.cli("prepare", "--payload", json.dumps(retry))["action"]["parent_action_id"])
+
+    def test_archive_blocked_opens_pristine_journal_and_requires_a_reason(self) -> None:
+        self.start()
+        self.cli("block")
+        decision = self.cli("recover")
+        self.assertEqual("BLOCKED", decision["decision"])
+        self.assertEqual("ACTION_BLOCKED", decision["stop_reason"])
+        self.assertIn("archive-blocked", decision["next_command"])
+
+        self.assertEqual("ARCHIVE_REASON_REQUIRED", self.cli("archive-blocked", "--history-dir", str(self.history), expect=2)["status"])
+        archived = self.cli("archive-blocked", "--history-dir", str(self.history), "--reason", "scope rejected")
+
+        self.assertEqual("ARCHIVED_BLOCKED", archived["decision"])
+        self.assertEqual("DISPATCH_ALLOWED", archived["recovery_after_archive"])
+        snapshot = json.loads(Path(archived["archived_path"]).read_text(encoding="utf-8"))
+        self.assertEqual("BLOCKED", snapshot["action"]["status"])
+        self.assertEqual(["ARCHIVED_BLOCKED: scope rejected"], snapshot["incidents"])
+        self.assertTrue(journal.is_pristine_idle(journal.load_journal(self.path)))
+
+    def test_archive_blocked_refuses_live_actions(self) -> None:
+        self.start()
+        refused = self.cli("archive-blocked", "--history-dir", str(self.history), "--reason", "x", expect=2)
+        self.assertEqual("JOURNAL_ARCHIVE_BLOCKED_NOT_ALLOWED", refused["status"])
+        self.assertEqual("PREPARED", journal.load_journal(self.path)["action"]["status"])
+
+    def test_dirty_idle_can_be_archived_as_blocked(self) -> None:
+        dirty = journal.empty_journal(self.workspace)
+        dirty["process"]["started_at"] = "2026-09-16T00:00:00Z"
+        journal.atomic_write(self.path, dirty)
+        decision = self.cli("recover")
+        self.assertEqual("DIRTY_OR_INCONSISTENT_IDLE", decision["stop_reason"])
+        self.assertIn("archive-blocked", decision["next_command"])
+        archived = self.cli("archive-blocked", "--history-dir", str(self.history), "--reason", "stray evidence")
+        self.assertEqual("NO-TICKET", Path(archived["archived_path"]).parent.name)
+        self.assertEqual("DISPATCH_ALLOWED", self.cli("recover")["decision"])
+
+    def test_every_recover_decision_carries_next_step_and_command(self) -> None:
+        cases: dict[str, dict] = {}
+        cases["pristine"] = journal.empty_journal(self.workspace)
+        cases["prepared"] = self.prepared()
+        dispatched = self.prepared(); dispatched["action"]["status"] = "DISPATCHED"; dispatched["process"]["started_at"] = "t"
+        cases["dispatched"] = dispatched
+        finished = json.loads(json.dumps(dispatched)); finished["action"]["status"] = "PROCESS_FINISHED"
+        finished["process"].update(finished_at="t", exit_code=124)
+        cases["finished"] = finished
+        blocked = self.prepared(); blocked["action"]["status"] = "BLOCKED"
+        cases["blocked"] = blocked
+        interrupted = json.loads(json.dumps(finished)); interrupted["action"]["status"] = "INTERRUPTED"
+        cases["interrupted"] = interrupted
+        validated = json.loads(json.dumps(finished)); validated["action"]["status"] = "VALIDATED"
+        validated["artifact"].update(exists=True, sha256="b" * 64, validation_status="VALID")
+        cases["validated"] = validated
+        ready = json.loads(json.dumps(validated)); ready["action"]["status"] = "ARTIFACT_READY"; ready["artifact"]["validation_status"] = "PENDING"
+        cases["ready"] = ready
+        invalid = json.loads(json.dumps(ready)); invalid["artifact"]["validation_status"] = "INVALID"
+        cases["invalid"] = invalid
+        released = json.loads(json.dumps(validated)); released["action"]["status"] = "RELEASED"
+        cases["released"] = released
+        dirty = journal.empty_journal(self.workspace); dirty["incidents"] = ["x"]
+        cases["dirty"] = dirty
+        for name, value in cases.items():
+            with self.subTest(case=name):
+                decision = journal.recovery_decision(value, journal_path=self.path)
+                self.assertTrue(decision.get("next_step"), decision)
+                self.assertTrue(decision.get("next_command"), decision)
+                self.assertIn(str(SCRIPT.resolve().parent), decision["next_command"])
+                if decision["decision"] == "BLOCKED":
+                    self.assertTrue(decision.get("stop_reason"), decision)
+
+    def test_every_journal_error_code_has_a_next_step(self) -> None:
+        source = SCRIPT.read_text(encoding="utf-8")
+        codes = set(re.findall(r'JournalError\(\s*"([A-Z_]+)"', source))
+        self.assertGreater(len(codes), 30)
+        self.assertEqual(set(), codes - set(journal.NEXT_STEPS))
+        self.assertTrue(all(journal.NEXT_STEPS[code] for code in codes))
+
+    def test_invalid_payload_and_missing_journal_return_next_step(self) -> None:
+        journal.atomic_write(self.path, journal.empty_journal(self.workspace))
+        broken = self.cli("prepare", "--payload", "{not json", expect=2)
+        self.assertEqual("PAYLOAD_INVALID", broken["status"])
+        self.assertTrue(broken["next_step"])
+        result = subprocess.run([sys.executable, "-B", str(SCRIPT), "--json", "recover"], text=True, capture_output=True, check=False, timeout=30)
+        self.assertEqual(2, result.returncode)
+        missing = json.loads(result.stdout)
+        self.assertEqual("JOURNAL_REQUIRED", missing["status"])
+        self.assertIn(" paths", missing["next_command"])
+
+    def test_paths_reports_local_storage_for_a_repository_controller(self) -> None:
+        repo = Path(self.tempdir.name).resolve() / "repo"
+        subprocess.run(["git", "init", "-q", str(repo)], check=True, capture_output=True)
+        runtime = repo / ".hermes" / "orchestration" / "runtime"
+        shutil.copytree(RUNTIME, runtime, ignore=shutil.ignore_patterns("__pycache__"))
+        result = subprocess.run(
+            [sys.executable, "-B", str(runtime / "action_journal.py"), "--json", "paths"],
+            cwd=repo / ".hermes", text=True, capture_output=True, check=False, timeout=30,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        paths = json.loads(result.stdout)
+        orchestration = repo / ".hermes" / "orchestration"
+        self.assertEqual("LOCAL", paths["storage"])
+        self.assertEqual(str(repo), paths["workspace"])
+        self.assertEqual(str(orchestration / "ACTION_JOURNAL.json"), paths["journal"])
+        self.assertEqual(str(orchestration / "action-journal-history"), paths["history_dir"])
+        self.assertEqual(str(orchestration / "STATE.md"), paths["state"])
+
+    def test_adopt_parent_artifact_requires_interrupted_parent_and_matching_hash(self) -> None:
+        self.start()
+        self.cli("record-process", "--started")
+        self.cli("record-process", "--finished", "--exit-code", "124")
+        self.cli("archive-interrupted", "--history-dir", str(self.history))
+        late = self.root / "APP-439-01.json"
+        late.write_text('{"late": true}', encoding="utf-8")
+        adopt = self.prepared(
+            "APP-439-02", parent_action_id="APP-439-01", attempt=2, retry_mode="ADOPT_PARENT_ARTIFACT",
+            final_message_path=str(late), parent_artifact_path=str(late), parent_artifact_sha256=sha256_text("other"),
+        )
+        mismatch = self.cli("prepare", "--payload", json.dumps(adopt), expect=2)
+        self.assertEqual("ADOPTION_ARTIFACT_MISMATCH", mismatch["status"])
+        self.assertTrue(journal.is_pristine_idle(journal.load_journal(self.path)))
+
+        unknown = json.loads(json.dumps(adopt)); unknown["action"]["parent_action_id"] = "APP-439-77"
+        unknown["action"]["parent_artifact_sha256"] = journal.sha256(late)
+        self.assertEqual("ADOPTION_PARENT_NOT_FOUND", self.cli("prepare", "--payload", json.dumps(unknown), expect=2)["status"])
+
+        adopt["action"]["parent_artifact_sha256"] = journal.sha256(late)
+        self.assertEqual("PREPARED", self.cli("prepare", "--payload", json.dumps(adopt))["action"]["status"])
+        late.write_text('{"late": "tampered"}', encoding="utf-8")
+        self.assertEqual("ADOPTION_ARTIFACT_MISMATCH", self.cli("record-artifact", expect=2)["status"])
+        self.assertEqual("PREPARED", journal.load_journal(self.path)["action"]["status"])
+
+    def test_adoption_refuses_a_parent_that_is_not_interrupted(self) -> None:
+        value = payload(self.root, status="RELEASED")
+        artifact = self.root / "released.json"
+        artifact.write_text("ok", encoding="utf-8")
+        value["action"].update(id="APP-439-01", final_message_path=str(artifact))
+        value["artifact"].update(exists=True, sha256=journal.sha256(artifact), validation_status="VALID")
+        value["state_commit"].update(expected_before_hash="a" * 64, expected_after_hash="b" * 64, committed_after_hash="b" * 64, committed_at="t", verified=True)
+        journal.atomic_write(self.path, value)
+        journal.rollover_journal(self.path, self.history)
+        adopt = self.prepared(
+            "APP-439-02", parent_action_id="APP-439-01", attempt=2, retry_mode="ADOPT_PARENT_ARTIFACT",
+            final_message_path=str(artifact), parent_artifact_path=str(artifact), parent_artifact_sha256=journal.sha256(artifact),
+        )
+        self.assertEqual("ADOPTION_NOT_ALLOWED", self.cli("prepare", "--payload", json.dumps(adopt), expect=2)["status"])
+
+    def test_mark_validated_refuses_an_artifact_changed_after_recording(self) -> None:
+        value = self.start()
+        self.cli("record-process", "--started")
+        final = Path(value["action"]["final_message_path"])
+        final.write_text("{}", encoding="utf-8")
+        self.cli("record-process", "--finished", "--exit-code", "0")
+        self.cli("record-artifact")
+        final.write_text('{"changed": 1}', encoding="utf-8")
+        self.assertEqual("ARTIFACT_CHANGED", self.cli("mark-validated", expect=2)["status"])
+        self.assertEqual("ARTIFACT_READY", journal.load_journal(self.path)["action"]["status"])
+
+    def test_unknown_retry_mode_is_rejected(self) -> None:
+        value = self.prepared(retry_mode="WHATEVER")
+        with self.assertRaises(journal.JournalError) as error:
+            journal.validate_journal(value)
+        self.assertEqual("JOURNAL_INVALID", error.exception.code)
 
 
 if __name__ == "__main__":

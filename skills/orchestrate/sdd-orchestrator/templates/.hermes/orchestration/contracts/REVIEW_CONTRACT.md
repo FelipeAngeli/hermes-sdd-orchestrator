@@ -37,7 +37,8 @@ For tasks in scope, receive their canonical requirement/design references and th
         "verifier": "AGENT",
         "slice_id": "slice-1",
         "status": "PASS",
-        "evidence": "The focused behavior check passed against the delivered diff"
+        "evidence": "The focused behavior check passed against the delivered diff",
+        "waiver": null
       }]
     },
     "e2e": {"files_modified": false, "execution_performed": false, "violation": false},
@@ -54,6 +55,6 @@ Gate values preserve `PASS`, `FAIL`, `TIMEOUT`, `BLOCKED`, and `PENDING`; CI als
 
 ## Approval policy and history
 
-`APPROVED` requires independently verified acceptance with at least one evidence-backed passing check, preserved baseline, valid ownership, no unresolved findings or forbidden-action violations, and `focused_tests`, `format`, and `analyze` equal to `PASS`. After approval, the controller consults `../policies/GATES.md`: it may recommend `RUN_CI` when CI is enabled or `EVALUATE_DONE_WITH_CI_DISABLED` when the explicit project policy disables CI. The controller alone evaluates DONE.
+`APPROVED` requires independently verified acceptance with at least one evidence-backed check, every check `PASS` or `WAIVED` (a `WAIVED` check carries `waiver: {by, reason, quote, recorded_at}` and, for an `AGENT` check, matches the controller's `recorded_waivers`; every other check has `waiver: null`), preserved baseline, valid ownership, no unresolved findings or forbidden-action violations, and `focused_tests`, `format`, and `analyze` equal to `PASS`. After approval, the controller consults `../policies/GATES.md`: it may recommend `RUN_CI` when CI is enabled or `EVALUATE_DONE_WITH_CI_DISABLED` when the explicit project policy disables CI. The controller alone evaluates DONE.
 
 Historical pre-version-3 review records remain valid history and are not rewritten or evaluated as version 3 payloads.

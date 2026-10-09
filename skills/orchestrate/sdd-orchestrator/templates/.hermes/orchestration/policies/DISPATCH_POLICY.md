@@ -8,7 +8,7 @@ This inverts the previous rule. The bundle said the controller *may* select a sp
 
 ## The dispatch question
 
-Before dispatching any sub-agent, record three things in the action journal entry:
+Before dispatching any sub-agent, record three things in the stage-context manifest's `dispatch` block (`schemas/STAGE_CONTEXT_SCHEMA.json`; `stage_context.py check` refuses a role dispatch without it with `DISPATCH_QUESTION_REQUIRED`, and `sdd.py manifest` fills it for the guardian):
 
 - `pending_decision` — name the pending decision the answer resolves. Not a topic, a decision: "whether slice S3 may proceed without a migration", not "check the database".
 - `deterministic_attempt` — record which deterministic tool was tried and why it was insufficient.
@@ -59,26 +59,26 @@ The controller chooses the smallest safe path. Escalating beyond the minimum pat
 
 Routing suggestions by change shape, each still subject to the dispatch question:
 
-| Change | Typical specialists |
-| --- | --- |
-| UI or copy | none beyond implement, test, review |
-| API or contract | `api-contract-auditor`, then `impact-analyst` when the contract is shared |
-| Architectural | `impact-analyst`, `architecture-guardian` |
-| Database schema/data migration | `migration-safety-auditor` when rollout, mixed-version compatibility or recovery remains a pending decision |
-| Pre-release | `regression-hunter`, `security-reviewer` when the change touches its surfaces |
-| Pull request | `pr-reviewer` for the whole PR and its prior reviews; it names the specialists above when a deeper finding needs one |
+| Change | Typical specialists | Playbooks the stage worker loads |
+| --- | --- | --- |
+| UI or copy | none beyond implement, test, review | `sdd-frontend-engineering` |
+| API or contract | `data-flow-tracer` (impact) when the contract is shared | `sdd-api-contracts`, `sdd-tech-lead` |
+| Architectural | `data-flow-tracer` (impact) | `sdd-tech-lead`, `sdd-architecture-decisions` |
+| Database schema/data migration | none; the rollout-safety audit is a playbook reference | `sdd-database-design-migrations` |
+| Pre-release | `security-reviewer` when the change touches its surfaces | `sdd-release-readiness`, `sdd-tdd` |
+| Pull request | `pr-reviewer` for the whole PR and its prior reviews; it names the owner when a deeper finding needs one | `sdd-product-owner`, `sdd-tech-lead` |
 
-A row in this table is a starting point, never an obligation. A specialist listed here and not needed for a named decision is still not dispatched. The table names only briefs that ship in `sub-agents/`; adding a row for a role that does not exist would send the controller looking for a brief it cannot load.
+A row in this table is a starting point, never an obligation. A specialist listed here and not needed for a named decision is still not dispatched. The specialist column names only briefs that ship in `sub-agents/`, and the playbook column only skills that ship in `.hermes/skills/` (`project-context-guardian`, `data-flow-tracer`, `pr-reviewer`, `security-reviewer`); adding a row for a role that does not exist would send the controller looking for a brief it cannot load.
+
+Playbooks are project-local skills under `.hermes/skills/` that the stage worker loads itself, declared in the stage-context manifest's playbooks list. They cost no dispatch and are never a separate worker. Product owner (`sdd-product-owner`) and tech lead (`sdd-tech-lead`) are playbooks, not sub-agents and not approver gates: an approval a request names is resolved through the approvers record in `PROJECT_SETUP.md` (default: the requester) and recorded as a HUMAN check or `WAIVED` evidence, and it never blocks IMPLEMENT unless the request literally says so.
 
 ## Bounded iteration
 
-The loop is `OBSERVE → ANALYZE → ACT → VERIFY → LEARN`, and the controller decides after `LEARN` whether another iteration is warranted.
-
-Every run declares `max_iterations` before starting, alongside the budgets already defined in `BOUNDED_AUTOMATION.md` and `LOOP_POLICY.md`, which this policy does not replace.
+The loop is `OBSERVE → ANALYZE → ACT → VERIFY → LEARN`, and the controller decides after `LEARN` whether another iteration is warranted. Its bounds are the budgets of `LOOP_POLICY.md` §4 and the LOCAL_DELIVERY limits of `BOUNDED_AUTOMATION.md`; this policy adds no separate iteration counter.
 
 Stop when the objective is met, when the evidence is sufficient for the pending decision, when a blocker requires a human, or when any budget is exhausted.
 
-A repeated iteration over unchanged evidence is forbidden. Record an evidence digest for each iteration; if an iteration ends with the same digest it began with, the loop has stopped learning and must terminate rather than re-analyze. Loops that re-run analysis without new evidence burn budget to produce the conclusion they already had.
+A repeated iteration over unchanged evidence is forbidden. `runtime/correction_loop.py decide` enforces it: it compares each attempt's evidence digest with the previous one and stops with `NO_PROGRESS` (unchanged evidence) or `NO_NEW_HYPOTHESIS` (a hypothesis already tried) instead of re-analyzing. Loops that re-run analysis without new evidence burn budget to produce the conclusion they already had.
 
 ## Result discipline
 

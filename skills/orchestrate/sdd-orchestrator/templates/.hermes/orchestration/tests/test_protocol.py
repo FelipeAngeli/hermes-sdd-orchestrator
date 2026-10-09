@@ -30,6 +30,12 @@ PASSING_EVIDENCE = {
     "TEST": "`synthetic focused command` exited 0 and asserted the outcome",
 }
 EDITABLE_PATHS = {"src/*", "tests/*"}
+WAIVER = {
+    "by": "requester",
+    "reason": "the requester waived the product-owner approval named in the request",
+    "quote": "nao precisamos disso, pule essa fase",
+    "recorded_at": "2026-10-08T20:45:53-03:00",
+}
 BOUND_COMMANDS = ["synthetic focused command", "synthetic green command"]
 
 
@@ -64,6 +70,7 @@ def executor_fixture(stage: str, status: str = "SUCCESS") -> dict:
                 "slice_id": "synthetic-slice-1" if stage in {"TASKS", "IMPLEMENT", "TEST"} else None,
                 "status": "PASS" if stage in {"IMPLEMENT", "TEST"} else "PLANNED",
                 "evidence": PASSING_EVIDENCE.get(stage),
+                "waiver": None,
             }],
             "stage_payload": {"summary": "synthetic test fixture", "tasks": [], "impact_files": [], "decisions": []},
             "tdd_slices": [],
@@ -110,6 +117,7 @@ def review_fixture(status: str = "APPROVED") -> dict:
                     "slice_id": "synthetic-slice-1",
                     "status": "PASS" if status == "APPROVED" else "FAIL",
                     "evidence": "synthetic review evidence",
+                    "waiver": None,
                 }],
             },
             "e2e": {"files_modified": False, "execution_performed": False, "violation": False},
@@ -313,6 +321,7 @@ class ProtocolValidationTests(unittest.TestCase):
             "slice_id": "synthetic-slice-2",
             "status": "PLANNED",
             "evidence": None,
+            "waiver": None,
         })
 
         self.assertAccepted("IMPLEMENT", fixture)
@@ -329,6 +338,7 @@ class ProtocolValidationTests(unittest.TestCase):
                 "slice_id": "synthetic-slice-0",
                 "status": "PASS",
                 "evidence": "earlier slice evidence",
+                "waiver": None,
             },
             {
                 "id": "AC-2",
@@ -338,6 +348,7 @@ class ProtocolValidationTests(unittest.TestCase):
                 "slice_id": "synthetic-slice-2",
                 "status": "PLANNED",
                 "evidence": None,
+                "waiver": None,
             },
         ])
         expected = self._expected_acceptance("IMPLEMENT", fixture)
@@ -362,6 +373,7 @@ class ProtocolValidationTests(unittest.TestCase):
             "slice_id": "synthetic-slice-2",
             "status": "PASS",
             "evidence": "premature future evidence",
+            "waiver": None,
         })
 
         self.assertRejected("IMPLEMENT", fixture)
@@ -401,6 +413,7 @@ class ProtocolValidationTests(unittest.TestCase):
             "slice_id": "synthetic-slice-2",
             "status": "PASS",
             "evidence": "worker-selected future evidence",
+            "waiver": None,
         })
         expected = self._expected_acceptance("IMPLEMENT", fixture)
 
@@ -770,7 +783,7 @@ class ProtocolValidationTests(unittest.TestCase):
                 self.assertTrue(self.validate_read_only(fixture), msg=f"{name} unexpectedly accepted")
 
     def test_read_only_role_is_limited_to_its_declared_stages(self) -> None:
-        self.assertTrue(self.validate_read_only(self.read_only_implement(), "TDD_IMPLEMENTER"))
+        self.assertTrue(self.validate_read_only(self.read_only_implement(), "SECURITY_REVIEWER"))
         fixture = executor_fixture("TEST")
         self.assertTrue(validate_payload(
             "TEST", fixture, expected_acceptance=self._expected_acceptance("TEST", fixture),
@@ -804,6 +817,157 @@ class ProtocolValidationTests(unittest.TestCase):
             completed_slice_ids={"synthetic-slice-1"},
             role="PROJECT_CONTEXT_GUARDIAN",
         ))
+
+    # --- WAIVED acceptance status -------------------------------------------------
+
+    def waive(self, check: dict, verifier: str = "HUMAN") -> dict:
+        waiver = copy.deepcopy(WAIVER)
+        check.update({
+            "verifier": verifier, "status": "WAIVED",
+            "evidence": f"Waived by {waiver['by']}: \"{waiver['quote']}\"", "waiver": waiver,
+        })
+        return waiver
+
+    def validate_with(self, action: str, fixture: dict, **overrides) -> list[dict[str, str]]:
+        kwargs = {
+            "expected_acceptance": self._expected_acceptance(action, fixture),
+            "current_slice_ids": self._current_slice_ids(action, fixture),
+            "completed_slice_ids": set() if action == "IMPLEMENT" else None,
+            "editable_paths": EDITABLE_PATHS if action == "IMPLEMENT" else None,
+            "check_verifiers": bound_verifiers(action, fixture),
+        }
+        kwargs.update(overrides)
+        return validate_payload(action, fixture, **kwargs)
+
+    def test_waived_human_check_satisfies_test_implement_and_review(self) -> None:
+        test = executor_fixture("TEST")
+        self.waive(test["executor_result"]["acceptance_checks"][0])
+        self.assertEqual([], self.validate_with("TEST", test))
+        implement = successful_implementation()
+        self.waive(implement["executor_result"]["acceptance_checks"][0])
+        self.assertEqual([], self.validate_with("IMPLEMENT", implement))
+        review = review_fixture()
+        self.waive(review["review_result"]["acceptance"]["checks"][0])
+        self.assertEqual([], self.validate_with("REVIEW", review))
+
+    def test_waived_status_and_waiver_record_must_agree(self) -> None:
+        cases = {
+            "waived-without-record": lambda c: c.update({"waiver": None}),
+            "pass-with-record": lambda c: c.update({"status": "PASS"}),
+            "record-missing-quote": lambda c: c["waiver"].pop("quote"),
+            "record-blank-by": lambda c: c["waiver"].update({"by": "  "}),
+            "record-undated": lambda c: c["waiver"].update({"recorded_at": "yesterday"}),
+            "record-extra-field": lambda c: c["waiver"].update({"approved": True}),
+            "no-evidence": lambda c: c.update({"evidence": None}),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(case=name):
+                fixture = executor_fixture("TEST")
+                check = fixture["executor_result"]["acceptance_checks"][0]
+                self.waive(check)
+                mutate(check)
+                self.assertTrue(self.validate_with("TEST", fixture), msg=f"{name} unexpectedly accepted")
+        review = review_fixture()
+        check = review["review_result"]["acceptance"]["checks"][0]
+        self.waive(check)
+        check["waiver"] = None
+        self.assertTrue(self.validate_with("REVIEW", review))
+
+    def test_agent_check_is_never_waived_without_a_controller_recorded_waiver(self) -> None:
+        fixture = executor_fixture("TEST")
+        waiver = self.waive(fixture["executor_result"]["acceptance_checks"][0], verifier="AGENT")
+        errors = self.validate_with("TEST", fixture)
+        self.assertTrue(any("recorded_waivers" in error["reason"] for error in errors), errors)
+        self.assertTrue(all(error.get("next_step") for error in errors if "recorded_waivers" in error["reason"]))
+        self.assertEqual([], self.validate_with("TEST", fixture, recorded_waivers={"AC-1": waiver}))
+        forged = {**waiver, "quote": "something the requester never said"}
+        self.assertTrue(self.validate_with("TEST", fixture, recorded_waivers={"AC-1": forged}))
+        self.assertTrue(self.validate_with("TEST", fixture, recorded_waivers={"AC-2": waiver}))
+        review = review_fixture()
+        waiver = self.waive(review["review_result"]["acceptance"]["checks"][0], verifier="AGENT")
+        self.assertTrue(self.validate_with("REVIEW", review))
+        self.assertEqual([], self.validate_with("REVIEW", review, recorded_waivers={"AC-1": waiver}))
+
+    def test_human_waiver_must_match_a_controller_record_when_one_is_supplied(self) -> None:
+        fixture = executor_fixture("TEST")
+        waiver = self.waive(fixture["executor_result"]["acceptance_checks"][0])
+        self.assertEqual([], self.validate_with("TEST", fixture, recorded_waivers={"AC-1": waiver}))
+        self.assertTrue(self.validate_with("TEST", fixture, recorded_waivers={"AC-1": {**waiver, "by": "someone else"}}))
+
+    def test_analysis_stages_and_future_slices_cannot_be_waived(self) -> None:
+        for action in ("SPECIFY", "CLARIFY", "PLAN", "TASKS"):
+            with self.subTest(action=action):
+                fixture = executor_fixture(action)
+                self.waive(fixture["executor_result"]["acceptance_checks"][0])
+                self.assertTrue(self.validate_with(action, fixture))
+        fixture = successful_implementation()
+        future = copy.deepcopy(fixture["executor_result"]["acceptance_checks"][0])
+        future.update({"id": "AC-2", "slice_id": "synthetic-slice-2"})
+        self.waive(future)
+        fixture["executor_result"]["acceptance_checks"].append(future)
+        self.assertTrue(self.validate_with("IMPLEMENT", fixture))
+
+    def test_required_command_bound_only_to_waived_checks_is_not_demanded(self) -> None:
+        fixture = executor_fixture("TEST")
+        fixture["executor_result"]["commands"] = []
+        waiver = self.waive(fixture["executor_result"]["acceptance_checks"][0], verifier="AGENT")
+        verifiers = {"AC-1": ["synthetic waived command"]}
+        self.assertEqual([], self.validate_with(
+            "TEST", fixture, check_verifiers=verifiers, required_commands=["synthetic waived command"],
+            recorded_waivers={"AC-1": waiver},
+        ))
+        second = copy.deepcopy(FOCUSED_COMMAND)
+        fixture["executor_result"]["commands"] = [second]
+        other = copy.deepcopy(executor_fixture("TEST")["executor_result"]["acceptance_checks"][0])
+        other["id"] = "AC-2"
+        fixture["executor_result"]["acceptance_checks"].append(other)
+        verifiers = {"AC-1": ["synthetic waived command"], "AC-2": ["synthetic focused command", "synthetic waived command"]}
+        errors = self.validate_with(
+            "TEST", fixture, check_verifiers=verifiers,
+            required_commands=["synthetic focused command", "synthetic waived command"],
+            recorded_waivers={"AC-1": waiver},
+        )
+        self.assertTrue(any("synthetic waived command" in error["reason"] for error in errors), errors)
+
+    def test_read_only_role_carries_a_completed_waived_check_forward(self) -> None:
+        fixture = self.read_only_implement()
+        self.waive(fixture["executor_result"]["acceptance_checks"][0])
+        self.assertEqual([], validate_payload(
+            "IMPLEMENT", fixture,
+            expected_acceptance=self._expected_acceptance("IMPLEMENT", fixture),
+            completed_slice_ids={"synthetic-slice-1"},
+            role="PROJECT_CONTEXT_GUARDIAN",
+        ))
+
+    def test_cli_accepts_recorded_waivers_in_the_context(self) -> None:
+        fixture = executor_fixture("TEST")
+        waiver = self.waive(fixture["executor_result"]["acceptance_checks"][0], verifier="AGENT")
+        context = {
+            "expected_acceptance": self._expected_acceptance("TEST", fixture),
+            "check_verifiers": bound_verifiers("TEST", fixture),
+            "recorded_waivers": {"AC-1": waiver},
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            result_path, context_path = Path(temp) / "result.json", Path(temp) / "context.json"
+            result_path.write_text(json.dumps(fixture), encoding="utf-8")
+            context_path.write_text(json.dumps(context), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(RUNTIME / "validate_protocol.py"), "--action", "TEST",
+                 "--result", str(result_path), "--context", str(context_path), "--json"],
+                text=True, capture_output=True, timeout=30,
+            )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertTrue(json.loads(result.stdout)["valid"])
+
+    def test_read_only_roles_are_the_two_shipped_read_only_sub_agents(self) -> None:
+        self.assertEqual({
+            "PROJECT_CONTEXT_GUARDIAN": {"SPECIFY", "PLAN", "IMPLEMENT"},
+            "DATA_FLOW_TRACER": {"SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT"},
+        }, validate_protocol.READ_ONLY_ROLES)
+        for action in ("SPECIFY", "CLARIFY", "PLAN", "TASKS"):
+            with self.subTest(action=action):
+                fixture = executor_fixture(action)
+                self.assertEqual([], self.validate_with(action, fixture, role="DATA_FLOW_TRACER"))
 
     def run_cli(self, context: object) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temp:

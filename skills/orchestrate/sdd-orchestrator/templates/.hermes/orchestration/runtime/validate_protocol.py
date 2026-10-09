@@ -23,8 +23,21 @@ EXECUTOR_ACTIONS = {"SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST"}
 ANALYSIS_ONLY_ACTIONS = {"SPECIFY", "CLARIFY", "PLAN", "TASKS", "TEST"}
 READ_ONLY_ROLES = {
     "PROJECT_CONTEXT_GUARDIAN": {"SPECIFY", "PLAN", "IMPLEMENT"},
-    "DATA_FLOW_TRACER": {"PLAN", "IMPLEMENT"},
+    "DATA_FLOW_TRACER": {"SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT"},
 }
+#: Acceptance statuses that satisfy a check wherever PASS is required. WAIVED
+#: needs a recorded `waiver` (who, why, literal quote, when); an AGENT check is
+#: waivable only when the controller supplies the same record in `recorded_waivers`.
+SATISFIED_STATUSES = {"PASS", "WAIVED"}
+WAIVER_NEXT_STEP = (
+    "Record the approver's literal decision (PROJECT_SETUP `approvers`, default the requester) in the "
+    "controller context as recorded_waivers[<check-id>] = {by, reason, quote, recorded_at}, or verify the "
+    "check and report PASS with evidence."
+)
+WAIVER_NEXT_COMMAND = (
+    "python3 runtime/validate_protocol.py --action <action> --result <final-message.json> "
+    "--context <context-with-recorded_waivers.json> --json"
+)
 _GLOB_CHARACTERS = set("*?[")
 REVIEW_ACTION = "REVIEW"
 _CITED_COMMAND = re.compile(r"`([^`]+)`")
@@ -32,8 +45,60 @@ _VALIDATOR_CACHE_MAXSIZE = 32
 _VALIDATOR_CACHE: OrderedDict[str, Draft202012Validator] = OrderedDict()
 
 
-def _error(path: str, reason: str) -> dict[str, str]:
-    return {"path": path or "$", "reason": reason}
+def _error(path: str, reason: str, next_step: str | None = None, next_command: str | None = None) -> dict[str, str]:
+    error = {"path": path or "$", "reason": reason}
+    if next_step:
+        error["next_step"] = next_step
+    if next_command:
+        error["next_command"] = next_command
+    return error
+
+
+def _waiver_error(path: str, reason: str) -> dict[str, str]:
+    return _error(path, reason, WAIVER_NEXT_STEP, WAIVER_NEXT_COMMAND)
+
+
+def _validate_waivers(
+    checks: list[dict[str, Any]],
+    prefix: str,
+    recorded_waivers: dict[str, dict[str, Any]] | None,
+) -> list[dict[str, str]]:
+    """WAIVED is a recorded human decision, never a worker's shortcut.
+
+    The status and the `waiver` record must agree; WAIVED needs evidence. A
+    HUMAN check may carry the approver's recorded decision itself (as a HUMAN
+    PASS does). An AGENT/COMMAND-verified check may be waived only when the
+    controller supplies the identical record in `recorded_waivers`; whenever the
+    controller supplies records, every waiver must match one exactly.
+    """
+    errors: list[dict[str, str]] = []
+    for index, check in enumerate(checks):
+        path = f"{prefix}[{index}]"
+        waived = check["status"] == "WAIVED"
+        waiver = check.get("waiver")
+        if waived != (waiver is not None):
+            errors.append(_waiver_error(
+                f"{path}.waiver",
+                "status WAIVED requires a waiver record, and a waiver record requires status WAIVED",
+            ))
+            continue
+        if not waived:
+            continue
+        if not _has_text(check["evidence"]):
+            errors.append(_waiver_error(f"{path}.evidence", f"WAIVED check {check['id']} requires evidence citing the decision"))
+        recorded = None if recorded_waivers is None else recorded_waivers.get(check["id"])
+        if check["verifier"] != "HUMAN" and recorded is None:
+            errors.append(_waiver_error(
+                f"{path}.status",
+                f"{check['verifier']} check {check['id']} can be WAIVED only with a controller-recorded waiver "
+                "in recorded_waivers",
+            ))
+        elif recorded_waivers is not None and recorded != waiver:
+            errors.append(_waiver_error(
+                f"{path}.waiver",
+                f"waiver for {check['id']} does not match the controller's recorded_waivers entry",
+            ))
+    return errors
 
 
 def _schema_for(action: str) -> tuple[Path, str]:
@@ -77,6 +142,7 @@ def validate_payload(
     required_commands: list[str] | None = None,
     check_verifiers: dict[str, list[str]] | None = None,
     role: str | None = None,
+    recorded_waivers: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     """Return structural and semantic errors; an empty list means acceptance."""
     try:
@@ -113,9 +179,10 @@ def validate_payload(
             required_commands,
             check_verifiers,
             role,
+            recorded_waivers,
         ))
     else:
-        errors.extend(_validate_review_semantics(result, expected_acceptance))
+        errors.extend(_validate_review_semantics(result, expected_acceptance, recorded_waivers))
     return errors
 
 
@@ -130,6 +197,7 @@ def validate_json_text(
     required_commands: list[str] | None = None,
     check_verifiers: dict[str, list[str]] | None = None,
     role: str | None = None,
+    recorded_waivers: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     """Accept JSON text only; YAML, transcripts, and Markdown are rejected."""
     try:
@@ -147,6 +215,7 @@ def validate_json_text(
         required_commands,
         check_verifiers,
         role,
+        recorded_waivers,
     )
 
 
@@ -216,14 +285,16 @@ def _validate_authoritative_acceptance(
 
 
 def _is_safe_relative(path: str) -> bool:
-    """A canonical repository-relative path: no root, home, empty, `.` or `..` segment.
+    """A canonical repository-relative path: no root, home, empty, `.`, `..` or `-`-prefixed segment.
 
     Segments are checked on the raw string because PurePosixPath silently
     drops `.` and empty segments, which would let `./**` pass as anchored.
+    A segment starting with `-` is refused because written paths become gate
+    arguments (`{files}`), where `--config=x` would turn into an option.
     """
     if not isinstance(path, str) or not path or path.startswith(("/", "~")) or "\\" in path:
         return False
-    return all(segment not in {"", ".", ".."} for segment in path.split("/"))
+    return all(segment not in {"", ".", ".."} and not segment.startswith("-") for segment in path.split("/"))
 
 
 def editable_pattern_is_safe(pattern: str) -> bool:
@@ -288,7 +359,7 @@ def _validate_write_scope(
     for field, index, path in written:
         prefix = f"$.executor_result.{field}[{index}]"
         if not _is_safe_relative(path):
-            errors.append(_error(prefix, "written paths must be canonical repository-relative paths (no '/', '~', '.', '..' or empty segments)"))
+            errors.append(_error(prefix, "written paths must be canonical repository-relative paths (no '/', '~', '.', '..', empty or '-'-prefixed segments)"))
         elif not any(path_matches(path, pattern) for pattern in editable_paths):
             errors.append(_error(prefix, f"{path} is outside the slice editable_paths"))
     return errors
@@ -350,17 +421,28 @@ def _validate_evidence_citations(
 
 
 def _validate_required_commands(
-    result: dict[str, Any], required_commands: list[str] | None,
+    result: dict[str, Any],
+    required_commands: list[str] | None,
+    check_verifiers: dict[str, list[str]] | None = None,
 ) -> list[dict[str, str]]:
-    """A successful IMPLEMENT/TEST must record every controller-required verifier as passing."""
+    """A successful IMPLEMENT/TEST must record every controller-required verifier as passing.
+
+    A command bound only to WAIVED checks is excused: the waiver replaced its run.
+    """
     stage = result["stage"]
     if not required_commands or stage["value"] not in {"IMPLEMENT", "TEST"} or stage["status"] != "SUCCESS":
         return []
     passing = _passing_commands(result)
+    statuses = {check["id"]: check["status"] for check in result["acceptance_checks"]}
+
+    def excused(command: str) -> bool:
+        bound = [check_id for check_id, commands in (check_verifiers or {}).items() if command in commands]
+        return bool(bound) and all(statuses.get(check_id) == "WAIVED" for check_id in bound)
+
     return [
         _error("$.executor_result.commands", f"required verification `{command}` was not recorded as passing")
         for command in required_commands
-        if command not in passing
+        if command not in passing and not excused(command)
     ]
 
 
@@ -375,10 +457,10 @@ def _validate_read_only_result(
     for index, check in enumerate(result["acceptance_checks"]):
         prefix = f"$.executor_result.acceptance_checks[{index}]"
         if check["slice_id"] in completed:
-            if check["status"] != "PASS" or not _has_text(check["evidence"]):
+            if check["status"] not in SATISFIED_STATUSES or not _has_text(check["evidence"]):
                 errors.append(_error(
                     f"{prefix}.status",
-                    "a read-only role must carry completed-slice checks forward unchanged as PASS with evidence",
+                    "a read-only role must carry completed-slice checks forward unchanged as PASS or WAIVED with evidence",
                 ))
             continue
         if check["status"] != "PLANNED":
@@ -397,6 +479,7 @@ def _validate_executor_semantics(
     required_commands: list[str] | None = None,
     check_verifiers: dict[str, list[str]] | None = None,
     role: str | None = None,
+    recorded_waivers: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     read_only = role in READ_ONLY_ROLES
     errors: list[dict[str, str]] = _validate_write_scope(result, editable_paths, read_only)
@@ -404,10 +487,11 @@ def _validate_executor_semantics(
         errors.extend(_validate_read_only_result(result, completed_slice_ids))
     else:
         errors.extend(_validate_evidence_citations(result, current_slice_ids, check_verifiers))
-        errors.extend(_validate_required_commands(result, required_commands))
+        errors.extend(_validate_required_commands(result, required_commands, check_verifiers))
     stage = result["stage"]
     slices = result["tdd_slices"]
     checks = result["acceptance_checks"]
+    errors.extend(_validate_waivers(checks, "$.executor_result.acceptance_checks", recorded_waivers))
     check_ids = [check["id"] for check in checks]
     if duplicates := _duplicate_values(check_ids):
         errors.append(_error(
@@ -525,8 +609,8 @@ def _validate_executor_semantics(
         for index, check in enumerate(checks):
             prefix = f"$.executor_result.acceptance_checks[{index}]"
             if check["slice_id"] in verified_slice_ids:
-                if check["status"] != "PASS":
-                    errors.append(_error(f"{prefix}.status", "current and completed slice checks require PASS"))
+                if check["status"] not in SATISFIED_STATUSES:
+                    errors.append(_error(f"{prefix}.status", "current and completed slice checks require PASS or WAIVED"))
                 if not _has_text(check["evidence"]):
                     errors.append(_error(f"{prefix}.evidence", "current and completed slice checks require evidence"))
             else:
@@ -537,8 +621,8 @@ def _validate_executor_semantics(
     if stage["value"] == "TEST" and stage["status"] == "SUCCESS":
         for index, check in enumerate(checks):
             prefix = f"$.executor_result.acceptance_checks[{index}]"
-            if check["status"] != "PASS":
-                errors.append(_error(f"{prefix}.status", "TEST SUCCESS requires every acceptance check to PASS"))
+            if check["status"] not in SATISFIED_STATUSES:
+                errors.append(_error(f"{prefix}.status", "TEST SUCCESS requires every acceptance check to PASS or be WAIVED"))
             if not _has_text(check["evidence"]):
                 errors.append(_error(f"{prefix}.evidence", "TEST SUCCESS requires evidence"))
     if stage["value"] == "IMPLEMENT" and stage["status"] == "SUCCESS" and not read_only:
@@ -562,8 +646,11 @@ def _validate_executor_semantics(
 def _validate_review_semantics(
     result: dict[str, Any],
     expected_acceptance: dict[str, dict[str, str | None]] | None,
+    recorded_waivers: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
-    errors: list[dict[str, str]] = []
+    errors: list[dict[str, str]] = _validate_waivers(
+        result["acceptance"]["checks"], "$.review_result.acceptance.checks", recorded_waivers,
+    )
     baseline = result["baseline"]
     ownership = result["ownership"]
     if baseline["preserved"] == bool(baseline["violations"]):
@@ -628,8 +715,8 @@ def _validate_review_semantics(
             errors.append(_error("$.review_result.acceptance.verified", "APPROVED requires independent acceptance verification"))
         for index, check in enumerate(acceptance["checks"]):
             prefix = f"$.review_result.acceptance.checks[{index}]"
-            if check["status"] != "PASS":
-                errors.append(_error(f"{prefix}.status", "APPROVED requires every acceptance check to PASS"))
+            if check["status"] not in SATISFIED_STATUSES:
+                errors.append(_error(f"{prefix}.status", "APPROVED requires every acceptance check to PASS or be WAIVED"))
             if not _has_text(check["evidence"]):
                 errors.append(_error(f"{prefix}.evidence", "APPROVED requires evidence for every acceptance check"))
         if result["findings"]:
@@ -660,6 +747,9 @@ _CONTEXT_TYPES = {
         isinstance(key, str) and _is_string_list(item) for key, item in value.items()
     ),
     "role": lambda value: isinstance(value, str),
+    "recorded_waivers": lambda value: isinstance(value, dict) and all(
+        isinstance(key, str) and isinstance(item, dict) for key, item in value.items()
+    ),
 }
 
 
@@ -696,6 +786,7 @@ def main(argv: list[str] | None = None) -> int:
             required_commands=context.get("required_commands"),
             check_verifiers=context.get("check_verifiers"),
             role=context.get("role"),
+            recorded_waivers=context.get("recorded_waivers"),
         )
     except (OSError, ValueError) as exc:
         errors = [_error("$", str(exc))]

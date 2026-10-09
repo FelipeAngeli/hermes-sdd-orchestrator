@@ -66,7 +66,7 @@ Every refusal carries a stable code from `GRAPH_ERROR_CODES`:
 | --- | --- |
 | `GRAPH_SOURCE_UNAVAILABLE` | The graph root does not exist or is not a directory, or a note is symlinked, non-UTF-8, not a regular file or larger than 256 KiB. Symlinked notes and subdirectories are never followed. |
 | `GRAPH_ROOT_UNSAFE` | `--root` is absolute, escapes the repository, is not canonical, or the root itself or any ancestor up to the repository root is a symlink. The root goes through the same path rule as a slice's editable paths, so a caller cannot point the graph at notes outside the project. Containment is checked before existence, so a symlinked root reports as a containment failure rather than a missing directory. |
-| `GRAPH_FRONTMATTER_INVALID` | The frontmatter is outside the supported subset, has a duplicate key or is unclosed. |
+| `GRAPH_FRONTMATTER_INVALID` | The frontmatter of a note that declares a top-level `graph_node` is outside the supported subset, has a duplicate key or is unclosed. A note without `graph_node` is never a graph note, so nested frontmatter such as the installed skills' `metadata: hermes:` is ignored rather than reported, and notes under `SKIPPED_NOTE_ROOTS` (`.hermes`, `.hermes-runtime`, `.obsidian`, `.trash`) are never read as graph notes. |
 | `GRAPH_NODE_ID_INVALID`, `GRAPH_KIND_INVALID`, `GRAPH_FIELD_INVALID` | The node ID is not lowercase-dashed, the kind is not a `NODE_KINDS` member, or a field has the wrong shape (a scalar where a list is required, or a relation target that is not a node ID). |
 | `GRAPH_NODE_DUPLICATED` | Two notes declare the same node ID; the finding names both. |
 | `GRAPH_CODE_PATH_UNSAFE` | A `code_paths` pattern is absolute, escapes the repository or matches everything. |

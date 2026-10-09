@@ -19,7 +19,7 @@ Project-local playbook for React, Next.js and visible UI slices. It distills the
 
 Use when a slice changes a React component, hook, client/server rendering boundary, route, data-loading path, design-system primitive, interaction state, accessibility behavior, bundle, loading path or frontend performance.
 
-Do not use for backend-only work, native mobile UI, a visual review with no implementation decision, or a review already assigned to a controller-selected specialist.
+Do not use for backend-only work, native mobile UI, a visual review with no implementation decision, or a review already assigned to a controller-selected sub-agent.
 
 ## Prerequisites
 
