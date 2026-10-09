@@ -59,7 +59,7 @@ if data["role"] is None and marker.exists():
     marker.unlink()
     time.sleep(60)
 stage, role = data["stage"], data["role"]
-changes = Path(os.environ["FAKE_EXECUTOR_DIR"]) / f"changes-{stage}"
+changes = fake_dir / f"changes-{stage}"
 slice_info = data.get("slice") or {}
 focused = (slice_info.get("required_commands") or [None])[0]
 waivers = data.get("recorded_waivers") or {}
