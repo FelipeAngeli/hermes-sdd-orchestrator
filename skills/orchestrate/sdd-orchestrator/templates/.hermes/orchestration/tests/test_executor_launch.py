@@ -893,7 +893,8 @@ class ControllerIsolationTests(unittest.TestCase):
                 error = self.sdd.controller_isolation_error("LOCAL", stage)
                 self.assertIsNotNone(error)
                 self.assertEqual("CONTROLLER_WRITABLE_BY_WORKER", error.code)
-                self.assertIn("migrate_to_vault", error.next_command)
+                self.assertNotIn("migrate_to_vault", error.next_command, "it keeps runtime/ and policies/ in the repository")
+                self.assertIn("--obsidian-vault", " ".join(error.extra["exit_commands"]))
                 self.assertTrue(error.next_step)
 
     def test_local_storage_still_allows_read_only_stages(self) -> None:

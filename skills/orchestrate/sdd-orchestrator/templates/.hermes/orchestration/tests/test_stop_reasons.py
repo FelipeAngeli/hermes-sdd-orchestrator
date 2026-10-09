@@ -167,13 +167,20 @@ class StopReasonRegistryTests(unittest.TestCase):
         self.assertEqual("BLOCKED", described["kind"])
         self.assertNotIn("confirm-policy", described["next_command"])
         self.assertIn("restore", described["next_step"].lower())
+        # Git cannot restore it: the container is not a repository and a local controller is excluded from Git.
+        self.assertNotIn("git checkout", described["next_command"])
+        self.assertIn(" restore-policy ", described["next_command"])
 
     def test_a_writing_worker_sharing_the_controller_filesystem_has_a_registered_stop(self) -> None:
         """Prevention, not detection: the dispatch is refused and the exit is moving the controller out."""
         self.assertIn("CONTROLLER_WRITABLE_BY_WORKER", stop_reasons.STOP_REASONS)
         described = stop_reasons.describe("CONTROLLER_WRITABLE_BY_WORKER")
         self.assertEqual("BLOCKED", described["kind"])
-        self.assertIn("migrate_to_vault", described["next_step"])
+        # migrate_to_vault keeps runtime/*.py and policies/ in the repository: it is not the exit.
+        self.assertIn(" abandon ", described["next_command"])
+        self.assertIn("--obsidian-vault <vault>", described["next_step"])
+        self.assertIn("<vault>", stop_reasons.USER_PLACEHOLDERS)
+        self.assertIn("<installed-skill>", stop_reasons.USER_PLACEHOLDERS)
 
 
 if __name__ == "__main__":
