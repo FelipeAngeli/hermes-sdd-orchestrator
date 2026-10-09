@@ -456,6 +456,102 @@ class SddGuardTests(e2e.ControllerEndToEndTests):
         self.assertEqual(["src/feature.py"], self.state()["ownership"]["agent_owned"])
         self.assertIn("src/-weird.py", self.state()["ownership"]["disowned_unsafe"])
 
+    # -- R3-F01: STATE_MODIFIED_DURING_ACTION is not a dead end ----------------------------
+    def tamper_with_state_during_an_action(self) -> dict:
+        """Drive one demand to a dispatched action, then rewrite STATE as a writing worker would."""
+        self.call("start", "--ticket", "t-1", "--title", "t", "--objective", "o")
+        for _ in range(2):  # PREPARE, then DISPATCH
+            self.run_batch(self.call("next")[1])
+        self.edit_state(lambda data: data.setdefault("delivery", {}).update(worker_blockers=[]))
+        return self.call("next")[1]
+
+    def test_state_modified_during_an_action_ends_the_turn_with_an_abandon_exit(self) -> None:
+        """`next` never prints VALIDATE/ACCEPT over a tampered STATE: it stops, and `abandon` resolves it."""
+        stopped = self.tamper_with_state_during_an_action()
+        self.assertTrue(stopped["end_turn"], stopped)
+        self.assertEqual("STATE_MODIFIED_DURING_ACTION", stopped["stop_reason"])
+        self.assertEqual([], stopped["commands"], "a stop never prints a command batch that cannot succeed")
+        self.assertEqual("BLOCKED", stopped["kind"])
+        self.assertIn(" abandon ", stopped["next_command"])
+        self.assertNotEqual(stopped["expected_sha256"], stopped["actual_sha256"])
+        # The printed command is the exit: STATE returns to IDLE and the action is archived as evidence.
+        code, abandoned = self.run_printed(stopped["next_command"])
+        self.assertEqual(0, code, abandoned)
+        self.assertEqual("ABANDONED", abandoned["status"])
+        self.assertEqual(stopped["action_id"], abandoned["discarded_action"]["action_id"])
+        self.assertTrue(Path(abandoned["discarded_action"]["archived_path"]).is_file())
+        self.assertEqual("IDLE", self.call("status")[1]["stage"])
+        self.assertEqual("DISPATCH_ALLOWED", self.call("status")[1]["recovery"]["decision"])
+        self.assertEqual("IDLE_NO_DEMAND", self.call("next")[1]["stop_reason"])
+        closed = self.state()["closed_demands"][-1]
+        self.assertEqual("ABANDONED", closed["outcome"])
+        self.assertEqual("STATE_MODIFIED_DURING_ACTION", closed["abandon"]["stop_reason"])
+        self.assertEqual(FILL["<user words>"], closed["abandon"]["quote"])
+        # A new demand starts right away; nothing of the discarded one blocks it.
+        code, started = self.call("start", "--ticket", "t-2", "--title", "t", "--objective", "o")
+        self.assertEqual(0, code, started)
+
+    def test_accept_over_a_tampered_state_names_the_same_abandon_exit(self) -> None:
+        """Running `accept` directly refuses with the stop code and the same resolution command."""
+        self.tamper_with_state_during_an_action()
+        code, refused = self.call("accept")
+        self.assertNotEqual(0, code)
+        self.assertEqual("STATE_MODIFIED_DURING_ACTION", refused["status"])
+        self.assertIn(" abandon ", refused["next_command"])
+
+    # -- R3-F02: an unreadable controller policy is restored, never confirmed in a loop ----
+    def test_an_unreadable_controller_policy_prints_a_restore_command_instead_of_looping(self) -> None:
+        self.craft(stage="TEST")
+        self.set_gate_row("Focused tests", f"{shlex.quote(sys.executable)} -c pass", 60)
+        self.edit_state(lambda data: data["gates"].update(focused_tests={"status": "PENDING"}))
+        policy = self.container / ".hermes" / "orchestration" / "policies" / "GATES.md"
+        kept = policy.read_text(encoding="utf-8")
+        policy.unlink()
+        code, refused = self.call("gate", "--name", "focused_tests")
+        self.assertNotEqual(0, code)
+        self.assertEqual("CONTROLLER_POLICY_UNREADABLE", refused["status"])
+        self.assertEqual(["gates"], refused["unreadable"])
+        self.assertNotIn("confirm-policy", refused["next_command"], "confirming an unreadable file pins nothing")
+        self.assertIn("git checkout --", refused["next_command"])
+        self.assertIn(str(policy), refused["next_command"])
+        self.assertEqual(refused["restore_commands"], [refused["next_command"]])
+        # Confirming it is refused with the same stop, so the controller cannot loop on it.
+        code, confirmed = self.call("confirm-policy", "--name", "gates", "--by", "requester", "--quote", "nao foi erro, pode aceitar")
+        self.assertNotEqual(0, code, "an unreadable policy is never pinned")
+        self.assertEqual("CONTROLLER_POLICY_UNREADABLE", confirmed["status"])
+        pinned = self.state()["delivery"]["controller_policies"]["gates"]
+        self.assertEqual(64, len(pinned["sha256"]), "the previous pin survives; the empty digest is never recorded")
+        self.assertNotEqual("nao foi erro, pode aceitar", pinned.get("quote"))
+        # `next` surfaces the same stop rather than a gate batch.
+        stopped = self.call("next")[1]
+        self.assertTrue(stopped["end_turn"], stopped)
+        self.assertEqual("CONTROLLER_POLICY_UNREADABLE", stopped["stop_reason"])
+        self.assertEqual([], stopped["commands"])
+        # Restoring the file is the exit (here by hand, as `git checkout` would).
+        policy.write_text(kept, encoding="utf-8")
+        progress = self.call("next")[1]
+        self.assertEqual("GATES", progress.get("step"), progress)
+
+    # -- R3-F03: `next` never prints a gate batch a policy check will refuse ---------------
+    def test_a_changed_policy_stops_next_instead_of_printing_a_failing_gate(self) -> None:
+        self.craft(stage="TEST")
+        self.set_gate_row("Focused tests", f"{shlex.quote(sys.executable)} -c pass", 60)
+        self.edit_state(lambda data: data["gates"].update(focused_tests={"status": "PENDING"}))
+        policy = self.container / ".hermes" / "orchestration" / "policies" / "GATES.md"
+        policy.write_text(policy.read_text(encoding="utf-8") + "\n<!-- edited mid-demand -->\n", encoding="utf-8")
+        stopped = self.call("next")[1]
+        self.assertTrue(stopped["end_turn"], stopped)
+        self.assertEqual("CONTROLLER_POLICY_CHANGED_DURING_DEMAND", stopped["stop_reason"])
+        self.assertEqual([], stopped["commands"], "the gate would only refuse with this same code at exit 2")
+        self.assertEqual(["gates"], stopped["changed"])
+        self.assertIn("confirm-policy --name gates", stopped["next_command"])
+        code, confirmed = self.run_printed(stopped["next_command"].replace("<user words confirming the policy change>", FILL["<user words>"]))
+        self.assertEqual(0, code, confirmed)
+        progress = self.call("next")[1]
+        self.assertEqual("GATES", progress.get("step"), progress)
+        self.run_batch(progress)
+        self.assertEqual("PASS", self.state()["gates"]["focused_tests"]["status"])
+
 
 if __name__ == "__main__":
     unittest.main()
