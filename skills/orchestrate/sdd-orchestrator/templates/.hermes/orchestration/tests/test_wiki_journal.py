@@ -623,7 +623,7 @@ class CliTests(JournalTestCase):
 class PolicyTests(unittest.TestCase):
     def test_policies_describe_the_wiki_as_read_and_write(self) -> None:
         loop = (ORCHESTRATION / "policies" / "LOOP_POLICY.md").read_text(encoding="utf-8")
-        self.assertIn("Obsidian é leitura **e escrita**", loop)
+        self.assertIn("Obsidian is read **and write**", loop)
         self.assertNotIn("OBSIDIAN WRITE PROPOSAL", loop)
         import bounded_run_planner
 

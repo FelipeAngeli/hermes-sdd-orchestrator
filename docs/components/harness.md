@@ -41,9 +41,13 @@ Before each dispatch the controller writes a schema-2 manifest that validates ag
 | `INDEPENDENT_VERIFIER_REQUIRED` | Each AGENT check in scope needs at least one bound verifier that predates the slice (`introduced_by_slice: false`). A test the slice has just written cannot be its only proof, and a pre-existing verifier bound to another check does not count. |
 | `SCOPE_CHANGE_REQUIRED` | The approved hash no longer matches the slice contract. |
 | `JEV_GOVERNANCE_RECORD_REQUIRED`, `JEV_GOVERNANCE_RECORD_UNVERIFIED`, `JEV_GOVERNANCE_REVIEW_UNRESOLVED`, `JEV_GOVERNANCE_SETUP_INVALID`, `JEV_GOVERNANCE_PLATFORM_UNSUPPORTED` | Only for PLAN and IMPLEMENT. With automatic Jev consent the manifest carries `semantic_governance`; its fingerprint is a structurally valid `LIVE_JEV` report for the same ticket in the governor cache (`JEV_CACHE.json`, or `--jev-cache`); a `REVIEW` report carries a human `review_resolution`. A `PROJECT_SETUP.md` (or `--project-setup`) without an explicit answer fails closed, and so does consent on a platform where the governor cannot run. |
+| `PROMPT_TOO_LARGE` | With `--prompt-file`, the built worker prompt exceeds `limits.max_prompt_bytes` (default 48 KB, `DEFAULT_MAX_PROMPT_BYTES`). `sdd.py prepare` first rebuilds with reduced context. |
+| `DISPATCH_QUESTION_REQUIRED` | A sub-agent (`--role`) dispatch must carry the manifest's `dispatch` block: `pending_decision`, `deterministic_attempt`, `if_empty` ([dispatch policy](sub-agents.md)). |
 | `SCHEMA_INVALID` | The manifest does not match the schema. |
 
-The full list is published as `CONTEXT_ERROR_CODES`.
+The full list is published as `CONTEXT_ERROR_CODES`. Every result, valid or not, carries `next_step` (and `next_command` on the CLI), mapped per finding code; the controller never interprets a finding by itself.
+
+`sdd.py manifest --stage S [--role R]` writes the whole manifest from STATE, with every source and playbook hash computed, so it is never hand-built. `check` accepts `--role` (a read-only role tolerates a missing project context) and `--prompt-file`; `verifier-context` accepts `--state` to add the `recorded_waivers` STATE holds, and `--output` to write the result to a file.
 
 ### Approval reuse
 

@@ -2,9 +2,9 @@
 
 [Docs index](../README.md) · Related: [Action journal](action-journal.md), [Stage agents](stage-agents.md), [Gates](gates-and-stack-detection.md), [Contracts](contracts-and-schemas.md)
 
-**Files:** `policies/LOOP_POLICY.md`, `policies/BOUNDED_AUTOMATION.md`, `policies/BOUNDED_RUN_DRIVER.md`, `runtime/bounded_run_planner.py`, `runtime/bounded_run_driver.py`, `runtime/bounded_loop_driver.py`, `runtime/terminal_progress.py`, `schemas/BOUNDED_RUN_PLAN_SCHEMA.json`.
+**Files:** `policies/LOOP_POLICY.md`, `policies/BOUNDED_AUTOMATION.md`, `policies/BOUNDED_RUN_DRIVER.md`, `runtime/sdd.py`, `runtime/stop_reasons.py`, `runtime/bounded_run_planner.py`, `runtime/bounded_run_driver.py`, `runtime/bounded_loop_driver.py`, `runtime/terminal_progress.py`, `schemas/BOUNDED_RUN_PLAN_SCHEMA.json`.
 
-`LOOP_POLICY.md` is the authoritative policy and is written in Portuguese. The three Python tools are **pure**: they read JSON snapshots and return decisions. They never run a worker, write STATE, touch Git or activate a mode. The controller performs every effect.
+`LOOP_POLICY.md` is the authoritative policy (English; mode logic as a table in §2, budgets and their reset rules in §4, the generated stop-reason table in §9). `sdd.py` is the controller's single entry point; the planner and drivers are **pure**: they read JSON snapshots and return decisions, and never run a worker, write STATE, touch Git or activate a mode.
 
 ## The FSM
 
@@ -26,12 +26,20 @@ Only `CLARIFY` may be skipped, and only with a recorded reason. Each stage has i
 
 | Mode | Behavior |
 | --- | --- |
-| `MANUAL` (default) | Run exactly the requested action, then stop. |
-| `PAUSED` | Read and explain only. |
+| `MANUAL` (default) | Progress only when the user asks; "continue"/"pode seguir" authorizes progress up to the next HUMAN stop, not a single action. |
+| `PAUSED` | Read and explain only; resume with an explicit user command, then `sdd.py next`. |
 | `BOUNDED_AUTO`, schema 1 (legacy) | Continue through a deterministic plan the user approved. A new round needs a new preview and a new confirmation. |
-| `LOCAL_DELIVERY`, schema 2 | Not a separate mode value: `schema_version: 2` + `local_delivery` + `loop.mode: BOUNDED_AUTO`. A single explicit authorization is bound to ticket, scope hash, worktree and **cumulative** limits. Replanning never requests new approval and never resets usage. |
+| `LOCAL_DELIVERY`, schema 2 | Not a separate mode value: `schema_version: 2` + `local_delivery` + `loop.mode: BOUNDED_AUTO`. An explicit delivery request ("orquestre/implemente <demand>") is a single authorization bound to ticket, scope hash, worktree and **cumulative** limits; `sdd.py start` shows it once. Replanning never requests new approval and never resets usage. |
 
-Default schema 1 budgets per round: 3 stage transitions, 8 executor calls, 1 corrective retry per action, 3 TDD slices, 1 investigation expansion per stage, 2 review cycles, 1 CI run, 0 external mutations. Stop reasons are a closed list in `LOOP_POLICY.md` §9; `COST_BUDGET_REACHED`, `NO_NEW_HYPOTHESIS` and `NO_PROGRESS` come from the [correction loop](harness.md). §25 describes the harness checks the controller runs around every dispatch, including per-slice approval hashes stored at PLAN/TASKS and `role` validation of read-only IMPLEMENT results. `TOOLCHAIN_ENVIRONMENT` covers a missing or mismatched SDK or version manager for any language.
+Default schema 1 budgets per round: 3 stage transitions, 8 executor calls, 1 corrective retry per action, 3 TDD slices, 1 investigation expansion per stage, 2 review cycles, 1 CI run, 0 external mutations. `used_current_action` resets on journal rollover and `used_current_stage` on a stage transition (`bounded_run_planner.reset_budgets`); other counters never reset within a demand. `TOOLCHAIN_ENVIRONMENT` covers a missing or mismatched SDK or version manager for any language. §25 describes the harness checks around every dispatch, including per-slice approval hashes stored at PLAN/TASKS and `role` validation of read-only results.
+
+### Delivery profiles
+
+`--deliverable-kind` on `sdd.py start` selects the profile: `CODE` and `BOTH` run the full FSM; `DECISION_DOC` runs SPECIFY → CLARIFY → PLAN → IMPLEMENT (the document) → REVIEW → DONE and records TASKS and TEST as skipped with a reason. `state_format.apply_transition` enforces the profile, the CLARIFY skip reason and the reopen reason.
+
+### Stop reasons (`stop_reasons.py`)
+
+Stop reasons are a closed registry with exactly one kind (`PAUSED`, `BLOCKED`, `HUMAN`, `DONE`), next step and next command each; `LOOP_POLICY.md` §9 is generated from it and `tests/test_stop_reasons.py` fails when a runtime emits an unregistered literal or the table drifts. Budget reasons use singular names (`EXECUTOR_CALL_BUDGET_REACHED`); `COST_BUDGET_REACHED`, `NO_NEW_HYPOTHESIS` and `NO_PROGRESS` come from the [correction loop](harness.md). `STATE_PATH_REQUIRED`, `STATE_PATH_UNSAFE` and `STATE_COMMIT_FILE_MISSING` reach the controller through journal recovery rather than a literal.
 
 ## Actions
 
@@ -51,6 +59,24 @@ The snapshot's `implementation.changed_files_available` flag is also accepted un
 
 ## Tools
 
+### `sdd.py` (controller entry point)
+
+```text
+sdd.py status                    # compact JSON: paths, stage/status/mode/ticket, recovery, budgets_left, next_action, next_command
+sdd.py next                      # {step, commands[], end_turn, stop_reason, next_step, next_command}
+sdd.py start --ticket ID --title T --objective O [--deliverable-kind CODE|DECISION_DOC|BOTH] [--request QUOTE] [--executor-calls N] [--tdd-slices N]
+sdd.py snapshot [--output s.json]
+sdd.py manifest --stage S [--role R] --output m.json
+sdd.py transition --to STAGE --artifact PATH [--skip-reason R] [--reason R --quote Q]
+sdd.py waive --check AC-n --by requester --quote "..." --reason "..."
+```
+
+Subcommands `status`, `next`, `start`, `snapshot`, `manifest`, `prepare`, `accept`, `reject`, `transition`, `waive`, `answer`, `unblock`, `budget`, `gate`. Flags: `--repo`, `--ticket`, `--title`, `--objective`, `--deliverable-kind`, `--request`, `--executor-calls`, `--tdd-slices`, `--output`, `--stage`, `--role`, `--manifest`, `--to`, `--artifact`, `--skip-reason`, `--reason`, `--quote`, `--check`, `--by`, `--index`, `--raise`, `--name`, `--not-applicable`.
+
+The controller runs `status` once, then loops on `next` and executes exactly the printed `commands`. Steps: `RECOVER`, `ROLLOVER`, `PREPARE` (`manifest` → `stage_context.py check` → `prepare`, which builds the prompt and enforces `max_prompt_bytes`), `DISPATCH` (`executor_launch.py run`), `VALIDATE` (`accept`, or `reject` → `CLASSIFY_INVALID`; an `ACCEPT` step commits), `GATES` (`gate`), `TRANSITION`. `start` captures the baseline (pre-existing dirty files become protected) only when STATE is IDLE and the journal pristine; a second demand is refused. Every output and error carries `next_step` and `next_command`. Error and stop codes include `IDLE_NO_DEMAND`, `MANIFEST_INVALID`, `PROMPT_BUDGET_EXCEEDED`, `JEV_GOVERNANCE_REQUIRED`, `CONTRACT_INVALID`, `WORKER_BLOCKED`, `CLARIFICATION_REQUIRED`, `HUMAN_DECISION_REQUIRED`, `SCOPE_CHANGE_REQUIRED`, `INVESTIGATION_BUDGET_EXCEEDED`, `EXECUTOR_TIMEOUT`, `EXECUTOR_FAILED`, `RETRY_BUDGET_REACHED`, `EXECUTOR_CALL_BUDGET_REACHED`, `STAGE_TRANSITION_BUDGET_REACHED`, `TDD_SLICE_BUDGET_REACHED`, `REVIEW_CYCLE_BUDGET_REACHED`, `CI_RUN_BUDGET_REACHED`, `ACTION_RECOVERY_REQUIRED`, `BASELINE_DRIFT_EXTERNAL`, `PREEXISTING_FILE_MODIFIED`, `STATE_INCONSISTENT`, `GATE_COMMAND_UNCONFIGURED`, `GATE_CONFIRMATION_REQUIRED`, `GATE_TIMEOUT`, `FOCUSED_TESTS_FAILED`, `FORMAT_FAILED`, `ANALYZE_FAILED`, `CI_FAILED`, `REVIEW_BLOCKED`, `REVIEW_CHANGES_REQUIRED`, `OWNERSHIP_VIOLATION` and `DONE_GATES_NOT_PASSED`.
+
+Executor timeout: the first timeout is archived as interrupted and retried once as `FULL_REPLACEMENT` with reduced context (brief and pointers, no inline excerpts); a second one stops with `EXECUTOR_TIMEOUT`. `waive` records `{by, reason, quote, recorded_at}` for a HUMAN check, `by` must be the requester or a `PROJECT_SETUP.md` approver, and `stage_context.py verifier-context --state` hands it to `validate_protocol` as `recorded_waivers`. `gate --not-applicable` records the user's confirmation of a gate GATES.md marks `NOT_APPLICABLE`; the DONE check accepts it.
+
 ### `bounded_run_planner.py` (Phase 2A: preview)
 
 ```text
@@ -59,7 +85,7 @@ bounded_run_planner.py validate --plan plan.json --snapshot s.json --json
 bounded_run_planner.py classify --action SPECIFY --json
 ```
 
-Subcommands `plan`, `validate` and `classify`. Flags: `--snapshot`, `--plan`, `--target`, `--output`, `--action`, `--json`. The plan is canonical JSON whose `plan_sha256` is computed without the authorization field. It validates against `BOUNDED_RUN_PLAN_SCHEMA.json` (plan version 1, or 2 for `LOCAL_DELIVERY`).
+Subcommands `plan`, `validate` and `classify`. Flags: `--snapshot`, `--plan`, `--target`, `--output`, `--action`, `--json`. The plan is canonical JSON whose `plan_sha256` is computed without the authorization field. It validates against `BOUNDED_RUN_PLAN_SCHEMA.json` (plan version 1, or 2 for `LOCAL_DELIVERY`). Generate the snapshot with `sdd.py snapshot`; never build it by hand. The recovery enum is every `action_journal.py recover` decision: `DISPATCH_ALLOWED`, `RECONCILE_ARTIFACT`, `CORRECTIVE_RETRY_AVAILABLE`, `STATE_COMMIT_REQUIRED`, `ALREADY_COMMITTED`, `WAIT_OR_MANUAL_REVIEW`, `ARCHIVE_INTERRUPTED_REQUIRED`, `BLOCKED` and `RELEASED`; `RECONCILE_ARTIFACT`, `STATE_COMMIT_REQUIRED` and `ARCHIVE_INTERRUPTED_REQUIRED` plan `RECOVER_PENDING_ACTION` first. An `IDLE` snapshot is refused with `IDLE_NO_DEMAND` and the `sdd.py start` command; every error carries `next_step` and `next_command`. A human-confirmed `NOT_APPLICABLE` format or analyze gate counts as passed.
 
 ### `bounded_run_driver.py` (Phase 2B: per-action decision)
 
@@ -70,19 +96,19 @@ bounded_run_driver.py inspect|validate|next --snapshot s.json --plan plan.json -
 
 Subcommands `bind`, `inspect`, `validate` and `next`. Flags: `--snapshot`, `--plan`, `--started-at`, `--approved-plan-sha256`, `--json`. `bind` attaches a validated plan to a runtime cursor. Schema 1 requires the exact approved hash.
 
-Decisions: `EXECUTE_NEXT`, `ROLLOVER_REQUIRED`, `REPLAN_REQUIRED`, `COMPLETE`, `STOP_BUDGET`, `STOP_HUMAN_REQUIRED`, `STOP_BLOCKED`, `STOP_PLAN_STALE`, `STOP_RECOVERY`.
+Decisions: `EXECUTE_NEXT`, `ROLLOVER_REQUIRED`, `REPLAN_REQUIRED`, `COMPLETE`, `STOP_BUDGET`, `STOP_HUMAN_REQUIRED`, `STOP_BLOCKED`, `STOP_PLAN_STALE`, `STOP_RECOVERY`. This is the only bounded-run driver; every decision carries `next_step` and `next_command`, a recovery stop uses `RECOVERY_RECONCILIATION_REQUIRED`, and gate failures map to the named reasons of §9.
 
-### `bounded_loop_driver.py` (same-turn continuation)
+### `bounded_loop_driver.py` (deprecated)
 
 ```text
 bounded_loop_driver.py next --snapshot s.json --plan plan.json --json
 ```
 
-Subcommand `next`. Flags: `--snapshot`, `--plan`, `--json`. Decisions: `CONTINUE`, `STOP`, `ROLLOVER_REQUIRED`. Expected progress (STATE hash, budgets used, recovery after rollover) is not stale. Workspace identity drift is.
+Deprecated (`DEPRECATED = True`): superseded by `bounded_run_driver.py` and `sdd.py next`; kept so pre-v14 automation keeps working, and its stops now carry `next_step`. Subcommand `next`. Flags: `--snapshot`, `--plan`, `--json`. Decisions: `CONTINUE`, `STOP`, `ROLLOVER_REQUIRED`. Expected progress (STATE hash, budgets used, recovery after rollover) is not stale. Workspace identity drift is.
 
 ## Per-action loop
 
-For every action, the controller follows the same sequence: reread STATE → driver `next` → [journal recovery](action-journal.md) → [stage context check](harness.md#stage-context-manifest-schema-2-stage_contextpy) → `prepare` → dispatch one worker → validate the [contract](contracts-and-schemas.md) → prepare and commit STATE → `release` → `rollover` → `next` again. A valid result whose verification fails goes through the [bounded correction loop](harness.md#bounded-correction-loop-correction_looppy) before any retry. A healthy success never ends a bounded round by itself. Only a stop decision does.
+`sdd.py next` prints the whole sequence for the current step, so the controller never assembles it: [journal recovery](action-journal.md) → manifest and [stage context check](harness.md#stage-context-manifest-schema-2-stage_contextpy) → `prepare` → one `executor_launch.py run` → validate the [contract](contracts-and-schemas.md) → STATE commit through the journal → `release` → `rollover` → gates → transition → `next` again. A valid result whose verification fails goes through the [bounded correction loop](harness.md#bounded-correction-loop-correction_looppy) before any retry. A healthy success never ends a bounded round by itself; only a stop does. `tests/test_controller_e2e.py` drives a demand from `start` to DONE executing only printed commands, including one injected executor timeout and one waived HUMAN check.
 
 ## Terminal progress
 

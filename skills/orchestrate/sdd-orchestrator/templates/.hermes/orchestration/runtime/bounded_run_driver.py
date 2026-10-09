@@ -2,7 +2,10 @@
 """Decide the next isolated action in an approved BOUNDED_AUTO round.
 
 The driver is pure: it reads JSON fixtures only. It never invokes an executor,
-writes STATE, mutates Git, activates BOUNDED_AUTO, or bypasses a control.
+writes STATE, mutates Git, activates BOUNDED_AUTO, or bypasses a control. It is
+the only bounded-run driver; ``bounded_loop_driver.py`` is deprecated. MANUAL
+progress is driven by ``sdd.py next``. Every stop carries ``next_step`` and
+``next_command`` from ``stop_reasons.py``.
 """
 from __future__ import annotations
 
@@ -16,6 +19,7 @@ from typing import Any
 import jsonschema
 
 import bounded_run_planner as planner
+import stop_reasons
 
 EXECUTE_NEXT = "EXECUTE_NEXT"
 ROLLOVER_REQUIRED = "ROLLOVER_REQUIRED"
@@ -26,6 +30,24 @@ STOP_BLOCKED = "STOP_BLOCKED"
 STOP_PLAN_STALE = "STOP_PLAN_STALE"
 STOP_RECOVERY = "STOP_RECOVERY"
 REPLAN_REQUIRED = "REPLAN_REQUIRED"
+
+#: Budget key -> stop reason (singular names, as listed in LOOP_POLICY.md §9).
+BUDGET_STOP_REASONS = {
+    "stage_transitions": "STAGE_TRANSITION_BUDGET_REACHED",
+    "executor_calls": "EXECUTOR_CALL_BUDGET_REACHED",
+    "corrective_retries": "RETRY_BUDGET_REACHED",
+    "tdd_slices": "TDD_SLICE_BUDGET_REACHED",
+    "investigation_expansions": "INVESTIGATION_BUDGET_REACHED",
+    "review_cycles": "REVIEW_CYCLE_BUDGET_REACHED",
+    "ci_runs": "CI_RUN_BUDGET_REACHED",
+    "external_mutations": "EXTERNAL_MUTATION_REQUIRED",
+}
+#: Gate failure value -> stop reason.
+GATE_STOP_REASONS = {
+    ("focused_tests", "FAIL"): "FOCUSED_TESTS_FAILED", ("format", "FAIL"): "FORMAT_FAILED",
+    ("analyze", "FAIL"): "ANALYZE_FAILED", ("ci", "FAIL"): "CI_FAILED", ("ci", "TIMEOUT"): "CI_TIMEOUT",
+    ("review", "BLOCKED"): "REVIEW_BLOCKED", ("review", "CHANGES_REQUIRED"): "REVIEW_CHANGES_REQUIRED",
+}
 
 RUNTIME_KEYS = {
     "current_plan_id", "approved_plan_sha256", "planned_action_count",
@@ -155,8 +177,8 @@ def _done_gates_pass(snapshot: dict[str, Any]) -> bool:
     gates = snapshot["gates"]
     return (
         gates["focused_tests"] == "PASS"
-        and gates["format"] == "PASS"
-        and gates["analyze"] == "PASS"
+        and planner.gate_passed(gates, "format")
+        and planner.gate_passed(gates, "analyze")
         and gates["review"] == "APPROVED"
         and (
             gates["ci"] == "PASS"
@@ -168,8 +190,12 @@ def _done_gates_pass(snapshot: dict[str, Any]) -> bool:
 
 def _gate_failure(snapshot: dict[str, Any]) -> str | None:
     for name, value in snapshot["gates"].items():
-        if name != "project_ci_enabled" and value in {"FAIL", "TIMEOUT", "BLOCKED"}:
-            return f"GATE_{name.upper()}_{value}"
+        if name == "project_ci_enabled":
+            continue
+        if (name, value) in GATE_STOP_REASONS:
+            return GATE_STOP_REASONS[(name, value)]
+        if value in {"FAIL", "TIMEOUT", "BLOCKED"}:
+            return "GATE_TIMEOUT" if value == "TIMEOUT" else "BLOCKED"
     return None
 
 
@@ -218,12 +244,14 @@ def _action_precondition_failure(
 def _replan(snapshot: dict[str, Any], runtime: dict[str, Any]) -> dict[str, Any]:
     return {
         "decision": REPLAN_REQUIRED,
-        "terminal_reason": "PROJECTION_COMPLETE",
+        "terminal_reason": "PLAN_COMPLETE",
         "end_turn": False,
         "action": None,
         "sequence": runtime["current_sequence"],
         "stop_reason": "NONE",
         "requires_replan": True,
+        "next_step": "The schema 2 projection is exhausted under a still-valid LOCAL_DELIVERY authorization: regenerate the snapshot, plan and bind again without asking the user.",
+        "next_command": stop_reasons.describe("PLAN_COMPLETE")["next_command"],
         "event": _event(snapshot, action=None, decision=REPLAN_REQUIRED, stop_reason="NONE"),
     }
 
@@ -272,7 +300,10 @@ def _last_run(snapshot: dict[str, Any], stop_reason: str) -> dict[str, Any]:
 
 
 def _stop(snapshot: dict[str, Any], decision: str, stop_reason: str, *, blocked: bool = False) -> dict[str, Any]:
+    described = stop_reasons.describe(stop_reason)
     return {
+        "next_step": described["next_step"],
+        "next_command": described["next_command"],
         "decision": decision,
         "terminal_reason": stop_reason,
         "end_turn": True,
@@ -299,8 +330,7 @@ def _budget_stop(snapshot: dict[str, Any], entry: dict[str, Any] | None) -> dict
         exhausted = next((key for key in planner.BUDGET_KEYS if used[key] >= limits[key]), None)
     if exhausted is None:
         return None
-    reason = "STAGE_TRANSITION_BUDGET_REACHED" if exhausted == "stage_transitions" else f"{exhausted.upper()}_BUDGET_REACHED"
-    return _stop(snapshot, STOP_BUDGET, reason)
+    return _stop(snapshot, STOP_BUDGET, BUDGET_STOP_REASONS[exhausted])
 
 
 def _closed_round(snapshot: dict[str, Any], plan: dict[str, Any], runtime: dict[str, Any]) -> dict[str, Any]:
@@ -315,6 +345,13 @@ def _closed_round(snapshot: dict[str, Any], plan: dict[str, Any], runtime: dict[
     if budget:
         return budget
     return _stop(snapshot, COMPLETE, "LOOP_INACTIVE")
+
+
+def _recovery_stop(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """The journal needs reconciliation first; ``sdd.py next`` prints the exact recovery command."""
+    result = _stop(snapshot, STOP_RECOVERY, "RECOVERY_RECONCILIATION_REQUIRED")
+    result["recovery"] = snapshot["recovery"]["decision"]
+    return result
 
 
 def evaluate_next(snapshot: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
@@ -349,7 +386,7 @@ def evaluate_next(snapshot: dict[str, Any], plan: dict[str, Any]) -> dict[str, A
         if retries["used_current_action"] >= retries["max_per_action"]:
             return _stop(snapshot, STOP_HUMAN_REQUIRED, "CORRECTIVE_RETRY_EXHAUSTED")
     if snapshot["recovery"]["decision"] not in {"DISPATCH_ALLOWED", "RELEASED", "CORRECTIVE_RETRY_AVAILABLE"}:
-        return _stop(snapshot, STOP_RECOVERY, snapshot["recovery"]["decision"])
+        return _recovery_stop(snapshot)
 
     sequence = runtime["current_sequence"]
     if sequence == len(plan["actions"]):
@@ -383,10 +420,12 @@ def evaluate_next(snapshot: dict[str, Any], plan: dict[str, Any]) -> dict[str, A
             "sequence": sequence + 1,
             "stop_reason": "NONE",
             "requires_rollover": True,
+            "next_step": "Roll the RELEASED journal over to a pristine IDLE journal, confirm recover returns DISPATCH_ALLOWED, then call next again.",
+            "next_command": stop_reasons.sdd_command() + " next",
             "event": _event(snapshot, action=entry["action"], decision=ROLLOVER_REQUIRED, stop_reason="NONE"),
         }
     if snapshot["recovery"]["decision"] != "DISPATCH_ALLOWED":
-        return _stop(snapshot, STOP_RECOVERY, snapshot["recovery"]["decision"])
+        return _recovery_stop(snapshot)
     return {
         "decision": EXECUTE_NEXT,
         "end_turn": False,
@@ -395,6 +434,8 @@ def evaluate_next(snapshot: dict[str, Any], plan: dict[str, Any]) -> dict[str, A
         "sequence": sequence + 1,
         "stop_reason": "NONE",
         "requires_rollover": False,
+        "next_step": f"Execute {entry['action']} now through the printed batch of `sdd.py next`, then call the driver again.",
+        "next_command": stop_reasons.sdd_command() + " next",
         "event": _event(snapshot, action=entry["action"], decision=EXECUTE_NEXT, stop_reason="NONE"),
     }
 
@@ -451,7 +492,8 @@ def main(argv: list[str] | None = None) -> int:
         emit(result) if args.json else print(result["decision"] if "decision" in result else "VALID")
         return 0
     except (OSError, json.JSONDecodeError, DriverError, planner.PlannerError) as exc:
-        result = {"valid": False, "errors": [str(exc)]}
+        step, command = planner.next_step_for(str(exc))
+        result = {"valid": False, "errors": [str(exc)], "next_step": step, "next_command": command}
         emit(result) if getattr(args, "json", False) else print(str(exc), file=sys.stderr)
         return 2
 

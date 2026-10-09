@@ -71,10 +71,53 @@ EXTERNAL_MUTATION_ACTIONS = {
     "BACKEND_MUTATION", "DEV_E2E", "COMMIT", "PUSH", "LINEAR_UPDATE",
     "DESTRUCTIVE_ACTION", "EXTERNAL_CONTRACT_CHANGE",
 }
+#: Every decision ``action_journal.py recover`` returns; ARCHIVE_INTERRUPTED_REQUIRED is
+#: reconciled like an artifact (archive, then the controller prepares the retry).
+RECOVERY_DECISIONS = (
+    "DISPATCH_ALLOWED", "RECONCILE_ARTIFACT", "CORRECTIVE_RETRY_AVAILABLE", "STATE_COMMIT_REQUIRED",
+    "ALREADY_COMMITTED", "WAIT_OR_MANUAL_REVIEW", "ARCHIVE_INTERRUPTED_REQUIRED", "BLOCKED", "RELEASED",
+)
+RECONCILE_DECISIONS = {"RECONCILE_ARTIFACT", "STATE_COMMIT_REQUIRED", "ARCHIVE_INTERRUPTED_REQUIRED"}
+#: Budget reset events: a counter ``used_current_action`` restarts when the journal
+#: rolls over to a new action; ``used_current_stage`` (and the per-action counter)
+#: restart on a stage transition. Run/demand counters never reset; raising a
+#: limit needs `sdd.py budget --raise` with the user's quote.
+BUDGET_RESET_EVENTS = {
+    "ROLLOVER": ("corrective_retries",),
+    "STAGE_TRANSITION": ("corrective_retries", "investigation_expansions"),
+}
+SDD_SCRIPT = Path(__file__).resolve().with_name("sdd.py")
 
 
 class PlannerError(ValueError):
     """A snapshot, plan, or CLI request is invalid."""
+
+
+def sdd_command(*arguments: str) -> str:
+    import shlex
+
+    return shlex.join([sys.executable, str(SDD_SCRIPT), *arguments])
+
+
+def next_step_for(message: str) -> tuple[str, str]:
+    """One actionable next step and command for a planner error message."""
+    if message.startswith("IDLE_NO_DEMAND"):
+        return "No demand is active; start one from the user's request.", sdd_command("start", "--ticket", "<ticket-id>", "--title", "<title>", "--objective", "<objective>")
+    if message.startswith("PLAN_STALE"):
+        return "STATE or the worktree changed since the plan; regenerate the snapshot and plan.", sdd_command("snapshot")
+    return ("Regenerate the snapshot from STATE and the journal (never hand-build it) and plan again.", sdd_command("snapshot"))
+
+
+def reset_budgets(budgets: dict[str, Any], event: str) -> dict[str, Any]:
+    """Return a copy of STATE ``loop.budgets`` with the counters ``event`` restarts."""
+    if event not in BUDGET_RESET_EVENTS:
+        raise PlannerError(f"UNKNOWN_RESET_EVENT: {event}; use one of {sorted(BUDGET_RESET_EVENTS)}")
+    result = copy.deepcopy(budgets)
+    for name in BUDGET_RESET_EVENTS[event]:
+        _, used_key, _ = BUDGET_SOURCES[name]
+        if name in result:
+            result[name][used_key] = 0
+    return result
 
 
 def canonical_json(value: Any) -> bytes:
@@ -117,7 +160,7 @@ def snapshot_schema() -> dict[str, Any]:
             "loop": {"type": "object", "additionalProperties": False, "required": ["mode", "loop_active", "budgets", "stop_reason", "human_approval_required"], "properties": {"mode": {"enum": ["MANUAL", "PAUSED", "BOUNDED_AUTO"]}, "loop_active": {"type": "boolean"}, "budgets": {"type": "object", "additionalProperties": False, "required": list(BUDGET_KEYS), "properties": {**{key: budget for key in ("stage_transitions", "executor_calls", "tdd_slices", "review_cycles", "ci_runs", "external_mutations")}, "corrective_retries": {"type": "object", "additionalProperties": False, "required": ["max_per_action", "used_current_action"], "properties": {"max_per_action": integer, "used_current_action": integer}}, "investigation_expansions": {"type": "object", "additionalProperties": False, "required": ["max_per_stage", "used_current_stage"], "properties": {"max_per_stage": integer, "used_current_stage": integer}}}}, "stop_reason": {"type": "string"}, "human_approval_required": {"type": "boolean"}}},
             "gates": {"type": "object", "additionalProperties": False, "required": ["focused_tests", "format", "analyze", "review", "ci", "project_ci_enabled"], "properties": {"focused_tests": {"type": "string"}, "format": {"type": "string"}, "analyze": {"type": "string"}, "review": {"type": "string"}, "ci": {"type": "string"}, "project_ci_enabled": {"type": "boolean"}}},
             "implementation": {"type": "object", "additionalProperties": False, "required": ["planned_slices", "completed_slices", "next_slice", "all_slices_green", "canonical_focused_test_command_available"], "anyOf": [{"required": ["changed_files_available"]}, {"required": ["changed_dart_files_available"]}], "properties": {"planned_slices": {"type": "array", "items": {"type": "string"}}, "completed_slices": {"type": "array", "items": {"type": "string"}}, "next_slice": {"type": ["string", "null"]}, "all_slices_green": {"type": "boolean"}, "canonical_focused_test_command_available": {"type": "boolean"}, "changed_files_available": {"type": "boolean"}, "changed_dart_files_available": {"type": "boolean", "description": "Legacy alias of changed_files_available from pre-universal installations."}}},
-            "recovery": {"type": "object", "additionalProperties": False, "required": ["decision", "journal_status", "current_action_id", "artifact_present"], "properties": {"decision": {"enum": ["DISPATCH_ALLOWED", "RECONCILE_ARTIFACT", "CORRECTIVE_RETRY_AVAILABLE", "STATE_COMMIT_REQUIRED", "ALREADY_COMMITTED", "WAIT_OR_MANUAL_REVIEW", "BLOCKED", "RELEASED"]}, "journal_status": {"type": "string"}, "current_action_id": {"type": ["string", "null"]}, "artifact_present": {"type": "boolean"}}},
+            "recovery": {"type": "object", "additionalProperties": False, "required": ["decision", "journal_status", "current_action_id", "artifact_present"], "properties": {"decision": {"enum": list(RECOVERY_DECISIONS)}, "journal_status": {"type": "string"}, "current_action_id": {"type": ["string", "null"]}, "artifact_present": {"type": "boolean"}}},
             "restrictions": {"type": "object", "additionalProperties": False, "required": ["external_mutation_requested", "protected_file_required", "scope_change_required", "architecture_decision_required"], "properties": {"external_mutation_requested": {"type": "boolean"}, "protected_file_required": {"type": "boolean"}, "scope_change_required": {"type": "boolean"}, "architecture_decision_required": {"type": "boolean"}}},
         },
         "allOf": [
@@ -128,6 +171,8 @@ def snapshot_schema() -> dict[str, Any]:
 
 
 def validate_snapshot(value: Any) -> None:
+    if isinstance(value, dict) and isinstance(value.get("state"), dict) and value["state"].get("stage") == "IDLE":
+        raise PlannerError("IDLE_NO_DEMAND: STATE is IDLE, so there is nothing to plan; start the demand with `sdd.py start` first")
     errors = sorted(jsonschema.Draft202012Validator(snapshot_schema()).iter_errors(value), key=lambda error: list(error.path))
     if errors:
         raise PlannerError("INVALID_SNAPSHOT: " + "; ".join(error.message for error in errors[:3]))
@@ -332,7 +377,7 @@ def create_plan(snapshot: dict[str, Any], target: str = TARGET) -> dict[str, Any
         if recovery == "WAIT_OR_MANUAL_REVIEW":
             append("WAIT_OR_MANUAL_REVIEW", stage, stage)
             termination = "HUMAN_REQUIRED"
-        elif recovery in {"RECONCILE_ARTIFACT", "STATE_COMMIT_REQUIRED"}:
+        elif recovery in RECONCILE_DECISIONS:
             append("RECOVER_PENDING_ACTION", stage, stage)
             termination = "RECOVERY_RECONCILIATION_REQUIRED"
         elif recovery == "CORRECTIVE_RETRY_AVAILABLE":
@@ -381,11 +426,21 @@ def create_plan(snapshot: dict[str, Any], target: str = TARGET) -> dict[str, Any
     return payload
 
 
+#: Local gates that GATES.md may declare NOT_APPLICABLE; the confirmed value counts as passed
+#: (STATE keeps the user's confirmation under gates.<name>.not_applicable).
+NOT_APPLICABLE_GATES = ("format", "analyze")
+
+
+def gate_passed(gates: dict[str, Any], name: str) -> bool:
+    """PASS, or a human-confirmed NOT_APPLICABLE for format/analyze (LOOP_POLICY §14)."""
+    return gates[name] == "PASS" or (name in NOT_APPLICABLE_GATES and gates[name] == "NOT_APPLICABLE")
+
+
 def completion_gates_are_compatible(gates: dict[str, Any]) -> bool:
     if (
         gates["focused_tests"] != "PASS"
-        or gates["format"] != "PASS"
-        or gates["analyze"] != "PASS"
+        or not gate_passed(gates, "format")
+        or not gate_passed(gates, "analyze")
         or gates["review"] != "APPROVED"
     ):
         return False
@@ -425,20 +480,20 @@ def gate_precondition_error(action: str, gates: dict[str, Any]) -> str | None:
     """Return the unmet live gate precondition for a planned action."""
     if action == "FORMAT_CHANGED_FILES" and gates["focused_tests"] != "PASS":
         return "FOCUSED_TESTS_REQUIRED"
-    if action == "ANALYZE" and (gates["focused_tests"] != "PASS" or gates["format"] != "PASS"):
+    if action == "ANALYZE" and (gates["focused_tests"] != "PASS" or not gate_passed(gates, "format")):
         return "TEST_AND_FORMAT_REQUIRED"
-    if action == "REVIEW" and any(gates[name] != "PASS" for name in ("focused_tests", "format", "analyze")):
+    if action == "REVIEW" and any(not gate_passed(gates, name) for name in ("focused_tests", "format", "analyze")):
         return "TEST_FORMAT_AND_ANALYZE_REQUIRED"
     if action == "CI":
-        if any(gates[name] != "PASS" for name in ("focused_tests", "format", "analyze")) or gates["review"] != "APPROVED":
+        if any(not gate_passed(gates, name) for name in ("focused_tests", "format", "analyze")) or gates["review"] != "APPROVED":
             return "REVIEW_PREREQUISITES_REQUIRED"
         if not gates["project_ci_enabled"]:
             return "CI_DISABLED_BY_PROJECT_POLICY"
     if action in {"EVALUATE_DONE", "EVALUATE_DONE_WITH_CI_DISABLED", "CLOSE_BOUNDED_RUN"}:
         completion_passes = (
             gates["focused_tests"] == "PASS"
-            and gates["format"] == "PASS"
-            and gates["analyze"] == "PASS"
+            and gate_passed(gates, "format")
+            and gate_passed(gates, "analyze")
             and gates["review"] == "APPROVED"
             and (
                 gates["ci"] == "PASS"
@@ -456,9 +511,9 @@ def test_gate_sequence(gates: dict[str, Any]) -> list[str]:
     sequence: list[str] = []
     if gates["focused_tests"] != "PASS":
         sequence.append("TEST_FOCUSED")
-    if gates["format"] != "PASS":
+    if not gate_passed(gates, "format"):
         sequence.append("FORMAT_CHANGED_FILES")
-    if gates["analyze"] != "PASS":
+    if not gate_passed(gates, "analyze"):
         sequence.append("ANALYZE")
     return [*sequence, "REVIEW"]
 
@@ -711,10 +766,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         errors = validate_plan(json.loads(Path(args.plan).read_text(encoding="utf-8")), json.loads(Path(args.snapshot).read_text(encoding="utf-8")))
         result = {"valid": not errors, "errors": errors}
+        if errors:
+            result["next_step"], result["next_command"] = next_step_for(errors[0])
         emit(result) if args.json else print("VALID" if not errors else "; ".join(errors))
         return 0 if not errors else 2
     except (OSError, json.JSONDecodeError, PlannerError) as exc:
-        result = {"valid": False, "errors": [str(exc)]}
+        step, command = next_step_for(str(exc))
+        result = {"valid": False, "errors": [str(exc)], "next_step": step, "next_command": command}
         emit(result) if getattr(args, "json", False) else print(str(exc), file=sys.stderr)
         return 2
 

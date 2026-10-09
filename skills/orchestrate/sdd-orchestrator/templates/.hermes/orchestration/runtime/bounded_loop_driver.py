@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Decide whether an authorized BOUNDED_AUTO round may continue in the same turn.
+"""DEPRECATED legacy bounded-loop driver; use ``bounded_run_driver.py`` (BOUNDED_AUTO / LOCAL_DELIVERY)
+or ``sdd.py next`` (every mode). Kept only so pre-v14 automation keeps working; no policy cites it.
 
+Decides whether an authorized BOUNDED_AUTO round may continue in the same turn.
 This module never invokes an executor, writes STATE, mutates Git, or activates
 BOUNDED_AUTO. Expected progress (STATE hash, budgets used, recovery after
-rollover) is not PLAN_STALE; workspace identity drift is.
+rollover) is not PLAN_STALE; workspace identity drift is. Every stop carries
+``next_step``/``next_command`` from ``stop_reasons.py``.
 """
 from __future__ import annotations
 
@@ -18,6 +21,8 @@ import jsonschema
 
 import bounded_run_planner as planner
 
+#: Superseded by bounded_run_driver.py (decisions EXECUTE_NEXT/STOP_*) and sdd.py next.
+DEPRECATED = True
 CONTINUE = "CONTINUE"
 STOP = "STOP"
 ROLLOVER_REQUIRED = "ROLLOVER_REQUIRED"
@@ -90,7 +95,13 @@ def accepted_action_prefix(snapshot: dict[str, Any], plan: dict[str, Any]) -> li
 
 
 def _stop(reason: str, *, loop_active: bool = False) -> dict[str, Any]:
+    import stop_reasons
+
+    described = stop_reasons.describe(reason)
     payload = {
+        "next_step": described["next_step"],
+        "next_command": described["next_command"],
+        "deprecated": "bounded_loop_driver.py is deprecated; use bounded_run_driver.py or sdd.py next",
         "decision": STOP,
         "end_turn": True,
         "next_action": None,

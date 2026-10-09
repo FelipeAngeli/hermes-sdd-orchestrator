@@ -187,12 +187,25 @@ def registered_workspaces(container: Path) -> list[Path]:
         except (OSError, UnicodeError):
             continue
         match = re.search(r"^workspace:[ \t]*\n[ \t]+path:[ \t]*\"?([^\"\n]+?)\"?[ \t]*$", text, re.MULTILINE)
-        if not match:
+        recorded = match.group(1) if match else _json_state_workspace(text)
+        if not recorded:
             continue
-        path = Path(os.path.realpath(match.group(1)))
+        path = Path(os.path.realpath(recorded))
         if _safe_workspace(path):
             found.append(path)
     return found
+
+
+def _json_state_workspace(text: str) -> str | None:
+    """``workspace.path`` of a STATE whose payload uses the JSON dialect (state_format's target)."""
+    try:
+        import state_format
+
+        value = state_format.parse(text).get("workspace") or {}
+    except Exception:
+        return None
+    path = value.get("path") if isinstance(value, dict) else None
+    return path if isinstance(path, str) and path else None
 
 
 def _served_workspaces() -> tuple[Path, list[Path]]:

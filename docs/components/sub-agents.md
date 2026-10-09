@@ -8,13 +8,13 @@ Sub-agents are narrow, specialist leaf-worker briefs. The controller dispatches 
 
 ## Dispatch policy: the default is to not dispatch
 
-`DISPATCH_POLICY.md` inverts the usual permission. A sub-agent runs only when the controller can record three things:
+`DISPATCH_POLICY.md` inverts the usual permission. A sub-agent runs only when the controller can record three things, in the stage-context manifest's `dispatch` block (`stage_context.py check` refuses a role dispatch without it with `DISPATCH_QUESTION_REQUIRED`):
 
 - `pending_decision`: the decision that depends on the answer.
 - `deterministic_attempt`: which tool (grep, `git diff`, tests, analyzer, schema validation…) was tried first and why it was not enough.
 - `if_empty`: what changes if the answer is `NO_FINDINGS`. If nothing changes, the dispatch is decorative and is skipped.
 
-Each demand is classified by risk as `LOW`, `MEDIUM`, `HIGH` or `CRITICAL` and routed on the smallest safe path: `FAST`, `STANDARD` or `DEEP`. Only projects with explicit `--automatic-jev-governance` consent use Jev automatically; installing TypeSafe guidance is not consent. After deterministic tools, semantic classifications go through `runtime/semantic_governor.py decide` in one cached batch. Confidence below `0.70`, malformed output, provider failure or uncertainty returns `REVIEW`; failure tombstones prevent an automatic repeat charge for the unchanged fingerprint. Exact facts, permissions and FSM transitions never go to Jev. With that consent the policy is enforced: [`stage_context.py check`](harness.md#rules-enforced-by-check) refuses PLAN and IMPLEMENT unless the manifest cites a cached governor fingerprint for the ticket and a human resolution for any `REVIEW`. Iteration follows `OBSERVE → ANALYZE → ACT → VERIFY → LEARN`, with a declared `max_iterations` and a stop when no new evidence appears.
+Each demand is classified by risk as `LOW`, `MEDIUM`, `HIGH` or `CRITICAL` and routed on the smallest safe path: `FAST`, `STANDARD` or `DEEP`. Only projects with explicit `--automatic-jev-governance` consent use Jev automatically; installing TypeSafe guidance is not consent. After deterministic tools, semantic classifications go through `runtime/semantic_governor.py decide` in one cached batch. Confidence below `0.70`, malformed output, provider failure or uncertainty returns `REVIEW`; failure tombstones prevent an automatic repeat charge for the unchanged fingerprint. Exact facts, permissions and FSM transitions never go to Jev. With that consent the policy is enforced: [`stage_context.py check`](harness.md#rules-enforced-by-check) refuses PLAN and IMPLEMENT unless the manifest cites a cached governor fingerprint for the ticket and a human resolution for any `REVIEW`. Iteration follows `OBSERVE → ANALYZE → ACT → VERIFY → LEARN`, bounded by the loop budgets; `correction_loop.py` stops with `NO_PROGRESS` when the evidence digest does not change.
 
 The policy's routing table ("Routing suggestions by change shape") names, per change shape, the typical sub-agent — only shipped briefs — and the playbooks the stage worker loads; every row is still subject to the dispatch question.
 

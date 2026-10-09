@@ -45,12 +45,15 @@ APPROVAL_REUSED = "APPROVAL_REUSED"
 APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
 APPROVAL_NOT_REQUESTED = "APPROVAL_NOT_REQUESTED"
 APPROVAL_NOT_APPLICABLE = "APPROVAL_NOT_APPLICABLE"
+#: Default worker-prompt ceiling when the manifest does not set limits.max_prompt_bytes.
+DEFAULT_MAX_PROMPT_BYTES = 48 * 1024
 CONTEXT_ERROR_CODES = (
     "CONTEXT_BUDGET_EXCEEDED",
     "CONTEXT_EXCERPT_INVALID",
     "CONTEXT_EXCERPT_TOO_LARGE",
     "CONTEXT_SOURCE_DUPLICATED",
     "CONTEXT_SOURCE_FORBIDDEN",
+    "PROMPT_TOO_LARGE",
     "PROJECT_CONTEXT_REQUIRED",
     "PROJECT_CONTEXT_GAPS_REQUIRED",
     "CONTEXT_GRAPH_FINDINGS_PRESENT",
@@ -551,9 +554,34 @@ def _check_semantic_governance(value: dict[str, Any]) -> list[dict[str, str]]:
 
 _MACHINE_KINDS = ("TEST", "STATIC_ANALYSIS", "SCHEMA_VALIDATION", "STATE_INSPECTION", "LOG_INSPECTION")
 
+#: One actionable next step per finding code; ``check`` attaches it to every finding.
+FINDING_NEXT_STEPS = {
+    "DISPATCH_QUESTION_REQUIRED": "Record the dispatch question in the manifest's `dispatch` block, or do not dispatch the sub-agent (default = do not dispatch).",
+    "CONTEXT_BUDGET_EXCEEDED": "Drop sources until max_sources holds, or ask the user for one investigation expansion (`sdd.py budget --raise investigation_expansions`).",
+    "CONTEXT_EXCERPT_TOO_LARGE": "Send a narrower line range for that source.",
+    "PROMPT_TOO_LARGE": "Regenerate the prompt with `sdd.py prepare` (it drops excerpts first), narrow the sources, or raise limits.max_prompt_bytes in the manifest.",
+    "PROJECT_CONTEXT_REQUIRED": "Dispatch the project-context-guardian first; `sdd.py next` schedules it before PLAN and IMPLEMENT.",
+    "SCOPE_CHANGE_REQUIRED": "The slice differs from the approved one; ask the user to approve the new scope.",
+    "SCHEMA_INVALID": "Regenerate the manifest with `sdd.py manifest` instead of editing it.",
+}
+DEFAULT_FINDING_NEXT_STEP = "Fix the named field in the manifest source data, regenerate it with `sdd.py manifest`, and check again."
 
-def check(value: Any) -> dict[str, Any]:
-    """Return {valid, errors, approval, slice_sha256} for one manifest."""
+
+def _check_prompt(value: dict[str, Any], prompt_bytes: int | None) -> list[dict[str, str]]:
+    if prompt_bytes is None:
+        return []
+    limit = value["limits"].get("max_prompt_bytes") or DEFAULT_MAX_PROMPT_BYTES
+    if prompt_bytes > limit:
+        return [_finding("PROMPT_TOO_LARGE", f"the worker prompt is {prompt_bytes} bytes; max_prompt_bytes is {limit}")]
+    return []
+
+
+def check(value: Any, *, prompt_bytes: int | None = None, role: str | None = None) -> dict[str, Any]:
+    """Return {valid, errors, approval, slice_sha256, next_step} for one manifest (and optional prompt size).
+
+    A read-only ``role`` (the project-context-guardian runs before the project
+    context exists) tolerates a missing project context, as ``verifier_context`` does.
+    """
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     schema_errors = sorted(jsonschema.Draft202012Validator(schema).iter_errors(value), key=lambda error: list(error.path))
     if schema_errors:
@@ -562,15 +590,22 @@ def check(value: Any) -> dict[str, Any]:
             "errors": [_finding("SCHEMA_INVALID", error.message) for error in schema_errors[:5]],
             "approval": APPROVAL_REQUIRED,
             "slice_sha256": None,
+            "next_step": FINDING_NEXT_STEPS["SCHEMA_INVALID"],
         }
     errors = [
         *_check_sources(value),
+        *_check_prompt(value, prompt_bytes),
         *_check_project_context(value),
         *_check_context_graph(value),
         *_check_playbooks(value),
         *_check_slice(value),
         *_check_semantic_governance(value),
     ]
+    if role is not None and role in READ_ONLY_ROLES and value["stage"] in READ_ONLY_ROLES[role]:
+        errors = [item for item in errors if item["code"] not in {"PROJECT_CONTEXT_REQUIRED", "PROJECT_CONTEXT_GAPS_REQUIRED"}]
+    if role is not None and not value.get("dispatch"):
+        errors.append(_finding("DISPATCH_QUESTION_REQUIRED",
+                               "a sub-agent dispatch must record dispatch.pending_decision, deterministic_attempt and if_empty (DISPATCH_POLICY.md)"))
     digest = slice_sha256(value)
     approval = value["approval"]
     if approval is None:
@@ -587,7 +622,20 @@ def check(value: Any) -> dict[str, Any]:
         ))
     if errors and approval_state == APPROVAL_REUSED:
         approval_state = APPROVAL_REQUIRED
-    return {"valid": not errors, "errors": errors, "approval": approval_state, "slice_sha256": digest}
+    if errors:
+        next_step = FINDING_NEXT_STEPS.get(errors[0]["code"], DEFAULT_FINDING_NEXT_STEP)
+    else:
+        next_step = "Dispatch is allowed for this manifest; continue with the printed batch (`sdd.py next`)."
+    return {"valid": not errors, "errors": errors, "approval": approval_state, "slice_sha256": digest, "next_step": next_step}
+
+
+def recorded_waivers_from_state(state_path: Path, acceptance: dict[str, Any]) -> dict[str, Any]:
+    """Waivers the controller recorded in STATE (`sdd.py waive`), limited to this manifest's checks."""
+    import state_format
+
+    data = state_format.parse(state_path.read_text(encoding="utf-8"))
+    waivers = ((data.get("delivery") or {}).get("waivers") or {})
+    return {key: value for key, value in waivers.items() if key in acceptance}
 
 
 def verifier_context(value: dict[str, Any], role: str | None = None) -> dict[str, Any]:
@@ -652,8 +700,13 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("--json", action="store_true", help="Emit structured JSON.")
         command.add_argument("--project-setup", type=Path, help="PROJECT_SETUP.md holding the Jev consent record.")
         command.add_argument("--jev-cache", type=Path, help="Governor cache that holds semantic_governance fingerprints.")
-        if name == "verifier-context":
+        if name == "check":
+            command.add_argument("--prompt-file", type=Path, help="Worker prompt whose size must not exceed limits.max_prompt_bytes.")
+        if name in {"check", "verifier-context"}:
             command.add_argument("--role", choices=sorted(READ_ONLY_ROLES), help="Read-only sub-agent role being dispatched.")
+        if name == "verifier-context":
+            command.add_argument("--state", type=Path, help="STATE.md whose recorded waivers (sdd.py waive) are emitted as recorded_waivers.")
+            command.add_argument("--output", type=Path, help="Write the context JSON to this file instead of only printing it.")
     args = parser.parse_args(argv)
     global JEV_PROJECT_SETUP_PATH, JEV_CACHE_PATH
     if args.project_setup is not None:
@@ -663,7 +716,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         value = json.loads(Path(args.context).read_text(encoding="utf-8"))
         if args.command == "check":
-            result = check(value)
+            prompt_bytes = args.prompt_file.stat().st_size if args.prompt_file is not None else None
+            result = check(value, prompt_bytes=prompt_bytes, role=args.role)
             code = 0 if result["valid"] else 2
         elif args.command == "hash":
             checked = check(value)
@@ -673,8 +727,17 @@ def main(argv: list[str] | None = None) -> int:
             result, code = {"slice_sha256": digest}, 0 if digest else 2
         else:
             result, code = verifier_context(value, role=args.role), 0
+            if args.state is not None and value.get("slice"):
+                waivers = recorded_waivers_from_state(args.state, value["slice"]["acceptance"])
+                if waivers:
+                    result["recorded_waivers"] = waivers
+            if args.output is not None:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(json.dumps(result, sort_keys=True, indent=1) + "\n", encoding="utf-8")
+                result = {"status": "WRITTEN", "path": str(args.output), "recorded_waivers": sorted(result.get("recorded_waivers", {})),
+                          "next_step": "Pass this file to validate_protocol.py --context."}
     except (OSError, json.JSONDecodeError, KeyError, ContextError) as exc:
-        result, code = {"valid": False, "errors": [_finding("SCHEMA_INVALID", str(exc))]}, 2
+        result, code = {"valid": False, "errors": [_finding("SCHEMA_INVALID", str(exc))], "next_step": DEFAULT_FINDING_NEXT_STEP}, 2
     print(json.dumps(result, sort_keys=True) if args.json else result)
     return code
 
