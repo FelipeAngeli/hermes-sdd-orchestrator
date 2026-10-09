@@ -38,6 +38,8 @@ PROFILES = {
     "DECISION_DOC": ("SPECIFY", "CLARIFY", "PLAN", "IMPLEMENT", "REVIEW", "DONE"),
 }
 #: Backward transitions allowed with a recorded human reason (a reopened stage).
+#: A stage never transitions to itself: a failure inside IMPLEMENT (the DECISION_DOC
+#: gate stage) reopens in place with ``sdd.py reopen`` (a FIX slice), not a transition.
 REOPEN_TARGETS = {"TEST": ("IMPLEMENT",), "REVIEW": ("IMPLEMENT",)}
 
 
@@ -169,7 +171,8 @@ def apply_transition(
     Forward: every stage strictly between current and target must be absent from
     the profile (recorded as skipped with the profile as reason) or be CLARIFY
     with an explicit ``clarify_skip_reason``. Backward: only ``REOPEN_TARGETS``
-    with a ``reopen_reason``. Provenance of the left stage is recorded.
+    with a ``reopen_reason``. Same stage: always refused. Provenance of the left
+    stage is recorded.
     """
     import copy as _copy
 
@@ -178,6 +181,9 @@ def apply_transition(
     current = stage.get("current")
     if current not in FSM_ORDER or target not in FSM_ORDER:
         raise StateFormatError("STATE_TRANSITION_INVALID", f"Unknown stage in transition {current!r} -> {target!r}.")
+    if target == current:
+        raise StateFormatError("STATE_TRANSITION_INVALID", f"{current} -> {current} is not a transition (it would spend stage_transitions without progress); "
+                               "reopen the work in place with `sdd.py reopen`.")
     result = _copy.deepcopy(data)
     moved = result["stage"]
     moved.setdefault("completed", [])

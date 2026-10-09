@@ -15,7 +15,7 @@ Autonomy is never unbounded. Every round is bounded by the FSM, invariants, cont
 | `MANUAL` (default) | install, or the user leaving a bounded run | through `sdd.py next` when the user asks; "continue"/"pode seguir" authorizes progress **up to the next HUMAN_REQUIRED stop**, not a single action | every HUMAN/BLOCKED stop, and `MANUAL_ACTION_COMPLETE` | the user's next request, then `sdd.py next` |
 | `LOCAL_DELIVERY` (schema 2) | an explicit delivery request ("orquestre/implemente <demand>"): `sdd.py start` shows ONE preview with the fixed cumulative limits; the request is the authorization, bound to ticket, scope hash and worktree | automatically through `sdd.py next` without new questions; `REPLAN_REQUIRED` regenerates snapshot → plan → bind, preserving the ledger and cumulative totals | next HUMAN checkpoint, a BLOCKED stop, a spent global limit, scope/worktree drift | the user's answer through the printed command |
 | `BOUNDED_AUTO` legacy (schema 1) | a fresh deterministic `BOUNDED RUN PREVIEW` (policies/BOUNDED_AUTOMATION.md) and an unambiguous yes right after it (`sim`, `autorizo`, `pode iniciar`, `continue`), valid only for that `plan_sha256` | `bounded_run_driver.py next` until `end_turn: true`; `ROLLOVER_REQUIRED` needs rollover and a new `DISPATCH_ALLOWED` before the next dispatch (never `RELEASED → prepare`) | per-round budgets (§4), `PLAN_STALE` before activation | a new preview and confirmation |
-| `PAUSED` | the user ("pause"), or a healthy stop (budget, checkpoint, approval) | nothing new starts; reading and explaining only | — | an explicit user command, then `sdd.py next` |
+| `PAUSED` | the user ("pause") through `sdd.py pause --quote ...` | nothing new starts: `sdd.py next` prints no PREPARE/DISPATCH, only `LOOP_PAUSED` (finishing an already committed result is allowed) | — | the user's explicit request: `sdd.py resume --quote ...` (returns to the previous mode), then `sdd.py next` |
 
 `PAUSED` is a healthy halt waiting for a decision; `BLOCKED` is a technical or safety impediment (§8). After any `STOP_*`, resume by running the stop's `next_command` (§9) and then `sdd.py next`.
 
@@ -29,7 +29,7 @@ Each iteration runs ONE logical action: one stage dispatch, its validation, one 
 
 | Budget | Default | Counter | Resets on |
 | --- | --- | --- | --- |
-| `stage_transitions` | 3 per schema 1 round / demand limit in LOCAL_DELIVERY | `used` | never within a demand |
+| `stage_transitions` | 3 per schema 1 round / demand limit in LOCAL_DELIVERY: `sdd.py start` sizes it as the profile's forward transitions + `review_cycles` × the IMPLEMENT→REVIEW re-advance (CODE 7 + 2×2 = 11, DECISION_DOC 5 + 2×1 = 7), so every authorized REVIEW reopen reaches DONE without a raise | `used` (forward transitions only; the backward reopen itself is free, each REVIEW dispatch spends `review_cycles`) | never within a demand |
 | `executor_calls` | 8 per round | `used` | never within a demand |
 | `corrective_retries` | 1 per action | `used_current_action` | journal rollover to a new action |
 | `tdd_slices` | 3 per round | `used` | never within a demand |
@@ -45,7 +45,9 @@ Resets are implemented by `bounded_run_planner.reset_budgets(budgets, "ROLLOVER"
 `CODE` / `BOTH`: SPECIFY → CLARIFY → PLAN → TASKS → IMPLEMENT → TEST → REVIEW → DONE.
 `DECISION_DOC`: SPECIFY → CLARIFY → PLAN → IMPLEMENT (the document) → REVIEW → DONE; TASKS and TEST are recorded as SKIPPED with the reason "not part of the DECISION_DOC delivery profile".
 
-CLARIFY may be SKIPPED only when no material question is open and the reason is recorded in STATE. No other stage is skipped. Reopening IMPLEMENT from TEST/REVIEW needs a recorded reason (`sdd.py transition --to IMPLEMENT --reason ... --quote ...`). `state_format.apply_transition` enforces this.
+CLARIFY may be SKIPPED only when no material question is open and the reason is recorded in STATE. No other stage is skipped. A stage never transitions to itself. A failed gate or a REVIEW asking for changes reopens the work with `sdd.py reopen --reason ... --quote ...`: from TEST/REVIEW it moves back to IMPLEMENT; inside IMPLEMENT (the DECISION_DOC gate stage) it stays there. Either way it opens the next `FIX<n>` slice (the last slice's checks move to it), resets every gate to PENDING and `sdd.py next` dispatches that slice. `state_format.apply_transition` enforces this.
+
+`DONE → IDLE`: after DONE, `sdd.py close` archives the demand summary in `closed_demands` (last 20), clears the delivery, baseline and gates and returns STATE to IDLE; `sdd.py start` then accepts the next demand.
 
 ## 6. Transition conditions
 
@@ -81,9 +83,9 @@ This table is the closed vocabulary: it is generated from `runtime/stop_reasons.
 | `INVESTIGATION_BUDGET_REACHED` | HUMAN | The investigation-expansion budget for this stage is spent; ask for one explicit expansion. → `sdd.py budget --raise investigation_expansions --by 1 --quote '<user words authorizing more>'` |
 | `REVIEW_CYCLE_BUDGET_REACHED` | HUMAN | The review-cycle budget is spent; ask the user whether to authorize another REVIEW. → `sdd.py budget --raise review_cycles --by 1 --quote '<user words authorizing more>'` |
 | `CI_RUN_BUDGET_REACHED` | HUMAN | The CI-run budget is spent; ask the user whether to authorize another CI run. → `sdd.py budget --raise ci_runs --by 1 --quote '<user words authorizing more>'` |
-| `EXTERNAL_MUTATION_REQUIRED` | HUMAN | The next action mutates an external system (commit, push, tracker, backend); it needs separate explicit authorization outside the loop. |
-| `BUDGET_REACHED` | HUMAN | A LOCAL_DELIVERY total limit is spent; `sdd.py status` names which. Ask the user to raise it. → `sdd.py budget --raise <budget> --by 1 --quote '<user words authorizing more>'` |
-| `COST_BUDGET_REACHED` | HUMAN | The correction cost budget is spent; ask the user to authorize more cost or a cheaper tier. |
+| `EXTERNAL_MUTATION_REQUIRED` | HUMAN | The next action mutates an external system (commit, push, tracker, backend); it needs separate explicit authorization outside the loop. `sdd.py next` continues the local delivery without it. → `sdd.py next` |
+| `BUDGET_REACHED` | HUMAN | A LOCAL_DELIVERY total limit is spent; `sdd.py next` stops with the named budget reason and its exact `budget --raise <name>` command. → `sdd.py next` |
+| `COST_BUDGET_REACHED` | HUMAN | The correction cost budget is spent; ask the user to authorize more cost or a cheaper tier, then `sdd.py next` (the stage's single corrective retry or its stop). → `sdd.py next` |
 | `CORRECTIVE_RETRY_EXHAUSTED` | HUMAN | The corrective retry of this action was already used; ask the user to authorize one more retry. → `sdd.py budget --raise corrective_retries --by 1 --quote '<user words authorizing more>'` |
 | `EXECUTOR_TIMEOUT` | BLOCKED | The worker timed out twice (the first timeout already got one reduced-context retry). Ask the user to raise the stage timeout in policies/EXECUTORS.md or authorize one more retry. → `sdd.py budget --raise corrective_retries --by 1 --quote '<user words authorizing more>'` |
 | `EXECUTOR_FAILED` | BLOCKED | The worker process failed again after its retry; check `executor_launch.py preflight` for that executor, then authorize one more retry. → `sdd.py budget --raise corrective_retries --by 1 --quote '<user words authorizing more>'` |
@@ -93,33 +95,33 @@ This table is the closed vocabulary: it is generated from `runtime/stop_reasons.
 | `DIRTY_OR_INCONSISTENT_IDLE` | BLOCKED | The idle journal carries stray evidence; archive it with a reason (printed command), then `sdd.py next`. → `sdd.py next` |
 | `JOURNAL_INCONSISTENT` | BLOCKED | The journal combines evidence no command produces; block and archive it (printed command), then `sdd.py next`. → `sdd.py next` |
 | `ARTIFACT_PENDING` | BLOCKED | A final-message file already exists for an undispatched action; block and archive the action, then `sdd.py next`. → `sdd.py next` |
-| `STATE_DESYNC` | BLOCKED | STATE differs from both prepared hashes; restore STATE from the journal's snapshot or archive the action with archive-blocked. Never hand-edit STATE. |
+| `STATE_DESYNC` | BLOCKED | STATE differs from both prepared hashes; `sdd.py next` prints the journal command that blocks and archives the action. Never hand-edit STATE. → `sdd.py next` |
 | `STATE_PATH_REQUIRED` | BLOCKED | The journal's state commit has no STATE path; archive the action with archive-blocked and run `sdd.py next`. → `sdd.py next` |
 | `STATE_PATH_UNSAFE` | BLOCKED | The journal's STATE path is not this worktree's canonical STATE (see `action_journal.py paths`); archive the action and run `sdd.py next`. → `sdd.py next` |
 | `STATE_COMMIT_FILE_MISSING` | BLOCKED | STATE.md is missing or not a regular file; restore it, then run `sdd.py next`. → `sdd.py next` |
-| `STATE_INCONSISTENT` | BLOCKED | STATE.md cannot be parsed or lacks required keys; restore the last committed STATE (history), never repair it by hand. |
+| `STATE_INCONSISTENT` | BLOCKED | STATE.md cannot be parsed, lacks required keys, or an accepted artifact changed; restore the last committed STATE (history), never repair it by hand, then check it with `sdd.py status`. → `sdd.py status` |
 | `CONTRACT_INVALID` | PAUSED | The worker result failed validation; it is classified invalid. `sdd.py next` archives it and prepares the single corrective retry with the errors. → `sdd.py next` |
-| `WORKER_BLOCKED` | HUMAN | The worker reported blockers; read them in `sdd.py status` and resolve them with the user (answer, scope or reopen). → `sdd.py status` |
-| `CLARIFICATION_REQUIRED` | HUMAN | Material questions are open; ask the user exactly the listed questions and record each answer. → `sdd.py answer --index <n> --quote '<user words>'` |
-| `HUMAN_DECISION_REQUIRED` | HUMAN | A HUMAN acceptance check needs the user's decision; record it verbatim (approval or waiver). → `sdd.py waive --check <check-id> --by requester --quote '<user words>' --reason '<why>'` |
-| `SCOPE_CHANGE_REQUIRED` | HUMAN | The slice contract differs from the approved one; it is new scope and needs its own approval. |
+| `WORKER_BLOCKED` | HUMAN | The worker reported blockers; ask the user and record the resolution: the stage is redispatched with it. → `sdd.py unblock --quote '<user words>'` |
+| `CLARIFICATION_REQUIRED` | HUMAN | Material questions are open; ask the user exactly the listed questions and record each answer with the printed `sdd.py answer --index` command. → `sdd.py next` |
+| `HUMAN_DECISION_REQUIRED` | HUMAN | An acceptance check needs the user's decision; record it verbatim with the printed command (`waive` for a HUMAN check, `answer --check` for a requested decision). → `sdd.py next` |
+| `SCOPE_CHANGE_REQUIRED` | HUMAN | The slice contract differs from the approved one; it is new scope. Record the user's approval of the current slice contracts. → `sdd.py approve-scope --quote '<user words>'` |
 | `INVESTIGATION_BUDGET_EXCEEDED` | HUMAN | The context budget of the manifest is exceeded; ask for an explicit expansion or narrow the sources. → `sdd.py budget --raise investigation_expansions --by 1 --quote '<user words authorizing more>'` |
-| `PROMPT_BUDGET_EXCEEDED` | BLOCKED | The worker prompt exceeds max_prompt_bytes even after reduction; narrow the manifest sources or raise max_prompt_bytes in the manifest. |
+| `PROMPT_BUDGET_EXCEEDED` | HUMAN | The worker prompt exceeds max_prompt_bytes even after reduction; ask the user to authorize a larger prompt. → `sdd.py budget --raise prompt_bytes --by 16384 --quote '<user words authorizing more>'` |
 | `MANIFEST_INVALID` | BLOCKED | The stage-context manifest was refused; the findings name the field. Fix the source data, then `sdd.py next`. → `sdd.py next` |
-| `JEV_GOVERNANCE_REQUIRED` | BLOCKED | Automatic Jev consent is recorded: run `semantic_governor.py decide` for this ticket and record its fingerprint before PLAN/IMPLEMENT. |
-| `BASELINE_DRIFT_EXTERNAL` | HUMAN | HEAD or branch changed outside the agent; ask the user whether to continue on the new baseline. |
-| `PREEXISTING_FILE_MODIFIED` | BLOCKED | A protected pre-existing file changed during the demand; stop and ask the user. Never restore it with Git reset/checkout. |
-| `FOCUSED_TESTS_FAILED` | BLOCKED | Focused tests failed; reopen IMPLEMENT for a corrective slice with the user's agreement. → `sdd.py transition --to IMPLEMENT --reason '<failure>' --quote '<user words>'` |
-| `FORMAT_FAILED` | BLOCKED | The formatter failed; reopen IMPLEMENT for a corrective slice with the user's agreement. → `sdd.py transition --to IMPLEMENT --reason '<failure>' --quote '<user words>'` |
-| `ANALYZE_FAILED` | BLOCKED | Static analysis failed; reopen IMPLEMENT for a corrective slice with the user's agreement. → `sdd.py transition --to IMPLEMENT --reason '<failure>' --quote '<user words>'` |
-| `CI_FAILED` | BLOCKED | CI failed; CI is never retried automatically. Reopen IMPLEMENT with the user's agreement. → `sdd.py transition --to IMPLEMENT --reason '<failure>' --quote '<user words>'` |
-| `CI_TIMEOUT` | BLOCKED | CI timed out; it blocks advancement. Ask the user how to proceed. |
-| `GATE_TIMEOUT` | BLOCKED | A gate command timed out; it blocks advancement. Ask the user to raise its timeout in GATES.md. |
-| `REVIEW_BLOCKED` | BLOCKED | REVIEW reported a blocker; reopen IMPLEMENT with the user's agreement. → `sdd.py transition --to IMPLEMENT --reason '<failure>' --quote '<user words>'` |
-| `REVIEW_CHANGES_REQUIRED` | HUMAN | REVIEW requires changes; reopen IMPLEMENT for a corrective slice with the user's agreement. → `sdd.py transition --to IMPLEMENT --reason '<failure>' --quote '<user words>'` |
-| `OWNERSHIP_VIOLATION` | BLOCKED | REVIEW found writes outside the agent-owned paths; stop and ask the user. |
-| `GATE_COMMAND_UNCONFIGURED` | BLOCKED | A required gate has no verified command in policies/GATES.md; configure it (run it once) before this stage. |
-| `GATE_CONFIRMATION_REQUIRED` | HUMAN | GATES.md marks this gate NOT_APPLICABLE; record the user's explicit confirmation. → `sdd.py gate --name <gate> --not-applicable --by requester --quote '<user words>'` |
+| `JEV_GOVERNANCE_REQUIRED` | BLOCKED | Automatic Jev consent is recorded but no governance fingerprint is: run `semantic_governor.py decide` for this ticket (or the user withdraws the consent in PROJECT_SETUP.md), then `sdd.py next` rebuilds the manifest. → `sdd.py next` |
+| `BASELINE_DRIFT_EXTERNAL` | HUMAN | HEAD or branch changed outside the agent; ask the user whether to continue on the new baseline and record the answer (it captures the new baseline). → `sdd.py rebaseline --quote '<user words>'` |
+| `PREEXISTING_FILE_MODIFIED` | HUMAN | A protected pre-existing file changed during the demand; ask the user. Never restore it with Git reset/checkout. Accepting the change records the answer and captures the new hashes. → `sdd.py rebaseline --quote '<user words>'` |
+| `FOCUSED_TESTS_FAILED` | BLOCKED | Focused tests failed; reopen IMPLEMENT for a corrective slice with the user's agreement. → `sdd.py reopen --reason '<failure>' --quote '<user words>'` |
+| `FORMAT_FAILED` | BLOCKED | The formatter failed; reopen IMPLEMENT for a corrective slice with the user's agreement. → `sdd.py reopen --reason '<failure>' --quote '<user words>'` |
+| `ANALYZE_FAILED` | BLOCKED | Static analysis failed; reopen IMPLEMENT for a corrective slice with the user's agreement. → `sdd.py reopen --reason '<failure>' --quote '<user words>'` |
+| `CI_FAILED` | BLOCKED | CI failed; CI is never retried automatically. Reopen IMPLEMENT with the user's agreement. → `sdd.py reopen --reason '<failure>' --quote '<user words>'` |
+| `CI_TIMEOUT` | HUMAN | CI timed out; it blocks advancement. Ask the user whether to run it once more (raise its timeout in GATES.md first if needed). → `sdd.py gate --name ci --rerun --quote '<user words>'` |
+| `GATE_TIMEOUT` | HUMAN | A gate command timed out; it blocks advancement. Raising its timeout in GATES.md re-runs it on the next `sdd.py next`; otherwise ask the user to confirm one more run with the printed `gate --rerun` command. → `sdd.py next` |
+| `REVIEW_BLOCKED` | BLOCKED | REVIEW reported a blocker; reopen IMPLEMENT with the user's agreement. → `sdd.py reopen --reason '<failure>' --quote '<user words>'` |
+| `REVIEW_CHANGES_REQUIRED` | HUMAN | REVIEW requires changes; reopen IMPLEMENT for a corrective slice with the user's agreement. → `sdd.py reopen --reason '<failure>' --quote '<user words>'` |
+| `OWNERSHIP_VIOLATION` | HUMAN | REVIEW found writes outside the agent-owned paths; ask the user. Accepting them records the answer and redispatches REVIEW; otherwise reopen IMPLEMENT with `sdd.py reopen`. → `sdd.py rebaseline --quote '<user words>'` |
+| `GATE_COMMAND_UNCONFIGURED` | BLOCKED | A required gate has no verified command in policies/GATES.md; configure it (`detect_stack.py` suggests one; run it once), then `sdd.py next` runs it. → `sdd.py next` |
+| `GATE_CONFIRMATION_REQUIRED` | HUMAN | GATES.md marks this gate NOT_APPLICABLE; record the user's explicit confirmation with the printed `gate --not-applicable` command. → `sdd.py next` |
 | `DONE_GATES_NOT_PASSED` | BLOCKED | DONE needs focused tests, format, analysis, review and CI (or DISABLED_BY_PROJECT_POLICY) to pass; `sdd.py next` prints the missing gate. → `sdd.py next` |
 | `FOCUSED_TESTS_REQUIRED` | BLOCKED | Format runs only after focused tests pass; run the focused-tests gate first. → `sdd.py next` |
 | `TEST_AND_FORMAT_REQUIRED` | BLOCKED | Analysis runs only after focused tests and format pass. → `sdd.py next` |
@@ -130,9 +132,11 @@ This table is the closed vocabulary: it is generated from `runtime/stop_reasons.
 | `IMPLEMENTATION_CURSOR_INVALID` | BLOCKED | Completed slices do not advance in planned order; regenerate the snapshot with `sdd.py snapshot` and replan. → `sdd.py snapshot` |
 | `PLAN_STALE` | PAUSED | The plan no longer matches STATE or the worktree; regenerate the snapshot and plan (schema 2 replans without a new approval). → `sdd.py snapshot` |
 | `BLOCKED` | BLOCKED | STATE has blockers or recovery is BLOCKED; `sdd.py status` names them and `sdd.py next` prints the recovery. → `sdd.py next` |
-| `HUMAN_REQUIRED` | HUMAN | The next planned action needs a human decision (protected file, scope, architecture or external mutation); ask the user. |
+| `HUMAN_REQUIRED` | HUMAN | The next planned action needs a human decision (protected file, scope, architecture or external mutation); `sdd.py next` stops at it with the exact command that records the answer. → `sdd.py next` |
 | `MANUAL_ACTION_COMPLETE` | PAUSED | MANUAL mode: the authorized progress is done. A 'continue' from the user authorizes progress up to the next human checkpoint. → `sdd.py next` |
-| `DONE` | DONE | DONE: engineering validated. Present a commit proposal; commit and push need separate authorization. |
+| `LOOP_PAUSED` | PAUSED | The loop is PAUSED: nothing new starts. Resume only on the user's explicit request. → `sdd.py resume --quote '<user words>'` |
+| `EXECUTOR_UNAVAILABLE` | BLOCKED | The prepared action's executor is not on PATH; nothing was dispatched. Ask the user to install it or to select another executor for the stage in policies/EXECUTORS.md; then `sdd.py next` dispatches, or prints `sdd.py reprepare` (archives the undispatched action and refunds its call). → `sdd.py next` |
+| `DONE` | DONE | DONE: engineering validated. Present a commit proposal (commit and push need separate authorization), then close the demand to return STATE to IDLE. → `sdd.py close` |
 | `PLAN_COMPLETE` | PAUSED | Every planned action ran; regenerate the snapshot and plan for the next checkpoint. → `sdd.py snapshot` |
 | `PLAN_EMPTY` | PAUSED | The plan has no action to run; `sdd.py next` shows why (usually a human checkpoint). → `sdd.py next` |
 | `SEQUENCE_SKIPPED` | BLOCKED | STATE's next action is not the plan's next action; regenerate the snapshot and plan. → `sdd.py snapshot` |
@@ -140,8 +144,8 @@ This table is the closed vocabulary: it is generated from `runtime/stop_reasons.
 | `NEXT_HUMAN_CHECKPOINT` | PAUSED | The projection reached the next human checkpoint; `sdd.py next` names it. → `sdd.py next` |
 | `RECOVERY_RECONCILIATION_REQUIRED` | PAUSED | A pending action must be reconciled first; `sdd.py next` prints the recovery command. → `sdd.py next` |
 | `IDLE_NO_DEMAND` | PAUSED | No demand is active; start one from the user's request. → `sdd.py start --ticket <ticket-id> --title '<title>' --objective '<objective>'` |
-| `NO_NEW_HYPOTHESIS` | HUMAN | The proposed correction repeats a tried hypothesis; supply a new, specific one or stop. |
-| `NO_PROGRESS` | HUMAN | The last correction changed nothing observable; investigate the failure with the user before another attempt. |
+| `NO_NEW_HYPOTHESIS` | HUMAN | The proposed correction repeats a tried hypothesis; ask the user for a new, specific one and record it (the stage is redispatched with it). → `sdd.py unblock --quote '<user words>'` |
+| `NO_PROGRESS` | HUMAN | The last correction changed nothing observable; investigate the failure with the user and record the new direction (the stage is redispatched with it). → `sdd.py unblock --quote '<user words>'` |
 | `PLAN_CURSOR_MISMATCH` | PAUSED | Legacy driver: the plan cursor does not match STATE; use `sdd.py next`. → `sdd.py next` |
 | `MODE_NOT_BOUNDED_AUTO` | PAUSED | Legacy driver: the loop is not BOUNDED_AUTO; use `sdd.py next`. → `sdd.py next` |
 | `HUMAN_APPROVAL_REQUIRED` | HUMAN | STATE records a pending human approval; ask the user, then `sdd.py next`. → `sdd.py next` |
@@ -150,6 +154,8 @@ This table is the closed vocabulary: it is generated from `runtime/stop_reasons.
 ## 10. Retry and timeouts
 
 At most one corrective retry per action (`max_corrective_retries_per_action: 1`), as a new journal action with `parent_action_id` and `retry_mode: FULL_REPLACEMENT`. A retry is allowed only for a known cause with a deterministic correction (e.g. a cited path does not exist), with ownership intact and no external mutation. Never retry automatically: CI failure, ownership violation, baseline drift, unknown environment failure, destructive action.
+
+Executor unavailable: before printing DISPATCH, `sdd.py next` checks that the prepared action's executor is on PATH; if not it stops with `EXECUTOR_UNAVAILABLE` (nothing dispatched). Once policies/EXECUTORS.md selects an available executor, `sdd.py next` prints `sdd.py reprepare`, which archives the undispatched action as history (not an attempt) and refunds its executor call.
 
 Executor timeout: the first `EXECUTOR_TIMEOUT` → `action_journal.py archive-interrupted` → one FULL_REPLACEMENT retry with reduced context (brief and manifest pointers, no inline excerpts) or the cross-executor fallback of §11. A second timeout → BLOCKED with `EXECUTOR_TIMEOUT` and its next step. `sdd.py next` prints exactly this sequence.
 
@@ -181,11 +187,11 @@ At most `max_review_cycles_per_run: 2`. APPROVED → CI per project policy. CHAN
 
 ## 16. CI
 
-CI is an expensive gate: `max_ci_runs_per_run: 1`, never retried automatically. CI PASS updates STATE immediately. When CI is `DISABLED_BY_PROJECT_POLICY` it is not run and never becomes PASS.
+CI is an expensive gate: `max_ci_runs_per_run: 1`, never retried automatically. CI PASS updates STATE immediately. When CI is `DISABLED_BY_PROJECT_POLICY` it is not run and never becomes PASS. DONE re-reads the CI policy: enabled needs CI PASS; disabled records `ci: DISABLED_BY_PROJECT_POLICY` at the DONE transition (a CI run that already failed still blocks). With the CI-run budget spent, an enabled-but-unrun CI stops with `CI_RUN_BUDGET_REACHED`. A recorded gate result is trusted only under the GATES.md row it ran with: enabling CI after REVIEW recorded `DISABLED_BY_PROJECT_POLICY`, or changing a gate's command or timeout, makes `sdd.py next` run that gate again. A `TIMEOUT` re-runs automatically once its GATES.md timeout changed; otherwise `sdd.py gate --name <gate> --rerun --quote ...` runs it once more with the user's confirmation.
 
 ## 17. Human in the loop
 
-A HUMAN stop reports `stage`, `reason`, `requested_action`, `affected_paths`, `risk` and `recommended_option` in a few lines, then waits. Human decisions are recorded verbatim (`sdd.py answer`, `sdd.py waive`, `sdd.py budget --raise`, `sdd.py gate --not-applicable`); a waiver is `{by, reason, quote, recorded_at}` and reaches `validate_protocol` as `recorded_waivers`. The controller asks at most one material question at a time.
+A HUMAN stop reports `stage`, `reason`, `requested_action`, `affected_paths`, `risk` and `recommended_option` in a few lines, then waits. Human decisions are recorded verbatim (`sdd.py answer`, `sdd.py waive`, `sdd.py reopen`, `sdd.py rebaseline`, `sdd.py approve-scope`, `sdd.py gate --rerun`, `sdd.py budget --raise`, `sdd.py gate --not-applicable`); a waiver is `{by, reason, quote, recorded_at}` and reaches `validate_protocol` as `recorded_waivers`. Only HUMAN checks are waived directly; an AGENT check is refused with `WAIVE_REQUIRES_HUMAN_CHECK` until `sdd.py request-decision --check <id>` opened a `HUMAN_DECISION_REQUIRED` stop and the user's words were recorded with `sdd.py answer --check <id>`; the waiver quote must be that answer and the binding is kept in `delivery.decision_bindings`. The controller asks at most one material question at a time.
 
 ## 18. Obsidian
 
@@ -209,7 +215,7 @@ action → result → validation → STATE commit (through the journal) → next
 
 ## 22. Baseline drift
 
-A changed Git state does not imply an agent write. Check the run's write set, HEAD/branch, external commits and resets before classifying. Without evidence of an agent write use `BASELINE_DRIFT_EXTERNAL` and pause; never claim `PREEXISTING_FILE_MODIFIED` without objective evidence.
+A changed Git state does not imply an agent write. Check the run's write set, HEAD/branch, external commits and resets before classifying. Without evidence of an agent write use `BASELINE_DRIFT_EXTERNAL` and pause; never claim `PREEXISTING_FILE_MODIFIED` without objective evidence. If the user accepts the new state, `sdd.py rebaseline --quote ...` records the decision in `delivery.rebaselines` and captures the new HEAD/branch and protected-file hashes; for a REVIEW `OWNERSHIP_VIOLATION` it records the accepted paths in `ownership.human_accepted` and REVIEW runs again.
 
 ## 23. Progress reporting
 
