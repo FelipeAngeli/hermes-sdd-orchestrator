@@ -26,6 +26,7 @@ Rules:
 - `NOT_APPLICABLE` (for example, no formatter exists) requires a written reason and human confirmation recorded in STATE.
 - A timeout is `TIMEOUT` and blocks advancement. Disabled CI is recorded as `DISABLED_BY_PROJECT_POLICY`, which is never a pass.
 - In a monorepo, add one row per member with its working directory. A slice uses only the rows of the members it changes.
+- Gates run on the host, with the user's privileges, the repository as working directory and no sandbox. A gate executes code the worker wrote: the test runner imports its test files and fixtures (a `conftest.py`, for example), a build or lint step loads its configuration. That code can reach anything the user can, including `GATES.md`, `EXECUTORS.md`, STATE and the journal in the Obsidian container; the container only keeps the *worker process* out. This is inherent to running tests and is not sandboxed: run gates only where you would run the repository's code, and in REVIEW read the diff of every test, fixture, build and tool-configuration file the worker changed before a gate runs it.
 
 ## Configuring a project
 

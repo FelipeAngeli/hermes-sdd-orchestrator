@@ -62,7 +62,7 @@ if "--version" in args:
     raise SystemExit(0)
 if "--help" in args:
     if name == "claude":
-        print("--print --output-format --json-schema --no-session-persistence --model --tools --add-dir --max-turns")
+        print("--print --output-format --json-schema --no-session-persistence --model --tools --add-dir --max-turns --setting-sources --strict-mcp-config --disable-slash-commands")
     else:
         print("--output-schema --output-last-message --ephemeral --model --sandbox --cd --add-dir --config")
     raise SystemExit(0)
@@ -562,6 +562,68 @@ class LaunchRunTests(FakeCliMixin, unittest.TestCase):
             code, result = self.run_launcher("build", "PLAN", "--policy", str(policy))
             self.assertEqual("CONTROLLER_WRITABLE_BY_WORKER", result["status"], result)
 
+    # ------------------------------------------------------------------ security (PR #45 round 4)
+
+    def test_claude_never_loads_project_settings_hooks_or_mcp(self) -> None:
+        """R4-01: a repository's .claude/settings*.json hooks and .mcp.json servers run on the host.
+
+        Every Claude argv — any stage, any tools — limits setting sources to the user's own
+        and ignores every MCP configuration that is not passed explicitly (none is).
+        """
+        for stage in ("SPECIFY", "PLAN", "REVIEW"):
+            with self.subTest(stage=stage):
+                self.final.unlink(missing_ok=True)
+                self.journal.unlink(missing_ok=True)
+                self.prepare(stage, "claude")
+                code, built = self.run_launcher("build", stage)
+                self.assertEqual(0, code, built)
+                argv = built["argv"]
+                self.assertEqual("user", argv[argv.index("--setting-sources") + 1])
+                self.assertIn("--strict-mcp-config", argv)
+                self.assertIn("--disable-slash-commands", argv)
+                self.assertNotIn("--mcp-config", argv)
+                self.assertNotIn("--settings", argv)
+        code, result = self.run_launcher("run", "REVIEW", result=review_fixture())
+        recorded = json.loads(self.record.read_text(encoding="utf-8"))["argv"]
+        self.assertEqual("user", recorded[recorded.index("--setting-sources") + 1])
+        self.assertIn("--strict-mcp-config", recorded)
+        self.assertIn("--disable-slash-commands", recorded)
+
+    def test_claude_probe_uses_the_same_isolation(self) -> None:
+        with self.environment(self.bin, {"record": str(self.record)}):
+            self.assertEqual("ACCEPTED", launch.preflight("claude", None, probe=True)["model_check"])
+        recorded = json.loads(self.record.read_text(encoding="utf-8"))["argv"]
+        self.assertEqual("user", recorded[recorded.index("--setting-sources") + 1])
+        self.assertIn("--strict-mcp-config", recorded)
+
+    def test_preflight_requires_the_isolation_flags(self) -> None:
+        """A Claude CLI that cannot exclude project settings, MCP servers and skills is BLOCKED before any dispatch."""
+        self.assertTrue({"--setting-sources", "--strict-mcp-config", "--disable-slash-commands"} <= set(launch.REQUIRED_HELP_FLAGS["claude"]))
+        old_dir = self.base / "old-cli"
+        old_dir.mkdir()
+        old = old_dir / "claude"
+        help_line = "--print --output-format --json-schema --no-session-persistence --model --tools --add-dir --max-turns"
+        old.write_text(f"#!{sys.executable}\nimport sys\nprint('9.9.9' if '--version' in sys.argv else {help_line!r})\n", encoding="utf-8")
+        old.chmod(0o755)
+        with mock.patch.dict(process_environment, {"PATH": str(old_dir)}):
+            blocked = launch.preflight("claude", None, probe=False)
+        self.assertEqual(("BLOCKED", "EXECUTOR_CLI_UNSUPPORTED"), (blocked["status"], blocked["reason"]))
+        self.assertEqual(["--setting-sources", "--strict-mcp-config", "--disable-slash-commands"], blocked["missing_flags"])
+        self.assertIn("--setting-sources", blocked["next_step"])
+
+    def test_refusal_never_points_to_migrate_to_vault(self) -> None:
+        """migrate_to_vault.py keeps runtime/*.py and policies/ in the repository; the exit is a reinstall."""
+        controller = self.repo / ".hermes"
+        controller.mkdir()
+        with mock.patch.object(launch, "CONTROLLER_HERMES_ROOT", controller):
+            self.prepare("IMPLEMENT", "codex")
+            code, result = self.run_launcher("build", "IMPLEMENT")
+        self.assertEqual("CONTROLLER_WRITABLE_BY_WORKER", result["status"], result)
+        self.assertNotIn("migrate_to_vault", result["next_step"] + (result["next_command"] or ""))
+        self.assertIn("install_project.py", result["next_command"])
+        self.assertIn("--obsidian-vault", result["next_command"])
+        self.assertIn("abandon", result["next_step"])
+
     def test_worker_environment_is_allow_listed(self) -> None:
         secret = "synthetic-" + "v" * 12
         names = {
@@ -869,6 +931,55 @@ class WorkerStateTamperTests(unittest.TestCase):
         self.assertIn("sdd.py", described["next_command"])
 
 
+class PathAliasIsolationTests(unittest.TestCase):
+    """R4-03: the containment test compares files, not spellings.
+
+    ``Path.resolve()`` keeps the caller's case on a case-insensitive filesystem, so a
+    controller reached through ``.../REPO/.hermes`` looked outside ``.../repo``.
+    """
+
+    def setUp(self) -> None:
+        temp = tempfile.TemporaryDirectory(prefix="alias-isolation-")
+        self.addCleanup(temp.cleanup)
+        self.base = Path(temp.name).resolve()
+        self.repo = self.base / "repo"
+        self.controller = self.repo / ".hermes"
+        (self.controller / "orchestration").mkdir(parents=True)
+
+    def flipped(self, path: Path) -> Path:
+        alias = Path(str(path).swapcase())
+        if alias == path or not alias.exists():
+            self.skipTest("the temporary filesystem is case-sensitive")
+        return alias
+
+    def writing(self) -> dict:
+        return launch.stage_settings(launch.load_policy(), "IMPLEMENT", executor=None, model=None, timeout=None)
+
+    def test_case_flipped_controller_is_still_inside_the_repository(self) -> None:
+        alias = self.flipped(self.controller)
+        self.assertTrue(launch._inside(alias, self.repo))
+        self.assertTrue(launch._inside(self.controller, self.flipped(self.repo)))
+        with mock.patch.object(launch, "CONTROLLER_HERMES_ROOT", alias), self.assertRaises(launch.LaunchError) as raised:
+            launch.check_controller_isolation("IMPLEMENT", self.writing(), self.repo)
+        self.assertEqual("CONTROLLER_WRITABLE_BY_WORKER", raised.exception.status)
+
+    def test_case_flipped_add_dir_under_the_controller_is_refused(self) -> None:
+        alias = self.flipped(self.controller / "orchestration")
+        with mock.patch.object(launch, "CONTROLLER_HERMES_ROOT", self.controller), self.assertRaises(launch.LaunchError) as raised:
+            launch.check_extra_dirs("IMPLEMENT", self.writing(), self.repo, [str(alias)], [])
+        self.assertEqual("ADD_DIR_WRITABLE_REFUSED", raised.exception.status)
+
+    def test_symlinked_and_missing_paths_keep_their_meaning(self) -> None:
+        link = self.base / "link"
+        link.symlink_to(self.repo, target_is_directory=True)
+        self.assertTrue(launch._inside(link / ".hermes", self.repo))
+        self.assertTrue(launch._inside(self.repo / "not-yet" / "created", self.repo))
+        self.assertTrue(launch._inside(self.repo, self.repo))
+        self.assertFalse(launch._inside(self.base, self.repo))
+        self.assertFalse(launch._inside(self.base / "repo-sibling", self.repo))
+        self.assertFalse(launch._inside(self.repo, self.base / "absent"))
+
+
 class ControllerIsolationTests(unittest.TestCase):
     """`sdd.py` refuses a writing stage while the controller shares the worker's writable tree.
 
@@ -893,7 +1004,7 @@ class ControllerIsolationTests(unittest.TestCase):
                 error = self.sdd.controller_isolation_error("LOCAL", stage)
                 self.assertIsNotNone(error)
                 self.assertEqual("CONTROLLER_WRITABLE_BY_WORKER", error.code)
-                self.assertIn("migrate_to_vault", error.next_command)
+                self.assertTrue(error.next_command)
                 self.assertTrue(error.next_step)
 
     def test_local_storage_still_allows_read_only_stages(self) -> None:
