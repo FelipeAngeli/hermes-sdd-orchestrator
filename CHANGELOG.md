@@ -4,6 +4,15 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+- `sdd.py restore-policy --name gates|executors --skill <installed-skill>` (status `CONTROLLER_POLICY_RESTORED`): recreates a missing or unreadable controller policy file from the installed skill's template, only when that template's SHA-256 equals the `INSTALL_MANIFEST.json` record, without ending the demand. `stop_reasons.USER_PLACEHOLDERS` gains `<vault>`, `<project>` and `<installed-skill>`. Stops `CONTROLLER_WRITABLE_BY_WORKER` and `CONTROLLER_POLICY_UNREADABLE` carry the full exit as `exit_commands` / `restore_commands` (+ `reinstall_commands`).
+
+### Fixed
+- `CONTROLLER_WRITABLE_BY_WORKER` is no longer a dead end (pr-reviewer round 4 on #45, BLOCKING). Its exit `migrate_to_vault.py --repo <repo> --apply` failed when executed (exit 2 `BINDING_MISSING` on a `--local-storage` install, refused an open demand, and by design kept `runtime/*.py` and `policies/` in the repository). The stop now prints `exit_commands`: `abandon`, `install_project.py --obsidian-vault <vault> --obsidian-project <project>` dry run and `--apply`, `mv` of the in-repository controller into `<vault>/<project>/.hermes-local-controller-backup/`, `confirm-policy` for the new container's policies and the new controller's `start`; a test executes every printed command and reaches `PREPARE`.
+- `sdd.py` and the launcher now use the same isolation criterion (round 4, MEDIUM): the controller's physical location inside the repository (device/inode ancestor walk, so case-different macOS paths match), not the storage label. A `--local-storage` install with `.hermes/obsidian.json` reported `OBSIDIAN` and printed PREPARE/DISPATCH batches the launcher refused every time.
+- An IMPLEMENT/TEST action PREPARED before the isolation check applied no longer loops on a refused `DISPATCH` (round 4, MINOR): the recovery path stops with `CONTROLLER_WRITABLE_BY_WORKER`, and `abandon` now archives an undispatched PREPARED action (`undispatched_action`) instead of refusing with `ACTION_RECOVERY_REQUIRED`.
+- `CONTROLLER_POLICY_UNREADABLE` no longer prints `git checkout -- <file>` (round 4, BLOCKING): it failed in both modes (the vault is not a Git repository; a `--local-storage` controller is excluded from Git). Its `restore_commands` (`restore-policy`, `confirm-policy`, `next`) and the fallback `reinstall_commands` (`abandon`, `install_project.py --upgrade` dry run and `--apply`, `confirm-policy`, `start`) are executed by tests.
+
 ## 15.0.0 - 2026-10-09
 
 ### Breaking

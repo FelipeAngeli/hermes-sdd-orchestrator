@@ -747,22 +747,122 @@ def baseline_stop(ctx: Ctx) -> dict[str, Any] | None:
     return None
 
 
-def controller_isolation_error(storage: str, stage: str) -> SddError | None:
+def _identity(path: Path) -> tuple[int, int] | None:
+    try:
+        info = os.stat(path)
+    except OSError:
+        return None
+    return info.st_dev, info.st_ino
+
+
+def controller_inside_repository(repository: Path) -> bool:
+    """True when the controller's ``.hermes`` directory physically lives inside ``repository``.
+
+    This is the launcher's criterion (``executor_launch.check_controller_isolation``), not the
+    storage label: a ``--local-storage`` install that also carries a ``.hermes/obsidian.json``
+    reports ``OBSIDIAN`` storage while its controller still sits in the repository. The walk
+    compares device and inode of every ancestor, so a differently-cased spelling of the same
+    directory (case-insensitive macOS volumes) or a symlinked path still matches.
+    """
+    target = _identity(repository)
+    if target is None:
+        return False
+    current = ORCHESTRATION.parent
+    while True:
+        if _identity(current) == target:
+            return True
+        if current.parent == current:
+            return False
+        current = current.parent
+
+
+def installer_mode_arguments() -> list[str]:
+    """Installer flags that reproduce this controller's own storage (``--upgrade`` keeps it)."""
+    try:
+        import obsidian_binding
+
+        source = obsidian_binding._installed_container_binding()
+        binding = obsidian_binding.load_path(source) if source is not None else None
+    except Exception:  # an unreadable binding falls back to the placeholders the user fills
+        binding = None
+    if binding is not None and not (CONTROLLER_ROOT / ".git").exists():
+        return ["--obsidian-vault", str(binding.raw.get("vault_path") or binding.vault_path),
+                "--obsidian-project", str(binding.project_container)]
+    if (CONTROLLER_ROOT / ".git").exists():
+        return ["--local-storage"]
+    return ["--obsidian-vault", "<vault>", "--obsidian-project", "<project>"]
+
+
+def installer_command(repository: Path, *arguments: str) -> str:
+    """The skill's installer, whose path only the Hermes session knows (``<installed-skill>``)."""
+    return shlex.join([sys.executable, "<installed-skill>/scripts/install_project.py", "--target", str(repository), *arguments, "--json"])
+
+
+def demand_exit_prefix(ctx: Ctx, reason: str) -> list[str]:
+    """``abandon`` when a demand is open (it also archives an undispatched PREPARED action)."""
+    if ctx.stage in {"IDLE", "DONE"}:
+        return [sdd("close")] if ctx.stage == "DONE" else []
+    return [sdd("abandon", "--reason", reason, "--quote", "<user words>")]
+
+
+def restart_command(script: str | Path) -> str:
+    return shlex.join([sys.executable, str(script), "start", "--ticket", "<ticket-id>", "--title", "<title>", "--objective", "<objective>"])
+
+
+def move_out_commands(ctx: Ctx) -> list[str]:
+    """Abandon the demand, install the controller in an Obsidian container, set the in-repo one aside, restart.
+
+    ``migrate_to_vault.py`` is not this exit: it moves STATE and the journal but keeps
+    ``runtime/*.py`` and ``policies/`` in the repository by design, refuses an open demand
+    and needs a binding a ``--local-storage`` install does not have. A fresh Obsidian install
+    is what puts the controller out of every worker's reach.
+    """
+    repository = ctx.repo
+    container = "<vault>/<project>"
+    backup = f"{container}/.hermes-local-controller-backup"
+    commands = demand_exit_prefix(ctx, "move the controller out of the repository (CONTROLLER_WRITABLE_BY_WORKER)")
+    install = ["--obsidian-vault", "<vault>", "--obsidian-project", "<project>"]
+    commands += [installer_command(repository, *install), installer_command(repository, *install, "--apply")]
+    if controller_inside_repository(repository):
+        commands.append(shlex.join(["mkdir", "-p", backup]))
+        commands.append(shlex.join(["mv", str(ORCHESTRATION), f"{backup}/orchestration"]))
+        # A repository-local binding would outrank the container's for operator CLIs, and the
+        # card points at the old controller: both leave with it. Nothing else under .hermes moves
+        # (a TypeSafe .env stays out of the vault).
+        for leftover in (ORCHESTRATION.parent / "obsidian.json", CONTROLLER_ROOT / ".hermes.md"):
+            if leftover.is_file():
+                commands.append(shlex.join(["mv", str(leftover), f"{backup}/{leftover.name}"]))
+    new_sdd = f"{container}/.hermes/orchestration/runtime/sdd.py"
+    # The new container holds the template GATES.md/EXECUTORS.md (the in-repository copies were
+    # writable by workers, so they are not carried over). A runtime the binding already kept in
+    # the vault still pins the old digests, and `start` refuses a policy that differs from its
+    # last pin: the user confirms the new files first.
+    for name in sorted(CONTROLLER_POLICY_FILES):
+        commands.append(shlex.join([sys.executable, new_sdd, "confirm-policy", "--name", name, "--by", "requester", "--quote", "<user words>"]))
+    commands.append(restart_command(new_sdd))
+    return commands
+
+
+def controller_isolation_error(storage: str, stage: str, ctx: Ctx | None = None) -> SddError | None:
     """Refuse a writing stage while the controller shares the worker's writable filesystem.
 
-    In ``--local-storage`` the controller lives inside the repository a writing
-    IMPLEMENT/TEST worker edits, so that worker can rewrite the gate commands (which run
-    on the host), the executor policy, the controller's own runtime, the stage briefs,
-    STATE and the journal. No detection closes this: every anchor the controller could
-    compare against is stored in the same writable tree, so one extra write defeats the
-    check. Prevention is the only sound answer, so the dispatch is refused here, before
-    the action is prepared — the launcher refuses it again at the last moment.
+    A controller inside the repository a writing IMPLEMENT/TEST worker edits can be
+    rewritten by that worker — the gate commands (which run on the host), the executor
+    policy, the controller's own runtime, the stage briefs, STATE and the journal. No
+    detection closes this: every anchor the controller could compare against is stored in
+    the same writable tree, so one extra write defeats the check. Prevention is the only
+    sound answer, so the dispatch is refused here, before the action is prepared (and again
+    on the recovery DISPATCH path) — the launcher refuses it again at the last moment.
+
+    With ``ctx`` the criterion is the launcher's: the controller's physical location
+    (``controller_inside_repository``), whatever the storage label says. Without it the
+    storage label is the fallback (``LOCAL`` means inside).
 
     Read-only stages are unaffected: a worker that cannot write cannot rewrite the
-    controller. Obsidian storage keeps the controller outside every writable root and
-    runs every stage.
+    controller.
     """
-    if storage != "LOCAL":
+    inside = controller_inside_repository(ctx.repo) if ctx is not None else storage == "LOCAL"
+    if not inside:
         return None
     import executor_launch
 
@@ -772,16 +872,27 @@ def controller_isolation_error(storage: str, stage: str) -> SddError | None:
         return None
     if not executor_launch.is_writing_worker(settings):
         return None
+    if ctx is not None:
+        commands = move_out_commands(ctx)
+    else:
+        commands = [installer_command(CONTROLLER_ROOT, "--obsidian-vault", "<vault>", "--obsidian-project", "<project>", "--apply"),
+                    restart_command("<vault>/<project>/.hermes/orchestration/runtime/sdd.py")]
     return SddError("CONTROLLER_WRITABLE_BY_WORKER",
                     f"{stage} runs a writing worker ({settings['executor']}) and the controller lives inside the repository it can write "
-                    f"({CONTROLLER_ROOT}): it could rewrite policies/GATES.md (whose commands run on the host), policies/EXECUTORS.md, the "
+                    f"({ORCHESTRATION}): it could rewrite policies/GATES.md (whose commands run on the host), policies/EXECUTORS.md, the "
                     "controller runtime, STATE or the journal together with every hash they are checked against.",
-                    next_step="Nothing was dispatched. Move the controller out of the repository before this stage runs: the printed command "
-                              "installs it in the Obsidian container, which is never a writable root for a worker, and the demand continues "
-                              "from where it stopped. Read-only stages (SPECIFY, CLARIFY, PLAN, TASKS, REVIEW) still run in the meantime. "
-                              "This is prevention: with the controller inside the worker's writable tree no detection can hold, because the "
-                              "worker rewrites the evidence as easily as the file.",
-                    next_command=command(RUNTIME / "migrate_to_vault.py", "--repo", str(CONTROLLER_ROOT), "--apply"),
+                    next_step="Nothing was dispatched. Ask the user for an Obsidian vault and a project container in it, then run "
+                              "`exit_commands` in order, stopping at the first non-zero exit: `abandon` closes the demand with their words "
+                              "(nothing in the worktree is reverted; an undispatched action is archived), the installer's dry run must "
+                              "return READY before `--apply` installs the controller in the container, which is never a writable root "
+                              "for a worker, the in-repository controller is moved aside into the container, the user confirms the new "
+                              "controller's template GATES.md/EXECUTORS.md and its `start` re-runs the demand (configure the gate rows "
+                              "again; the old in-repository copies were writable by workers and are not adopted). Fill `<installed-skill>` with this skill's installed path and `<vault>`/"
+                              "`<project>` with the user's answer. Read-only stages (SPECIFY, CLARIFY, PLAN, TASKS, REVIEW) would still "
+                              "run here; only a writing stage is refused, because with the controller inside the worker's writable tree "
+                              "no detection can hold.",
+                    next_command=commands[0],
+                    exit_commands=commands,
                     stage=stage, executor=settings["executor"], controller_root=str(CONTROLLER_ROOT))
 
 
@@ -803,6 +914,12 @@ def recovery_step(ctx: Ctx) -> dict[str, Any] | None:
         return None
     if decision["decision"] == "DISPATCH_ALLOWED" and status == "PREPARED":
         action = journal_action(ctx)
+        # An action prepared before the controller was found inside the repository (an upgrade,
+        # a moved checkout) is refused here too: the launcher would refuse it at every turn.
+        isolation = controller_isolation_error(ctx.storage, action["stage"], ctx)
+        if isolation is not None:
+            return stopped(ctx, stop(isolation.code, next_command=isolation.next_command, action_id=action["id"], **isolation.extra)
+                           | {"next_step": isolation.next_step})
         recorded = str(ctx.journal["action"]["executor"] or "").lower()
         selected = executor_for(action["stage"])
         if recorded != selected and shutil.which(selected):
@@ -904,7 +1021,7 @@ def gates_step(ctx: Ctx, names: tuple[str, ...]) -> dict[str, Any] | None:
     """
     unreadable = sorted(name for name, digest in policy_digests().items() if not digest)
     if unreadable:
-        error = unreadable_policy_error(unreadable)
+        error = unreadable_policy_error(unreadable, ctx.stage)
         return stopped(ctx, stop(error.code, next_command=error.next_command, **error.extra) | {"next_step": error.next_step})
     table = gate_table()
     gates = ctx.state.get("gates") or {}
@@ -1056,7 +1173,7 @@ def decide_next(ctx: Ctx) -> dict[str, Any]:
         # whose own resolution is `next` and would loop.
         unreadable = sorted(name for name, digest in policy_digests().items() if not digest)
         if unreadable:
-            error = unreadable_policy_error(unreadable)
+            error = unreadable_policy_error(unreadable, ctx.stage)
             return stopped(ctx, stop(error.code, next_command=error.next_command, **error.extra) | {"next_step": error.next_step})
         return stopped(ctx, stop("GATE_COMMAND_UNCONFIGURED", gate="focused_tests"))
     plan = plan_dispatch(ctx)
@@ -1064,7 +1181,7 @@ def decide_next(ctx: Ctx) -> dict[str, Any]:
         return stopped(ctx, plan)
     # Prevention before preparation: a writing worker that shares the controller's filesystem is
     # never dispatched, so the action is not even prepared (and no executor call is spent).
-    isolation = controller_isolation_error(ctx.storage, plan["stage"])
+    isolation = controller_isolation_error(ctx.storage, plan["stage"], ctx)
     if isolation is not None:
         return stopped(ctx, stop(isolation.code, next_command=isolation.next_command, **isolation.extra) | {"next_step": isolation.next_step})
     try:
@@ -1277,7 +1394,7 @@ def cmd_prepare(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     if plan["stage"] != args.stage or plan["role"] != args.role or str(Path(args.manifest)) != plan["manifest"]:
         raise SddError("STEP_MISMATCH", f"The next action is {plan['role'] or plan['stage']} with manifest {plan['manifest']}, not what was passed.",
                        next_step="Run exactly the commands `sdd.py next` printed.", next_command=sdd("next"))
-    isolation = controller_isolation_error(ctx.storage, plan["stage"])
+    isolation = controller_isolation_error(ctx.storage, plan["stage"], ctx)
     if isolation is not None:
         raise isolation
     manifest_path = Path(args.manifest)
@@ -1805,6 +1922,27 @@ def abandon_tampered_action(ctx: Ctx) -> dict[str, Any] | None:
     return {"action_id": action_id, "archived_path": archived["archived_path"], "archived_sha256": archived["archived_sha256"]}
 
 
+def abandon_undispatched_action(ctx: Ctx) -> dict[str, Any] | None:
+    """Archive a PREPARED action whose worker never started, so ``abandon`` reaches IDLE.
+
+    Nothing ran, so there is no result to fold in or to lose: the action is archived as
+    BLOCKED evidence (never redispatched). This is the exit of a writing stage prepared
+    before ``CONTROLLER_WRITABLE_BY_WORKER`` applied to it. Returns the archive record, or
+    None when the journal holds no such action.
+    """
+    action = ctx.journal["action"]
+    if action["status"] != "PREPARED" or ctx.journal["process"]["started_at"]:
+        return None
+    try:
+        aj.block_action(ctx.journal_path)
+        archived = aj.archive_blocked_journal(ctx.journal_path, ctx.history_dir,
+                                              f"never dispatched: {action['id']} archived when the demand was abandoned")
+    except aj.JournalError as exc:
+        raise SddError("ACTION_RECOVERY_REQUIRED", str(exc), next_step=exc.next_step, next_command=exc.next_command or sdd("next")) from exc
+    ctx.reload()
+    return {"action_id": action["id"], "archived_path": archived["archived_path"], "archived_sha256": archived["archived_sha256"]}
+
+
 def cmd_abandon(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     """Any stage -> IDLE after the user refuses to continue: the only exit of a demand that will not reach DONE.
 
@@ -1823,6 +1961,7 @@ def cmd_abandon(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
                        next_command=sdd("abandon", "--reason", args.reason.strip() or "<reason>", "--quote", "<user words>"))
     # A tampered STATE is the one case with an action still open; it is archived first.
     tampered_action = abandon_tampered_action(ctx)
+    undispatched = None if tampered_action else abandon_undispatched_action(ctx)
     ctx.require_pristine()
     data = copy.deepcopy(ctx.state)
     stop_reason = (((data.get("loop") or {}).get("control") or {}).get("stop_reason")) or "NONE"
@@ -1831,7 +1970,8 @@ def cmd_abandon(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     summary["abandon"] = {"reason": args.reason, "quote": args.quote, "by": args.by, "at": now(),
                           "stop_reason": "STATE_MODIFIED_DURING_ACTION" if tampered_action else stop_reason,
                           "pending_human_checks": pending,
-                          **({"discarded_action": tampered_action} if tampered_action else {})}
+                          **({"discarded_action": tampered_action} if tampered_action else {}),
+                          **({"undispatched_action": undispatched} if undispatched else {})}
     kept = {"slices": (ctx.delivery.get("slices") or {}).get("completed") or [],
             "agent_owned": (data.get("ownership") or {}).get("agent_owned") or []}
     summary["left_in_worktree"] = kept["agent_owned"]
@@ -1845,6 +1985,7 @@ def cmd_abandon(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     return {"status": "ABANDONED", "ticket": summary["ticket"], "stage_reached": summary["stage_reached"],
             "completed_slices": kept["slices"], "left_in_worktree": kept["agent_owned"],
             **({"discarded_action": tampered_action} if tampered_action else {}),
+            **({"undispatched_action": undispatched} if undispatched else {}),
             "next_step": "STATE is IDLE and nothing was reverted: the agent's files are still in the worktree for the user to keep or discard. "
                          + ("The open action was archived as evidence and its result was never folded into STATE. " if tampered_action else "")
                          + "Report what was left, then start the next demand from the user's request.",
@@ -2007,29 +2148,128 @@ def confirm_policy_command(name: str) -> str:
     return sdd("confirm-policy", "--name", name, "--by", "requester", "--quote", "<user words confirming the policy change>")
 
 
+INSTALL_MANIFEST = ORCHESTRATION / "INSTALL_MANIFEST.json"
+#: Where the installed skill keeps the template of each controller policy file.
+POLICY_TEMPLATE_PATHS = {name: Path("templates") / ".hermes" / "orchestration" / "policies" / path.name
+                         for name, path in CONTROLLER_POLICY_FILES.items()}
+
+
 def restore_policy_command(name: str) -> str:
-    """Exact command that puts a missing or unreadable controller policy file back from Git."""
-    return shlex.join(["git", "checkout", "--", str(CONTROLLER_POLICY_FILES[name])])
+    """Exact command that recreates one missing or unreadable controller policy file from the skill template."""
+    return sdd("restore-policy", "--name", name, "--skill", "<installed-skill>")
 
 
-def unreadable_policy_error(names: list[str]) -> SddError:
-    """A controller policy file that cannot be hashed is restored, never confirmed.
+def reinstall_policy_commands(names: list[str], stage: str) -> list[str]:
+    """Fallback when the skill's template no longer matches this install: abandon, ``--upgrade``, confirm, restart.
+
+    ``install_project.py --upgrade`` recreates an absent GATES.md/EXECUTORS.md from the
+    template but refuses while a demand is open (``UPGRADE_CONTROLLER_BUSY``), so the
+    demand is abandoned first; the recreated file is confirmed (``start`` refuses a policy
+    that differs from the last pin) and the demand restarted.
+    """
+    commands: list[str] = []
+    if stage == "DONE":
+        commands.append(sdd("close"))
+    elif stage != "IDLE":
+        commands.append(sdd("abandon", "--reason", "restore an unreadable controller policy (CONTROLLER_POLICY_UNREADABLE)",
+                            "--quote", "<user words>"))
+    mode = installer_mode_arguments()
+    # Ctx changes into the repository before any command runs, so the working directory is it.
+    repository = CONTROLLER_ROOT if (CONTROLLER_ROOT / ".git").exists() else Path.cwd()
+    commands += [installer_command(repository, *mode, "--upgrade"), installer_command(repository, *mode, "--upgrade", "--apply")]
+    commands += [confirm_policy_command(name).replace("<user words confirming the policy change>", "<user words>") for name in names]
+    commands.append(sdd("start", "--ticket", "<ticket-id>", "--title", "<title>", "--objective", "<objective>"))
+    return commands
+
+
+def unreadable_policy_error(names: list[str], stage: str = "IDLE") -> SddError:
+    """A controller policy file that cannot be hashed is restored, never confirmed in place.
 
     ``confirm-policy`` on a missing or unreadable file would pin the empty digest,
     which ``controller_policy_check`` reads back as "no pin": the controller would
-    confirm forever without ever passing the check. The only progress is putting the
-    file back (Git, or the installer), so that is the printed command.
+    confirm forever without ever passing the check. Git cannot put it back either: the
+    Obsidian container is not a Git repository and a ``--local-storage`` controller is
+    excluded from Git. ``restore-policy`` recreates it from the installed skill's template
+    without ending the demand; the user then confirms the recreated content.
     """
+    commands = [restore_policy_command(name) for name in names]
+    commands += [confirm_policy_command(name).replace("<user words confirming the policy change>", "<user words>") for name in names]
+    commands.append(sdd("next"))
     return SddError("CONTROLLER_POLICY_UNREADABLE",
                     f"{', '.join(names)} cannot be read (missing, not a regular file or unreadable); its SHA-256 cannot be pinned.",
-                    next_step="Put the policy file back before anything else: restore it from Git with the printed command (or reinstall the "
-                              "controller with `install_project.py --upgrade`). Confirming it is refused while it cannot be read, because the "
-                              "pin would stay empty and every gate would ask for the same confirmation again. Once the file is back, "
-                              "`sdd.py next` prints the confirmation command if its content changed.",
-                    next_command=restore_policy_command(names[0]),
+                    next_step="Put the policy file back before anything else: run `restore_commands` in order, stopping at the first "
+                              "non-zero exit, with `<installed-skill>` set to this skill's installed directory (the one holding "
+                              "`scripts/install_project.py`). `restore-policy` recreates the file from the skill's template (verified "
+                              "against INSTALL_MANIFEST.json) without ending the demand, the user confirms the recreated content with "
+                              "`confirm-policy` (their words) and `next` continues. A recreated GATES.md holds the template rows: "
+                              "configure the project's gate commands again (and confirm them) before the first gate. If `restore-policy` "
+                              "refuses because the skill's template changed since the install, run `reinstall_commands` instead "
+                              "(abandon, installer `--upgrade`, confirm, start). Git cannot restore it and confirming it in place is "
+                              "refused, because the pin would stay empty.",
+                    next_command=commands[0],
                     unreadable=names,
-                    restore_commands=[restore_policy_command(name) for name in names],
+                    restore_commands=commands,
+                    reinstall_commands=reinstall_policy_commands(names, stage),
                     policies={name: str(CONTROLLER_POLICY_FILES[name]) for name in names})
+
+
+def cmd_restore_policy(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
+    """Recreate a missing or unreadable controller policy file from the installed skill's template.
+
+    Only a file that cannot be hashed is restored (a readable one is the owner's and is
+    confirmed, never overwritten), and only from a template whose SHA-256 equals the one
+    INSTALL_MANIFEST.json recorded for this install, so an unrelated file is never adopted.
+    STATE is not touched: the recreated content is confirmed by the user with
+    ``confirm-policy`` like any other policy change.
+    """
+    name = args.policy_name
+    target = CONTROLLER_POLICY_FILES[name]
+    if sha256_file(target):
+        raise SddError("STEP_MISMATCH", f"{target} is readable; restore-policy only recreates a missing or unreadable policy file.",
+                       next_step="A readable policy is the owner's: review it with the user and confirm it if they changed it.",
+                       next_command=sdd("next"))
+    if target.is_dir() and not target.is_symlink():
+        raise SddError("CONTROLLER_POLICY_UNREADABLE", f"{target} is a directory; remove or rename it, then rerun this command.",
+                       next_step="Ask the user to move the directory out of the way; nothing was written.",
+                       next_command=restore_policy_command(name).replace("<installed-skill>", args.skill))
+    template = Path(args.skill).expanduser() / POLICY_TEMPLATE_PATHS[name]
+    content: bytes | None = None
+    try:
+        if template.is_file() and not template.is_symlink():
+            content = template.read_bytes()
+    except OSError:
+        content = None
+    reinstall = reinstall_policy_commands([name], ctx.stage)
+    if content is None:
+        raise SddError("CONTROLLER_POLICY_UNREADABLE", f"No policy template at {template}; --skill must be the installed skill directory "
+                       "(the one holding scripts/install_project.py).",
+                       next_step="Rerun with the installed skill's directory, or reinstall the policy with `reinstall_commands`.",
+                       next_command=restore_policy_command(name), reinstall_commands=reinstall)
+    expected = None
+    try:
+        manifest = json.loads(INSTALL_MANIFEST.read_text(encoding="utf-8"))
+        expected = ((manifest.get("owner_files") or {}).get(f".hermes/orchestration/policies/{target.name}") or {}).get("template_sha256")
+    except (OSError, ValueError, AttributeError):
+        expected = None
+    digest = sha256_bytes(content)
+    if not expected or expected != digest:
+        raise SddError("CONTROLLER_POLICY_UNREADABLE",
+                       f"The template {template} (SHA-256 {digest[:12]}) is not the one this controller was installed with "
+                       f"({str(expected)[:12] if expected else 'no INSTALL_MANIFEST.json record'}); it is not adopted.",
+                       next_step="The skill changed since the install. Run `reinstall_commands` in order: abandon the demand with the "
+                                 "user's words, upgrade the controller (which recreates the policy), confirm it and start again.",
+                       next_command=reinstall[0], reinstall_commands=reinstall)
+    if target.is_symlink():
+        target.unlink()
+    atomic_write_text(target, content.decode("utf-8"))
+    record_wiki(ctx, "gate", f"{name} policy restored from the template",
+                f"{target}\nSHA-256 {digest}\nTemplate: {template}", stage=ctx.stage)
+    confirm = confirm_policy_command(name).replace("<user words confirming the policy change>", "<user words>")
+    return {"status": "CONTROLLER_POLICY_RESTORED", "policy": name, "path": str(target), "sha256": digest,
+            "next_step": "The file holds the template content again. Show it to the user and record their confirmation with the printed "
+                         "command (an active demand refuses every gate until it is confirmed); a GATES.md restored from the template "
+                         "needs its gate rows configured again.",
+            "next_command": confirm}
 
 
 def controller_policy_check(data: dict[str, Any]) -> dict[str, str]:
@@ -2046,7 +2286,7 @@ def controller_policy_check(data: dict[str, Any]) -> dict[str, str]:
     current = policy_digests()
     unreadable = sorted(name for name, digest in current.items() if not digest)
     if unreadable:
-        raise unreadable_policy_error(unreadable)
+        raise unreadable_policy_error(unreadable, str(((data.get("stage") or {}).get("current")) or "IDLE"))
     recorded = (data.get("delivery") or {}).get("controller_policies") or {}
     unpinned = sorted(name for name in current if not (recorded.get(name) or {}).get("sha256"))
     if unpinned:
@@ -2082,7 +2322,7 @@ def cmd_confirm_policy(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     if not digest:
         # Pinning "" would be read back as "no pin": the next gate would ask for the same
         # confirmation, forever. The file is restored first.
-        raise unreadable_policy_error([name])
+        raise unreadable_policy_error([name], ctx.stage)
     data = copy.deepcopy(ctx.state)
     policies = data.setdefault("delivery", {}).setdefault("controller_policies", {})
     policies[name] = {"sha256": digest, "recorded_at": now(), "by": args.by, "quote": args.quote}
@@ -2174,7 +2414,7 @@ COMMANDS = {
     "answer": cmd_answer, "unblock": cmd_unblock, "budget": cmd_budget, "gate": cmd_gate, "reopen": cmd_reopen,
     "request-decision": cmd_request_decision, "rebaseline": cmd_rebaseline, "approve-scope": cmd_approve_scope,
     "close": cmd_close, "pause": cmd_pause, "resume": cmd_resume, "reprepare": cmd_reprepare,
-    "confirm-policy": cmd_confirm_policy,
+    "confirm-policy": cmd_confirm_policy, "restore-policy": cmd_restore_policy,
     "abandon": cmd_abandon, "disown": cmd_disown,
 }
 
@@ -2246,6 +2486,10 @@ def parser() -> argparse.ArgumentParser:
     confirm_policy.add_argument("--name", dest="policy_name", required=True, choices=tuple(sorted(CONTROLLER_POLICY_FILES)))
     confirm_policy.add_argument("--by", default="requester")
     confirm_policy.add_argument("--quote", required=True, help="The user's literal words confirming they changed this policy file.")
+    restore_policy = commands.add_parser("restore-policy",
+                                         help="Recreate a missing or unreadable controller policy file (CONTROLLER_POLICY_UNREADABLE) from the installed skill's template.")
+    restore_policy.add_argument("--name", dest="policy_name", required=True, choices=tuple(sorted(CONTROLLER_POLICY_FILES)))
+    restore_policy.add_argument("--skill", required=True, help="The installed skill directory (holds scripts/install_project.py and templates/).")
     rebaseline = commands.add_parser("rebaseline", help="Accept external drift, changed protected files or REVIEW ownership findings with the user's words.")
     rebaseline.add_argument("--quote", required=True)
     approve = commands.add_parser("approve-scope", help="Approve the current slice contracts after SCOPE_CHANGE_REQUIRED.")

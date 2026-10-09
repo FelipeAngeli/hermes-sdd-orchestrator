@@ -9,9 +9,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import os
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -24,7 +27,11 @@ import state_format as sf  # noqa: E402
 
 run = e2e.run
 FILL = {"<user words>": "sim, pode seguir", "<why>": "decided by the requester", "<failure>": "gate failed",
-        "<review findings>": "review findings"}
+        "<review findings>": "review findings", "<installed-skill>": str(e2e.SKILL_ROOT), "<ticket-id>": "c-2", "<title>": "again",
+        "<objective>": "re-run the demand", "<reason>": "controller exit"}
+
+
+TEMPLATE_GATES = e2e.SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "policies" / "GATES.md"
 
 
 def fill(command: str) -> list[str]:
@@ -499,22 +506,20 @@ class SddGuardTests(e2e.ControllerEndToEndTests):
         self.assertEqual("STATE_MODIFIED_DURING_ACTION", refused["status"])
         self.assertIn(" abandon ", refused["next_command"])
 
-    # -- R3-F02: an unreadable controller policy is restored, never confirmed in a loop ----
+    # -- R3-F02 / R4: an unreadable controller policy is restored, never confirmed in a loop --
     def test_an_unreadable_controller_policy_prints_a_restore_command_instead_of_looping(self) -> None:
         self.craft(stage="TEST")
         self.set_gate_row("Focused tests", f"{shlex.quote(sys.executable)} -c pass", 60)
         self.edit_state(lambda data: data["gates"].update(focused_tests={"status": "PENDING"}))
         policy = self.container / ".hermes" / "orchestration" / "policies" / "GATES.md"
-        kept = policy.read_text(encoding="utf-8")
         policy.unlink()
         code, refused = self.call("gate", "--name", "focused_tests")
         self.assertNotEqual(0, code)
         self.assertEqual("CONTROLLER_POLICY_UNREADABLE", refused["status"])
         self.assertEqual(["gates"], refused["unreadable"])
         self.assertNotIn("confirm-policy", refused["next_command"], "confirming an unreadable file pins nothing")
-        self.assertIn("git checkout --", refused["next_command"])
-        self.assertIn(str(policy), refused["next_command"])
-        self.assertEqual(refused["restore_commands"], [refused["next_command"]])
+        self.assertNotIn("git checkout", " ".join(refused["restore_commands"]), "the container is not a Git repository")
+        self.assertEqual(refused["restore_commands"][0], refused["next_command"])
         # Confirming it is refused with the same stop, so the controller cannot loop on it.
         code, confirmed = self.call("confirm-policy", "--name", "gates", "--by", "requester", "--quote", "nao foi erro, pode aceitar")
         self.assertNotEqual(0, code, "an unreadable policy is never pinned")
@@ -527,10 +532,40 @@ class SddGuardTests(e2e.ControllerEndToEndTests):
         self.assertTrue(stopped["end_turn"], stopped)
         self.assertEqual("CONTROLLER_POLICY_UNREADABLE", stopped["stop_reason"])
         self.assertEqual([], stopped["commands"])
-        # Restoring the file is the exit (here by hand, as `git checkout` would).
-        policy.write_text(kept, encoding="utf-8")
+        # The printed exit, executed as the controller would: every command succeeds, the demand stays open.
+        for printed in stopped["restore_commands"]:
+            code, result = self.run_printed(printed)
+            self.assertEqual(0, code, (printed, result))
+        self.assertEqual(TEMPLATE_GATES.read_bytes(), policy.read_bytes(), "recreated from the installed skill's template")
+        self.assertEqual("TEST", self.state()["stage"]["current"], "the demand was not abandoned")
+        # The template rows are unconfigured: the owner configures them again, then the gate runs.
+        self.set_gate_row("Focused tests", f"{shlex.quote(sys.executable)} -c pass", 60)
         progress = self.call("next")[1]
         self.assertEqual("GATES", progress.get("step"), progress)
+        self.run_batch(progress)
+        self.assertEqual("PASS", self.state()["gates"]["focused_tests"]["status"])
+
+    def test_an_unreadable_policy_with_a_changed_skill_template_falls_back_to_a_working_reinstall(self) -> None:
+        """restore-policy never adopts a template the install did not record; its fallback sequence works when executed."""
+        self.craft(stage="TEST")
+        policy = self.container / ".hermes" / "orchestration" / "policies" / "GATES.md"
+        policy.unlink()
+        stopped = self.call("next")[1]
+        self.assertEqual("CONTROLLER_POLICY_UNREADABLE", stopped["stop_reason"], stopped)
+        other = Path(self.temp.name) / "other-skill"
+        (other / "templates" / ".hermes" / "orchestration" / "policies").mkdir(parents=True)
+        (other / "templates" / ".hermes" / "orchestration" / "policies" / "GATES.md").write_text("# not this install's template\n", encoding="utf-8")
+        code, refused = self.run_printed(stopped["restore_commands"][0].replace("<installed-skill>", str(other)))
+        self.assertNotEqual(0, code)
+        self.assertEqual("CONTROLLER_POLICY_UNREADABLE", refused["status"])
+        self.assertFalse(policy.exists(), "a foreign template is never written")
+        self.assertEqual(refused["reinstall_commands"][0], refused["next_command"])
+        for printed in refused["reinstall_commands"]:
+            code, result = self.run_printed(printed)
+            self.assertEqual(0, code, (printed, result))
+        self.assertTrue(policy.is_file())
+        self.assertEqual("SPECIFY", self.state()["stage"]["current"], "the demand was re-run with the restored policy")
+        self.assertEqual("PREPARE", self.call("next")[1].get("step"))
 
     # -- R3-F03: `next` never prints a gate batch a policy check will refuse ---------------
     def test_a_changed_policy_stops_next_instead_of_printing_a_failing_gate(self) -> None:
@@ -583,6 +618,176 @@ class SddGuardTests(e2e.ControllerEndToEndTests):
         self.assertEqual(0, self.call("close")[0])
         code, started = self.call("start", "--ticket", "c-5", "--title", "t", "--objective", "o")
         self.assertEqual(0, code, started)
+
+
+class LocalControllerExitTests(unittest.TestCase):
+    """CONTROLLER_WRITABLE_BY_WORKER: the printed exit, executed, moves the controller out and the demand re-runs.
+
+    The controller is physically inside the repository (``--local-storage``), with or
+    without an Obsidian binding that relabels the storage. ``next`` must stop before any
+    writing stage — also for an action prepared earlier — and every printed exit command
+    must succeed when the controller runs it with the user's answers filled in.
+    """
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(prefix="sdd-local-exit-")
+        base = Path(self.temp.name).resolve()
+        self.repo, self.vault, self.fake = base / "repo", base / "vault", base / "fake"
+        for path in (self.repo, self.vault / ".obsidian", self.vault / "Projects" / "Demo", self.fake):
+            path.mkdir(parents=True)
+        self.env = {key: value for key, value in e2e.process_environment.items() if not key.startswith(("HERMES_", "GIT_"))}
+        self.env.update(PATH=f"{self.fake}{os.pathsep}{e2e.process_environment.get('PATH', '')}", GIT_AUTHOR_NAME="t",
+                        GIT_AUTHOR_EMAIL="t@e", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@e")
+        for name in ("claude", "codex"):
+            script = self.fake / name
+            script.write_text(f"#!{sys.executable}\n{e2e.FAKE_EXECUTOR}", encoding="utf-8")
+            script.chmod(0o755)
+        for argv in (["git", "init", "-q", "-b", "main"], ["git", "config", "user.email", "t@e"], ["git", "config", "user.name", "t"]):
+            run(argv, cwd=self.repo, env=self.env)
+        (self.repo / "AGENTS.md").write_text("# Demo\nUse TDD.\n", encoding="utf-8")
+        run(["git", "add", "."], cwd=self.repo, env=self.env)
+        run(["git", "commit", "-qm", "init"], cwd=self.repo, env=self.env)
+        installed = run([sys.executable, str(e2e.INSTALLER), "--target", str(self.repo), "--local-storage", "--apply", "--json"],
+                        cwd=self.repo, env=self.env)
+        self.assertEqual("APPLIED", json.loads(installed.stdout)["status"], installed.stdout)
+        self.orchestration = self.repo / ".hermes" / "orchestration"
+        self.sdd = [sys.executable, str(self.orchestration / "runtime" / "sdd.py")]
+        gates = self.orchestration / "policies" / "GATES.md"
+        python = shlex.quote(sys.executable)
+        lines = []
+        for line in gates.read_text(encoding="utf-8").splitlines():
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if line.startswith("|") and cells and cells[0] in ("Focused tests", "Format", "Analyze"):
+                line = f"| {cells[0]} | `{python} -c pass` | host | 60 s |"
+            lines.append(line)
+        gates.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        self.fill = {**FILL, "<vault>": str(self.vault), "<project>": "Projects/Demo"}
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def call(self, *arguments: str, sdd: list[str] | None = None) -> tuple[int, dict]:
+        completed = run([*(sdd or self.sdd), *arguments], cwd=self.repo, env=self.env)
+        return completed.returncode, json.loads(completed.stdout)
+
+    def paths(self) -> dict:
+        return json.loads(run([sys.executable, str(self.orchestration / "runtime" / "action_journal.py"), "--json", "paths"],
+                              cwd=self.repo, env=self.env).stdout)
+
+    def bind_to_vault(self) -> None:
+        """A --local-storage install that also carries an Obsidian binding: storage reads OBSIDIAN, the controller stays."""
+        sys.path.insert(0, str(self.orchestration / "runtime"))
+        import obsidian_binding  # noqa: PLC0415
+
+        binding = {"schema_version": obsidian_binding.SCHEMA_VERSION, "vault_path": str(self.vault), "project_container": "Projects/Demo"}
+        (self.repo / ".hermes" / "obsidian.json").write_text(json.dumps(binding), encoding="utf-8")
+        paths = self.paths()
+        self.assertEqual("OBSIDIAN", paths["storage"])
+        runtime = Path(paths["runtime_dir"])
+        runtime.mkdir(parents=True, exist_ok=True)
+        for name in ("STATE.md", "ACTION_JOURNAL.json", "INCIDENTS.md"):
+            if (self.orchestration / name).exists():
+                shutil.move(str(self.orchestration / name), str(runtime / name))
+
+    def craft_implement(self) -> None:
+        code, started = self.call("start", "--ticket", "c-1", "--title", "t", "--objective", "o")
+        self.assertEqual(0, code, started)
+        head = run(["git", "rev-parse", "HEAD"], cwd=self.repo, env=self.env).stdout.strip()
+        artifact = Path(self.temp.name) / "artifact.json"
+        artifact.write_text("{}", encoding="utf-8")
+        accepted = {"action_id": "c-1-x-01", "artifact": str(artifact), "artifact_sha256": hashlib.sha256(b"{}").hexdigest()}
+        state_path = Path(self.paths()["state"])
+        text = state_path.read_text(encoding="utf-8")
+        data = sf.parse(text)
+        path = sf.profile_path("CODE")
+        data["stage"] = {"current": "IMPLEMENT", "status": "RUNNING", "completed": list(path[:path.index("IMPLEMENT")]),
+                         "skipped": [{"stage": "CLARIFY", "reason": "none"}]}
+        delivery = data["delivery"]
+        delivery["acceptance"] = {"AC-1": {"criterion": "greet works", "verification_method": "focused unit test", "verifier": "AGENT", "slice_id": "S1"}}
+        delivery["slices"] = {"planned": ["S1"], "completed": [], "editable_paths": ["src/feature.py"]}
+        delivery["accepted"] = {name: dict(accepted) for name in ("specify", "plan", "tasks")}
+        delivery["project_context"] = {"status": "CURRENT", "checked_head": head, "evidence": "e", "gaps": []}
+        data["loop"]["budgets"]["stage_transitions"]["used"] = path.index("IMPLEMENT")
+        state_path.write_text(sf.dump(text, data, log="test fixture"), encoding="utf-8")
+
+    def run_exit(self, commands: list[str]) -> list[dict]:
+        results = []
+        for printed in commands:
+            for placeholder, value in self.fill.items():
+                printed = printed.replace(placeholder, value)
+            self.assertNotRegex(printed, r"<[a-z-]+>", "every placeholder is the user's answer or the skill path")
+            completed = run(shlex.split(printed), cwd=self.repo, env=self.env)
+            self.assertEqual(0, completed.returncode, (printed, completed.stdout[-1500:], completed.stderr[-800:]))
+            results.append(json.loads(completed.stdout) if completed.stdout.strip().startswith("{") else {})
+        return results
+
+    def assert_moved_out_and_progressing(self, stopped: dict) -> None:
+        self.assertEqual("CONTROLLER_WRITABLE_BY_WORKER", stopped.get("stop_reason"), stopped)
+        self.assertEqual([], stopped["commands"])
+        self.assertNotIn("migrate_to_vault", " ".join(stopped["exit_commands"]), "migrate_to_vault keeps runtime/ and policies/ in the repo")
+        self.assertEqual(stopped["exit_commands"][0], stopped["next_command"])
+        results = self.run_exit(stopped["exit_commands"])
+        self.assertEqual("ABANDONED", results[0]["status"])
+        self.assertEqual("READY", results[1]["status"], "the dry run is READY before --apply")
+        self.assertEqual("APPLIED", results[2]["status"])
+        self.assertEqual("STARTED", results[-1]["status"])
+        self.assertFalse(self.orchestration.exists(), "no controller is left inside the repository")
+        container = self.vault / "Projects" / "Demo"
+        self.assertTrue((container / ".hermes-local-controller-backup" / "orchestration" / "runtime" / "sdd.py").is_file())
+        new = [sys.executable, str(container / ".hermes" / "orchestration" / "runtime" / "sdd.py")]
+        code, progress = self.call("next", sdd=new)
+        self.assertEqual(0, code, progress)
+        self.assertEqual("PREPARE", progress.get("step"), progress)
+
+    def test_local_storage_exit_moves_the_controller_out_when_executed(self) -> None:
+        self.craft_implement()
+        code, stopped = self.call("next")
+        self.assertEqual(0, code, stopped)
+        self.assert_moved_out_and_progressing(stopped)
+
+    def test_an_obsidian_label_does_not_hide_a_controller_inside_the_repository(self) -> None:
+        """Finding 2: the criterion is the physical location (the launcher's), not the storage label."""
+        self.bind_to_vault()
+        self.craft_implement()
+        code, stopped = self.call("next")
+        self.assertEqual(0, code, stopped)
+        self.assertNotIn(stopped.get("step"), {"PREPARE", "DISPATCH"}, "the launcher would refuse that batch every time")
+        self.assert_moved_out_and_progressing(stopped)
+
+    def test_an_action_prepared_before_the_check_is_refused_and_its_exit_archives_it(self) -> None:
+        """Finding 3: a PREPARED writing action takes the recovery DISPATCH path, which checks isolation too."""
+        executors = self.orchestration / "policies" / "EXECUTORS.md"
+        writing = executors.read_text(encoding="utf-8")
+        executors.write_text(writing.replace('"IMPLEMENT": {"executor": "codex",  "model": null,',
+                                             '"IMPLEMENT": {"executor": "codex",  "model": null, "sandbox": "read-only",'), encoding="utf-8")
+        self.craft_implement()
+        code, prepare = self.call("next")
+        self.assertEqual("PREPARE", prepare.get("step"), prepare)
+        for printed in prepare["commands"]:
+            completed = run(shlex.split(printed), cwd=self.repo, env=self.env)
+            self.assertEqual(0, completed.returncode, completed.stdout)
+        executors.write_text(writing, encoding="utf-8")  # the upgrade: IMPLEMENT writes again
+        journal = json.loads(Path(self.paths()["journal"]).read_text(encoding="utf-8"))
+        self.assertEqual("PREPARED", journal["action"]["status"])
+        code, stopped = self.call("next")
+        self.assertNotEqual("DISPATCH", stopped.get("step"), "the launcher would refuse that dispatch every time")
+        self.assertEqual(journal["action"]["id"], stopped.get("action_id"))
+        self.assert_moved_out_and_progressing(stopped)
+        history = Path(self.temp.name) / "vault" / "Projects" / "Demo" / ".hermes-local-controller-backup" / "orchestration"
+        archived = list((history / "action-journal-history").rglob(f"{journal['action']['id']}*.json"))
+        self.assertTrue(archived, "abandon archived the undispatched action as evidence")
+
+    def test_the_location_check_matches_a_case_different_spelling(self) -> None:
+        sys.path.insert(0, str(self.orchestration / "runtime"))
+        probe = Path(str(self.repo).swapcase())
+        if not probe.exists():
+            self.skipTest("case-sensitive filesystem")
+        completed = run([sys.executable, "-c", "import sys, sdd; from pathlib import Path; print(sdd.controller_inside_repository(Path(sys.argv[1])))",
+                         str(probe)], cwd=self.orchestration / "runtime", env=self.env)
+        self.assertEqual("True", completed.stdout.strip(), completed.stderr)
+        completed = run([sys.executable, "-c", "import sys, sdd; from pathlib import Path; print(sdd.controller_inside_repository(Path(sys.argv[1])))",
+                         str(self.vault)], cwd=self.orchestration / "runtime", env=self.env)
+        self.assertEqual("False", completed.stdout.strip(), completed.stderr)
 
 
 if __name__ == "__main__":
