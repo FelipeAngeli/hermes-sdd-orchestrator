@@ -265,6 +265,11 @@ class SddGuardTests(e2e.ControllerEndToEndTests):
         policy = self.container / ".hermes" / "orchestration" / "policies" / "GATES.md"
         policy.write_text(policy.read_text(encoding="utf-8").replace("enabled: false", "enabled: true"), encoding="utf-8")
         self.set_gate_row("CI", f"{shlex.quote(sys.executable)} -c pass", 60)
+        # Enabling CI edits GATES.md during the demand, so the host-run gate commands need the
+        # user's confirmation once (CONTROLLER_POLICY_CHANGED_DURING_DEMAND); record it as the stop instructs.
+        code, confirmed = self.call("gate", "--name", "ci", "--confirm-policy", "gates", "--quote", "sim, habilitei o CI")
+        self.assertEqual(0, code, confirmed)
+        self.assertEqual("GATES_POLICY_CONFIRMED", confirmed["status"])
         progress = self.call("next")[1]
         self.assertEqual("GATES", progress.get("step"), progress)
         self.assertTrue(any("gate --name ci" in item for item in progress["commands"]))
@@ -282,7 +287,7 @@ class SddGuardTests(e2e.ControllerEndToEndTests):
         # Enabled with the CI-run budget spent: one budget stop, never a failing printed command.
         self.edit_state(lambda data: (data["stage"].update(current="REVIEW", status="RUNNING"),
                                       data["gates"].update(ci={"status": "DISABLED_BY_PROJECT_POLICY"}),
-                                      data["loop"]["budgets"]["ci_runs"].update(used=1)))
+                                      data["loop"]["budgets"]["ci_runs"].update(used=data["loop"]["budgets"]["ci_runs"]["max"])))
         policy.write_text(policy.read_text(encoding="utf-8").replace("enabled: false", "enabled: true"), encoding="utf-8")
         self.set_gate_row("CI", f"{shlex.quote(sys.executable)} -c pass", 60)
         stopped = self.call("next")[1]
@@ -372,6 +377,84 @@ class SddGuardTests(e2e.ControllerEndToEndTests):
         code, resumed = self.run_printed(stopped["next_command"])
         self.assertEqual(0, code, resumed)
         self.assertEqual("PREPARE", self.call("next")[1]["step"])
+
+    # -- R2-F01: a refused human decision has an exit --------------------------------------
+    def test_a_refused_human_check_is_abandoned_back_to_idle(self) -> None:
+        """The user says no to the pending HUMAN check: `abandon` returns STATE to IDLE."""
+        self.craft(stage="REVIEW")
+        self.set_gate_row("Focused tests", f"{shlex.quote(sys.executable)} -c pass", 60)
+        self.call("gate", "--name", "focused_tests", "--confirm-policy", "gates", "--quote", "sim, configurei o gate")
+        self.edit_state(lambda data: data["delivery"].update(waivers={}))
+        stopped = self.call("next")[1]
+        self.assertEqual("HUMAN_DECISION_REQUIRED", stopped.get("stop_reason"), stopped)
+        self.assertIn("waive --check AC-2", stopped["next_command"])
+        # Refusal: the printed alternative is the abandon command, not another waive.
+        self.assertIn("abandon", stopped["refusal_command"])
+        code, refused = self.call("abandon", "--reason", "o usuario recusou a aprovacao")
+        self.assertNotEqual(0, code, "abandon needs the user's literal words")
+        self.assertEqual("ABANDON_REQUESTED", refused["status"])
+        code, abandoned = self.run_printed(stopped["refusal_command"])
+        self.assertEqual(0, code, abandoned)
+        self.assertEqual("ABANDONED", abandoned["status"])
+        self.assertEqual("IDLE", self.call("status")[1]["stage"])
+        self.assertEqual("IDLE_NO_DEMAND", self.call("next")[1]["stop_reason"])
+        closed = self.state()["closed_demands"][-1]
+        self.assertEqual("c-1", closed["ticket"])
+        self.assertEqual("ABANDONED", closed["outcome"])
+        self.assertEqual("REVIEW", closed["stage_reached"])
+        # The user's literal words are recorded verbatim, with the stop they refused.
+        self.assertEqual(FILL["<user words>"], closed["abandon"]["quote"])
+        self.assertIn("AC-2", closed["abandon"]["pending_human_checks"])
+        # A new demand starts right away: nothing of the abandoned one blocks it.
+        code, started = self.call("start", "--ticket", "c-9", "--title", "t", "--objective", "o")
+        self.assertEqual(0, code, started)
+
+    def test_abandon_refuses_a_done_demand_and_an_idle_controller(self) -> None:
+        code, result = self.call("abandon", "--reason", "r", "--quote", "q")
+        self.assertNotEqual(0, code)
+        self.assertEqual("IDLE_NO_DEMAND", result["status"])
+        self.craft(stage="REVIEW", review="APPROVED")
+        self.edit_state(lambda data: data["stage"].update(current="DONE", status="DONE"))
+        code, result = self.call("abandon", "--reason", "r", "--quote", "q")
+        self.assertNotEqual(0, code, "a DONE demand is closed, never abandoned")
+        self.assertEqual("STEP_MISMATCH", result["status"])
+        self.assertIn("close", result["next_command"])
+
+    # -- R2-F02: ci_runs is sized for the authorized review cycles -------------------------
+    def test_start_sizes_ci_runs_for_every_authorized_review_cycle(self) -> None:
+        code, started = self.call("start", "--ticket", "b-1", "--title", "t", "--objective", "o")
+        self.assertEqual(0, code, started)
+        limits = started["limits"]
+        self.assertEqual(limits["review_cycles"], limits["ci_runs"],
+                         "a pre-authorized REVIEW reopen must still be able to run CI")
+
+    # -- R2-F03: ownership.human_accepted never crosses a demand ---------------------------
+    def test_closing_a_demand_clears_the_accepted_ownership_paths(self) -> None:
+        self.craft(stage="REVIEW", review="APPROVED")
+        self.edit_state(lambda data: (data["ownership"].update(human_accepted=["docs/x.md"]),
+                                      data["stage"].update(current="DONE", status="DONE"),
+                                      data["gates"].update(ci={"status": "DISABLED_BY_PROJECT_POLICY"})))
+        code, closed = self.call("close")
+        self.assertEqual(0, code, closed)
+        self.assertEqual([], self.state()["ownership"]["human_accepted"])
+        code, started = self.call("start", "--ticket", "c-3", "--title", "t", "--objective", "o")
+        self.assertEqual(0, code, started)
+        self.assertEqual([], self.state()["ownership"]["human_accepted"])
+
+    # -- R2-F04: AGENT_OWNED_PATH_UNSAFE names a command that progresses -------------------
+    def test_unsafe_agent_owned_path_is_dropped_by_a_named_command(self) -> None:
+        self.craft(stage="TEST")
+        self.edit_state(lambda data: data["ownership"].update(agent_owned=["src/feature.py", "src/-weird.py"]))
+        self.set_gate_row("Focused tests", "/usr/bin/true {files}", 30)
+        self.call("gate", "--name", "focused_tests", "--confirm-policy", "gates", "--quote", "sim, configurei o gate")
+        code, refused = self.call("gate", "--name", "focused_tests")
+        self.assertNotEqual(0, code)
+        self.assertEqual("AGENT_OWNED_PATH_UNSAFE", refused["status"])
+        self.assertIn("disown", refused["next_command"])
+        code, disowned = self.run_printed(refused["next_command"])
+        self.assertEqual(0, code, disowned)
+        self.assertEqual(["src/feature.py"], self.state()["ownership"]["agent_owned"])
+        self.assertIn("src/-weird.py", self.state()["ownership"]["disowned_unsafe"])
 
 
 if __name__ == "__main__":

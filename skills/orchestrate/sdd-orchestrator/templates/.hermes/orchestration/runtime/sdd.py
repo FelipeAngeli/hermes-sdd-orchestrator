@@ -391,6 +391,19 @@ def current_slice(ctx: Ctx) -> str | None:
     return remaining[0] if remaining else None
 
 
+def abandon_command() -> str:
+    return sdd("abandon", "--reason", "<reason>", "--quote", "<user words>")
+
+
+def human_decision_stop(ctx: Ctx, **extra: Any) -> dict[str, Any]:
+    """A HUMAN_DECISION_REQUIRED stop always names both outcomes: record the decision, or abandon.
+
+    Without ``refusal_command`` a user who refuses leaves the controller with no command at all
+    (``waive`` records an approval, ``next`` reprints the same stop), which is a dead end.
+    """
+    return stop("HUMAN_DECISION_REQUIRED", refusal_command=abandon_command(), **extra)
+
+
 def plan_dispatch(ctx: Ctx) -> dict[str, Any]:
     """The single action to prepare for the current stage, or a stop. Pure."""
     stage = ctx.stage
@@ -403,8 +416,8 @@ def plan_dispatch(ctx: Ctx) -> dict[str, Any]:
     for check_stage in ((stage,) if role is None else ()):
         due = human_checks_due(ctx, check_stage, slice_id)
         if due:
-            return stop("HUMAN_DECISION_REQUIRED", checks=due,
-                        next_command=sdd("waive", "--check", due[0], "--by", "requester", "--quote", "<user words>", "--reason", "<why>"))
+            return human_decision_stop(ctx, checks=due,
+                                       next_command=sdd("waive", "--check", due[0], "--by", "requester", "--quote", "<user words>", "--reason", "<why>"))
     key = action_key(stage, role, slice_id)
     every_attempt = history_attempts(ctx, key)
     # An action archived before its process started (e.g. `sdd.py reprepare` after the
@@ -919,8 +932,8 @@ def decision_request_stop(ctx: Ctx) -> dict[str, Any] | None:
     """An open `request-decision` (non-HUMAN check the user must decide) stops before any dispatch."""
     for check, request in sorted((ctx.delivery.get("decision_requests") or {}).items()):
         if not request.get("answer"):
-            return stop("HUMAN_DECISION_REQUIRED", checks=[check], question=request.get("question"),
-                        next_command=sdd("answer", "--check", check, "--quote", "<user words>"))
+            return human_decision_stop(ctx, checks=[check], question=request.get("question"),
+                                       next_command=sdd("answer", "--check", check, "--quote", "<user words>"))
     return None
 
 
@@ -1063,12 +1076,18 @@ def cmd_start(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
                         "protected_sha256": {path: digest for path in protected if (digest := sha256_file(ctx.repo / path))}}
     data.setdefault("ownership", {})["protected_preexisting"] = protected
     data["ownership"]["agent_owned"] = []
+    # A path the user accepted (or an unsafe one disowned) belonged to the previous demand only:
+    # this demand's REVIEW must raise its own ownership findings from scratch.
+    data["ownership"]["human_accepted"] = []
+    data["ownership"]["disowned_unsafe"] = []
     profile = "DECISION_DOC" if args.deliverable_kind == "DECISION_DOC" else "CODE"
     path = sf.profile_path(profile)
     data["ticket"] = {"id": args.ticket, "title": args.title, "objective": args.objective, "scope_confirmed": []}
     review_cycles = 2
+    # ci_runs matches review_cycles: a CI failure followed by the pre-authorized REVIEW reopen
+    # must still be able to run CI again, or the authorized cycle could never finish.
     limits = {"stage_transitions": stage_transition_limit(path, review_cycles), "executor_calls": args.executor_calls,
-              "tdd_slices": args.tdd_slices, "review_cycles": review_cycles, "ci_runs": 1}
+              "tdd_slices": args.tdd_slices, "review_cycles": review_cycles, "ci_runs": review_cycles}
     loop = data.setdefault("loop", {})
     loop["budgets"] = {
         **{name: {"max": limits[name], "used": 0} for name in limits},
@@ -1373,7 +1392,14 @@ def cmd_accept(ctx: Ctx, _args: argparse.Namespace) -> dict[str, Any]:
 
 
 def reopen_slices(data: dict[str, Any]) -> str:
-    """Open the next FIX slice (it inherits the last slice's checks) and reset every gate; return its id."""
+    """Open the next FIX slice (it inherits the last slice's checks) and reset every gate; return its id.
+
+    ``approved_slice_sha256s`` is cleared on purpose: the FIX slice is corrective work inside the
+    scope the reopen's own ``--quote`` already authorized, so its manifest starts at
+    ``APPROVAL_NOT_REQUESTED`` and is dispatched without a second ``approve-scope``. The
+    ``SCOPE_CHANGE_REQUIRED`` stop that TASKS -> IMPLEMENT raises is therefore deliberately not
+    re-raised here; a FIX slice that grows beyond the failure is new scope the user must approve.
+    """
     delivery = data.setdefault("delivery", {})
     slices = delivery.setdefault("slices", {})
     last = (slices.get("planned") or ["FIX"])[-1]
@@ -1602,25 +1628,102 @@ def cmd_close(ctx: Ctx, _args: argparse.Namespace) -> dict[str, Any]:
     """DONE -> IDLE: archive the demand summary in STATE and free the controller for a new `start`."""
     ctx.require_pristine()
     if ctx.stage != "DONE":
-        raise SddError("STEP_MISMATCH", f"close applies to a DONE demand; {ctx.ticket} is at {ctx.stage}.", next_command=sdd("next"))
+        raise SddError("STEP_MISMATCH", f"close applies to a DONE demand; {ctx.ticket} is at {ctx.stage}.",
+                       next_step="A demand that will not reach DONE is dropped with `sdd.py abandon` (the user's refusal is recorded); "
+                                 "otherwise `sdd.py next` prints the step that still makes progress.",
+                       next_command=sdd("next"))
     data = copy.deepcopy(ctx.state)
-    summary = {"ticket": ctx.ticket, "title": (data.get("ticket") or {}).get("title"), "profile": ctx.profile,
-               "started_at": ctx.delivery.get("started_at"), "closed_at": now(),
-               "gates": {name: (entry or {}).get("status") for name, entry in (data.get("gates") or {}).items()},
-               "history_dir": str(ctx.history_dir / ctx.ticket)}
+    summary = demand_summary(ctx, data, outcome="DONE")
+    archive_demand(ctx, data, summary)
+    ctx.write_state(data, f"Demand {summary['ticket']} closed (DONE -> IDLE)")
+    record_wiki(ctx, "stage", f"{summary['ticket']} closed", f"DONE -> IDLE. Gates: {json.dumps(summary['gates'])}", stage="DONE")
+    return {"status": "CLOSED", "ticket": summary["ticket"], "next_step": "STATE is IDLE; start the next demand from the user's request.",
+            "next_command": sr.describe("IDLE_NO_DEMAND")["next_command"]}
+
+
+def demand_summary(ctx: Ctx, data: dict[str, Any], *, outcome: str) -> dict[str, Any]:
+    return {"ticket": ctx.ticket, "title": (data.get("ticket") or {}).get("title"), "profile": ctx.profile,
+            "outcome": outcome, "stage_reached": ctx.stage,
+            "started_at": ctx.delivery.get("started_at"), "closed_at": now(),
+            "gates": {name: (entry or {}).get("status") for name, entry in (data.get("gates") or {}).items()},
+            "history_dir": str(ctx.history_dir / ctx.ticket)}
+
+
+def archive_demand(ctx: Ctx, data: dict[str, Any], summary: dict[str, Any]) -> None:
+    """Return STATE to IDLE, keeping only the demand summary: every per-demand decision is dropped.
+
+    ``ownership`` is cleared too (not only ``agent_owned``): a path the user accepted in this
+    demand must be raised again by the next demand's REVIEW instead of arriving pre-accepted.
+    """
     data["closed_demands"] = [*(data.get("closed_demands") or []), summary][-MAX_CLOSED_DEMANDS:]
     data["ticket"] = {"id": "IDLE", "title": None, "objective": None, "scope_confirmed": []}
     data["stage"] = {"current": "IDLE", "status": "WAITING", "completed": [], "skipped": []}
     data["stage_provenance"] = {}
     data.pop("delivery", None)
     data["baseline"] = {"captured": False, "head": None, "branch": None, "protected_preexisting": []}
+    data["ownership"] = {"protected_preexisting": [], "agent_owned": [], "human_accepted": [], "disowned_unsafe": []}
     data["gates"] = {name: {"status": "PENDING"} for name in ("focused_tests", "format", "analyze", "review", "ci")}
+    data["blockers"] = []
     data.setdefault("loop", {}).setdefault("control", {})["stop_reason"] = "NONE"
     data["resume"] = {"last_gate": None, "next_action": None, "next_command": sdd("next")}
-    ctx.write_state(data, f"Demand {summary['ticket']} closed (DONE -> IDLE)")
-    record_wiki(ctx, "stage", f"{summary['ticket']} closed", f"DONE -> IDLE. Gates: {json.dumps(summary['gates'])}", stage="DONE")
-    return {"status": "CLOSED", "ticket": summary["ticket"], "next_step": "STATE is IDLE; start the next demand from the user's request.",
+
+
+def cmd_abandon(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
+    """Any stage -> IDLE after the user refuses to continue: the only exit of a demand that will not reach DONE.
+
+    This is the resolution of a refused human decision (`HUMAN_DECISION_REQUIRED`,
+    `REVIEW_CHANGES_REQUIRED`, a spent budget the user will not raise…): nothing is reverted in
+    the worktree, the refusal is recorded verbatim in `closed_demands`, and STATE returns to IDLE
+    so `sdd.py start` accepts the next demand.
+    """
+    ctx.require_pristine()
+    if ctx.stage == "IDLE":
+        raise SddError("IDLE_NO_DEMAND", "No demand is active; there is nothing to abandon.")
+    if ctx.stage == "DONE":
+        raise SddError("STEP_MISMATCH", f"{ctx.ticket} reached DONE: it is closed, not abandoned.", next_command=sdd("close"))
+    if not args.reason.strip() or not args.quote.strip():
+        raise SddError("ABANDON_REQUESTED", "--reason and the user's literal --quote (their refusal or their request to drop it) are required.",
+                       next_command=sdd("abandon", "--reason", args.reason.strip() or "<reason>", "--quote", "<user words>"))
+    data = copy.deepcopy(ctx.state)
+    stop_reason = (((data.get("loop") or {}).get("control") or {}).get("stop_reason")) or "NONE"
+    pending = human_checks_due(ctx, ctx.stage, current_slice(ctx) if ctx.stage == "IMPLEMENT" else None)
+    summary = demand_summary(ctx, data, outcome="ABANDONED")
+    summary["abandon"] = {"reason": args.reason, "quote": args.quote, "by": args.by, "at": now(),
+                          "stop_reason": stop_reason, "pending_human_checks": pending}
+    kept = {"slices": (ctx.delivery.get("slices") or {}).get("completed") or [],
+            "agent_owned": (data.get("ownership") or {}).get("agent_owned") or []}
+    summary["left_in_worktree"] = kept["agent_owned"]
+    archive_demand(ctx, data, summary)
+    ctx.write_state(data, f"Demand {summary['ticket']} ABANDONED at {summary['stage_reached']} by {args.by}: "
+                          f"\"{args.quote}\" ({args.reason}); nothing reverted in the worktree")
+    record_wiki(ctx, "decision", f"{summary['ticket']} abandoned",
+                f"Stage reached: {summary['stage_reached']}\nStop: {stop_reason}\nPending HUMAN checks: {', '.join(pending) or 'none'}\n"
+                f"Reason: {args.reason}\nUser: {args.quote}\n\nFiles written by the agent and left in the worktree: "
+                f"{', '.join(kept['agent_owned']) or 'none'}", stage=summary["stage_reached"])
+    return {"status": "ABANDONED", "ticket": summary["ticket"], "stage_reached": summary["stage_reached"],
+            "completed_slices": kept["slices"], "left_in_worktree": kept["agent_owned"],
+            "next_step": "STATE is IDLE and nothing was reverted: the agent's files are still in the worktree for the user to keep or discard. "
+                         "Report what was left, then start the next demand from the user's request.",
             "next_command": sr.describe("IDLE_NO_DEMAND")["next_command"]}
+
+
+def cmd_disown(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
+    """Drop a path from STATE ownership.agent_owned (AGENT_OWNED_PATH_UNSAFE) without touching the file."""
+    ctx.require_pristine()
+    owned = list((ctx.state.get("ownership") or {}).get("agent_owned") or [])
+    if args.path not in owned:
+        raise SddError("STEP_MISMATCH", f"{args.path} is not in ownership.agent_owned ({', '.join(owned) or 'empty'}).", next_command=sdd("status"))
+    if not args.reason.strip():
+        raise SddError("STEP_MISMATCH", "--reason is required.", next_command=sdd("disown", "--path", args.path, "--reason", "<reason>"))
+    data = copy.deepcopy(ctx.state)
+    ownership = data.setdefault("ownership", {})
+    ownership["agent_owned"] = [item for item in owned if item != args.path]
+    ownership["disowned_unsafe"] = sorted({*(ownership.get("disowned_unsafe") or []), args.path})
+    ctx.write_state(data, f"{args.path} dropped from ownership.agent_owned ({args.reason}); the file itself is untouched")
+    return {"status": "DISOWNED", "path": args.path, "agent_owned": ownership["agent_owned"],
+            "next_step": "The gate commands no longer receive this path. The file is still in the worktree; rename or remove it there if it must be delivered. "
+                         "Run `sdd.py next`.",
+            "next_command": sdd("next")}
 
 
 def cmd_pause(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
@@ -1655,7 +1758,7 @@ def cmd_reprepare(ctx: Ctx, _args: argparse.Namespace) -> dict[str, Any]:
     if action["status"] != "PREPARED" or ctx.journal["process"]["started_at"]:
         raise SddError("STEP_MISMATCH", "reprepare applies only to a PREPARED action whose process never started.", next_command=sdd("next"))
     try:
-        aj._save_transition(ctx.journal_path, "BLOCKED")
+        aj.block_action(ctx.journal_path)
         archived = aj.archive_blocked_journal(ctx.journal_path, ctx.history_dir, f"never dispatched: executor {str(action['executor']).lower()} unavailable or replaced; re-prepared")
     except aj.JournalError as exc:
         raise SddError("ACTION_RECOVERY_REQUIRED", str(exc), next_step=exc.next_step, next_command=sdd("next")) from exc
@@ -1692,9 +1795,12 @@ def gate_argv(gate_command: str, files: list[str]) -> list[str]:
         if unsafe:
             raise SddError("AGENT_OWNED_PATH_UNSAFE",
                            f"Agent-owned path(s) {', '.join(unsafe)} start with '-' and would become options of the gate command.",
-                           next_step="Rename or remove the file(s) in the repository and drop them from STATE ownership through a reopened stage; "
-                                     "gate commands never receive a '-'-prefixed path.",
-                           next_command=sdd("status"))
+                           next_step="Drop each one from STATE ownership with the printed `sdd.py disown` command (one per path; the file itself is left "
+                                     "in the worktree, so rename or remove it there if it must be delivered), then `sdd.py next`.",
+                           next_command=sdd("disown", "--path", unsafe[0], "--reason", "path segment starts with '-' and is unsafe as a gate argument"),
+                           unsafe_paths=unsafe,
+                           disown_commands=[sdd("disown", "--path", path, "--reason", "path segment starts with '-' and is unsafe as a gate argument")
+                                            for path in unsafe])
     argv: list[str] = []
     for token in tokens:
         argv.extend(files if token == "{files}" else [token])
@@ -1853,6 +1959,7 @@ COMMANDS = {
     "request-decision": cmd_request_decision, "rebaseline": cmd_rebaseline, "approve-scope": cmd_approve_scope,
     "close": cmd_close, "pause": cmd_pause, "resume": cmd_resume, "reprepare": cmd_reprepare,
     "confirm-policy": cmd_confirm_policy,
+    "abandon": cmd_abandon, "disown": cmd_disown,
 }
 
 
@@ -1928,6 +2035,13 @@ def parser() -> argparse.ArgumentParser:
     approve = commands.add_parser("approve-scope", help="Approve the current slice contracts after SCOPE_CHANGE_REQUIRED.")
     approve.add_argument("--quote", required=True)
     commands.add_parser("close", help="DONE -> IDLE: archive the demand summary and allow a new start.")
+    abandon = commands.add_parser("abandon", help="Any stage -> IDLE after the user refuses to continue: record the refusal, revert nothing, allow a new start.")
+    abandon.add_argument("--reason", default="", help="One line: why the demand is dropped (required).")
+    abandon.add_argument("--quote", default="", help="The user's literal refusal or request to drop the demand (required).")
+    abandon.add_argument("--by", default="requester")
+    disown = commands.add_parser("disown", help="Drop one path from STATE ownership.agent_owned (AGENT_OWNED_PATH_UNSAFE); the file is left untouched.")
+    disown.add_argument("--path", required=True)
+    disown.add_argument("--reason", required=True)
     pause = commands.add_parser("pause", help="PAUSED: next starts nothing until resume.")
     pause.add_argument("--quote", required=True)
     resume = commands.add_parser("resume", help="Leave PAUSED and return to the previous mode.")

@@ -30,15 +30,21 @@ _REBASELINE = "{sdd} rebaseline --quote '<user words>'"
 _CONFIRM_POLICY = "{sdd} confirm-policy --name <policy> --by requester --quote '<user words>'"
 _NEXT = "{sdd} next"
 _STATUS = "{sdd} status"
+_ABANDON = "{sdd} abandon --reason '<reason>' --quote '<user words>'"
 
 #: Placeholders a registered command may carry: each is filled with the user's own
 #: words (or, for ``<reason>``, the controller's one-line reason). Anything the
 #: runtime knows (gate, check id, question index, budget name) is filled by
-#: ``sdd.py`` itself, so it never appears here.
+#: ``sdd.py`` itself in the printed ``next_command``, so a registry entry only
+#: carries ``<...>`` for it when the registry row is the generic fallback (the
+#: concrete stop always overrides it with the real value).
 USER_PLACEHOLDERS = frozenset({
     "<user words>", "<user words authorizing more>", "<failure>", "<reason>",
     "<ticket-id>", "<title>", "<objective>", "<policy>",
 })
+#: Placeholders the runtime substitutes in the stop it actually prints; they appear
+#: in the registry row only as the documented shape of the command.
+RUNTIME_PLACEHOLDERS = frozenset({"<check-id>", "<gate>", "<path>"})
 
 STOP_REASONS: dict[str, tuple[str, str, str]] = {
     "NONE": (PAUSED, "Nothing stops the loop; continue with the next step.", _NEXT),
@@ -72,7 +78,7 @@ STOP_REASONS: dict[str, tuple[str, str, str]] = {
     "CONTRACT_INVALID": (PAUSED, "The worker result failed validation; it is classified invalid. `sdd.py next` archives it and prepares the single corrective retry with the errors.", _NEXT),
     "WORKER_BLOCKED": (HUMAN, "The worker reported blockers; ask the user and record the resolution: the stage is redispatched with it.", "{sdd} unblock --quote '<user words>'"),
     "CLARIFICATION_REQUIRED": (HUMAN, "Material questions are open; ask the user exactly the listed questions and record each answer with the printed `sdd.py answer --index` command.", _NEXT),
-    "HUMAN_DECISION_REQUIRED": (HUMAN, "An acceptance check needs the user's decision; record it verbatim with the printed command (`waive` for a HUMAN check, `answer --check` for a requested decision).", _NEXT),
+    "HUMAN_DECISION_REQUIRED": (HUMAN, "An acceptance check needs the user's decision; record it verbatim with the printed command (`waive` for a HUMAN check, `answer --check` for a requested decision). If the user refuses, the demand has an exit: the stop also prints `refusal_command` (`sdd.py abandon`).", _NEXT),
     "SCOPE_CHANGE_REQUIRED": (HUMAN, "The slice contract differs from the approved one; it is new scope. Record the user's approval of the current slice contracts.", "{sdd} approve-scope --quote '<user words>'"),
     "INVESTIGATION_BUDGET_EXCEEDED": (HUMAN, "The context budget of the manifest is exceeded; ask for an explicit expansion or narrow the sources.", _RAISE % "investigation_expansions"),
     "PROMPT_BUDGET_EXCEEDED": (HUMAN, "The worker prompt exceeds max_prompt_bytes even after reduction; ask the user to authorize a larger prompt.", "{sdd} budget --raise prompt_bytes --by 16384 --quote '<user words authorizing more>'"),
@@ -91,7 +97,7 @@ STOP_REASONS: dict[str, tuple[str, str, str]] = {
     "REVIEW_BLOCKED": (BLOCKED, "REVIEW reported a blocker; reopen IMPLEMENT with the user's agreement.", _REOPEN),
     "REVIEW_CHANGES_REQUIRED": (HUMAN, "REVIEW requires changes; reopen IMPLEMENT for a corrective slice with the user's agreement.", _REOPEN),
     "OWNERSHIP_VIOLATION": (HUMAN, "REVIEW found writes outside the agent-owned paths; ask the user. Accepting them records the answer and redispatches REVIEW; otherwise reopen IMPLEMENT with `sdd.py reopen`.", _REBASELINE),
-    "GATE_COMMAND_UNCONFIGURED": (BLOCKED, "A required gate has no verified command in policies/GATES.md; configure it (`detect_stack.py` suggests one; run it once), then `sdd.py next` runs it.", _NEXT),
+    "GATE_COMMAND_UNCONFIGURED": (BLOCKED, "A required gate has no verified command in policies/GATES.md; configure it (`detect_stack.py` suggests one; run it once). Editing GATES.md during a demand then needs the user's confirmation once, which `sdd.py next` prints as `confirm-policy --name gates` before the gate runs.", _NEXT),
     "GATE_CONFIRMATION_REQUIRED": (HUMAN, "GATES.md marks this gate NOT_APPLICABLE; record the user's explicit confirmation with the printed `gate --not-applicable` command.", _NEXT),
     "CONTROLLER_POLICY_CHANGED_DURING_DEMAND": (HUMAN, "policies/GATES.md or EXECUTORS.md no longer matches the hash pinned at `sdd.py start`: its gate commands run on the host and it chooses the worker binary, so a worker with write access could have changed it. Show the user the diff; only their confirmation re-pins it.", _CONFIRM_POLICY),
     "CONTROLLER_POLICY_UNPINNED": (HUMAN, "A controller policy file has no pinned SHA-256 for this demand (started before pinning existed), so an edit cannot be attributed to the owner. Review each file with the user and record their confirmation; no gate runs until then.", _CONFIRM_POLICY),
@@ -120,6 +126,13 @@ STOP_REASONS: dict[str, tuple[str, str, str]] = {
     "NEXT_HUMAN_CHECKPOINT": (PAUSED, "The projection reached the next human checkpoint; `sdd.py next` names it.", _NEXT),
     "RECOVERY_RECONCILIATION_REQUIRED": (PAUSED, "A pending action must be reconciled first; `sdd.py next` prints the recovery command.", _NEXT),
     "IDLE_NO_DEMAND": (PAUSED, "No demand is active; start one from the user's request.", "{sdd} start --ticket <ticket-id> --title '<title>' --objective '<objective>'"),
+    # --- command refusals of sdd.py (raised as SddError: the `status` of an exit-2 payload) ---
+    "ABANDON_REQUESTED": (HUMAN, "The user refused the pending decision or asked to drop the demand; `sdd.py abandon` needs their literal words and a reason. It archives the demand to IDLE with the refusal recorded, so a new `start` is accepted.", _ABANDON),
+    "DEMAND_ACTIVE": (BLOCKED, "A demand is already active; one controller drives one demand. `sdd.py next` continues it, `sdd.py close` ends a DONE one and `sdd.py abandon` drops a non-DONE one with the user's words.", _NEXT),
+    "TICKET_INVALID": (BLOCKED, "The ticket id is not one safe path component (1-64 letters, digits, '.', '_' or '-'); repeat `sdd.py start` with a valid id.", "{sdd} start --ticket <ticket-id> --title '<title>' --objective '<objective>'"),
+    "STEP_MISMATCH": (BLOCKED, "The command does not apply to the current stage, journal or evidence; the message says which precondition failed. `sdd.py next` prints the step that does apply.", _NEXT),
+    "WAIVE_REQUIRES_HUMAN_CHECK": (HUMAN, "Only a HUMAN check is waived by a quote; an AGENT/COMMAND check needs an answered `request-decision` whose recorded answer is the waiver quote. Ask the user first.", "{sdd} request-decision --check <check-id> --reason '<reason>'"),
+    "AGENT_OWNED_PATH_UNSAFE": (BLOCKED, "An agent-owned path has a segment starting with '-' and would become an option of a gate command; drop it from STATE ownership with the printed `sdd.py disown` command (the file itself is left untouched), then `sdd.py next`.", "{sdd} disown --path <path> --reason '<reason>'"),
     # --- correction loop ---
     "NO_NEW_HYPOTHESIS": (HUMAN, "The proposed correction repeats a tried hypothesis; ask the user for a new, specific one and record it (the stage is redispatched with it).", "{sdd} unblock --quote '<user words>'"),
     "NO_PROGRESS": (HUMAN, "The last correction changed nothing observable; investigate the failure with the user and record the new direction (the stage is redispatched with it).", "{sdd} unblock --quote '<user words>'"),
