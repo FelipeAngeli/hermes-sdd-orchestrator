@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.0.0 - 2026-10-09
+
 ### Breaking
 - Security (closes the round-3 findings R3-01, R3-02 and R3-03 on #45 by prevention): **a writing worker is no longer dispatched while the controller shares its writable filesystem.** In `--local-storage` the controller sits inside the repository an IMPLEMENT/TEST worker edits, so that worker can rewrite `policies/GATES.md` (whose commands run on the host, outside every sandbox), `policies/EXECUTORS.md`, `runtime/*.py`, the stage briefs, STATE and the journal — *and*, in the same step, every hash those are checked against, because each anchor lives in that same tree. The round-2 detections were defeated empirically with one extra write each: re-pinning `delivery.controller_policies` after editing `GATES.md` (R3-01), rewriting `fingerprints.state_before` after editing STATE (R3-02), and patching `sdd.py` itself, which no check covered at all (R3-03). Detection has no anchor out of the worker's reach there, so the dispatch is refused instead: `executor_launch.py build|run` returns the new status `CONTROLLER_WRITABLE_BY_WORKER` and `sdd.py next` stops with the same registered stop reason **before** preparing the action (no executor call is spent), printing `migrate_to_vault.py --repo <repository> --apply` as the exit. Read-only stages (SPECIFY, CLARIFY, PLAN, TASKS, REVIEW) still run under `--local-storage`; only Obsidian storage, where the controller is never a writable root for any worker, runs a writing stage. A project that drove IMPLEMENT/TEST with `--local-storage` must migrate the controller to the vault before its next writing stage.
 
