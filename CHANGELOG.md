@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- Jev receipts are now refreshed after routing-relevant STATE changes within PLAN or IMPLEMENT, including scope approval, a subsequent implementation slice and REVIEW-to-IMPLEMENT reopen. The manifest carries the current canonical STATE hash and `stage_context.py` rejects a typed request whose binding is stale.
+
 ## 15.1.0 - 2026-10-09
 
 ### Added

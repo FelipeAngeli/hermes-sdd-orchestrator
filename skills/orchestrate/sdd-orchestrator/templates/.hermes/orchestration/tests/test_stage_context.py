@@ -889,11 +889,50 @@ class SemanticGovernanceGateTests(unittest.TestCase):
             "review_resolution": None,
             "mode": "SHADOW",
             "request": request,
+            "current_state_sha256": request["binding"]["state_sha256"],
         }
 
         result = ctx.check(value)
 
         self.assertTrue(result["valid"], result["errors"])
+
+    def test_a_typed_request_bound_to_stale_state_is_rejected(self) -> None:
+        self.consent()
+        request = {
+            "schema_version": 1,
+            "decision_id": "APP-1:PLAN:route",
+            "ticket": "APP-1",
+            "kind": "AGENT_SELECTION",
+            "mode": "SHADOW",
+            "binding": {"stage": "PLAN", "state_sha256": "b" * 64},
+            "baseline": {"value": "STAGE_AGENT", "user_locked": False, "deterministic_ready": True},
+            "candidates": {"STAGE_AGENT": "primary stage route", "DATA_FLOW_TRACER": "cross-boundary trace"},
+            "state": {"summary": "Shared contract has incomplete evidence.", "signals": {}, "evidence_ids": []},
+        }
+        governor = ctx._semantic_governor()
+        report = governor.decide(
+            decision_orchestration.governor_request(request),
+            lambda payload: {
+                "status": "OK",
+                "result": {
+                    "model": "jev-1.13.0",
+                    "answers": {"selection": {"type": "choice", "choice": "DATA_FLOW_TRACER",
+                        "probabilities": {"STAGE_AGENT": 0.09, "DATA_FLOW_TRACER": 0.91}, "confidence": 0.91}},
+                    "usage": {"input_tokens": 10, "output_tokens": 2},
+                },
+            },
+            cache_path=self.cache_path,
+        )
+        value = context("PLAN")
+        value["semantic_governance"] = {
+            "fingerprint": report["fingerprint"],
+            "review_resolution": None,
+            "mode": "SHADOW",
+            "request": request,
+            "current_state_sha256": "c" * 64,
+        }
+
+        self.assertIn("JEV_GOVERNANCE_RECORD_UNVERIFIED", errors_of(value))
 
     def test_a_malformed_setup_fails_closed(self) -> None:
         self.setup_path.write_text("no yaml record here\n", encoding="utf-8")

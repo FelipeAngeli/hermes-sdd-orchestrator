@@ -510,20 +510,20 @@ def _semantic_governor() -> Any:
     return module
 
 
-def _verified_shadow_request(
+def _verified_decision_request(
     record: dict[str, Any], value: dict[str, Any], report: dict[str, Any], governor: Any
 ) -> bool:
-    """Prove SHADOW from the same typed request whose governor fingerprint is cached."""
+    """Prove the typed control data and current STATE share the cached fingerprint."""
     request = record.get("request")
     try:
         import decision_orchestration
 
         request = decision_orchestration.validate_request(request)
         if (
-            request["mode"] != "SHADOW"
-            or record.get("mode") != "SHADOW"
+            request["mode"] != record.get("mode")
             or request["ticket"] != value["ticket"]
             or request["binding"]["stage"] != value["stage"]
+            or request["binding"]["state_sha256"] != record.get("current_state_sha256")
         ):
             return False
         expected = governor.fingerprint(
@@ -569,10 +569,20 @@ def _check_semantic_governance(value: dict[str, Any]) -> list[dict[str, str]]:
             "JEV_GOVERNANCE_RECORD_UNVERIFIED",
             f"fingerprint {fingerprint[:12]} is not a valid governor decision for {value['ticket']} in {JEV_CACHE_PATH}",
         )]
+    typed_request_verified = (
+        _verified_decision_request(record, value, report, governor)
+        if record.get("request") is not None
+        else False
+    )
+    if record.get("request") is not None and not typed_request_verified:
+        return [_finding(
+            "JEV_GOVERNANCE_RECORD_UNVERIFIED",
+            "the typed decision request does not match the current STATE binding or cached governor fingerprint",
+        )]
     if (
         report["status"] == "REVIEW"
         and not record["review_resolution"]
-        and not _verified_shadow_request(record, value, report, governor)
+        and not (record.get("mode") == "SHADOW" and typed_request_verified)
     ):
         return [_finding(
             "JEV_GOVERNANCE_REVIEW_UNRESOLVED",

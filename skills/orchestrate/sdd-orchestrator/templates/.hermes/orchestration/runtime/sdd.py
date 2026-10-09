@@ -127,6 +127,17 @@ def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def semantic_state_sha256(state: dict[str, Any]) -> str:
+    """Hash routing-relevant STATE while excluding governance's own receipts."""
+    material = copy.deepcopy(state)
+    delivery = material.get("delivery")
+    if isinstance(delivery, dict):
+        delivery.pop("semantic_governance", None)
+        delivery.pop("semantic_decisions", None)
+    encoded = json.dumps(material, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
+    return sha256_bytes(encoded.encode("utf-8"))
+
+
 def sha256_file(path: Path) -> str | None:
     try:
         return sha256_bytes(path.read_bytes()) if path.is_file() and not path.is_symlink() else None
@@ -578,7 +589,10 @@ def build_manifest(ctx: Ctx, data: dict[str, Any], stage: str, *, role: str | No
         }
     governance = delivery.get("semantic_governance")
     if governance:
-        manifest["semantic_governance"] = governance
+        manifest["semantic_governance"] = {
+            **copy.deepcopy(governance),
+            "current_state_sha256": semantic_state_sha256(data),
+        }
     return manifest
 
 
@@ -1153,12 +1167,16 @@ def decide_next(ctx: Ctx) -> dict[str, Any]:
     if ctx.stage == "REVIEW" and review.get("status") in {"CHANGES_REQUIRED", "BLOCKED"}:
         return stopped(ctx, stop("REVIEW_CHANGES_REQUIRED" if review["status"] == "CHANGES_REQUIRED" else "REVIEW_BLOCKED"))
     semantic_decisions = ctx.delivery.get("semantic_decisions") or []
-    latest_decision_stage = (
-        ((semantic_decisions[-1].get("binding") or {}).get("stage"))
+    latest_decision_binding = (
+        (semantic_decisions[-1].get("binding") or {})
         if semantic_decisions and isinstance(semantic_decisions[-1], dict)
-        else None
+        else {}
     )
-    if ctx.stage in {"PLAN", "IMPLEMENT"} and latest_decision_stage != ctx.stage:
+    decision_is_current = (
+        latest_decision_binding.get("stage") == ctx.stage
+        and latest_decision_binding.get("state_sha256") == semantic_state_sha256(ctx.state)
+    )
+    if ctx.stage in {"PLAN", "IMPLEMENT"} and not decision_is_current:
         import semantic_governor
 
         if semantic_governor.consent_state(PROJECT_SETUP) == semantic_governor.CONSENT_ENABLED:
@@ -1260,13 +1278,14 @@ def cmd_govern(ctx: Ctx, _args: argparse.Namespace) -> dict[str, Any]:
     if ctx.stage not in {"PLAN", "IMPLEMENT"}:
         raise SddError("STEP_MISMATCH", "Semantic routing runs only before PLAN or IMPLEMENT dispatch.", next_command=sdd("next"))
     prior_decisions = ctx.delivery.get("semantic_decisions") or []
-    prior_stage = (
-        ((prior_decisions[-1].get("binding") or {}).get("stage"))
+    prior_binding = (
+        (prior_decisions[-1].get("binding") or {})
         if prior_decisions and isinstance(prior_decisions[-1], dict)
-        else None
+        else {}
     )
-    if prior_stage == ctx.stage:
-        raise SddError("STEP_MISMATCH", "This stage already has a semantic-governance receipt.", next_command=sdd("next"))
+    state_sha256 = semantic_state_sha256(ctx.state)
+    if prior_binding.get("stage") == ctx.stage and prior_binding.get("state_sha256") == state_sha256:
+        raise SddError("STEP_MISMATCH", "This stage and STATE already have a semantic-governance receipt.", next_command=sdd("next"))
     if semantic_governor.consent_state(PROJECT_SETUP) != semantic_governor.CONSENT_ENABLED:
         raise SddError("JEV_GOVERNANCE_REQUIRED", "Automatic Jev governance has no explicit consent.", next_command=sdd("next"))
 
@@ -1277,7 +1296,7 @@ def cmd_govern(ctx: Ctx, _args: argparse.Namespace) -> dict[str, Any]:
         "ticket": ctx.ticket,
         "kind": "AGENT_SELECTION",
         "mode": "SHADOW",
-        "binding": {"stage": ctx.stage, "state_sha256": sha256_bytes(ctx.text.encode("utf-8"))},
+        "binding": {"stage": ctx.stage, "state_sha256": state_sha256},
         "baseline": {"value": "STAGE_AGENT", "user_locked": False, "deterministic_ready": True},
         "candidates": {
             "STAGE_AGENT": "Use the stage's deterministic primary executor route.",
