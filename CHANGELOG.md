@@ -4,8 +4,22 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+- `action_journal.py paths [--repo]` prints the canonical `journal`, `history_dir`, `state`, `incidents` and `runtime_dir` of the current worktree in both storage modes (`OBSIDIAN` / `LOCAL`), so the controller never guesses `--history-dir`.
+- `action_journal.py archive-blocked --reason <text> --history-dir <dir>` archives a `BLOCKED`, live `INTERRUPTED` or dirty `IDLE` journal to history (reason recorded as an incident), opens a pristine journal and mirrors the action to the wiki: `BLOCKED` is no longer a dead end.
+- `retry_mode: ADOPT_PARENT_ARTIFACT`: after `archive-interrupted`, a new action adopts the interrupted parent's own final message, verified by SHA-256 against history, without redispatch (`prepare` → `record-artifact` → normal validation), so nobody hand-edits STATE or the journal. New codes `ADOPTION_NOT_ALLOWED`, `ADOPTION_PARENT_NOT_FOUND`, `ADOPTION_ARTIFACT_MISMATCH`, `ADOPTION_DISPATCH_FORBIDDEN`.
+- `recover` decision `ARCHIVE_INTERRUPTED_REQUIRED` (stop reason `EXECUTOR_PROCESS_ENDED_WITHOUT_ARTIFACT`) for a finished process without a final message, e.g. a timeout with exit 124.
+- Every `recover` decision and every journal error now carries `next_step` and, when a command applies, an exact `next_command`; every `BLOCKED` carries a `stop_reason`.
+- `record-process --started --prompt-sha256 <hash>` dispatch guard: start requires a dispatchable `PREPARED` action (`DISPATCH_NOT_PREPARED`), the prepared prompt (`PROMPT_HASH_MISMATCH`) and a free final-message path (`ARTIFACT_PENDING`).
+
 ### Changed
 - Secret redaction moved from `runtime/wiki_journal.py` into its own module `runtime/redaction.py` (`redact` is its only public name; `wiki_journal.redact` still works) with unit tests in `tests/test_redaction.py`. Internal module split, no behavior change: the patterns are byte-identical and the unused `_TOK` pattern was dropped.
+- `record-process --finished` is idempotent for the same exit code (safe in a launcher's `finally`), reports `PROCESS_RESULT_CONFLICT` / `PROCESS_NOT_STARTED`, and records a missing result on a started `BLOCKED` action. `mark-validated` re-hashes the final message (`ARTIFACT_CHANGED`, `ARTIFACT_CLASSIFIED_INVALID`). `ACTION_RECOVERY.md` is rewritten as a decision → command table.
+
+### Fixed
+- The action journal rejected its own Obsidian runtime: `archive-interrupted`, `rollover`, `archive-invalid` and the STATE commit failed with `HISTORY_PATH_UNSAFE` / `STATE_PATH_UNSAFE` because history and STATE live in `<vault>/<project>/.hermes-runtime/<slug>/`, outside the worktree. They now accept this worktree's runtime directory of the binding installed with the controller (never a repository binding or the `HERMES_OBSIDIAN_VAULT` override), walk it with no-follow descriptors from `/`, and keep the legacy in-worktree paths with the symlink-ancestor protection.
+- `record-artifact` moved to `ARTIFACT_READY` even when the final message was missing, which then made `archive-interrupted` impossible; it now returns `ARTIFACT_MISSING` and keeps `PROCESS_FINISHED` (a directory or symlink counts as missing).
+- `ACTION_RECOVERY.md` named a nonexistent `RECOVERY_REQUIRED` decision for an unknown process result; the decision is `WAIT_OR_MANUAL_REVIEW`, with the exact `record-process --finished` command.
 
 ## 13.0.9 - 2026-10-08
 
