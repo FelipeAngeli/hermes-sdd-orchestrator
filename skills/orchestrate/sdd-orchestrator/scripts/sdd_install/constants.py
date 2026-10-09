@@ -55,6 +55,32 @@ INSTALL_MANIFEST_PATH = f"{CONFIG_ROOT}/INSTALL_MANIFEST.json"
 INSTALL_MANIFEST_VERSION = 1
 UPGRADE_BACKUPS_PATH = f"{CONFIG_ROOT}/upgrade-backups"
 UPGRADE_LOCK_PATH = f"{CONFIG_ROOT}/.upgrade.lock"
+#: Controller files a release shipped and a later one removed. An installation
+#: made before INSTALL_MANIFEST.json existed (v13 and older) has no record of
+#: them, so `--upgrade` uses this list: REMOVE (backed up) with
+#: `--accept-current-as-baseline`, otherwise an OBSOLETE_UNVERIFIED warning.
+#: 14.0.0 retired the sub-agent briefs whose roles moved into project skills;
+#: runtime/bounded_loop_driver.py is deprecated but still shipped.
+RETIRED_TEMPLATE_PATHS = tuple(
+    f"{CONFIG_ROOT}/sub-agents/{name}.md"
+    for name in (
+        "api-contract-auditor",
+        "architecture-guardian",
+        "code-reviewer",
+        "dependency-auditor",
+        "documentation-writer",
+        "impact-analyst",
+        "investigator",
+        "migration-safety-auditor",
+        "performance-auditor",
+        "regression-hunter",
+        "release-readiness-auditor",
+        "spec-consistency-guardian",
+        "tdd-guardian",
+        "tdd-implementer",
+        "test-runner",
+    )
+)
 SKILL_MANIFEST = ROOT.parent / "SKILL.md"
 
 #: Shown in every install report: Finder and Obsidian hide dot-directories.

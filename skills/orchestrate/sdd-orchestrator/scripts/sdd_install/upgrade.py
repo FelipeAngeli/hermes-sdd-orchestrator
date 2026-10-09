@@ -9,9 +9,18 @@ REPLACE                pristine per the manifest (or accepted current baseline)
 MODIFIED_BY_OWNER      differs from what the manifest recorded: blocks
 UNKNOWN_BASELINE       no manifest entry to prove it pristine: blocks unless
                        ``--accept-current-as-baseline``
-REMOVE                 in the manifest, gone from the template, still pristine
+REMOVE                 in the manifest, gone from the template, still pristine;
+                       or, without a manifest, listed in RETIRED_TEMPLATE_PATHS
+                       and ``--accept-current-as-baseline`` given
 OBSOLETE_MODIFIED      gone from the template but edited: kept, warned
+OBSOLETE_UNVERIFIED    in RETIRED_TEMPLATE_PATHS, no manifest, no accepted
+                       baseline: kept, warned with the rerun command
 =====================  =========================================================
+
+Before planning, every runtime must be idle: each ACTION_JOURNAL.json IDLE or
+RELEASED, and each STATE.md (parsed with the template's ``state_format``, JSON
+or YAML payload) with ``loop.control.loop_active`` false and ``stage.status``
+not RUNNING; an unparseable STATE blocks too (UPGRADE_CONTROLLER_BUSY).
 
 Owner files (policies/GATES.md, policies/EXECUTORS.md, PROJECT_SETUP.md) are
 never read for comparison nor rewritten; an absent GATES.md/EXECUTORS.md is
@@ -26,7 +35,6 @@ import datetime
 import hashlib
 import json
 import os
-import re
 import secrets
 import shlex
 import stat
@@ -40,6 +48,7 @@ from .constants import (
     OBSIDIAN_RUNTIME_SUBPATH,
     OWNER_FILES,
     PROJECT_SETUP_PATH,
+    RETIRED_TEMPLATE_PATHS,
     UPGRADE_BACKUPS_PATH,
     UPGRADE_LOCK_PATH,
 )
@@ -62,9 +71,9 @@ from .fsops import (
 from .gitops import _target_snapshot, git
 from .manifest import manifest_body, manifest_bytes, parse_manifest, sha256, skill_version, template_payload, version_key
 from .mode import storage_mode
+from .templates import _load_template_module
 
 BUSY_FREE_STATUSES = frozenset({"IDLE", "RELEASED"})
-_LOOP_ACTIVE = re.compile(r"\bloop_active:\s*true\b")
 
 
 # --- planning -------------------------------------------------------------------
@@ -124,8 +133,36 @@ def _runtime_directories(root: Path, storage: str) -> list[Path]:
     return directories
 
 
-def _require_idle(root: Path, storage: str) -> None:
-    """Every action journal idle or released, and no bounded loop running."""
+def _state_busy_reasons(text: str) -> list[str]:
+    """Why a STATE.md blocks an upgrade, read in any dialect the controller writes.
+
+    The payload is parsed with the template's ``state_format`` (the parser
+    ``sdd.py`` itself uses), so the JSON payload ``sdd.py`` writes and the YAML
+    payload the installer seeds are judged alike. A payload that cannot be
+    parsed fails closed.
+    """
+    try:
+        data = _load_template_module("sdd_upgrade_state_format", "runtime/state_format.py").parse(text)
+    except Exception as error:  # noqa: BLE001 - any parse failure must block, never pass
+        return [f"STATE unreadable ({error})"]
+    if not isinstance(data, dict):
+        return ["STATE unreadable (payload is not a mapping)"]
+    reasons: list[str] = []
+    loop = data.get("loop")
+    loop = loop if isinstance(loop, dict) else {}
+    control = loop.get("control")
+    control = control if isinstance(control, dict) else {}
+    if control.get("loop_active") is True or loop.get("loop_active") is True:
+        reasons.append("loop_active true")
+    stage = data.get("stage")
+    stage = stage if isinstance(stage, dict) else {}
+    if stage.get("status") == "RUNNING":
+        reasons.append(f"stage RUNNING ({stage.get('current')})")
+    return reasons
+
+
+def _require_idle(root: Path, storage: str, args=None, target: Path | None = None) -> None:
+    """Every action journal idle or released, no bounded loop running and no stage RUNNING."""
     busy: list[str] = []
     for directory in _runtime_directories(root, storage):
         journal = directory / "ACTION_JOURNAL.json"
@@ -138,24 +175,35 @@ def _require_idle(root: Path, storage: str) -> None:
             if status not in BUSY_FREE_STATUSES:
                 busy.append(f"{journal}: action {status}")
         state = directory / "STATE.md"
-        if state.is_file() and not state.is_symlink():
+        if state.is_symlink():
+            busy.append(f"{state}: STATE unreadable (symlink)")
+        elif state.is_file():
             try:
-                if _LOOP_ACTIVE.search(state.read_text(encoding="utf-8")):
-                    busy.append(f"{state}: loop_active true")
-            except (OSError, UnicodeError):
-                busy.append(f"{state}: unreadable")
+                text = state.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as error:
+                busy.append(f"{state}: STATE unreadable ({error})")
+            else:
+                busy.extend(f"{state}: {reason}" for reason in _state_busy_reasons(text))
     if busy:
         raise InstallError(
             f"UPGRADE_CONTROLLER_BUSY: {'; '.join(busy)}",
             next_step=(
-                "Finish or release the running action (ACTION_JOURNAL status IDLE or RELEASED) and stop the "
-                "bounded loop (loop_active false) in every worktree runtime, then rerun --upgrade."
+                "The controller is in use. In every listed runtime: finish or release the running action "
+                "(ACTION_JOURNAL status IDLE or RELEASED; `action_journal.py recover` names the step), let the "
+                "bounded loop stop (loop.control.loop_active false) and bring the demand to DONE or back to IDLE "
+                "(stage.status not RUNNING; `sdd.py status` shows it). A STATE that cannot be parsed must be "
+                "restored first. Then rerun --upgrade."
             ),
+            next_command=_upgrade_command(args, target) if args is not None and target is not None else None,
         )
 
 
-def _plan(root: Path, storage: str, accept_baseline: bool) -> dict[str, object]:
-    """Classify every path; reads only, never writes."""
+def _plan(root: Path, storage: str, accept_baseline: bool, accept_command: str = "") -> dict[str, object]:
+    """Classify every path; reads only, never writes.
+
+    ``accept_command`` is the exact rerun with ``--accept-current-as-baseline``
+    named by each OBSOLETE_UNVERIFIED warning.
+    """
     payload = template_payload()
     manifest_raw = _read_project_file_nofollow(root, INSTALL_MANIFEST_PATH)
     manifest = parse_manifest(manifest_raw) if manifest_raw is not None else None
@@ -212,6 +260,21 @@ def _plan(root: Path, storage: str, accept_baseline: bool) -> dict[str, object]:
             remove[relative] = current
         else:
             warnings.append(f"OBSOLETE_MODIFIED: {relative} is no longer shipped but was edited; it is kept")
+    # Paths an older release shipped that no manifest records (installs made
+    # before INSTALL_MANIFEST.json): only an accepted baseline removes them.
+    for relative in RETIRED_TEMPLATE_PATHS:
+        if relative in payload or relative in recorded:
+            continue
+        current = _read_project_file_nofollow(root, relative)
+        if current is None:
+            continue
+        if accept_baseline:
+            remove[relative] = current
+        else:
+            warnings.append(
+                f"OBSOLETE_UNVERIFIED: {relative} was retired from the template and no manifest proves it unmodified; "
+                f"it is kept. Rerun with --accept-current-as-baseline to remove it (a backup is kept): {accept_command}"
+            )
     owner_files.append({
         "path": PROJECT_SETUP_PATH, "action": "KEEP", "template_changed": False,
         "template_sha256": None,
@@ -483,7 +546,7 @@ def _run_upgrade(args, target: Path, workspace: dict[str, str]) -> dict[str, obj
                 f"UPGRADE_DOWNGRADE_REFUSED: installed {from_version}, this skill is {to_version}",
                 next_step="Run --upgrade from a skill at least as new as the installed controller.",
             )
-    _require_idle(root, storage)
+    _require_idle(root, storage, args, target)
     accept = bool(args.accept_current_as_baseline)
 
     def snapshot():
@@ -502,7 +565,8 @@ def _run_upgrade(args, target: Path, workspace: dict[str, str]) -> dict[str, obj
                 next_step="The repository changed during the upgrade; nothing was kept. Rerun --upgrade.",
             )
 
-    plan = _plan(root, storage, accept)
+    accept_command = _upgrade_command(args, target, "--accept-current-as-baseline")
+    plan = _plan(root, storage, accept, accept_command)
     report = _report(plan, root, storage)
     exclude_planned = False
     if storage == "LOCAL":
@@ -549,7 +613,7 @@ def _run_upgrade(args, target: Path, workspace: dict[str, str]) -> dict[str, obj
                 "if no installer is running, then rerun.",
             ) from error
         try:
-            replanned = _plan(root, storage, accept)
+            replanned = _plan(root, storage, accept, accept_command)
             if replanned["plan_sha256"] != plan["plan_sha256"]:
                 raise InstallError(
                     "UPGRADE_STATE_CHANGED",
@@ -557,7 +621,7 @@ def _run_upgrade(args, target: Path, workspace: dict[str, str]) -> dict[str, obj
                     next_command=_upgrade_command(args, target),
                 )
             require_target_unchanged()
-            _require_idle(root, storage)
+            _require_idle(root, storage, args, target)
             result["backup"] = _apply(root, replanned, require_target_unchanged)
         finally:
             _close_descriptor(lock)

@@ -2848,6 +2848,8 @@ UPGRADE_ADDED = ".hermes/orchestration/policies/DISPATCH_POLICY.md"
 UPGRADE_OBSOLETE = ".hermes/orchestration/policies/OBSOLETE_POLICY.md"
 UPGRADE_GATES = ".hermes/orchestration/policies/GATES.md"
 UPGRADE_MANIFEST = ".hermes/orchestration/INSTALL_MANIFEST.json"
+#: origin/main at v13.0.9: the last release that shipped the retired sub-agent briefs.
+V13_COMMIT = "67cae82"
 
 
 class InstallerUpgradeTests(unittest.TestCase):
@@ -3139,6 +3141,143 @@ class InstallerUpgradeTests(unittest.TestCase):
                 state = runtime / "STATE.md"
                 state.write_text(state.read_text(encoding="utf-8").replace("loop_active: false", "loop_active: true"))
                 self.assertIn("UPGRADE_CONTROLLER_BUSY", self.upgrade(target, storage)[1]["reason"])
+
+    @staticmethod
+    def state_format_module():
+        spec = importlib.util.spec_from_file_location("upgrade_test_state_format", ORCHESTRATION / "runtime/state_format.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def rewrite_state(self, state: Path, *, as_json: bool, loop_active: bool = False, stage_status: str | None = None) -> None:
+        """Rewrite STATE.md the way sdd.py does (JSON payload) or keep the YAML dialect."""
+        state_format = self.state_format_module()
+        text = state.read_text(encoding="utf-8")
+        if as_json:
+            text = state_format.normalise(text)
+            data = state_format.parse(text)
+            data["loop"]["control"]["loop_active"] = loop_active
+            if stage_status is not None:
+                data["stage"]["status"] = stage_status
+            before, _, after = state_format.split_fence(text)
+            text = f"{before}```yaml\n{json.dumps(data, indent=2, sort_keys=True)}\n```{after}"
+        else:
+            text = text.replace("loop_active: false", f"loop_active: {'true' if loop_active else 'false'}")
+            if stage_status is not None:
+                text = text.replace("  status: WAITING\n", f"  status: {stage_status}\n", 1)
+        state.write_text(text, encoding="utf-8")
+
+    def test_upgrade_refuses_an_active_loop_or_running_stage_in_json_and_yaml_state(self) -> None:
+        for mode in self.MODES:
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory(prefix="sdd-upgrade-busy-json-") as temp:
+                temp_path = Path(temp)
+                old = self.make_old_skill(temp_path)
+                target, storage, root = self.fixture(temp_path, mode)
+                report = self.install(old / "scripts/install_project.py", target, storage)
+                runtime = Path(report["worktree_runtime"]) if mode == "obsidian" else root / ".hermes/orchestration"
+                state = runtime / "STATE.md"
+                original = state.read_text(encoding="utf-8")
+                cases = (
+                    ("json loop", dict(as_json=True, loop_active=True), "loop_active true"),
+                    ("json running", dict(as_json=True, stage_status="RUNNING"), "stage RUNNING"),
+                    ("yaml loop", dict(as_json=False, loop_active=True), "loop_active true"),
+                    ("yaml running", dict(as_json=False, stage_status="RUNNING"), "stage RUNNING"),
+                )
+                for label, options, reason in cases:
+                    with self.subTest(case=label):
+                        state.write_text(original, encoding="utf-8")
+                        self.rewrite_state(state, **options)
+                        before = self.controller_snapshot(root)
+                        code, blocked = self.upgrade(target, storage, "--apply")
+                        self.assertEqual(2, code, blocked)
+                        self.assertIn("UPGRADE_CONTROLLER_BUSY", blocked["reason"])
+                        self.assertIn(reason, blocked["reason"])
+                        self.assertIn("--upgrade", blocked["next_command"])
+                        self.assertEqual(before, self.controller_snapshot(root))
+                # An idle JSON STATE (what sdd.py writes) does not block.
+                state.write_text(original, encoding="utf-8")
+                self.rewrite_state(state, as_json=True)
+                code, plan = self.upgrade(target, storage)
+                self.assertEqual(0, code, plan)
+                self.assertEqual("UPGRADE_READY", plan["status"])
+                # An unparseable STATE fails closed.
+                state.write_text("# no payload fence\n", encoding="utf-8")
+                code, blocked = self.upgrade(target, storage)
+                self.assertEqual(2, code)
+                self.assertIn("STATE unreadable", blocked["reason"])
+
+    def v13_installer(self, temp: Path) -> Path:
+        """The v13.0.9 skill (origin/main 67cae82) extracted from git, installer included."""
+        archive = subprocess.run(
+            ["git", "-C", str(ROOT), "archive", V13_COMMIT, "skills/orchestrate/sdd-orchestrator"],
+            capture_output=True, check=False, timeout=120,
+        )
+        if archive.returncode:
+            self.skipTest(f"v13 commit {V13_COMMIT} is not available: {archive.stderr.decode(errors='replace')}")
+        destination = temp / "v13"
+        destination.mkdir()
+        subprocess.run(["tar", "-x", "-C", str(destination)], input=archive.stdout, check=True, timeout=120)
+        return destination / "skills/orchestrate/sdd-orchestrator/scripts/install_project.py"
+
+    def test_retired_template_paths_list_every_controller_file_removed_since_v13(self) -> None:
+        module = self.load_installer_module()
+        retired = module.constants.RETIRED_TEMPLATE_PATHS
+        self.assertEqual(15, len(retired))
+        self.assertTrue(all(path.startswith(".hermes/orchestration/sub-agents/") for path in retired))
+        for path in retired:
+            self.assertFalse((TEMPLATES / path).exists(), path)
+        # Deprecated, not removed: it still ships.
+        self.assertTrue((ORCHESTRATION / "runtime/bounded_loop_driver.py").is_file())
+        listed = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-tree", "-r", "--name-only", V13_COMMIT, "skills/orchestrate/sdd-orchestrator/templates/"],
+            capture_output=True, text=True, check=False, timeout=60,
+        )
+        if listed.returncode == 0:
+            prefix = "skills/orchestrate/sdd-orchestrator/templates/"
+            removed = {
+                line[len(prefix):] for line in listed.stdout.splitlines()
+                if line.startswith(prefix + ".hermes/orchestration/") and not (TEMPLATES / line[len(prefix):]).exists()
+            }
+            self.assertEqual(removed, set(retired))
+
+    def test_upgrade_of_a_v13_install_removes_retired_sub_agent_briefs_with_backup(self) -> None:
+        for mode in self.MODES:
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory(prefix="sdd-upgrade-v13-") as temp:
+                temp_path = Path(temp)
+                installer = self.v13_installer(temp_path)
+                target, storage, root = self.fixture(temp_path, mode)
+                self.install(installer, target, storage)
+                self.assertFalse((root / UPGRADE_MANIFEST).exists())
+                retired = self.load_installer_module().constants.RETIRED_TEMPLATE_PATHS
+                originals = {path: (root / path).read_bytes() for path in retired}
+                self.assertEqual(15, len(originals))
+
+                code, blocked = self.upgrade(target, storage, "--apply")
+                self.assertEqual(2, code)
+                unverified = [w for w in blocked["warnings"] if w.startswith("OBSOLETE_UNVERIFIED: ")]
+                self.assertEqual(15, len(unverified), blocked["warnings"])
+                self.assertTrue(all("--accept-current-as-baseline" in w for w in unverified))
+                self.assertTrue(all((root / path).is_file() for path in retired))
+
+                code, plan = self.upgrade(target, storage, "--accept-current-as-baseline")
+                self.assertEqual(0, code, plan)
+                self.assertEqual(sorted(retired), sorted(set(plan["changes"]["remove"]) & set(retired)))
+
+                code, applied = self.upgrade(target, storage, "--accept-current-as-baseline", "--apply")
+
+                self.assertEqual(0, code, applied)
+                self.assertEqual("UPGRADED", applied["status"])
+                backup = Path(applied["backup"])
+                backup_manifest = json.loads((backup / "BACKUP_MANIFEST.json").read_text(encoding="utf-8"))
+                for path, content in originals.items():
+                    self.assertFalse((root / path).exists(), path)
+                    self.assertEqual(content, (backup / "files" / path).read_bytes())
+                    self.assertEqual("REMOVE", backup_manifest["files"][path]["action"])
+                remaining = sorted(p.name for p in (root / ".hermes/orchestration/sub-agents").iterdir())
+                self.assertEqual(
+                    sorted(p.name for p in (ORCHESTRATION / "sub-agents").iterdir()), remaining,
+                )
+                self.assertEqual("ALREADY_CURRENT", self.upgrade(target, storage)[1]["status"])
 
     def test_upgrade_preconditions_not_installed_and_downgrade(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-upgrade-pre-") as temp:

@@ -17,7 +17,7 @@ Run `J recover`. It is read-only and returns `decision`, `reason`, `next_step` a
 | `DISPATCHED`, no result | `WAIT_OR_MANUAL_REVIEW` | wait in the foreground; once it ended: `J record-process --finished --exit-code <exit-code>` |
 | `DISPATCHED`/`PROCESS_FINISHED`/`ARTIFACT_READY`/`VALIDATED` with a final message | `RECONCILE_ARTIFACT` | the step it names: `record-process --finished`, `record-artifact`, `validate_protocol.py` then `mark-validated` or `classify-invalid`, `prepare-state-commit` |
 | `PREPARED` with `ADOPT_PARENT_ARTIFACT` | `RECONCILE_ARTIFACT` | `J record-artifact` (no dispatch) |
-| `PROCESS_FINISHED`, no final message (timeout, crash, non-zero exit) | `ARCHIVE_INTERRUPTED_REQUIRED` | `J archive-interrupted --history-dir <history-dir>` |
+| `PROCESS_FINISHED`, no final message (timeout, crash, non-zero exit; a symlink or directory at the path counts as none) | `ARCHIVE_INTERRUPTED_REQUIRED` | `J archive-interrupted --history-dir <history-dir>` |
 | artifact classified `INVALID` | `CORRECTIVE_RETRY_AVAILABLE` (or `BLOCKED` / `RETRY_BUDGET_REACHED`) | `J archive-invalid --history-dir <history-dir>` |
 | `VALIDATED`, STATE = before hash | `STATE_COMMIT_REQUIRED` | write the prepared STATE, then `J mark-state-committed` |
 | `VALIDATED`, STATE = after hash | `ALREADY_COMMITTED` | `J mark-state-committed` |
@@ -26,14 +26,17 @@ Run `J recover`. It is read-only and returns `decision`, `reason`, `next_step` a
 | `BLOCKED` | `BLOCKED` / `ACTION_BLOCKED` | `J archive-blocked --history-dir <history-dir> --reason '<reason>'` |
 | live `INTERRUPTED` | `BLOCKED` / `ACTION_RECOVERY_REQUIRED` | `J archive-blocked ...` |
 | dirty `IDLE` | `BLOCKED` / `DIRTY_OR_INCONSISTENT_IDLE` | `J archive-blocked ...` |
+| ticket or action id not a safe path component | `BLOCKED` / `JOURNAL_INCONSISTENT` | `J block`, then `J archive-blocked ...` (filed under `NO-TICKET/NO-ACTION-<hash>`) |
 | STATE matches neither hash | `BLOCKED` / `STATE_DESYNC` (incident required) | restore STATE and `recover`, or `J block` then `archive-blocked` |
 
-Every `BLOCKED` carries a `stop_reason`. Every archive (`rollover`, `archive-interrupted`, `archive-invalid`, `archive-blocked`) writes immutable history to `<history-dir>/<ticket>/<action_id>.json`, opens a pristine `IDLE` journal, mirrors the action to the wiki and returns `recovery_after_*: DISPATCH_ALLOWED`. History is append-only: same bytes are idempotent; different bytes fail with `JOURNAL_HISTORY_CONFLICT` and leave the live journal unchanged.
+Every `BLOCKED` carries a `stop_reason`. Every archive (`rollover`, `archive-interrupted`, `archive-invalid`, `archive-blocked`) writes immutable history to `<history-dir>/<ticket>/<action_id>.json`, opens a pristine `IDLE` journal, mirrors the action to the wiki and returns `recovery_after_*: DISPATCH_ALLOWED`. History is append-only: same bytes are idempotent; different bytes fail with `JOURNAL_HISTORY_CONFLICT` and leave the live journal unchanged. The ticket and action id are path components, so both must match `sdd.py`'s ticket pattern (start with a letter or digit; letters, digits, `.`, `_`, `-`; ticket ≤ 64, action id ≤ 160 characters): `prepare` refuses others with `ACTION_ID_UNSAFE` and history writes with `HISTORY_PATH_UNSAFE`.
+
+A final message exists only as a regular file at the path itself, checked without following links. `recover`, `record-artifact` and `archive-interrupted` apply that same test, so a symlink (even to a valid file) or a directory is missing everywhere and the chain always reaches `DISPATCH_ALLOWED`. Before dispatch anything at the path, a dangling symlink included, blocks (`ARTIFACT_PENDING`).
 
 ## Successful action
 
 1. `J prepare --payload '<action-json>'`: new `action_id`, prompt SHA-256, distinct final-message path, fingerprints, attempt, `retry_mode`, `parent_action_id` when retrying.
-2. `J record-process --started --prompt-sha256 <sha256-of-prompt>`. Refused with `DISPATCH_NOT_PREPARED` unless the journal is a dispatchable `PREPARED`, with `PROMPT_HASH_MISMATCH` when the prompt is not the prepared one, and with `ARTIFACT_PENDING` when the final-message path already holds a file.
+2. `J record-process --started --prompt-sha256 <sha256-of-prompt>`. Refused with `DISPATCH_NOT_PREPARED` unless the journal is a dispatchable `PREPARED`, with `PROMPT_HASH_MISMATCH` when the prompt is not the prepared one, and with `ARTIFACT_PENDING` when anything (file, directory or symlink) already occupies the final-message path.
 3. Launch the executor in the foreground. In a `finally` block: `J record-process --finished --exit-code <exit-code>` (124 for a timeout). Repeating the same exit code is a no-op; a different one is `PROCESS_RESULT_CONFLICT`.
 4. `J record-artifact`. A missing, directory or symlinked final message returns `ARTIFACT_MISSING` and keeps `PROCESS_FINISHED`.
 5. Validate with `runtime/validate_protocol.py`; then `J mark-validated` (refused with `ARTIFACT_CHANGED` if the file changed since step 4) or `J classify-invalid --invalid-field <field>`.

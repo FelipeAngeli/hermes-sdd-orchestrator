@@ -8,6 +8,7 @@ import dataclasses
 import hashlib
 import json
 import os
+import re
 import secrets
 import shlex
 import stat
@@ -26,6 +27,12 @@ except ImportError:  # loaded by file path (installer) or a partial copy: legacy
 JOURNAL_VERSION = 1
 SCRIPT = Path(os.path.abspath(__file__))
 HISTORY_DIRECTORY_NAME = "action-journal-history"
+#: Ticket and action ids become history path components (``<history>/<ticket>/<action_id>.json``).
+#: The ticket pattern is ``sdd.py``'s TICKET_PATTERN; an action id (``<ticket>-<key>-<n>``) uses the
+#: same alphabet with room for the stage/slice key. Neither admits ``.``/``..``, a separator or a
+#: leading dash, because the first character must be a letter or digit.
+TICKET_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+ACTION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$")
 RETRY_MODES = ("FULL_REPLACEMENT", "METADATA_OVERLAY", "ADOPT_PARENT_ARTIFACT")
 RECOVERY_DECISIONS = (
     "DISPATCH_ALLOWED", "RECONCILE_ARTIFACT", "STATE_COMMIT_REQUIRED", "ALREADY_COMMITTED",
@@ -90,6 +97,7 @@ NEXT_STEPS: dict[str, str] = {
     "PARENT_EVIDENCE_MISMATCH": "Parent evidence cannot be reused; prepare a FULL_REPLACEMENT retry.",
     "METADATA_OVERLAY_INVALID": "Correct only fields listed in allowed_corrections, or prepare a FULL_REPLACEMENT retry.",
     "WORKSPACE_REQUIRED": "Run `paths` from inside the repository worktree or pass --repo <worktree>.",
+    "ACTION_ID_UNSAFE": "Ticket and action id become history path components: each must start with a letter or digit and use only letters, digits, '.', '_' and '-' (ticket at most 64, action id at most 160 characters). Prepare the action again with safe ids; a live journal with unsafe ids is blocked and archived with archive-blocked.",
     "CONTROLLER_WORKSPACE_MISMATCH": "This repository-local controller belongs to another worktree; run the controller installed in this worktree.",
 }
 
@@ -385,10 +393,33 @@ def _sha256_descriptor(descriptor: int) -> str:
     return digest.hexdigest()
 
 
+def safe_path_component(value: Any, *, action: bool = False) -> bool:
+    """Whether ``value`` is a ticket (or, with ``action``, an action id) that is safe as one path component."""
+    pattern = ACTION_ID_PATTERN if action else TICKET_PATTERN
+    return isinstance(value, str) and pattern.fullmatch(value) is not None
+
+
+def ids_are_safe(value: dict[str, Any]) -> bool:
+    action = value["action"]
+    return safe_path_component(action["ticket"]) and safe_path_component(action["id"], action=True)
+
+
+def _require_safe_ids(ticket: Any, action_id: Any) -> None:
+    if not safe_path_component(ticket) or not safe_path_component(action_id, action=True):
+        raise JournalError("HISTORY_PATH_UNSAFE", f"Ticket {ticket!r} and action id {action_id!r} must be safe single path components (see TICKET_PATTERN).")
+
+
+def _fallback_history_names(value: dict[str, Any]) -> tuple[str, str]:
+    """History names for evidence-only archives: the real ids when safe, otherwise NO-TICKET / NO-ACTION-<hash>."""
+    action = value["action"]
+    ticket = action["ticket"] if safe_path_component(action["ticket"]) else "NO-TICKET"
+    action_id = action["id"] if safe_path_component(action["id"], action=True) else f"NO-ACTION-{hashlib.sha256(canonical_json(value)).hexdigest()[:16]}"
+    return ticket, action_id
+
+
 def atomic_create_history(workspace_path: str, history_dir: Path, ticket: str, action_id: str, content: bytes) -> tuple[Path, str]:
     """Persist immutable history through descriptors anchored at the worktree or its bound vault runtime."""
-    if Path(ticket).name != ticket or Path(action_id).name != action_id:
-        raise JournalError("HISTORY_PATH_UNSAFE", "Ticket and action id must be single path components.")
+    _require_safe_ids(ticket, action_id)
     anchor, relative_history, display_root = _history_anchor(workspace_path, history_dir)
     if not relative_history.parts or any(part in {"", ".", ".."} for part in relative_history.parts):
         raise JournalError("HISTORY_PATH_UNSAFE", "History path must name a directory below the workspace.")
@@ -472,9 +503,24 @@ def transition(value: dict[str, Any], target: str) -> dict[str, Any]:
     return changed
 
 
+def final_message_is_regular(location: str | None) -> bool:
+    """A final message exists only as a regular file at the path itself; a symlink (even to a file) or a directory is missing."""
+    if not location:
+        return False
+    try:
+        return stat.S_ISREG(os.lstat(location).st_mode)
+    except OSError:
+        return False
+
+
+def final_path_occupied(location: str | None) -> bool:
+    """Anything at the final-message path, a dangling symlink included: an undispatched action must not reuse it."""
+    return bool(location) and os.path.lexists(str(location))
+
+
 def artifact_present(value: dict[str, Any]) -> bool:
-    location = value["action"]["final_message_path"]
-    return bool(value["artifact"]["exists"] or (location and Path(location).is_file()))
+    """Recorded, or a regular file found without following links: the same test record-artifact applies."""
+    return bool(value["artifact"]["exists"] or final_message_is_regular(value["action"]["final_message_path"]))
 
 
 def _is_adoption(value: dict[str, Any]) -> bool:
@@ -632,8 +678,10 @@ def rollover_journal(path: Path, history_dir: Path) -> dict[str, str]:
         raise JournalError("JOURNAL_ROLLOVER_INCOMPLETE", "Rollover requires a classified artifact.")
     if not commit["committed_after_hash"] or not commit["expected_after_hash"]:
         raise JournalError("JOURNAL_ROLLOVER_INCOMPLETE", "Rollover requires completed STATE commit evidence.")
+    # STATE is already committed: the archive is evidence, so unsafe legacy ids fall back to NO-TICKET/NO-ACTION-<hash>.
+    ticket, action_id = _fallback_history_names(value)
     archived_path, archived_sha256 = atomic_create_history(
-        value["workspace"]["path"], history_dir, action["ticket"], action["id"], canonical_json(value),
+        value["workspace"]["path"], history_dir, ticket, action_id, canonical_json(value),
     )
     fresh = empty_journal(value["workspace"])
     atomic_write(path, fresh)
@@ -662,8 +710,9 @@ def archive_interrupted_allowed(value: dict[str, Any]) -> None:
         raise JournalError("JOURNAL_ARCHIVE_INTERRUPTED_NOT_ALLOWED", "A present or valid artifact cannot be archived as interrupted.")
     if commit["verified"] or commit["committed_after_hash"]:
         raise JournalError("JOURNAL_ARCHIVE_INTERRUPTED_NOT_ALLOWED", "A STATE_COMMITTED action cannot be archived as interrupted.")
-    if not action["id"] or not action["ticket"]:
-        raise JournalError("JOURNAL_ARCHIVE_INTERRUPTED_INCOMPLETE", "archive-interrupted requires action id and ticket.")
+    if not ids_are_safe(value):
+        raise JournalError("JOURNAL_ARCHIVE_INTERRUPTED_INCOMPLETE", "archive-interrupted requires a safe action id and ticket.",
+                           next_command=journal_command(None, "block"))
 
 
 def archive_interrupted_journal(path: Path, history_dir: Path) -> dict[str, str]:
@@ -672,7 +721,12 @@ def archive_interrupted_journal(path: Path, history_dir: Path) -> dict[str, str]
     RELEASED/rollover remains the success path. This primitive records INTERRUPTED, never SUCCESS.
     """
     value = load_journal(path)
-    archive_interrupted_allowed(value)
+    try:
+        archive_interrupted_allowed(value)
+    except JournalError as exc:
+        if exc.code == "JOURNAL_ARCHIVE_INTERRUPTED_INCOMPLETE":
+            raise JournalError(exc.code, str(exc), next_command=journal_command(path, "block")) from None
+        raise
     interrupted = transition(value, "INTERRUPTED")
     archived_path, archived_sha256 = atomic_create_history(
         value["workspace"]["path"], history_dir, interrupted["action"]["ticket"], interrupted["action"]["id"], canonical_json(interrupted),
@@ -713,8 +767,7 @@ def archive_blocked_journal(path: Path, history_dir: Path, reason: str) -> dict[
                            next_command=journal_command(path, "recover"))
     archived = copy.deepcopy(value)
     archived["incidents"].append(f"ARCHIVED_BLOCKED: {' '.join(reason.split())}")
-    ticket = archived["action"]["ticket"] or "NO-TICKET"
-    action_id = archived["action"]["id"] or f"NO-ACTION-{hashlib.sha256(canonical_json(archived)).hexdigest()[:16]}"
+    ticket, action_id = _fallback_history_names(archived)
     archived_path, archived_sha256 = atomic_create_history(value["workspace"]["path"], history_dir, ticket, action_id, canonical_json(archived))
     atomic_write(path, empty_journal(value["workspace"]))
     persisted = load_journal(path)
@@ -744,13 +797,11 @@ def archive_invalid_allowed(value: dict[str, Any]) -> None:
     if (
         not artifact_path
         or "BLOCKED" not in TRANSITIONS[action["status"]]
-        or not action["id"]
-        or not action["ticket"]
+        or not ids_are_safe(value)
         or not artifact["exists"]
         or artifact["validation_status"] != "INVALID"
         or not artifact["sha256"]
-        or not artifact_path.is_file()
-        or sha256(artifact_path) != artifact["sha256"]
+        or regular_file_sha256(artifact_path) != artifact["sha256"]
         or commit["verified"]
     ):
         raise JournalError("JOURNAL_ARCHIVE_INVALID_NOT_ALLOWED", "archive-invalid requires a present, classified invalid artifact without a verified STATE commit.")
@@ -799,8 +850,7 @@ def _invalid_classification_allowed(value: dict[str, Any], invalid_fields: list[
         or not artifact["exists"]
         or artifact["validation_status"] not in {"PENDING", "INVALID"}
         or not artifact["sha256"]
-        or not artifact_path.is_file()
-        or sha256(artifact_path) != artifact["sha256"]
+        or regular_file_sha256(artifact_path) != artifact["sha256"]
         or commit["verified"]
         or commit["committed_after_hash"]
     ):
@@ -872,6 +922,7 @@ def recovery_decision(value: dict[str, Any], *, journal_path: Path | None = None
     action = value["action"]
     status = action["status"]
     exists = artifact_present(value)
+    occupied = exists or final_path_occupied(action["final_message_path"])
     history = canonical_history_dir(journal_path)
     cmd = lambda command, *options: journal_command(journal_path, command, *options)  # noqa: E731
     archive_blocked = cmd("archive-blocked", "--history-dir", str(history), "--reason", "'<reason>'")
@@ -896,6 +947,10 @@ def recovery_decision(value: dict[str, Any], *, journal_path: Path | None = None
         return _decision("BLOCKED", "action was blocked",
                          "Archive the blocked action with a reason to open a pristine journal, then prepare a new action. If it was blocked only because its artifact was invalid, recover-blocked-invalid --invalid-field <field> reopens it for a corrective retry instead.",
                          archive_blocked, stop_reason="ACTION_BLOCKED")
+    if not ids_are_safe(value):
+        return _decision("BLOCKED", "ticket or action id is not a safe path component",
+                         "This action's ids cannot name a history entry. Block it, then archive it with archive-blocked (it is filed under NO-TICKET/NO-ACTION-<hash>) and prepare a new action with safe ids.",
+                         cmd("block"), stop_reason="JOURNAL_INCONSISTENT")
     if exists and value["artifact"]["validation_status"] == "INVALID":
         archive_invalid = cmd("archive-invalid", "--history-dir", str(history))
         if corrective_retry_allowed(action["attempt"] - 1, 1):
@@ -956,13 +1011,13 @@ def recovery_decision(value: dict[str, Any], *, journal_path: Path | None = None
                          "Before writing STATE, record its current and intended SHA-256 with prepare-state-commit; then write STATE atomically and run mark-state-committed.",
                          cmd("prepare-state-commit", "--state-path", str(canonical_state_path(journal_path)),
                              "--expected-before-hash", "<sha256-of-current-STATE>", "--expected-after-hash", "<sha256-of-new-STATE>"))
-    if status == "PREPARED" and not value["process"]["started_at"] and not exists:
+    if status == "PREPARED" and not value["process"]["started_at"] and not occupied:
         return _decision("DISPATCH_ALLOWED", "prepared action has not started",
                          "Record the dispatch with the prepared prompt hash immediately before launching the executor in the foreground; after it exits (even on error or timeout) record --finished with its exit code.",
                          cmd("record-process", "--started", "--prompt-sha256", str(action["prompt_hash"] or "<prompt-sha256>")))
-    if status == "PREPARED" and exists:
-        return _decision("BLOCKED", "a final-message file already exists for an undispatched action",
-                         "The final-message path is occupied by a file this action never produced; block and archive the action, then prepare a new one with a distinct final-message path.",
+    if status == "PREPARED" and occupied:
+        return _decision("BLOCKED", "the final-message path of an undispatched action is already occupied",
+                         "The final-message path is occupied (a file, directory or symlink) this action never produced; block and archive the action, then prepare a new one with a distinct final-message path.",
                          cmd("block"), stop_reason="ARTIFACT_PENDING")
     if status == "DISPATCHED" and not exists and value["process"]["exit_code"] is None:
         return _decision("WAIT_OR_MANUAL_REVIEW", "process result is unknown",
@@ -984,13 +1039,13 @@ def dispatch_allowed(value: dict[str, Any]) -> bool:
 def require_dispatch_allowed(value: dict[str, Any], *, journal_path: Path | None = None) -> None:
     decision = recovery_decision(value, journal_path=journal_path)
     if decision["decision"] != "DISPATCH_ALLOWED":
-        raise JournalError("ARTIFACT_PENDING" if artifact_present(value) else "ACTION_RECOVERY_REQUIRED", decision["reason"],
+        raise JournalError("ARTIFACT_PENDING" if artifact_present(value) or final_path_occupied(value["action"]["final_message_path"]) else "ACTION_RECOVERY_REQUIRED", decision["reason"],
                            next_step=decision["next_step"], next_command=decision["next_command"])
 
 
 def _read_history_entry(workspace_path: str, history_dir: Path, ticket: str, action_id: str) -> dict[str, Any] | None:
     """Read one archived action through no-follow descriptors; None when it does not exist."""
-    if not ticket or not action_id or Path(ticket).name != ticket or Path(action_id).name != action_id:
+    if not safe_path_component(ticket) or not safe_path_component(action_id, action=True):
         return None
     anchor, relative, _ = _history_anchor(workspace_path, history_dir)
     descriptors: list[int] = []
@@ -1049,6 +1104,9 @@ def prepare_action(path: Path, next_value: dict[str, Any], *, history_dir: Path 
     validate_journal(next_value)
     if next_value["action"]["status"] != "PREPARED":
         raise JournalError("INVALID_TRANSITION", "New action must start PREPARED.")
+    if not ids_are_safe(next_value):
+        raise JournalError("ACTION_ID_UNSAFE", f"Ticket {next_value['action']['ticket']!r} or action id {next_value['action']['id']!r} is not a safe path component.",
+                           next_command=journal_command(path, "prepare", "--payload", "'<action-json>'"))
     if _is_adoption(next_value):
         require_adoption_allowed(next_value, history_dir or path.parent / HISTORY_DIRECTORY_NAME)
     atomic_write(path, next_value)
@@ -1065,8 +1123,8 @@ def record_process_started(path: Path, prompt_sha256: str | None = None) -> dict
         raise JournalError("ADOPTION_DISPATCH_FORBIDDEN", "An ADOPT_PARENT_ARTIFACT action never dispatches an executor.",
                            next_command=journal_command(path, "record-artifact"))
     decision = recovery_decision(value, journal_path=path)
-    if artifact_present(value):
-        raise JournalError("ARTIFACT_PENDING", "The final-message path already holds a file; dispatch would overwrite it.",
+    if artifact_present(value) or final_path_occupied(value["action"]["final_message_path"]):
+        raise JournalError("ARTIFACT_PENDING", "The final-message path is already occupied (file, directory or symlink); dispatch would write through it.",
                            next_step=decision["next_step"], next_command=decision["next_command"])
     if decision["decision"] != "DISPATCH_ALLOWED":
         raise JournalError("DISPATCH_NOT_PREPARED", decision["reason"], next_command=recover)
