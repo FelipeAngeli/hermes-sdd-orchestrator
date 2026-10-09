@@ -21,6 +21,9 @@ import stop_reasons  # noqa: E402
 
 CODE = re.compile(r"^[A-Z][A-Z0-9_]{2,}$")
 SINK_CALLS = {"_stop", "stop", "stopped"}
+#: Exception classes whose first positional argument is the ``status`` code of an
+#: exit-2 payload the controller reads exactly like a ``stop_reason``.
+SINK_RAISES = {"SddError"}
 #: Module-level collections whose values are emitted as stop reasons.
 SINK_COLLECTIONS = {"EMITTED_STOP_REASONS", "LOOP_STOP_REASONS", "BUDGET_STOP_REASONS", "GATE_STOP_REASONS", "GATE_FAILURE_STOP_REASONS"}
 #: Functions whose returned constants become a driver/loop stop reason.
@@ -47,6 +50,10 @@ def emitted_literals(path: Path) -> set[str]:
                 for argument in node.args:
                     if isinstance(argument, ast.Constant):
                         found |= _constants(argument)
+            elif name in SINK_RAISES and node.args and isinstance(node.args[0], ast.Constant):
+                # `raise SddError("CODE", ...)` reaches the controller as the `status` of an
+                # exit-2 payload: it is a stop reason under another name.
+                found |= _constants(node.args[0])
         elif isinstance(node, ast.Assign):
             targets = [target.id for target in node.targets if isinstance(target, ast.Name)]
             if any(target in SINK_COLLECTIONS for target in targets):
@@ -106,7 +113,7 @@ class StopReasonRegistryTests(unittest.TestCase):
                 described = stop_reasons.describe(code)["next_command"]
                 self.assertIn("sdd.py", described)
                 for placeholder in re.findall(r"<[^<>]+>", described):
-                    self.assertIn(placeholder, stop_reasons.USER_PLACEHOLDERS)
+                    self.assertIn(placeholder, stop_reasons.USER_PLACEHOLDERS | stop_reasons.RUNTIME_PLACEHOLDERS)
 
     def test_gate_failures_reopen_in_place_instead_of_a_lateral_transition(self) -> None:
         for code in ("FOCUSED_TESTS_FAILED", "FORMAT_FAILED", "ANALYZE_FAILED", "CI_FAILED", "REVIEW_BLOCKED", "REVIEW_CHANGES_REQUIRED"):
@@ -129,6 +136,22 @@ class StopReasonRegistryTests(unittest.TestCase):
             if match:
                 with self.subTest(code=code):
                     self.assertIn(match.group(1), sdd.RAISABLE_BUDGETS)
+
+    def test_sdd_error_codes_are_registered_stop_reasons(self) -> None:
+        """`raise SddError("CODE")` is an exit-2 `status` the controller reads like a stop reason."""
+        codes = emitted_literals(RUNTIME / "sdd.py")
+        for code in ("DEMAND_ACTIVE", "TICKET_INVALID", "STEP_MISMATCH", "WAIVE_REQUIRES_HUMAN_CHECK",
+                     "GATES_CHANGED_DURING_DEMAND", "AGENT_OWNED_PATH_UNSAFE"):
+            with self.subTest(code=code):
+                self.assertIn(code, codes, "the guard must see codes raised as SddError")
+                self.assertIn(code, stop_reasons.STOP_REASONS)
+
+    def test_a_refused_human_decision_has_an_abandon_command(self) -> None:
+        """HUMAN_DECISION_REQUIRED is not a dead end when the user refuses: `abandon` returns to IDLE."""
+        self.assertIn("ABANDON_REQUESTED", stop_reasons.STOP_REASONS)
+        described = stop_reasons.describe("ABANDON_REQUESTED")
+        self.assertEqual("HUMAN", described["kind"])
+        self.assertIn(" abandon ", described["next_command"])
 
 
 if __name__ == "__main__":

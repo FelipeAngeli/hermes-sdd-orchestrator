@@ -4,6 +4,18 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+- `sdd.py abandon --reason R --quote Q` (any stage except DONE → IDLE): the exit of a demand that will not reach DONE. A refused human decision previously had no command at all — `close` accepted only DONE, `start` refused with `DEMAND_ACTIVE` and `next` reprinted the same `HUMAN_DECISION_REQUIRED` stop forever. It reverts nothing in the worktree, records `{reason, quote, by, stop_reason, pending_human_checks}` with `outcome: ABANDONED`, `stage_reached` and `left_in_worktree` in `closed_demands`, and returns STATE to IDLE so the next `start` is accepted. Every `HUMAN_DECISION_REQUIRED` stop now also prints `refusal_command`.
+- `sdd.py disown --path P --reason R`: drops one path from `ownership.agent_owned` into `ownership.disowned_unsafe` without touching the file. It is the remediation `AGENT_OWNED_PATH_UNSAFE` names (its stop prints one `disown` command per unsafe path in `disown_commands`); previously that stop's `next_step` described dropping the path "through a reopened stage", which no command did, and its `next_command` was `sdd.py status`, which makes no progress.
+- Stop reasons `ABANDON_REQUESTED`, `DEMAND_ACTIVE`, `TICKET_INVALID`, `STEP_MISMATCH`, `WAIVE_REQUIRES_HUMAN_CHECK`, `GATES_CHANGED_DURING_DEMAND` and `AGENT_OWNED_PATH_UNSAFE` are registered in `runtime/stop_reasons.py` and listed in `LOOP_POLICY.md` §9. They were already emitted by `sdd.py` as the `status` of an exit-2 payload but were invisible to the registry guard, so a controller trusting §9 could meet an unknown code. `stop_reasons.RUNTIME_PLACEHOLDERS` holds the `<check-id>`/`<gate>`/`<path>` placeholders the runtime fills itself.
+- `action_journal.block_action(path)`: the public door to `BLOCKED` (used by the `block` CLI command and by `sdd.py reprepare`, which reached into the private `_save_transition` instead).
+
+### Changed
+- `sdd.py start` sizes `ci_runs` as `review_cycles` (2, was fixed at 1): one CI failure followed by the REVIEW reopen the same authorization pre-approves no longer exhausts the budget and stops with `CI_RUN_BUDGET_REACHED`, which in practice cancelled the authorized review cycle.
+- `sdd.py close` and `sdd.py abandon` clear the whole `ownership` block, `blockers` and (on `start`) `human_accepted`/`disowned_unsafe`. A path the user accepted in one demand no longer survives into the next one as `human_accepted_paths` in the worker manifest, silently suppressing an ownership finding the new demand's REVIEW should raise.
+- `GATE_COMMAND_UNCONFIGURED`'s registered `next_step` no longer claims that configuring `GATES.md` makes `sdd.py next` run the gate: editing it mid-demand needs the user's `gate --confirm-gates-policy` once, which the stop now says. `reopen_slices` documents that clearing `delivery.approved_slice_sha256s` is deliberate (the FIX slice runs under the reopen's own `--quote` and never re-raises `SCOPE_CHANGE_REQUIRED`).
+- `tests/test_stop_reasons.py` treats `raise SddError("CODE", ...)` as a stop-reason sink (`SINK_RAISES`), so a new command refusal cannot be added without registering it and documenting it in §9.
+
 ## 14.0.1 - 2026-10-09
 
 ### Fixed

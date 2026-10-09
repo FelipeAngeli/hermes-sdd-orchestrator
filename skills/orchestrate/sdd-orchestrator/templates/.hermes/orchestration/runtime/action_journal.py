@@ -755,6 +755,17 @@ def archive_interrupted_journal(path: Path, history_dir: Path) -> dict[str, str]
     }
 
 
+def block_action(path: Path) -> dict[str, Any]:
+    """Public door to BLOCKED: move the live action to BLOCKED and mirror the incident.
+
+    ``archive_blocked_journal`` then archives it. Callers outside this module (``sdd.py``,
+    the ``block`` CLI command) use this instead of reaching into ``_save_transition``.
+    """
+    value = _save_transition(path, "BLOCKED")
+    _mirror_to_wiki(value, "BLOCKED")
+    return value
+
+
 def archive_blocked_journal(path: Path, history_dir: Path, reason: str) -> dict[str, Any]:
     """Archive a BLOCKED, stale INTERRUPTED or dirty IDLE journal with its reason, then open a pristine journal."""
     if not reason or not reason.strip():
@@ -1357,7 +1368,7 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "archive-invalid": value = archive_invalid_journal(path, history)
             else: value = archive_blocked_journal(path, history, args.reason or "")
         elif args.command == "block":
-            value = _save_transition(path, "BLOCKED"); _mirror_to_wiki(value, "BLOCKED")
+            value = block_action(path)
         elif args.command == "inspect": value = load_journal(path)
         else: value = recovery_decision(load_journal(path), journal_path=path)
         print(json.dumps(value, sort_keys=True) if args.json else value)
