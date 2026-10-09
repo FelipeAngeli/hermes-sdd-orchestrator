@@ -168,6 +168,13 @@ class StopReasonRegistryTests(unittest.TestCase):
         self.assertNotIn("confirm-policy", described["next_command"])
         self.assertIn("restore", described["next_step"].lower())
 
+    def test_a_writing_worker_sharing_the_controller_filesystem_has_a_registered_stop(self) -> None:
+        """Prevention, not detection: the dispatch is refused and the exit is moving the controller out."""
+        self.assertIn("CONTROLLER_WRITABLE_BY_WORKER", stop_reasons.STOP_REASONS)
+        described = stop_reasons.describe("CONTROLLER_WRITABLE_BY_WORKER")
+        self.assertEqual("BLOCKED", described["kind"])
+        self.assertIn("migrate_to_vault", described["next_step"])
+
 
 if __name__ == "__main__":
     unittest.main()

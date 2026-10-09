@@ -511,6 +511,57 @@ class LaunchRunTests(FakeCliMixin, unittest.TestCase):
         code, result = self.run_launcher("build", "PLAN", "--policy", str(policy), *extra)
         self.assertEqual("ADD_DIR_WRITABLE_REFUSED", result["status"], result)
 
+    def test_a_writing_worker_sharing_the_controller_filesystem_is_never_dispatched(self) -> None:
+        """Prevention: the controller inside the worker's writable repository refuses the dispatch.
+
+        Every tamper *detection* (policy pin, STATE fingerprint, journal) is written in the
+        same tree the writing worker can rewrite, so the anchor is as writable as the thing
+        it attests. The only sound answer is not to start the worker at all.
+        """
+        controller = self.repo / ".hermes"
+        (controller / "orchestration" / "policies").mkdir(parents=True)
+        with mock.patch.object(launch, "CONTROLLER_HERMES_ROOT", controller):
+            for stage in ("IMPLEMENT", "TEST"):
+                with self.subTest(stage=stage):
+                    self.final.unlink(missing_ok=True)
+                    self.journal.unlink(missing_ok=True)
+                    self.prepare(stage, "codex")
+                    code, result = self.run_launcher("build", stage)
+                    self.assertEqual((2, "CONTROLLER_WRITABLE_BY_WORKER"), (code, result["status"]), result)
+                    self.assertNotIn("argv", result)
+                    self.assertTrue(result["next_step"])
+                    code, result = self.run_launcher("run", stage)
+                    self.assertEqual("CONTROLLER_WRITABLE_BY_WORKER", result["status"], result)
+                    self.assertFalse(self.record.exists(), "nothing may be dispatched")
+                    self.assertEqual("PREPARED", self.journal_value()["action"]["status"])
+
+    def test_a_read_only_worker_may_share_the_controller_filesystem(self) -> None:
+        """A worker that cannot write a file cannot rewrite the controller: only writers are refused."""
+        controller = self.repo / ".hermes"
+        controller.mkdir()
+        with mock.patch.object(launch, "CONTROLLER_HERMES_ROOT", controller):
+            self.prepare("PLAN", "claude")
+            code, built = self.run_launcher("build", "PLAN")
+            self.assertEqual(0, code, built)
+            self.assertEqual("Read,Grep,Glob", built["argv"][built["argv"].index("--tools") + 1])
+
+    def test_a_writing_worker_outside_the_controller_filesystem_is_still_dispatched(self) -> None:
+        self.prepare("IMPLEMENT", "codex")
+        code, built = self.run_launcher("build", "IMPLEMENT")
+        self.assertEqual(0, code, built)
+        self.assertIn("--cd", built["argv"])
+
+    def test_claude_with_write_tools_sharing_the_controller_filesystem_is_refused(self) -> None:
+        policy = self.base / "EXECUTORS.md"
+        policy.write_text('```json\n{"executors_version": 1, "stages": {"PLAN": {"executor": "claude", "tools": "Read,Edit"}}}\n```\n',
+                          encoding="utf-8")
+        controller = self.repo / ".hermes"
+        controller.mkdir()
+        with mock.patch.object(launch, "CONTROLLER_HERMES_ROOT", controller):
+            self.prepare("PLAN", "claude")
+            code, result = self.run_launcher("build", "PLAN", "--policy", str(policy))
+            self.assertEqual("CONTROLLER_WRITABLE_BY_WORKER", result["status"], result)
+
     def test_worker_environment_is_allow_listed(self) -> None:
         secret = "synthetic-" + "v" * 12
         names = {
@@ -816,6 +867,54 @@ class WorkerStateTamperTests(unittest.TestCase):
         described = stop_reasons.describe("STATE_MODIFIED_DURING_ACTION")
         self.assertEqual("BLOCKED", described["kind"])
         self.assertIn("sdd.py", described["next_command"])
+
+
+class ControllerIsolationTests(unittest.TestCase):
+    """`sdd.py` refuses a writing stage while the controller shares the worker's writable tree.
+
+    The launcher refuses the dispatch (`CONTROLLER_WRITABLE_BY_WORKER`); the controller must
+    end the turn with that stop instead of printing a PREPARE/DISPATCH batch that can only
+    exit 2. Prevention replaces a detection whose anchors the worker could rewrite.
+    """
+
+    def setUp(self) -> None:
+        import sdd
+
+        self.sdd = sdd
+
+    def settings(self, stage: str) -> dict:
+        import executor_launch
+
+        return executor_launch.stage_settings(executor_launch.load_policy(), stage, executor=None, model=None, timeout=None)
+
+    def test_local_storage_refuses_every_writing_stage(self) -> None:
+        for stage in ("IMPLEMENT", "TEST"):
+            with self.subTest(stage=stage):
+                error = self.sdd.controller_isolation_error("LOCAL", stage)
+                self.assertIsNotNone(error)
+                self.assertEqual("CONTROLLER_WRITABLE_BY_WORKER", error.code)
+                self.assertIn("migrate_to_vault", error.next_command)
+                self.assertTrue(error.next_step)
+
+    def test_local_storage_still_allows_read_only_stages(self) -> None:
+        for stage in ("SPECIFY", "CLARIFY", "PLAN", "TASKS", "REVIEW"):
+            with self.subTest(stage=stage):
+                self.assertIsNone(self.sdd.controller_isolation_error("LOCAL", stage))
+
+    def test_obsidian_storage_allows_every_stage(self) -> None:
+        for stage in self.sdd.STAGES:
+            with self.subTest(stage=stage):
+                self.assertIsNone(self.sdd.controller_isolation_error("OBSIDIAN", stage))
+
+    def test_the_refused_stages_are_exactly_the_writing_workers(self) -> None:
+        """The controller's refusal and the launcher's own writing-worker test agree."""
+        import executor_launch
+
+        for stage in self.sdd.STAGES:
+            writing = executor_launch.is_writing_worker(self.settings(stage))
+            refused = self.sdd.controller_isolation_error("LOCAL", stage) is not None
+            with self.subTest(stage=stage):
+                self.assertEqual(writing, refused)
 
 
 if __name__ == "__main__":

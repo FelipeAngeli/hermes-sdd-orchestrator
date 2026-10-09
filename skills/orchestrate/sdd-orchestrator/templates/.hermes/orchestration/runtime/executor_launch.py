@@ -50,7 +50,7 @@ LAUNCH_STATUSES = (
     "JOURNAL_NOT_PREPARED", "JOURNAL_MISMATCH", "PROMPT_HASH_MISMATCH", "ARTIFACT_PENDING",
     "EXECUTOR_UNAVAILABLE", "JOURNAL_REFUSED", "POLICY_INVALID", "ROLE_UNKNOWN", "STAGE_UNKNOWN",
     "PROMPT_MISSING", "REPOSITORY_INVALID", "SCHEMA_UNSUPPORTED", "ADD_DIR_WRITABLE_REFUSED", "EXECUTOR_POLICY_UNSAFE",
-    "LAUNCHER_INTERRUPTED",
+    "CONTROLLER_WRITABLE_BY_WORKER", "LAUNCHER_INTERRUPTED",
 )
 PREFLIGHT_REASONS = ("EXECUTOR_UNAVAILABLE", "EXECUTOR_CLI_UNSUPPORTED", "MODEL_INVALID", "MODEL_REJECTED")
 MODEL_CHECKS = ("NOT_PROBED", "ACCEPTED", "REJECTED", "TIMEOUT")
@@ -247,6 +247,44 @@ def check_extra_dirs(stage: str, settings: dict[str, Any], repository: Path, add
                               f"{stage} gives Claude write tools ({settings.get('tools')}); Claude --add-dir {directory} would also be writable.",
                               "Run this stage on codex (its workspace-write sandbox reads the filesystem and writes only the repository), "
                               "or keep the Claude tools read-only (Read,Grep,Glob) in policies/EXECUTORS.md.")
+
+
+MIGRATE_SCRIPT = RUNTIME_ROOT / "migrate_to_vault.py"
+
+
+def check_controller_isolation(stage: str, settings: dict[str, Any], repository: Path) -> None:
+    """Refuse to dispatch a writing worker that shares a filesystem with the controller.
+
+    A worker that can write the repository can write everything the controller keeps
+    there: ``policies/GATES.md`` (whose commands run on the host, outside every worker
+    sandbox), ``policies/EXECUTORS.md`` (which chooses the next worker's binary, tools
+    and sandbox), ``runtime/*.py`` (the controller's own code), the stage briefs, STATE
+    and the action journal.
+
+    Detection cannot close this: every anchor the controller could compare against — the
+    pinned policy hashes in STATE, ``fingerprints.state_before`` in the journal, the
+    journal history — is itself written inside that same repository, so a worker that
+    edits a file and its anchor in one step leaves nothing to detect. The anchor is only
+    evidence when it is out of the worker's reach.
+
+    So the dispatch is refused instead. The controller must live outside the repository
+    (Obsidian storage), which is prevention rather than detection: the container is never
+    a writable root for any worker. A read-only worker is unaffected — it cannot rewrite
+    the controller in the first place.
+    """
+    if not is_writing_worker(settings):
+        return
+    if not _inside(CONTROLLER_HERMES_ROOT, repository):
+        return
+    raise LaunchError(
+        "CONTROLLER_WRITABLE_BY_WORKER",
+        f"{stage} runs a writing worker ({settings['executor']}) whose writable root {repository} contains the controller "
+        f"at {CONTROLLER_HERMES_ROOT}: it could rewrite the gate commands, the executor policy, the controller's own runtime, "
+        "STATE or the journal, together with every hash the controller would check them against.",
+        "Move the controller out of the repository before any writing stage: `migrate_to_vault.py --repo <repository> --apply` "
+        "installs it in the Obsidian container, which is never a writable root for a worker. Until then this stage cannot be "
+        "dispatched; a read-only stage still runs. Run it through `sdd.py`, which prints the exact command and records the stop.",
+        _command(_python(), MIGRATE_SCRIPT, "--repo", repository, "--apply"))
 
 
 # --------------------------------------------------------------------------- schema
@@ -452,6 +490,7 @@ def _plan(args: argparse.Namespace) -> dict[str, Any]:
     if not prompt.is_file():
         raise LaunchError("PROMPT_MISSING", f"Prompt file {prompt} does not exist.", "Write the prompt file, record its SHA-256 in the prepared journal, then retry.")
     check_extra_dirs(args.stage, settings, repository, list(args.add_dir), list(args.read_dir))
+    check_controller_isolation(args.stage, settings, repository)
     binary = shutil.which(settings["executor"]) or settings["executor"]
     argv = build_argv(stage=args.stage, settings=settings, schema=schema, repository=repository, final=final, add_dirs=list(args.add_dir), binary=binary,
                       read_dirs=list(args.read_dir))

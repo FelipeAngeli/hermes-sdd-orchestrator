@@ -553,5 +553,37 @@ class SddGuardTests(e2e.ControllerEndToEndTests):
         self.assertEqual("PASS", self.state()["gates"]["focused_tests"]["status"])
 
 
+    # -- R3-F04: `start` never adopts a changed controller policy as a silent new baseline -
+    def test_start_refuses_a_controller_policy_changed_since_the_last_demand(self) -> None:
+        """A policy edited between demands needs the user's confirmation, not a silent re-pin."""
+        self.craft(stage="REVIEW", review="APPROVED")
+        self.edit_state(lambda data: (data["stage"].update(current="DONE", status="DONE"),
+                                      data["gates"].update(ci={"status": "DISABLED_BY_PROJECT_POLICY"})))
+        code, closed = self.call("close")
+        self.assertEqual(0, code, closed)
+        policy = self.container / ".hermes" / "orchestration" / "policies" / "GATES.md"
+        policy.write_text(policy.read_text(encoding="utf-8") + "\n<!-- edited while IDLE -->\n", encoding="utf-8")
+        code, refused = self.call("start", "--ticket", "c-4", "--title", "t", "--objective", "o")
+        self.assertNotEqual(0, code, refused)
+        self.assertEqual("CONTROLLER_POLICY_CHANGED_DURING_DEMAND", refused["status"])
+        self.assertEqual(["gates"], refused["changed"])
+        self.assertIn("confirm-policy --name gates", refused["next_command"])
+        self.assertEqual("IDLE", self.call("status")[1]["stage"], "the demand never started")
+        # The user's confirmation is the exit; the next start is accepted and pins the confirmed file.
+        code, confirmed = self.run_printed(refused["next_command"].replace("<user words confirming the policy change>", FILL["<user words>"]))
+        self.assertEqual(0, code, confirmed)
+        code, started = self.call("start", "--ticket", "c-4", "--title", "t", "--objective", "o")
+        self.assertEqual(0, code, started)
+        self.assertEqual(confirmed["sha256"], self.state()["delivery"]["controller_policies"]["gates"]["sha256"])
+
+    def test_start_is_accepted_when_the_controller_policies_did_not_change(self) -> None:
+        self.craft(stage="REVIEW", review="APPROVED")
+        self.edit_state(lambda data: (data["stage"].update(current="DONE", status="DONE"),
+                                      data["gates"].update(ci={"status": "DISABLED_BY_PROJECT_POLICY"})))
+        self.assertEqual(0, self.call("close")[0])
+        code, started = self.call("start", "--ticket", "c-5", "--title", "t", "--objective", "o")
+        self.assertEqual(0, code, started)
+
+
 if __name__ == "__main__":
     unittest.main()

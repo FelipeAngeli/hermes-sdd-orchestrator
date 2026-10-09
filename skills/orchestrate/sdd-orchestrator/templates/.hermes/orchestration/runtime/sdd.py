@@ -96,7 +96,7 @@ EMITTED_STOP_REASONS = (
     "ACTION_RECOVERY_REQUIRED", "DONE", "CI_TIMEOUT", "LOOP_PAUSED", "EXECUTOR_UNAVAILABLE",
     "CONTROLLER_POLICY_CHANGED_DURING_DEMAND", "CONTROLLER_POLICY_UNPINNED",
     "CONTROLLER_POLICY_CONFIRMATION_REQUIRED", "CONTROLLER_POLICY_UNREADABLE",
-    "STATE_MODIFIED_DURING_ACTION",
+    "CONTROLLER_WRITABLE_BY_WORKER", "STATE_MODIFIED_DURING_ACTION",
 )
 GATE_FAILURE_STOP_REASONS = {
     "focused_tests": "FOCUSED_TESTS_FAILED", "format": "FORMAT_FAILED", "analyze": "ANALYZE_FAILED", "ci": "CI_FAILED",
@@ -747,6 +747,44 @@ def baseline_stop(ctx: Ctx) -> dict[str, Any] | None:
     return None
 
 
+def controller_isolation_error(storage: str, stage: str) -> SddError | None:
+    """Refuse a writing stage while the controller shares the worker's writable filesystem.
+
+    In ``--local-storage`` the controller lives inside the repository a writing
+    IMPLEMENT/TEST worker edits, so that worker can rewrite the gate commands (which run
+    on the host), the executor policy, the controller's own runtime, the stage briefs,
+    STATE and the journal. No detection closes this: every anchor the controller could
+    compare against is stored in the same writable tree, so one extra write defeats the
+    check. Prevention is the only sound answer, so the dispatch is refused here, before
+    the action is prepared — the launcher refuses it again at the last moment.
+
+    Read-only stages are unaffected: a worker that cannot write cannot rewrite the
+    controller. Obsidian storage keeps the controller outside every writable root and
+    runs every stage.
+    """
+    if storage != "LOCAL":
+        return None
+    import executor_launch
+
+    try:
+        settings = executor_launch.stage_settings(executor_launch.load_policy(), stage, executor=None, model=None, timeout=None)
+    except executor_launch.LaunchError:
+        return None
+    if not executor_launch.is_writing_worker(settings):
+        return None
+    return SddError("CONTROLLER_WRITABLE_BY_WORKER",
+                    f"{stage} runs a writing worker ({settings['executor']}) and the controller lives inside the repository it can write "
+                    f"({CONTROLLER_ROOT}): it could rewrite policies/GATES.md (whose commands run on the host), policies/EXECUTORS.md, the "
+                    "controller runtime, STATE or the journal together with every hash they are checked against.",
+                    next_step="Nothing was dispatched. Move the controller out of the repository before this stage runs: the printed command "
+                              "installs it in the Obsidian container, which is never a writable root for a worker, and the demand continues "
+                              "from where it stopped. Read-only stages (SPECIFY, CLARIFY, PLAN, TASKS, REVIEW) still run in the meantime. "
+                              "This is prevention: with the controller inside the worker's writable tree no detection can hold, because the "
+                              "worker rewrites the evidence as easily as the file.",
+                    next_command=command(RUNTIME / "migrate_to_vault.py", "--repo", str(CONTROLLER_ROOT), "--apply"),
+                    stage=stage, executor=settings["executor"], controller_root=str(CONTROLLER_ROOT))
+
+
 def dispatch_dir_arguments(storage: str) -> list[str]:
     """Extra launcher directories: the Obsidian container is only ever *read* by a worker.
 
@@ -1024,6 +1062,11 @@ def decide_next(ctx: Ctx) -> dict[str, Any]:
     plan = plan_dispatch(ctx)
     if plan["status"] == "STOP":
         return stopped(ctx, plan)
+    # Prevention before preparation: a writing worker that shares the controller's filesystem is
+    # never dispatched, so the action is not even prepared (and no executor call is spent).
+    isolation = controller_isolation_error(ctx.storage, plan["stage"])
+    if isolation is not None:
+        return stopped(ctx, stop(isolation.code, next_command=isolation.next_command, **isolation.extra) | {"next_step": isolation.next_step})
     try:
         manifest = build_manifest(ctx, ctx.state, plan["stage"], role=plan["role"], slice_id=plan["slice_id"], head=plan["head"])
     except SddError as exc:
@@ -1098,6 +1141,9 @@ def cmd_start(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     if not TICKET_PATTERN.match(args.ticket):
         raise SddError("TICKET_INVALID", "Ticket ids are 1-64 letters, digits, '.', '_' or '-' (one path component).",
                        next_command=sdd("start", "--ticket", "<ticket-id>", "--title", args.title, "--objective", args.objective))
+    # Before anything is captured: a policy changed since the last confirmed pin is reviewed
+    # by the user, never adopted as this demand's baseline.
+    start_policy_check(ctx.state)
     data = copy.deepcopy(ctx.state)
     head = git(ctx.repo, "rev-parse", "HEAD").strip()
     branch = git(ctx.repo, "branch", "--show-current").strip()
@@ -1231,6 +1277,9 @@ def cmd_prepare(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     if plan["stage"] != args.stage or plan["role"] != args.role or str(Path(args.manifest)) != plan["manifest"]:
         raise SddError("STEP_MISMATCH", f"The next action is {plan['role'] or plan['stage']} with manifest {plan['manifest']}, not what was passed.",
                        next_step="Run exactly the commands `sdd.py next` printed.", next_command=sdd("next"))
+    isolation = controller_isolation_error(ctx.storage, plan["stage"])
+    if isolation is not None:
+        raise isolation
     manifest_path = Path(args.manifest)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     expected = build_manifest(ctx, ctx.state, plan["stage"], role=plan["role"], slice_id=plan["slice_id"], head=plan["head"])
@@ -1908,13 +1957,50 @@ def policy_digests() -> dict[str, str]:
 
 
 def pin_controller_policies(data: dict[str, Any], by: str) -> dict[str, str]:
-    """Record the current SHA-256 of GATES.md and EXECUTORS.md for this demand."""
+    """Record the current SHA-256 of GATES.md and EXECUTORS.md for this demand.
+
+    The same record is mirrored at the top level of STATE (``controller_policies``), which
+    ``archive_demand`` deliberately keeps: it is the only baseline ``sdd.py start`` can
+    compare the next demand against. Without it a file edited while the controller is IDLE
+    would be re-pinned as the new baseline with no diff shown to anyone — the round-2
+    finding, displaced to the demand boundary.
+    """
     digests = policy_digests()
     stamp = now()
-    data.setdefault("delivery", {})["controller_policies"] = {
-        name: {"sha256": digest, "recorded_at": stamp, "by": by} for name, digest in digests.items()
-    }
+    record = {name: {"sha256": digest, "recorded_at": stamp, "by": by} for name, digest in digests.items()}
+    data.setdefault("delivery", {})["controller_policies"] = record
+    data["controller_policies"] = copy.deepcopy(record)
     return digests
+
+
+def start_policy_check(data: dict[str, Any]) -> None:
+    """Refuse `sdd.py start` when a controller policy changed since the last confirmed pin.
+
+    ``start`` otherwise records whatever is on disk as the new baseline, so a file a worker
+    (or anything else) edited during the previous demand — or while IDLE — is adopted
+    silently and every later gate accepts it. The last pin survives in the top-level
+    ``controller_policies``; a first-ever install has none and is pinned as the baseline.
+    """
+    recorded = data.get("controller_policies") or {}
+    if not recorded:
+        return
+    unreadable = sorted(name for name, digest in policy_digests().items() if not digest)
+    if unreadable:
+        raise unreadable_policy_error(unreadable)
+    current = policy_digests()
+    changed = sorted(name for name, digest in current.items()
+                     if (recorded.get(name) or {}).get("sha256") and recorded[name]["sha256"] != digest)
+    if not changed:
+        return
+    raise SddError("CONTROLLER_POLICY_CHANGED_DURING_DEMAND",
+                   f"{', '.join(changed)} changed since the last confirmed pin; starting a demand would adopt it as the new baseline without review.",
+                   next_step="Show the user the diff of each changed policy file (`git diff` on GATES.md / EXECUTORS.md). Only if they confirm it, "
+                             "record their words with the printed command (once per policy), then run `sdd.py start` again; otherwise restore the "
+                             "file from Git first. The demand has not started.",
+                   next_command=confirm_policy_command(changed[0]),
+                   changed=changed, policies={name: str(CONTROLLER_POLICY_FILES[name]) for name in changed},
+                   sha256={name: current[name] for name in changed},
+                   pinned_sha256={name: recorded[name]["sha256"] for name in changed})
 
 
 def confirm_policy_command(name: str) -> str:
@@ -2000,6 +2086,9 @@ def cmd_confirm_policy(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     data = copy.deepcopy(ctx.state)
     policies = data.setdefault("delivery", {}).setdefault("controller_policies", {})
     policies[name] = {"sha256": digest, "recorded_at": now(), "by": args.by, "quote": args.quote}
+    # Carried across the demand boundary so the next `sdd.py start` compares against this
+    # confirmed digest instead of silently adopting whatever is on disk.
+    data.setdefault("controller_policies", {})[name] = copy.deepcopy(policies[name])
     ctx.write_state(data, f"Controller policy {name} {digest[:12]} confirmed by {args.by}: \"{args.quote}\"")
     record_wiki(ctx, "gate", f"{name} policy confirmed", f"{CONTROLLER_POLICY_FILES[name]}\nSHA-256 {digest}\nConfirmed by {args.by}: {args.quote}",
                 stage=ctx.stage)
