@@ -36,7 +36,9 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/contracts/*",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/EXECUTOR_RESULT_SCHEMA.json",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/REVIEW_RESULT_SCHEMA.json",
-      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/validate_protocol.py"
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/validate_protocol.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/executor_launch.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/EXECUTORS.md"
     ],
     "docs/components/gates-and-stack-detection.md": [
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/GATES.md",

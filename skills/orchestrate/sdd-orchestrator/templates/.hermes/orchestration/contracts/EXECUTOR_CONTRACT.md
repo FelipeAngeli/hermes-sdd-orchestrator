@@ -6,7 +6,24 @@ This contract applies only to external execution actions: `SPECIFY`, `CLARIFY`, 
 
 The final executor message is one JSON document with root `executor_result` and `schema_version: 3`. Markdown, literal YAML, JSONL events, transcripts, tool logs, and free text are not substitutes for that JSON document.
 
-For Codex, the controller selects `../schemas/EXECUTOR_RESULT_SCHEMA.json` before dispatch and uses both `--output-schema` and `--output-last-message`. Only the unique final-message file is supplied to the validator. Process exit code and optional transcript diagnostics remain separate from the result document.
+## Dispatch
+
+The controller never writes a `claude` or `codex` command line. After `action_journal.py prepare` (status `PREPARED`, the prompt file's SHA-256 as `prompt_hash`, a unique absolute `final_message_path`), it runs exactly one command:
+
+```text
+python3 .hermes/orchestration/runtime/executor_launch.py run --stage <STAGE> --prompt-file <prompt> --journal <journal> --final <final-message> [--role <ROLE>] [--add-dir <dir>]
+```
+
+`../policies/EXECUTORS.md` selects the executor, model, timeout and turn limit per stage. `executor_launch.py build` with the same arguments prints the exact argv without running it. The launcher:
+
+- refuses unless `recover` is `DISPATCH_ALLOWED`, the journal is `PREPARED` for this stage, final path, executor and prompt hash, and no final-message file exists yet;
+- derives the transport schema from `../schemas/EXECUTOR_RESULT_SCHEMA.json` (or the role's/REVIEW schema): `$schema` removed and local `$ref`s inlined, because the Claude CLI rejects the draft 2020-12 meta-schema reference;
+- records `record-process --started`, runs the CLI in the foreground with the repository as working directory, the prompt on stdin and a hard timeout that kills the whole process group, and always records `record-process --finished --exit-code <n>` (`124` on timeout), even when the launcher itself fails;
+- writes the final message atomically, records `record-artifact`, and prints `{status, exit_code, final, next_step, next_command}`.
+
+Claude runs as `claude -p --output-format json --json-schema <transport schema> --no-session-persistence --tools <tools> [--max-turns N] [--model M]`; the final message is the envelope's `structured_output`. Codex runs as `codex exec --ephemeral --cd <repository> --sandbox <mode> --output-schema <transport schema file> --output-last-message <file> [--model M] -`; the final message is that last-message file. Paths outside the repository (for example an Obsidian vault runtime) are passed with `--add-dir`, never used as working directory.
+
+Only the unique final-message file is supplied to the validator. Process exit code, `stderr_tail` and optional transcript diagnostics remain separate from the result document.
 
 The controller supplies the stage-specific contract in the prompt, validates schema, semantics, paths, symbols, and ownership, then decides the state transition. `next_step` is only a recommendation; it never starts work automatically and cannot be `DONE`.
 
