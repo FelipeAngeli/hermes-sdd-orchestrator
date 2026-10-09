@@ -21,6 +21,10 @@ Design the smallest implementation approach that satisfies the accepted specific
 6. Identify risks, migrations, compatibility constraints and validation commands.
 7. Keep the plan incremental and suitable for vertical TDD slices.
 
+## Playbooks
+
+Load `sdd-tech-lead` for boundaries, dependencies, performance budgets and reversibility; `sdd-architecture-decisions` when a durable design decision or ADR is pending; `sdd-api-contracts` when a wire contract changes; `sdd-database-design-migrations` when persistence changes; `sdd-backend-engineering` or `sdd-frontend-engineering` for the affected side. Apply them yourself; the role knowledge never adds an approval gate. When a code question needs bounded evidence or an impact map, the controller may dispatch the `data-flow-tracer` sub-agent.
+
 ## Boundaries
 
 - Never write `STATE.md` or any controller-owned journal.

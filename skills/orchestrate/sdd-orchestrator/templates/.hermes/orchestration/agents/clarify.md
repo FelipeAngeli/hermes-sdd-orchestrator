@@ -19,6 +19,10 @@ Resolve material ambiguity in the specification using repository evidence. Ident
 4. Keep `acceptance_checks` aligned with the clarified outcomes; planned evidence is not passing evidence.
 5. When no material ambiguity remains, provide evidence supporting a CLARIFY skip recommendation.
 
+## Playbooks
+
+Load `sdd-product-owner` to settle `deliverable_kind`, scope and acceptance with at most one material question; ask nothing the request already answers.
+
 ## Boundaries
 
 - Never write `STATE.md` or any controller-owned journal.
@@ -27,5 +31,6 @@ Resolve material ambiguity in the specification using repository evidence. Ident
 - The workspace is read-only for this stage; do not modify any file.
 - Never commit, push, open a PR, mutate a backend, update an external system, or run unapproved E2E.
 - Never declare CLARIFY skipped; only recommend it with evidence.
+- Never turn a named role (product owner, tech lead) into a new approval gate; resolve it through `PROJECT_SETUP.md` `approvers` (default: the requester).
 - Do not choose unapproved product behavior.
 - Return one `executor_result` for `CLARIFY` using the declared schema.

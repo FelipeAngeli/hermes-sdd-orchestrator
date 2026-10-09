@@ -596,7 +596,7 @@ class VerifierContextIntegrationTests(unittest.TestCase):
                 "acceptance_checks": [{"id": "AC-1", "criterion": "totals round half-up",
                                        "verification_method": "focused test", "verifier": "AGENT",
                                        "slice_id": "S1", "status": "PASS",
-                                       "evidence": "`pytest tests/feature -q` exited 0"}],
+                                       "evidence": "`pytest tests/feature -q` exited 0", "waiver": None}],
                 "stage_payload": {"summary": "", "tasks": [], "impact_files": [], "decisions": []},
                 "tdd_slices": [{"id": "S1", "objective": "round", "test_file": "tests/feature/test_total.py",
                                 "red_command": "pytest tests/feature -q", "red_exit_code": 1,
@@ -654,7 +654,7 @@ class ReadOnlyRoleContextTests(unittest.TestCase):
 
     def test_only_read_only_roles_are_accepted(self) -> None:
         with self.assertRaises(ctx.ContextError):
-            ctx.verifier_context(context(), role="TDD_IMPLEMENTER")
+            ctx.verifier_context(context(), role="SECURITY_REVIEWER")
 
 
 def governance_request(ticket: str = "APP-1") -> dict:

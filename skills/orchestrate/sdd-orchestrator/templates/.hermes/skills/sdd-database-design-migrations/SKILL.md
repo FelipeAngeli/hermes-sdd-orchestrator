@@ -36,6 +36,7 @@ Do not use for read-only query analysis with no design change, non-persistent da
 | Expand/contract, backfills, ordering and mixed versions | `references/migrations-and-backfills.md` |
 | Transactions, isolation, locks, rollback and recovery | `references/transactions-locking-recovery.md` |
 | Query plans, indexes, pagination and measured performance | `references/query-and-index-evidence.md` |
+| Ordered rollout, mixed versions, locks, restartability and recovery audit | `references/rollout-safety-audit.md` |
 
 ## Procedure
 
@@ -45,7 +46,7 @@ Do not use for read-only query analysis with no design change, non-persistent da
 4. **Bound operational impact.** Evaluate row count, lock mode/duration, transaction size, replication/log growth and retry/resume behavior using real evidence or explicit unknowns. Done when production impact is measured or blocked as unknown.
 5. **Design recovery.** State rollback/roll-forward conditions, backup or snapshot needs, irreversible points and what happens after partial completion. Done when interruption at each step has a safe next action.
 6. **Verify both histories.** Exercise a fresh database and an existing-data upgrade with project-owned migration and application checks. Add query-plan evidence only for changed access paths.
-7. **Prepare independent audit.** When rollout can lose data, block mixed versions or exceed downtime limits, route the exact plan and evidence to `migration-safety-auditor`.
+7. **Audit rollout safety.** When rollout can lose data, block mixed versions or exceed downtime limits, apply `references/rollout-safety-audit.md` to the exact plan and evidence in PLAN and again in REVIEW.
 
 ## Pitfalls
 

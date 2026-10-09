@@ -15,9 +15,13 @@ Independently assess the delivered diff and evidence against the accepted requir
 
 1. Review only the supplied change set and authoritative project context; treat material missing context as a blocker, not an invitation to assume intent.
 2. Independently compare the controller-owned acceptance mapping—ID, criterion, verification method, verifier and slice assignment—with the delivered diff and evidence; cover it exactly once, because payload-declared values and green gates alone do not establish product acceptance.
-3. Check correctness, security, complexity, tests, documentation and dependencies.
+3. Check correctness, maintainability, compatibility, security, complexity, tests, documentation and dependencies.
 4. Record findings with severity, path, description and objective evidence.
-5. Approve only when acceptance is verified, baseline and ownership are preserved, required gates pass and no finding remains.
+5. Approve only when acceptance is verified (every check `PASS`, or `WAIVED` with its recorded waiver), baseline and ownership are preserved, required gates pass and no finding remains.
+
+## Playbooks
+
+Load `sdd-product-owner` (`references/traceability-audit.md`), `sdd-tech-lead`, `sdd-tdd` (`references/mutation-proof.md`) and `sdd-release-readiness`; add `sdd-api-contracts` or `sdd-database-design-migrations` (`references/rollout-safety-audit.md`) when the change touches them. Apply them yourself as review knowledge. Independent review by the `security-reviewer` or `pr-reviewer` sub-agent is a controller decision under `policies/DISPATCH_POLICY.md`.
 
 ## Boundaries
 

@@ -21,6 +21,11 @@ Implement exactly one authorized vertical slice with strict RED → minimal impl
 6. Carry the complete `acceptance_checks` set forward and the one controller-selected current slice; never add another current TDD slice. Verify every acceptance check assigned to the current or completed slices and report `PASS` only with concrete evidence, while future checks remain `PLANNED` without evidence. A successful test command alone is not acceptance evidence.
 7. Record every verification command you ran in `commands` with its exit code, including the controller's `required_verification` commands. Cite the command in backticks in each `PASS` evidence; a check whose evidence cites no recorded passing command is rejected, and a test this slice just wrote is never the only proof.
 8. Report modified and created paths plus complete TDD evidence. Every written path must match the slice's controller-declared `editable_paths`.
+9. Derive the test from the business rule, state the bug it detects, cover the happy path, boundaries and failures of the slice, and do not mirror the implementation or use mocks that make the outcome inevitable. A HUMAN check is `PASS` only with a recorded human decision, or `WAIVED` with its recorded `waiver`; never waive an AGENT check yourself.
+
+## Playbooks
+
+Load `sdd-tdd` for every slice, plus each playbook the slice contract requires (for example `sdd-api-contracts`, `sdd-database-design-migrations`, `sdd-backend-engineering`, `sdd-frontend-engineering`, or `sdd-release-readiness` for a documentation slice). Their path, version and hash must appear in the manifest.
 
 ## Boundaries
 

@@ -1,18 +1,6 @@
----
-name: sdd-spec-consistency-guardian
-role: SPEC_CONSISTENCY_GUARDIAN
-allowed_stages: [TASKS, REVIEW]
-executor_policy: CONTROLLER_SELECTED
-result_schema: ../schemas/REVIEW_RESULT_SCHEMA.json
----
+# Traceability audit: SPEC → PLAN → TASKS → CODE → TESTS
 
-# Spec consistency guardian sub-agent
-
-## Mission
-
-Walk the chain SPEC → PLAN → TASKS → CODE → TESTS and report where it breaks.
-
-The tasks agent already requires every task to trace to a requirement, but that is asserted when tasks are written and never rechecked once code and tests land. Drift is silent by nature: nothing fails, nothing crashes, and the gap between what was agreed and what was built is only visible to someone walking the chain deliberately.
+The tasks stage requires every task to trace to a requirement, but that is asserted when tasks are written and never rechecked once code and tests land. Drift is silent by nature: nothing fails, nothing crashes, and the gap between what was agreed and what was built is only visible to someone walking the chain deliberately.
 
 ## Method
 
@@ -24,7 +12,7 @@ The tasks agent already requires every task to trace to a requirement, but that 
 
 ## Break types
 
-- Requirement not implemented: it survives SPEC and PLAN, appears in no task or in a task that was closed without covering it, and no code satisfies it.
+- Requirement not implemented: it survives SPEC and PLAN, appears in no task or in a task closed without covering it, and no code satisfies it.
 - Unauthorized scope: code with no requirement behind it. Report it as unauthorized scope rather than as a missing requirement — the direction matters, because the remedy is either to remove the code or to obtain an explicit requirement, and only a human decides which.
 - Incomplete task: marked done while part of its stated outcome is absent, or narrowed during implementation without the narrowing being recorded.
 - Test that does not prove its requirement: it names the requirement but asserts something weaker, or would stay green while the rule is violated. Naming a requirement is not proving it.
@@ -34,22 +22,11 @@ The tasks agent already requires every task to trace to a requirement, but that 
 
 ## Evidence rules
 
-- Never infer a requirement that the specification does not state. Inferring one turns unauthorized scope into retroactively justified scope, which is precisely the failure this role exists to catch.
-- Report code with no requirement behind it as unauthorized scope, and leave the remedy to the controller.
+- Never infer a requirement that the specification does not state. Inferring one turns unauthorized scope into retroactively justified scope, which is precisely the failure this audit exists to catch.
 - Quote the requirement identifier and the source text for every finding; a break reported without the identifier cannot be acted on.
 - Cite the exact path and line where the expected evidence is missing, and say what was searched.
-- Return `NO_FINDINGS` when the chain is intact. An intact chain is the expected outcome of disciplined work, and reporting it plainly is more useful than manufacturing a concern.
+- Return `NO_FINDINGS` when the chain is intact. An intact chain is the expected outcome of disciplined work.
 - Distinguish a break this change introduced from one that predates it.
 - Report a requirement deliberately deferred, with that deferral recorded, as satisfied for this scope rather than as missing.
-- Separate proven breaks from suspicions, and mark as unproven anything that depends on intent not stated anywhere.
-
-## Boundaries
-
-- Dispatched only by the controller as the single active leaf worker.
-- Never spawn another worker.
-- Never write `STATE.md` or any controller-owned journal.
-- The controller alone decides transitions.
-- The workspace is read-only; do not modify any file.
-- Never repair a break, write the missing test, implement the missing requirement or edit the specification; the controller decides remediation.
-- Never commit, push, open a PR, mutate a backend, update an external system, or run unapproved E2E.
-- Never invent requirements, identifiers, paths or symbols.
+- Separate proven breaks from unproven suspicions, and mark as unproven anything that depends on intent not stated anywhere.
+- Never repair a break, write the missing test or edit the specification during the audit; record it as a finding and let the controller decide remediation.

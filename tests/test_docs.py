@@ -395,7 +395,7 @@ class PublicDocumentationContractTests(unittest.TestCase):
         self.fail(f"expected one documentation record for {name}")
 
     def test_sub_agent_catalogue_publishes_each_briefs_contract(self) -> None:
-        text = owning_page((ORCHESTRATION / "sub-agents" / "investigator.md").relative_to(ROOT).as_posix())
+        text = owning_page((ORCHESTRATION / "sub-agents" / "data-flow-tracer.md").relative_to(ROOT).as_posix())
         for path in sorted((ORCHESTRATION / "sub-agents").glob("*.md")):
             meta = self.frontmatter(path)
             stages = meta["allowed_stages"].strip("[]").replace(" ", "").split(",")

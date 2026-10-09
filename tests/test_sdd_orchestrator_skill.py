@@ -46,32 +46,39 @@ STAGE_AGENTS = {
     "review.md": "REVIEW",
 }
 SUB_AGENT_CONTRACTS = {
-    "investigator.md": ("INVESTIGATOR", "[SPECIFY, CLARIFY, PLAN]", "EXECUTOR_RESULT_SCHEMA.json"),
-    "impact-analyst.md": ("IMPACT_ANALYST", "[PLAN, TASKS]", "EXECUTOR_RESULT_SCHEMA.json"),
-    "tdd-implementer.md": ("TDD_IMPLEMENTER", "[IMPLEMENT]", "EXECUTOR_RESULT_SCHEMA.json"),
-    "test-runner.md": ("TEST_RUNNER", "[TEST]", "EXECUTOR_RESULT_SCHEMA.json"),
-    "security-reviewer.md": ("SECURITY_REVIEWER", "[REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
-    "code-reviewer.md": ("CODE_REVIEWER", "[REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
-    "tdd-guardian.md": ("TDD_GUARDIAN", "[TEST, REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
-    "regression-hunter.md": ("REGRESSION_HUNTER", "[TEST, REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
-    "api-contract-auditor.md": ("API_CONTRACT_AUDITOR", "[PLAN, REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
-    "performance-auditor.md": ("PERFORMANCE_AUDITOR", "[PLAN, REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
-    "documentation-writer.md": ("DOCUMENTATION_WRITER", "[IMPLEMENT, REVIEW]", "EXECUTOR_RESULT_SCHEMA.json"),
-    "architecture-guardian.md": ("ARCHITECTURE_GUARDIAN", "[PLAN, REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
-    "spec-consistency-guardian.md": ("SPEC_CONSISTENCY_GUARDIAN", "[TASKS, REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
-    "data-flow-tracer.md": ("DATA_FLOW_TRACER", "[PLAN, IMPLEMENT]", "EXECUTOR_RESULT_SCHEMA.json"),
-    "release-readiness-auditor.md": ("RELEASE_READINESS_AUDITOR", "[REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
-    "dependency-auditor.md": ("DEPENDENCY_AUDITOR", "[PLAN, REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
     "project-context-guardian.md": ("PROJECT_CONTEXT_GUARDIAN", "[SPECIFY, PLAN, IMPLEMENT]", "EXECUTOR_RESULT_SCHEMA.json"),
+    "data-flow-tracer.md": ("DATA_FLOW_TRACER", "[SPECIFY, CLARIFY, PLAN, TASKS, IMPLEMENT]", "EXECUTOR_RESULT_SCHEMA.json"),
     "pr-reviewer.md": ("PR_REVIEWER", "[REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
-    "migration-safety-auditor.md": ("MIGRATION_SAFETY_AUDITOR", "[PLAN, REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
+    "security-reviewer.md": ("SECURITY_REVIEWER", "[REVIEW]", "REVIEW_RESULT_SCHEMA.json"),
 }
 PROJECT_SKILLS = {
-    "sdd-backend-engineering",
+    "sdd-product-owner",
+    "sdd-tech-lead",
     "sdd-architecture-decisions",
-    "sdd-database-design-migrations",
+    "sdd-api-contracts",
+    "sdd-backend-engineering",
     "sdd-frontend-engineering",
+    "sdd-database-design-migrations",
+    "sdd-tdd",
+    "sdd-release-readiness",
 }
+#: Stage -> project skills its brief's `Playbooks` section must name.
+STAGE_PLAYBOOKS = {
+    "specify.md": ("sdd-product-owner",),
+    "clarify.md": ("sdd-product-owner",),
+    "plan.md": ("sdd-tech-lead", "sdd-architecture-decisions", "sdd-api-contracts", "sdd-database-design-migrations"),
+    "tasks.md": ("sdd-product-owner", "sdd-tech-lead", "sdd-tdd"),
+    "implement.md": ("sdd-tdd",),
+    "test.md": ("sdd-tdd",),
+    "review.md": ("sdd-product-owner", "sdd-tech-lead", "sdd-tdd", "sdd-release-readiness"),
+}
+#: Briefs removed when the specialists became playbooks; none may come back or be referenced.
+REMOVED_SUB_AGENTS = (
+    "investigator", "impact-analyst", "tdd-implementer", "test-runner", "code-reviewer",
+    "tdd-guardian", "regression-hunter", "api-contract-auditor", "performance-auditor",
+    "documentation-writer", "architecture-guardian", "spec-consistency-guardian",
+    "release-readiness-auditor", "dependency-auditor", "migration-safety-auditor",
+)
 FORBIDDEN_ACTIONS = (
     "commit",
     "push",
@@ -128,8 +135,16 @@ class BundleContractTests(unittest.TestCase):
                 self.assertRegex(meta["version"], r"^\d+\.\d+\.\d+$")
                 self.assertEqual("[linux, macos, windows]", meta["platforms"])
                 self.assertGreaterEqual(len(references), 3)
-                for heading in ("## When to Use", "## Procedure", "## Pitfalls", "## Verification"):
+                for heading in (
+                    "## When to Use", "## Prerequisites", "## Reference Routing",
+                    "## Procedure", "## Pitfalls", "## Verification",
+                ):
                     self.assertIn(heading, text)
+                self.assertLess(len(text.encode("utf-8")), 6144)
+                self.assertIn("author", meta)
+                self.assertEqual("MIT", meta["license"])
+                for reference in references:
+                    self.assertIn(f"references/{reference.name}", text)
                 self.assertIn("project", normalized(text))
                 self.assertNotRegex(text, r"/(?:Users|home)/[^/\s]+")
 
@@ -230,7 +245,122 @@ class BundleContractTests(unittest.TestCase):
         shipped = {path.stem for path in (ORCHESTRATION / "sub-agents").glob("*.md")}
         routing = text.split("Routing suggestions by change shape", 1)[1].split("## Bounded iteration", 1)[0]
         referenced = set(re.findall(r"`([a-z][a-z0-9-]+)`", routing))
-        self.assertEqual(set(), referenced - shipped)
+        self.assertEqual(set(), referenced - shipped - PROJECT_SKILLS)
+        rows = [line for line in routing.splitlines() if line.startswith("| ") and not line.startswith("| Change")]
+        specialists = {name for line in rows for name in re.findall(r"`([a-z][a-z0-9-]+)`", line.split("|")[2])}
+        self.assertEqual(set(), specialists - shipped)
+        playbooks = {name for line in rows for name in re.findall(r"`([a-z][a-z0-9-]+)`", line.split("|")[3])}
+        self.assertTrue(playbooks)
+        self.assertEqual(set(), playbooks - PROJECT_SKILLS)
+
+    def test_stage_briefs_name_their_playbooks_and_every_named_skill_ships(self) -> None:
+        agents = ORCHESTRATION / "agents"
+        for filename, required in STAGE_PLAYBOOKS.items():
+            text = (agents / filename).read_text(encoding="utf-8")
+            with self.subTest(agent=filename):
+                self.assertIn("## Playbooks", text)
+                section = text.split("## Playbooks", 1)[1].split("\n## ", 1)[0]
+                for skill in required:
+                    self.assertIn(f"`{skill}`", section)
+                named = set(re.findall(r"`(sdd-[a-z0-9-]+)`", section))
+                self.assertEqual(set(), named - PROJECT_SKILLS)
+
+    def test_product_owner_and_tech_lead_are_knowledge_never_approver_gates(self) -> None:
+        skills = TEMPLATES / ".hermes" / "skills"
+        self.assertFalse((ORCHESTRATION / "sub-agents" / "product-owner.md").exists())
+        self.assertFalse((ORCHESTRATION / "sub-agents" / "tech-lead.md").exists())
+        po = normalized((skills / "sdd-product-owner" / "SKILL.md").read_text(encoding="utf-8"))
+        tl = normalized((skills / "sdd-tech-lead" / "SKILL.md").read_text(encoding="utf-8"))
+        waivers = normalized(
+            (skills / "sdd-product-owner" / "references" / "approvals-and-waivers.md").read_text(encoding="utf-8")
+        )
+        for text in (po, tl):
+            self.assertIn("not an approver gate", text)
+            self.assertIn("never dispatched as a separate worker", text)
+        for concept in ("deliverable_kind", "code", "decision_doc", "both", "quote", "at most one material question",
+                        "approvers", "requester", "waived", "never let a role-approval check block implement"):
+            with self.subTest(concept=concept):
+                self.assertIn(concept, po)
+        for concept in ("waiver", "by, reason, quote, recorded_at", "never blocks implement unless the request literally",
+                        "recorded_waivers"):
+            with self.subTest(concept=concept):
+                self.assertIn(concept, waivers)
+
+    def test_specify_requires_deliverable_kind_and_forbids_invented_approval_gates(self) -> None:
+        specify = normalized((ORCHESTRATION / "agents" / "specify.md").read_text(encoding="utf-8"))
+        for concept in (
+            "`deliverable_kind` (`code`, `decision_doc` or `both`)", "`implementation_in_scope`",
+            "literal quote from the request", "exactly one material question",
+            "never invent a human approval gate the request does not literally require",
+            "never blocks implement unless the request literally", "`approvers`",
+        ):
+            with self.subTest(concept=concept):
+                self.assertIn(concept, specify)
+
+    def test_removed_sub_agents_are_not_referenced_by_shipped_guidance(self) -> None:
+        documents = [
+            *ORCHESTRATION.rglob("*.md"), *(TEMPLATES / ".hermes" / "skills").rglob("*.md"),
+            TEMPLATES / ".hermes.md", SKILL_ROOT / "SKILL.md", ROOT / "AGENTS.md",
+        ]
+        pattern = re.compile(r"`(?:sub-agents/)?(" + "|".join(map(re.escape, REMOVED_SUB_AGENTS)) + r")(?:\.md)?`")
+        for document in documents:
+            with self.subTest(document=document.relative_to(ROOT)):
+                self.assertIsNone(pattern.search(document.read_text(encoding="utf-8")))
+        for name in REMOVED_SUB_AGENTS:
+            self.assertFalse((ORCHESTRATION / "sub-agents" / f"{name}.md").exists())
+
+    def test_absorbed_specialist_knowledge_survives_in_playbooks(self) -> None:
+        skills = TEMPLATES / ".hermes" / "skills"
+        for skill, concepts in self.ABSORBED_CONCEPTS.items():
+            text = normalized("\n".join(
+                path.read_text(encoding="utf-8") for path in sorted((skills / skill).rglob("*.md"))
+            ))
+            for concept in concepts:
+                with self.subTest(skill=skill, concept=concept):
+                    self.assertIn(normalized(concept), text)
+
+    ABSORBED_CONCEPTS = {
+        "sdd-tdd": (
+            "derive tests from business rules", "state the bug each test detects",
+            "cover the happy path, boundaries, and failures", "do not mirror the implementation",
+            "do not use mocks that make the outcome inevitable", "green tests alone are not sufficient evidence",
+            "propose three simple production-code mutations", "write the focused test before production code",
+            "prove every finding by mutation", "revert each mutation before interpreting the result",
+            "byte-identical to the captured baseline", "stays green against broken production code",
+            "report proven findings separately from unproven suspicions",
+        ),
+        "sdd-release-readiness": (
+            "run the consumer's own suite", "separate a pre-existing failure", "green consumer suite proves nothing",
+            "unverified item is `blocked`", "never infer that an unexecuted check would have passed",
+            "name the human who accepted it", "ready_with_risk", "rollback", "feature flag",
+            "write only to paths explicitly assigned", "never document behavior that was not verified",
+            "never invent a rationale", "remove documentation describing code that no longer exists",
+            "never weaken or delete a warning, constraint or security note", "open question", "adr", "readme",
+            "diagram", "changelog",
+        ),
+        "sdd-api-contracts": (
+            "cite the exact field, path and source", "never invent a field, endpoint, status code",
+            "unresolvable divergence as a gap", "never call a live api without explicit authorization",
+            "nullability", "pagination", "error envelope",
+        ),
+        "sdd-tech-lead": (
+            "measurement or a counted operation", "input size at which the cost becomes material",
+            "no material finding is a valid", "never weaken a correctness guarantee", "n+1", "allocation",
+            "cite the declared rule", "never enforce a convention the project has not declared",
+            "undeclared but consistent convention as a question", "violation this change introduced",
+            "never invent an architectural rule", "circular",
+            "never propose a new dependency when the project already has an equivalent", "transitive", "lockfile",
+            "security-reviewer",
+        ),
+        "sdd-product-owner": (
+            "never infer a requirement", "unauthorized scope", "return `no_findings`",
+            "quote the requirement identifier", "not implemented", "incomplete task", "does not prove",
+        ),
+        "sdd-database-design-migrations": (
+            "ordered rollout", "mixed-version compatibility", "unknown production properties", "`no_findings`",
+            "never execute a migration", "sdd-tech-lead", "sdd-api-contracts", "security-reviewer",
+        ),
+    }
 
     def test_controller_automatically_uses_cached_batched_jev_for_semantic_decisions(self) -> None:
         entrypoint = normalized((TEMPLATES / ".hermes.md").read_text(encoding="utf-8"))
@@ -367,73 +497,16 @@ class PromptPolicyContractTests(unittest.TestCase):
     """Agent briefs are executable policy inputs, so their concepts are contracts."""
 
     ROLE_CONCEPTS = {
-        "tdd-implementer.md": (
-            "derive tests from business rules", "state the bug each test detects",
-            "cover the happy path, boundaries, and failures", "do not mirror the implementation",
-            "do not use mocks that make the outcome inevitable", "green tests alone are not sufficient evidence",
-            "propose three simple production-code mutations", "write the focused test before production code",
-        ),
-        "test-runner.md": (
-            "derive tests from business rules", "state the bug each test detects",
-            "cover the happy path, boundaries, and failures", "do not mirror the implementation",
-            "do not use mocks that make the outcome inevitable", "green tests alone are not sufficient evidence",
-            "propose three simple production-code mutations", "workspace is read-only",
-        ),
-        "tdd-guardian.md": (
-            "prove every finding by mutation", "revert each mutation before interpreting the result",
-            "byte-identical to the captured baseline", "stays green against broken production code",
-            "report proven findings separately from unproven suspicions",
-        ),
-        "regression-hunter.md": (
-            "run the consumer's own suite", "separate a pre-existing failure",
-            "green consumer suite proves nothing", "report proven findings separately from unproven suspicions",
-        ),
-        "api-contract-auditor.md": (
-            "cite the exact field, path and source", "never invent a field, endpoint, status code",
-            "unresolvable divergence as a gap", "never call a live api without explicit authorization",
-            "nullability", "pagination", "error envelope",
-        ),
         "security-reviewer.md": (
             "never reproduce a discovered secret value", "committed secret as compromised",
             "rotation", "hardcoded", "insecure storage", "log", "redact", "token", "session",
             "authorization", "personal data",
         ),
-        "performance-auditor.md": (
-            "measurement or a counted operation", "input size at which the cost becomes material",
-            "no material finding is a valid", "never weaken a correctness guarantee", "n+1", "allocation",
-        ),
-        "documentation-writer.md": (
-            "write only to paths explicitly assigned", "never document behavior that was not verified",
-            "never invent a rationale", "remove documentation describing code that no longer exists",
-            "never weaken or delete a warning, constraint or security note",
-            "open question", "adr", "readme", "diagram", "changelog",
-        ),
-        "architecture-guardian.md": (
-            "cite the declared rule", "never enforce a convention the project has not declared",
-            "undeclared but consistent convention as a question", "violation this change introduced",
-            "never invent an architectural rule", "circular",
-        ),
-        "migration-safety-auditor.md": (
-            "ordered rollout", "mixed-version compatibility", "unknown production properties",
-            "`no_findings`", "workspace is read-only", "never execute a migration",
-            "performance-auditor", "architecture-guardian", "api-contract-auditor", "security-reviewer",
-        ),
-        "spec-consistency-guardian.md": (
-            "never infer a requirement", "unauthorized scope", "return `no_findings`",
-            "quote the requirement identifier", "not implemented", "incomplete task", "does not prove",
-        ),
         "data-flow-tracer.md": (
             "workspace is read-only", "trace only the path the demand touches", "never audit the whole project",
             "partial and name where it stopped", "never infer a hop", "side effect", "risk",
-        ),
-        "release-readiness-auditor.md": (
-            "unverified item is `blocked`", "never infer that an unexecuted check would have passed",
-            "name the human who accepted it", "ready_with_risk", "rollback", "feature flag",
-        ),
-        "dependency-auditor.md": (
-            "never propose a new dependency when the project already has an equivalent",
-            "hand it to `security-reviewer`", "hand it to `architecture-guardian`",
-            "never add, upgrade or remove", "transitive", "lockfile",
+            "investigation", "impact", "required, conditional or out of scope", "validate every supplied path and symbol",
+            "call sites", "mocks", "fixtures", "role: data_flow_tracer",
         ),
         "project-context-guardian.md": (
             "read the stored context before reading the repository", "refresh only what changed",
@@ -447,7 +520,8 @@ class PromptPolicyContractTests(unittest.TestCase):
             "one improvement per pull request", "never post a review", "`no_findings`",
             "never enforce a preference the project has not declared",
             "scope", "tests", "changelog", "version", "breaking", "commits", "secrets", "ci",
-            "security-reviewer", "dependency-auditor", "architecture-guardian", "regression-hunter",
+            "security-reviewer", "data-flow-tracer", "sdd-tech-lead", "sdd-tdd", "sdd-api-contracts",
+            "sdd-release-readiness",
         ),
     }
 
@@ -459,22 +533,14 @@ class PromptPolicyContractTests(unittest.TestCase):
                     self.assertIn(normalized(concept), policy)
 
     def test_read_only_auditors_forbid_delivery_edits_and_identify_unproven_findings(self) -> None:
-        writing_roles = {"documentation-writer.md"}
-        executor_roles = {
-            "investigator.md", "impact-analyst.md", "tdd-implementer.md", "test-runner.md",
-            "data-flow-tracer.md", "project-context-guardian.md", "code-reviewer.md",
-        }
-        proof_roles = {
-            "tdd-guardian.md", "regression-hunter.md", "api-contract-auditor.md",
-            "security-reviewer.md", "performance-auditor.md", "architecture-guardian.md",
-            "migration-safety-auditor.md",
-        }
+        executor_roles = {"data-flow-tracer.md", "project-context-guardian.md"}
+        proof_roles = {"security-reviewer.md"}
         for path in sorted((ORCHESTRATION / "sub-agents").glob("*.md")):
-            if path.name in writing_roles or path.name in executor_roles:
-                continue
             policy = normalized(path.read_text(encoding="utf-8"))
             with self.subTest(sub_agent=path.name):
-                self.assertIn("workspace is read-only", policy)
+                self.assertRegex(policy, r"(?:workspace|repository) is read-only")
+                if path.name in executor_roles:
+                    continue
                 self.assertRegex(policy, r"never repair|do not modify any file or fix findings")
                 if path.name in proof_roles:
                     self.assertIn("unproven suspicions", policy)

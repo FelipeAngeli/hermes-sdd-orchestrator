@@ -185,9 +185,9 @@ skills-lock.json                 # optional TypeSafe project lock
 .hermes/.env.example            # TypeSafe variable name; no secret
 .hermes/obsidian.json            # optional, versioned — see Obsidian vault
 .hermes/skills/                  → project-local-skills.md (explicit repository trust)
-├── sdd-backend-engineering/
-├── sdd-architecture-decisions/
-├── sdd-database-design-migrations/
+├── sdd-product-owner/, sdd-tech-lead/, sdd-architecture-decisions/, sdd-api-contracts/
+├── sdd-backend-engineering/, sdd-frontend-engineering/, sdd-database-design-migrations/
+├── sdd-tdd/, sdd-release-readiness/
 └── typesafe-ai/                 # optional external TypeSafe skill
 .hermes/orchestration/
 ├── agents/      → stage-agents.md
@@ -196,12 +196,12 @@ skills-lock.json                 # optional TypeSafe project lock
 ├── policies/    → fsm-and-loop.md, gates-and-stack-detection.md, action-journal.md, sub-agents.md
 ├── runtime/     → one page per tool group (see the doc map)
 ├── schemas/     → contracts-and-schemas.md, fsm-and-loop.md, harness.md, action-journal.md
-├── sub-agents/  → sub-agents.md
+├── sub-agents/  → sub-agents.md (project-context-guardian, data-flow-tracer, pr-reviewer, security-reviewer)
 ├── tests/       → testing.md
 ├── STATE.md, PROJECT_SETUP.md, ACTION_JOURNAL.json, INCIDENTS.md   (runtime data, untracked)
 ├── JEV_CACHE.json, TERMINAL_PROGRESS.json                          (private generated data, untracked)
 ```
 
-The installer does not run `hermes skills trust`; after inspecting `.hermes/skills/`, the user opts in for that repository and starts a new session. No SOUL, profile-level skill or global configuration is changed.
+The installed guide lists the four sub-agents and the playbooks stage workers load themselves (product owner and tech lead are playbooks, not approvers). The installer does not run `hermes skills trust`; after inspecting `.hermes/skills/`, the user opts in for that repository and starts a new session. No SOUL, profile-level skill or global configuration is changed.
 
 After installation, configure the gates: [Gates and stack detection](gates-and-stack-detection.md).
