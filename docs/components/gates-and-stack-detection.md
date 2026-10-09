@@ -32,7 +32,7 @@ Rules:
 1. Run `python3 .hermes/orchestration/runtime/detect_stack.py --target .`. The installer's dry run already includes the same report under `stack`.
 2. Prefer the project's own entry points: Makefile/justfile targets, `package.json` scripts, CI steps, or commands from `AGENTS.md`/`CONTRIBUTING.md`.
 3. Run each command once in the foreground and record its exit code.
-4. Write the verified commands into the `GATES.md` table. `{files}` is replaced by the agent-owned changed files, one argument each; a path segment starting with `-` is refused (`AGENT_OWNED_PATH_UNSAFE`), never passed as an option. Editing `GATES.md` during a demand stops the next gate with `GATES_CHANGED_DURING_DEMAND` until the user confirms it ([`sdd.py gate --confirm-gates-policy`](fsm-and-loop.md)).
+4. Write the verified commands into the `GATES.md` table. `{files}` is replaced by the agent-owned changed files, one argument each; a path segment starting with `-` is refused (`AGENT_OWNED_PATH_UNSAFE`), never passed as an option. `sdd.py start` pins the SHA-256 of `GATES.md` and `EXECUTORS.md`; editing either during a demand stops the next gate with `CONTROLLER_POLICY_CHANGED_DURING_DEMAND` until the user confirms that file ([`sdd.py confirm-policy --name gates|executors`](fsm-and-loop.md)).
 
 ## `detect_stack.py`
 

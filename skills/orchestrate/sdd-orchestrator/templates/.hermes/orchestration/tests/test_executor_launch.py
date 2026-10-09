@@ -613,7 +613,7 @@ class DashPrefixedPathTests(unittest.TestCase):
 
 
 class GateCommandSecurityTests(unittest.TestCase):
-    """`sdd.py gate`: dash-prefixed {files} and a GATES.md changed during the demand are refused."""
+    """`sdd.py gate`: dash-prefixed {files} and a controller policy changed during the demand are refused."""
 
     def setUp(self) -> None:
         import sdd
@@ -623,9 +623,14 @@ class GateCommandSecurityTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
         self.gates = self.root / "GATES.md"
+        self.executors = self.root / "EXECUTORS.md"
         self.marker = self.root / "ran"
         self.write_gates(f"`{shlex.quote(sys.executable)} -c \"import pathlib,sys; pathlib.Path(sys.argv[1]).write_text(repr(sys.argv[2:]))\" {self.marker} {{files}}`")
-        for patcher in (mock.patch.object(sdd, "GATES_POLICY", self.gates), mock.patch.object(sdd, "record_wiki")):
+        self.write_executors("claude")
+        for patcher in (mock.patch.object(sdd, "GATES_POLICY", self.gates),
+                        mock.patch.object(sdd, "EXECUTORS_POLICY", self.executors),
+                        mock.patch.dict(sdd.CONTROLLER_POLICY_FILES, {"gates": self.gates, "executors": self.executors}),
+                        mock.patch.object(sdd, "record_wiki")):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.written: list[str] = []
@@ -634,11 +639,24 @@ class GateCommandSecurityTests(unittest.TestCase):
         self.gates.write_text("| Gate | Command | Executor | Timeout |\n| --- | --- | --- | --- |\n"
                               f"| Focused tests | {focused} | host | 30 s |\n", encoding="utf-8")
 
-    def ctx(self, agent_owned: list[str], *, started_at: str = "2999-01-01T00:00:00Z", gates_policy: dict | None = None):
+    def write_executors(self, executor: str) -> None:
+        self.executors.write_text('```json\n{"executors_version": 1, "stages": {"TEST": {"executor": "%s"}}}\n```\n' % executor,
+                                  encoding="utf-8")
+
+    def pins(self, *, gates: bool = True, executors: bool = True) -> dict:
+        recorded = {}
+        if gates:
+            recorded["gates"] = {"sha256": hashlib.sha256(self.gates.read_bytes()).hexdigest(), "by": "demand start"}
+        if executors:
+            recorded["executors"] = {"sha256": hashlib.sha256(self.executors.read_bytes()).hexdigest(), "by": "demand start"}
+        return recorded
+
+    def ctx(self, agent_owned: list[str], *, started_at: str = "2999-01-01T00:00:00Z",
+            controller_policies: dict | None = None):
         test = self
         delivery = {"started_at": started_at}
-        if gates_policy is not None:
-            delivery["gates_policy"] = gates_policy
+        if controller_policies is not None:
+            delivery["controller_policies"] = controller_policies
 
         class FakeCtx:
             repo = self.root
@@ -655,55 +673,149 @@ class GateCommandSecurityTests(unittest.TestCase):
 
         return FakeCtx()
 
-    def gate(self, ctx, *, confirm: bool = False, quote: str | None = None) -> dict:
-        args = mock.Mock(name="args", not_applicable=False, by="requester", quote=quote, confirm_gates_policy=confirm)
+    def gate(self, ctx, *, confirm: str | None = None, quote: str | None = None) -> dict:
+        args = mock.Mock(name="args", not_applicable=False, by="requester", quote=quote, confirm_policy=confirm)
         args.name = "focused_tests"
         return self.sdd.cmd_gate(ctx, args)
+
+    def confirm(self, ctx, name: str, quote: str | None) -> dict:
+        args = mock.Mock(name="args", by="requester", quote=quote)
+        args.policy_name = name
+        return self.sdd.cmd_confirm_policy(ctx, args)
 
     def test_dash_prefixed_agent_owned_path_is_refused_before_running(self) -> None:
         for path in ("--config=x", "src/-rf", "-x.py"):
             with self.subTest(path=path), self.assertRaises(self.sdd.SddError) as raised:
-                self.gate(self.ctx(["src/ok.py", path]))
+                self.gate(self.ctx(["src/ok.py", path], controller_policies=self.pins()))
             self.assertEqual("AGENT_OWNED_PATH_UNSAFE", raised.exception.code)
             self.assertIn(path, str(raised.exception))
             self.assertTrue(raised.exception.next_step)
             self.assertFalse(self.marker.exists())
 
     def test_safe_paths_are_passed_as_arguments(self) -> None:
-        result = self.gate(self.ctx(["src/ok.py", "tests/test_ok.py"]))
+        result = self.gate(self.ctx(["src/ok.py", "tests/test_ok.py"], controller_policies=self.pins()))
         self.assertEqual("PASS", result["status"])
         self.assertEqual("['src/ok.py', 'tests/test_ok.py']", self.marker.read_text(encoding="utf-8"))
 
     def test_gates_changed_after_the_recorded_hash_is_refused(self) -> None:
-        ctx = self.ctx(["src/ok.py"])
+        ctx = self.ctx(["src/ok.py"], controller_policies=self.pins())
         self.assertEqual("PASS", self.gate(ctx)["status"])
-        recorded = ctx.state["delivery"]["gates_policy"]["sha256"]
-        self.assertEqual(hashlib.sha256(self.gates.read_bytes()).hexdigest(), recorded)
         self.marker.unlink()
         self.write_gates(f"`{shlex.quote(sys.executable)} -c \"print(1)\"`")
         with self.assertRaises(self.sdd.SddError) as raised:
             self.gate(ctx)
-        self.assertEqual("GATES_CHANGED_DURING_DEMAND", raised.exception.code)
-        self.assertIn("--confirm-gates-policy", raised.exception.next_command)
+        self.assertEqual("CONTROLLER_POLICY_CHANGED_DURING_DEMAND", raised.exception.code)
+        self.assertEqual(["gates"], raised.exception.extra["changed"])
+        self.assertIn("confirm-policy --name gates", raised.exception.next_command)
         self.assertTrue(raised.exception.next_step)
+        self.assertFalse(self.marker.exists(), "no gate runs under an unconfirmed policy")
 
-    def test_gates_edited_after_the_demand_started_is_refused_without_a_recorded_hash(self) -> None:
-        earlier = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))
+    def test_executors_changed_during_the_demand_also_blocks_every_gate(self) -> None:
+        """A writing worker that rewrites EXECUTORS.md must not get a host gate run either."""
+        ctx = self.ctx(["src/ok.py"], controller_policies=self.pins())
+        self.assertEqual("PASS", self.gate(ctx)["status"])
+        self.marker.unlink()
+        self.write_executors("codex")
         with self.assertRaises(self.sdd.SddError) as raised:
-            self.gate(self.ctx(["src/ok.py"], started_at=earlier))
-        self.assertEqual("GATES_CHANGED_DURING_DEMAND", raised.exception.code)
+            self.gate(ctx)
+        self.assertEqual("CONTROLLER_POLICY_CHANGED_DURING_DEMAND", raised.exception.code)
+        self.assertEqual(["executors"], raised.exception.extra["changed"])
+        self.assertIn("confirm-policy --name executors", raised.exception.next_command)
         self.assertFalse(self.marker.exists())
 
-    def test_confirm_gates_policy_records_the_users_hash(self) -> None:
-        ctx = self.ctx(["src/ok.py"], gates_policy={"sha256": "0" * 64})
+    def test_both_policies_changed_are_reported_together(self) -> None:
+        ctx = self.ctx(["src/ok.py"], controller_policies=self.pins())
+        self.write_gates(f"`{shlex.quote(sys.executable)} -c \"print(1)\"`")
+        self.write_executors("codex")
+        with self.assertRaises(self.sdd.SddError) as raised:
+            self.gate(ctx)
+        self.assertEqual(["executors", "gates"], raised.exception.extra["changed"])
+
+    def test_a_demand_without_pinned_policies_is_refused_instead_of_trusting_mtime(self) -> None:
+        """No recorded hash is no proof: the controller cannot tell a worker edit from the owner's."""
+        with self.assertRaises(self.sdd.SddError) as raised:
+            self.gate(self.ctx(["src/ok.py"]))
+        self.assertEqual("CONTROLLER_POLICY_UNPINNED", raised.exception.code)
+        self.assertEqual(["executors", "gates"], raised.exception.extra["unpinned"])
+        self.assertIn("confirm-policy --name", raised.exception.next_command)
+        self.assertFalse(self.marker.exists())
+
+    def test_confirm_policy_records_one_named_policy_and_never_runs_a_gate(self) -> None:
+        ctx = self.ctx(["src/ok.py"], controller_policies={"gates": {"sha256": "0" * 64}, **self.pins(gates=False)})
         with self.assertRaises(self.sdd.SddError):
-            self.gate(ctx, confirm=True, quote="")
-        result = self.gate(ctx, confirm=True, quote="yes, I changed the gates")
-        self.assertEqual("GATES_POLICY_CONFIRMED", result["status"])
+            self.confirm(ctx, "gates", "")
+        result = self.confirm(ctx, "gates", "yes, I changed the gates")
+        self.assertEqual("CONTROLLER_POLICY_CONFIRMED", result["status"])
+        self.assertEqual("gates", result["policy"])
         self.assertFalse(self.marker.exists(), "confirmation never runs the gate")
-        self.assertEqual(hashlib.sha256(self.gates.read_bytes()).hexdigest(), ctx.state["delivery"]["gates_policy"]["sha256"])
-        self.assertEqual("yes, I changed the gates", ctx.state["delivery"]["gates_policy"]["quote"])
+        recorded = ctx.state["delivery"]["controller_policies"]["gates"]
+        self.assertEqual(hashlib.sha256(self.gates.read_bytes()).hexdigest(), recorded["sha256"])
+        self.assertEqual("yes, I changed the gates", recorded["quote"])
         self.assertEqual("PASS", self.gate(ctx)["status"])
+
+    def test_confirming_one_policy_does_not_confirm_the_other(self) -> None:
+        ctx = self.ctx(["src/ok.py"], controller_policies=self.pins())
+        self.write_gates(f"`{shlex.quote(sys.executable)} -c \"print(1)\"`")
+        self.write_executors("codex")
+        self.confirm(ctx, "gates", "only the gates are mine")
+        with self.assertRaises(self.sdd.SddError) as raised:
+            self.gate(ctx)
+        self.assertEqual(["executors"], raised.exception.extra["changed"])
+
+    def test_gate_confirm_policy_shortcut_records_the_named_policy(self) -> None:
+        ctx = self.ctx(["src/ok.py"], controller_policies=self.pins())
+        self.write_gates(f"`{shlex.quote(sys.executable)} -c \"print(1)\"`")
+        result = self.gate(ctx, confirm="gates", quote="I changed them")
+        self.assertEqual("CONTROLLER_POLICY_CONFIRMED", result["status"])
+        self.assertFalse(self.marker.exists())
+
+
+class WorkerStateTamperTests(unittest.TestCase):
+    """A worker that rewrites STATE or the journal in its own worktree is caught before accept.
+
+    In ``--local-storage`` mode STATE, the journal and the controller policies live
+    inside the repository, which a writing worker can edit. ``prepare`` already
+    records ``fingerprints.state_before``; it is now verified, so a tampered STATE
+    stops the loop instead of being folded in as if the controller had written it.
+    """
+
+    def setUp(self) -> None:
+        import sdd
+
+        self.sdd = sdd
+
+    def journal(self, state_before: str | None) -> dict:
+        return {"action": {"id": "T-1-test-01", "status": "ARTIFACT_READY"},
+                "fingerprints": {"baseline": "b" * 64, "ownership": "o" * 64, "state_before": state_before}}
+
+    def test_state_unchanged_since_prepare_is_accepted(self) -> None:
+        text = "schema_version: 1\nstage: {current: TEST}\n"
+        digest = self.sdd.sha256_bytes(text.encode("utf-8"))
+        self.assertIsNone(self.sdd.state_tamper_error(self.journal(digest), digest))
+
+    def test_state_rewritten_during_the_dispatch_is_refused(self) -> None:
+        prepared = self.sdd.sha256_bytes(b"the STATE the controller prepared")
+        tampered = self.sdd.sha256_bytes(b"the STATE a writing worker left behind")
+        error = self.sdd.state_tamper_error(self.journal(prepared), tampered)
+        self.assertIsNotNone(error)
+        self.assertEqual("STATE_MODIFIED_DURING_ACTION", error.code)
+        self.assertEqual(prepared, error.extra["expected_sha256"])
+        self.assertEqual(tampered, error.extra["actual_sha256"])
+        self.assertTrue(error.next_step)
+        self.assertIn("sdd.py", error.next_command)
+
+    def test_a_journal_without_the_fingerprint_is_not_silently_trusted(self) -> None:
+        error = self.sdd.state_tamper_error(self.journal(None), "a" * 64)
+        self.assertIsNotNone(error)
+        self.assertEqual("STATE_MODIFIED_DURING_ACTION", error.code)
+
+    def test_the_stop_reason_is_registered_with_one_next_command(self) -> None:
+        import stop_reasons
+
+        self.assertIn("STATE_MODIFIED_DURING_ACTION", stop_reasons.STOP_REASONS)
+        described = stop_reasons.describe("STATE_MODIFIED_DURING_ACTION")
+        self.assertEqual("BLOCKED", described["kind"])
+        self.assertIn("sdd.py", described["next_command"])
 
 
 if __name__ == "__main__":

@@ -27,6 +27,7 @@ PAUSED, BLOCKED, HUMAN, DONE = "PAUSED", "BLOCKED", "HUMAN", "DONE"
 _RAISE = "{sdd} budget --raise %s --by 1 --quote '<user words authorizing more>'"
 _REOPEN = "{sdd} reopen --reason '<failure>' --quote '<user words>'"
 _REBASELINE = "{sdd} rebaseline --quote '<user words>'"
+_CONFIRM_POLICY = "{sdd} confirm-policy --name <policy> --by requester --quote '<user words>'"
 _NEXT = "{sdd} next"
 _STATUS = "{sdd} status"
 
@@ -36,7 +37,7 @@ _STATUS = "{sdd} status"
 #: ``sdd.py`` itself, so it never appears here.
 USER_PLACEHOLDERS = frozenset({
     "<user words>", "<user words authorizing more>", "<failure>", "<reason>",
-    "<ticket-id>", "<title>", "<objective>",
+    "<ticket-id>", "<title>", "<objective>", "<policy>",
 })
 
 STOP_REASONS: dict[str, tuple[str, str, str]] = {
@@ -92,6 +93,10 @@ STOP_REASONS: dict[str, tuple[str, str, str]] = {
     "OWNERSHIP_VIOLATION": (HUMAN, "REVIEW found writes outside the agent-owned paths; ask the user. Accepting them records the answer and redispatches REVIEW; otherwise reopen IMPLEMENT with `sdd.py reopen`.", _REBASELINE),
     "GATE_COMMAND_UNCONFIGURED": (BLOCKED, "A required gate has no verified command in policies/GATES.md; configure it (`detect_stack.py` suggests one; run it once), then `sdd.py next` runs it.", _NEXT),
     "GATE_CONFIRMATION_REQUIRED": (HUMAN, "GATES.md marks this gate NOT_APPLICABLE; record the user's explicit confirmation with the printed `gate --not-applicable` command.", _NEXT),
+    "CONTROLLER_POLICY_CHANGED_DURING_DEMAND": (HUMAN, "policies/GATES.md or EXECUTORS.md no longer matches the hash pinned at `sdd.py start`: its gate commands run on the host and it chooses the worker binary, so a worker with write access could have changed it. Show the user the diff; only their confirmation re-pins it.", _CONFIRM_POLICY),
+    "CONTROLLER_POLICY_UNPINNED": (HUMAN, "A controller policy file has no pinned SHA-256 for this demand (started before pinning existed), so an edit cannot be attributed to the owner. Review each file with the user and record their confirmation; no gate runs until then.", _CONFIRM_POLICY),
+    "CONTROLLER_POLICY_CONFIRMATION_REQUIRED": (HUMAN, "Confirming a controller policy change needs the user's literal words; ask them and record the answer with the printed command.", _CONFIRM_POLICY),
+    "STATE_MODIFIED_DURING_ACTION": (BLOCKED, "STATE changed while an action was open, outside the journal's state commit: in `--local-storage` mode a writing worker can reach STATE. Restore it from the journal history (never by hand), then `sdd.py next` archives the action.", _NEXT),
     "DONE_GATES_NOT_PASSED": (BLOCKED, "DONE needs focused tests, format, analysis, review and CI (or DISABLED_BY_PROJECT_POLICY) to pass; `sdd.py next` prints the missing gate.", _NEXT),
     "FOCUSED_TESTS_REQUIRED": (BLOCKED, "Format runs only after focused tests pass; run the focused-tests gate first.", _NEXT),
     "TEST_AND_FORMAT_REQUIRED": (BLOCKED, "Analysis runs only after focused tests and format pass.", _NEXT),

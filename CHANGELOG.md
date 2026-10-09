@@ -4,6 +4,17 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Breaking
+- `sdd.py gate --confirm-gates-policy` is replaced by `sdd.py confirm-policy --name gates|executors --by <who> --quote '<user words>'` (also reachable as `gate --confirm-policy <name>`), which confirms **one named** controller policy file; the status is `CONTROLLER_POLICY_CONFIRMED` instead of `GATES_POLICY_CONFIRMED`. The stop reason `GATES_CHANGED_DURING_DEMAND` is replaced by `CONTROLLER_POLICY_CHANGED_DURING_DEMAND` (which carries `changed`, `policies`, `sha256` and `pinned_sha256` per file). STATE moves the pin from `delivery.gates_policy` to `delivery.controller_policies.{gates,executors}`; a demand started before this version has no pin and stops with `CONTROLLER_POLICY_UNPINNED` until the user confirms each file. Automation matching the old flag, status or stop reason must switch.
+
+### Added
+- Stop reasons `CONTROLLER_POLICY_CHANGED_DURING_DEMAND`, `CONTROLLER_POLICY_UNPINNED`, `CONTROLLER_POLICY_CONFIRMATION_REQUIRED` and `STATE_MODIFIED_DURING_ACTION`; `sdd.py` subcommand `confirm-policy`; `stop_reasons.USER_PLACEHOLDERS` gains `<policy>`. `sdd.py start` reports the pinned hashes as `controller_policies`.
+
+### Fixed
+- Security (HIGH, residual finding on #45): in `--local-storage` mode the controller lives inside the repository a writing IMPLEMENT/TEST worker can edit, so that worker could rewrite `policies/GATES.md` and obtain arbitrary host command execution on the next `sdd.py gate` (gate commands run on the host, outside every worker sandbox), or rewrite `policies/EXECUTORS.md` to choose the next worker's binary, tools and sandbox. Obsidian mode prevents this by never giving the container as a writable root; local storage cannot prevent it, so the controller now **detects** it: `sdd.py start` pins the SHA-256 of both owner files in `delivery.controller_policies`, and every gate re-verifies both before running anything (`CONTROLLER_POLICY_CHANGED_DURING_DEMAND`, naming each changed file). The previous guard pinned only `GATES.md`, only on the *first gate run* — every edit before it was adopted as the baseline — and otherwise fell back to comparing the file's mtime with `delivery.started_at`, which cannot distinguish the owner's edit from a worker's; a demand with no pin is now refused (`CONTROLLER_POLICY_UNPINNED`) instead of trusted. Confirming one policy never confirms the other.
+- Security (same finding, STATE/journal half): `sdd.py prepare` recorded `fingerprints.state_before` but nothing ever compared it, so a worker that rewrote `STATE.md` inside its own worktree during the dispatch had that STATE folded in by `sdd.py accept` as if the controller had written it (gates, budgets, ownership and waivers included). `accept` now verifies STATE against that fingerprint before applying any result and stops with `STATE_MODIFIED_DURING_ACTION`, pointing at the append-only journal history for the restore; a journal without the fingerprint is refused rather than trusted.
+- `policies/EXECUTORS.md` no longer claims a worker "never edits `GATES.md`, STATE or the journal": that holds for Obsidian storage, while `--local-storage` relies on the detection above. The file documents the difference and names Obsidian storage as the stronger configuration.
+
 ## 14.0.1 - 2026-10-09
 
 ### Fixed
