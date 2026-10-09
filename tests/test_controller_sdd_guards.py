@@ -105,6 +105,13 @@ class SddGuardTests(e2e.ControllerEndToEndTests):
         self.edit_state(mutate)
 
     def set_gate_row(self, label: str, command: str, timeout: int) -> None:
+        """Edit GATES.md as the project owner would, then record their confirmation.
+
+        `sdd.py start` pins the SHA-256 of GATES.md/EXECUTORS.md, so an edit after it
+        stops every gate with CONTROLLER_POLICY_CHANGED_DURING_DEMAND until the user
+        confirms the file. These tests change the row deliberately, standing in for the
+        owner, so they re-pin it the same way the controller would ask the user to.
+        """
         policy = self.container / ".hermes" / "orchestration" / "policies" / "GATES.md"
         lines = []
         for line in policy.read_text(encoding="utf-8").splitlines():
@@ -113,6 +120,15 @@ class SddGuardTests(e2e.ControllerEndToEndTests):
                 line = f"| {label} | `{command}` | host | {timeout} s |"
             lines.append(line)
         policy.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        self.confirm_policy("gates")
+
+    def confirm_policy(self, name: str) -> None:
+        """Record the owner's confirmation of a controller policy file, if a demand is open."""
+        if self.state().get("stage", {}).get("current") in {None, "IDLE"}:
+            return
+        completed = run([*self.sdd, "confirm-policy", "--name", name, "--by", "requester",
+                         "--quote", "sim, eu mudei essa policy"], cwd=self.repo, env=self.env)
+        self.assertEqual(0, completed.returncode, completed.stdout)
 
     # -- original guards ----------------------------------------------------------------
     def test_status_is_compact_and_always_names_the_next_command(self) -> None:

@@ -45,6 +45,13 @@ import stop_reasons as sr  # noqa: E402
 
 PROJECT_SETUP = ORCHESTRATION / "PROJECT_SETUP.md"
 GATES_POLICY = ORCHESTRATION / "policies" / "GATES.md"
+EXECUTORS_POLICY = ORCHESTRATION / "policies" / "EXECUTORS.md"
+#: Owner files that decide what runs on the host: GATES.md names the gate commands
+#: `sdd.py gate` executes outside any sandbox, EXECUTORS.md names the worker binary,
+#: its permissions and sandbox. In ``--local-storage`` mode both live inside the
+#: repository, so a writing worker could edit them; their SHA-256 is pinned at
+#: ``sdd.py start`` and re-verified before every gate run.
+CONTROLLER_POLICY_FILES = {"gates": GATES_POLICY, "executors": EXECUTORS_POLICY}
 STAGES = ("SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST", "REVIEW")
 DELIVERABLE_KINDS = ("CODE", "DECISION_DOC", "BOTH")
 GUARDIAN_ROLE = "PROJECT_CONTEXT_GUARDIAN"
@@ -87,6 +94,8 @@ EMITTED_STOP_REASONS = (
     "FOCUSED_TESTS_FAILED", "FORMAT_FAILED", "ANALYZE_FAILED", "CI_FAILED", "GATE_TIMEOUT",
     "REVIEW_CHANGES_REQUIRED", "REVIEW_BLOCKED", "OWNERSHIP_VIOLATION", "DONE_GATES_NOT_PASSED",
     "ACTION_RECOVERY_REQUIRED", "DONE", "CI_TIMEOUT", "LOOP_PAUSED", "EXECUTOR_UNAVAILABLE",
+    "CONTROLLER_POLICY_CHANGED_DURING_DEMAND", "CONTROLLER_POLICY_UNPINNED",
+    "CONTROLLER_POLICY_CONFIRMATION_REQUIRED", "STATE_MODIFIED_DURING_ACTION",
 )
 GATE_FAILURE_STOP_REASONS = {
     "focused_tests": "FOCUSED_TESTS_FAILED", "format": "FORMAT_FAILED", "analyze": "ANALYZE_FAILED", "ci": "CI_FAILED",
@@ -1081,6 +1090,7 @@ def cmd_start(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     }
     data["stage"] = {"current": "IDLE", "status": "WAITING", "completed": [], "skipped": []}
     data = sf.apply_transition(data, "SPECIFY", profile=profile)
+    digests = pin_controller_policies(data, "demand start")
     data["resume"] = {"last_gate": None, "next_action": "SPECIFY", "next_command": sdd("next")}
     drift = previous.get("branch") not in (None, branch) or previous.get("head") not in (None, head)
     ctx.write_state(data, f"Demand {args.ticket} started ({profile}); baseline captured at {branch}@{head[:12]}"
@@ -1088,6 +1098,7 @@ def cmd_start(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
                     + (f"; protected pre-existing: {', '.join(protected)}" if protected else ""))
     record_wiki(ctx, "stage", f"{args.ticket} started", f"Request: {quote}\n\nProfile: {profile} ({' -> '.join(path)})\nLimits: {json.dumps(limits)}", stage="SPECIFY")
     return {"status": "STARTED", "ticket": args.ticket, "profile": profile, "stages": list(path), "limits": limits,
+            "controller_policies": digests,
             "limits_explained": {"stage_transitions": f"{len(path) - 1} forward transitions + {review_cycles} review_cycles x "
                                                       f"{reopen_length(path)} to re-advance from a reopened IMPLEMENT to REVIEW"},
             "protected_preexisting": protected,
@@ -1295,6 +1306,31 @@ def apply_result(ctx: Ctx, data: dict[str, Any], action: dict[str, Any], result:
     return f"{stage} accepted ({action['id']})"
 
 
+def state_tamper_error(journal: dict[str, Any], current_hash: str) -> SddError | None:
+    """STATE changed between ``prepare`` and now: a worker, not the controller, wrote it.
+
+    ``prepare`` records ``fingerprints.state_before``; only the journal's own state
+    commit may change STATE while an action is open. A different hash here means
+    something outside the loop rewrote STATE during the dispatch — in
+    ``--local-storage`` mode the writing worker itself can reach it. Folding the
+    result in would accept the worker's STATE as the controller's, so the loop stops
+    instead and the user restores STATE from the append-only history.
+    """
+    expected = ((journal.get("fingerprints") or {}).get("state_before")) or None
+    if expected is not None and expected == current_hash:
+        return None
+    return SddError("STATE_MODIFIED_DURING_ACTION",
+                    f"STATE changed while action {(journal.get('action') or {}).get('id')} was open"
+                    + ("" if expected is not None else " and the prepared fingerprint is missing")
+                    + "; only the journal's state commit may write it.",
+                    next_step="Something outside the loop rewrote STATE during the dispatch (in --local-storage mode a writing worker can reach it). "
+                              "Restore STATE from the last committed copy in the journal history (`action_journal.py paths` names it), never by hand, "
+                              "then archive this action with the printed command.",
+                    next_command=sdd("next"),
+                    action_id=(journal.get("action") or {}).get("id"),
+                    expected_sha256=expected, actual_sha256=current_hash)
+
+
 def cmd_accept(ctx: Ctx, _args: argparse.Namespace) -> dict[str, Any]:
     status = ctx.journal["action"]["status"]
     if status not in {"ARTIFACT_READY", "VALIDATED", "STATE_COMMITTED"}:
@@ -1315,6 +1351,9 @@ def cmd_accept(ctx: Ctx, _args: argparse.Namespace) -> dict[str, Any]:
     if commit["expected_after_hash"] and current_hash == commit["expected_after_hash"]:
         aj.mark_state_committed(ctx.journal_path)
     else:
+        tampered = state_tamper_error(ctx.journal, current_hash)
+        if tampered is not None:
+            raise tampered
         result = json.loads(action["final"].read_text(encoding="utf-8"))
         digest = sha256_bytes(action["final"].read_bytes())
         data = copy.deepcopy(ctx.state)
@@ -1662,61 +1701,89 @@ def gate_argv(gate_command: str, files: list[str]) -> list[str]:
     return argv
 
 
-def _iso_epoch(value: str | None) -> float | None:
-    try:
-        return datetime.strptime(str(value), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
-    except ValueError:
-        return None
+def policy_digests() -> dict[str, str]:
+    """SHA-256 of every controller policy file right now ("" when unreadable)."""
+    return {name: (sha256_file(path) or "") for name, path in sorted(CONTROLLER_POLICY_FILES.items())}
 
 
-def gates_policy_check(data: dict[str, Any], gate: str) -> str:
-    """Verify policies/GATES.md against the hash pinned for this demand; pin it on first use.
+def pin_controller_policies(data: dict[str, Any], by: str) -> dict[str, str]:
+    """Record the current SHA-256 of GATES.md and EXECUTORS.md for this demand."""
+    digests = policy_digests()
+    stamp = now()
+    data.setdefault("delivery", {})["controller_policies"] = {
+        name: {"sha256": digest, "recorded_at": stamp, "by": by} for name, digest in digests.items()
+    }
+    return digests
 
-    The pinned hash is ``delivery.gates_policy.sha256`` (set by the first gate run or by
-    ``gate --confirm-gates-policy``). Without one, a GATES.md modified after
-    ``delivery.started_at`` is refused too: the gate commands run on the host, outside any
-    worker sandbox, so only the human may change them mid-demand.
+
+def confirm_policy_command(name: str) -> str:
+    return sdd("confirm-policy", "--name", name, "--by", "requester", "--quote", "<user words confirming the policy change>")
+
+
+def controller_policy_check(data: dict[str, Any]) -> dict[str, str]:
+    """Refuse any host gate run unless every controller policy still matches its pinned hash.
+
+    The gate commands of ``GATES.md`` run on the host, outside every worker sandbox,
+    and ``EXECUTORS.md`` chooses the worker binary, its tools and its sandbox. In
+    ``--local-storage`` mode both files sit inside the repository a writing worker
+    may edit, so a pinned hash — recorded by ``sdd.py start`` or by the user's own
+    ``sdd.py confirm-policy`` — is the only evidence that the owner, not a worker,
+    wrote them. A demand with no pin is refused rather than trusted: an mtime cannot
+    tell the owner's edit from a worker's.
     """
-    current = sha256_file(GATES_POLICY) or ""
-    delivery = data.setdefault("delivery", {})
-    pinned = (delivery.get("gates_policy") or {}).get("sha256")
-    changed = pinned is not None and pinned != current
-    if pinned is None:
-        started = _iso_epoch(delivery.get("started_at"))
-        try:
-            modified = GATES_POLICY.stat().st_mtime
-        except OSError:
-            modified = None
-        changed = started is not None and modified is not None and modified > started + 1
+    current = policy_digests()
+    recorded = (data.get("delivery") or {}).get("controller_policies") or {}
+    unpinned = sorted(name for name in current if not (recorded.get(name) or {}).get("sha256"))
+    if unpinned:
+        raise SddError("CONTROLLER_POLICY_UNPINNED",
+                       f"No recorded SHA-256 for {', '.join(unpinned)}; the controller cannot tell the owner's edit from a worker's.",
+                       next_step="Review each unpinned policy file with the user (`git diff` on GATES.md / EXECUTORS.md). Record their confirmation "
+                                 "with the printed command, once per policy, before any gate runs.",
+                       next_command=confirm_policy_command(unpinned[0]),
+                       unpinned=unpinned, policies={name: str(CONTROLLER_POLICY_FILES[name]) for name in unpinned})
+    changed = sorted(name for name, digest in current.items() if recorded[name]["sha256"] != digest)
     if changed:
-        raise SddError("GATES_CHANGED_DURING_DEMAND",
-                       f"policies/GATES.md changed during demand {(data.get('ticket') or {}).get('id')}; no gate runs until the user re-confirms it.",
-                       next_step="Show the user the GATES.md diff. Only if they confirm the new gate commands, record their words with the printed "
-                                 "command; otherwise restore GATES.md and run `sdd.py next`.",
-                       next_command=sdd("gate", "--name", gate, "--confirm-gates-policy", "--quote", "<user words confirming the GATES.md change>"),
-                       gates_policy=str(GATES_POLICY), sha256=current, pinned_sha256=pinned)
-    if pinned is None:
-        delivery["gates_policy"] = {"sha256": current, "recorded_at": now(), "by": "first gate run"}
+        raise SddError("CONTROLLER_POLICY_CHANGED_DURING_DEMAND",
+                       f"{', '.join(changed)} changed during demand {(data.get('ticket') or {}).get('id')}; "
+                       "a worker with write access could have done it, so no gate runs until the user re-confirms.",
+                       next_step="Show the user the diff of each changed policy file. Only if they confirm it, record their words with the printed "
+                                 "command (once per policy); otherwise restore the file from Git and run `sdd.py next`.",
+                       next_command=confirm_policy_command(changed[0]),
+                       changed=changed, policies={name: str(CONTROLLER_POLICY_FILES[name]) for name in changed},
+                       sha256={name: current[name] for name in changed},
+                       pinned_sha256={name: recorded[name]["sha256"] for name in changed})
     return current
+
+
+def cmd_confirm_policy(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
+    """Record the user's confirmation of one controller policy file; runs no gate."""
+    ctx.require_pristine()
+    name = args.policy_name
+    if not (args.quote or "").strip():
+        raise SddError("CONTROLLER_POLICY_CONFIRMATION_REQUIRED",
+                       f"Confirming {name} needs the user's literal words in --quote.",
+                       next_command=confirm_policy_command(name))
+    digest = sha256_file(CONTROLLER_POLICY_FILES[name]) or ""
+    data = copy.deepcopy(ctx.state)
+    policies = data.setdefault("delivery", {}).setdefault("controller_policies", {})
+    policies[name] = {"sha256": digest, "recorded_at": now(), "by": args.by, "quote": args.quote}
+    ctx.write_state(data, f"Controller policy {name} {digest[:12]} confirmed by {args.by}: \"{args.quote}\"")
+    record_wiki(ctx, "gate", f"{name} policy confirmed", f"{CONTROLLER_POLICY_FILES[name]}\nSHA-256 {digest}\nConfirmed by {args.by}: {args.quote}",
+                stage=ctx.stage)
+    return {"status": "CONTROLLER_POLICY_CONFIRMED", "policy": name, "sha256": digest,
+            "next_step": "Run `sdd.py next`; the gates run with the confirmed commands.", "next_command": sdd("next")}
 
 
 def cmd_gate(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     ctx.require_pristine()
     name = args.name
-    if getattr(args, "confirm_gates_policy", False):
-        if not (args.quote or "").strip():
-            raise SddError("GATE_CONFIRMATION_REQUIRED", "--confirm-gates-policy needs the user's literal confirmation in --quote.",
-                           next_command=sdd("gate", "--name", name, "--confirm-gates-policy", "--quote", "<user words confirming the GATES.md change>"))
-        data = copy.deepcopy(ctx.state)
-        digest = sha256_file(GATES_POLICY) or ""
-        data.setdefault("delivery", {})["gates_policy"] = {"sha256": digest, "recorded_at": now(), "by": args.by, "quote": args.quote}
-        ctx.write_state(data, f"GATES.md {digest[:12]} confirmed by {args.by}: \"{args.quote}\"")
-        record_wiki(ctx, "gate", "GATES.md confirmed", f"SHA-256 {digest}\nConfirmed by {args.by}: {args.quote}", stage=ctx.stage)
-        return {"status": "GATES_POLICY_CONFIRMED", "sha256": digest, "next_step": "Run `sdd.py next`; the gates run with the confirmed commands.",
-                "next_command": sdd("next")}
+    confirm = getattr(args, "confirm_policy", None)
+    if confirm:
+        shortcut = argparse.Namespace(policy_name=confirm, by=args.by, quote=args.quote)
+        return cmd_confirm_policy(ctx, shortcut)
     row = gate_table().get(name) or {"unconfigured": True}
     data = copy.deepcopy(ctx.state)
-    gates_policy_check(data, name)
+    controller_policy_check(data)
     gates = data.setdefault("gates", {})
     order = {"format": ("focused_tests",), "analyze": ("focused_tests", "format"), "ci": ("focused_tests", "format", "analyze")}
     missing = [item for item in order.get(name, ()) if (gates.get(item) or {}).get("status") != "PASS"]
@@ -1785,6 +1852,7 @@ COMMANDS = {
     "answer": cmd_answer, "unblock": cmd_unblock, "budget": cmd_budget, "gate": cmd_gate, "reopen": cmd_reopen,
     "request-decision": cmd_request_decision, "rebaseline": cmd_rebaseline, "approve-scope": cmd_approve_scope,
     "close": cmd_close, "pause": cmd_pause, "resume": cmd_resume, "reprepare": cmd_reprepare,
+    "confirm-policy": cmd_confirm_policy,
 }
 
 
@@ -1845,11 +1913,16 @@ def parser() -> argparse.ArgumentParser:
     gate = commands.add_parser("gate", help="Run one configured gate from policies/GATES.md, or confirm a NOT_APPLICABLE one.")
     gate.add_argument("--name", required=True, choices=GATE_NAMES)
     gate.add_argument("--not-applicable", action="store_true")
-    gate.add_argument("--confirm-gates-policy", action="store_true",
-                      help="Record the user's confirmation (--quote) of a GATES.md changed during the demand; runs no gate.")
+    gate.add_argument("--confirm-policy", dest="confirm_policy", choices=tuple(sorted(CONTROLLER_POLICY_FILES)),
+                      help="Shortcut for `confirm-policy --name <policy>`: records the user's confirmation (--quote) of a changed controller policy; runs no gate.")
     gate.add_argument("--by", default="requester")
     gate.add_argument("--quote")
     gate.add_argument("--rerun", action="store_true", help="Run a TIMEOUT gate again with the same GATES.md row (needs --quote).")
+    confirm_policy = commands.add_parser("confirm-policy",
+                                         help="Record the user's confirmation of one controller policy file (policies/GATES.md or EXECUTORS.md); runs no gate.")
+    confirm_policy.add_argument("--name", dest="policy_name", required=True, choices=tuple(sorted(CONTROLLER_POLICY_FILES)))
+    confirm_policy.add_argument("--by", default="requester")
+    confirm_policy.add_argument("--quote", required=True, help="The user's literal words confirming they changed this policy file.")
     rebaseline = commands.add_parser("rebaseline", help="Accept external drift, changed protected files or REVIEW ownership findings with the user's words.")
     rebaseline.add_argument("--quote", required=True)
     approve = commands.add_parser("approve-scope", help="Approve the current slice contracts after SCOPE_CHANGE_REQUIRED.")
