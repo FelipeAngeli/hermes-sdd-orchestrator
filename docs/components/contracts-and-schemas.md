@@ -35,7 +35,7 @@ Used by `REVIEW` and the audit sub-agents. The root is `review_result`, with the
 `runtime/executor_launch.py` is the only way to start a worker. It reads `policies/EXECUTORS.md`, a project-owned file with one fenced JSON block (`executors_version: 1`, `stages: {STAGE: {executor, model, timeout_seconds, max_turns}}`, optional `tools`, `permission_mode`, `sandbox`). Defaults, also used when the file is absent: `SPECIFY`, `CLARIFY`, `PLAN` and `REVIEW` on `claude`; `TASKS`, `IMPLEMENT` and `TEST` on `codex`; `timeout_seconds` 900 for PLAN and IMPLEMENT, 600 otherwise; `model: null` (CLI default). A stage omitted from the block keeps its default; an invalid block is `POLICY_INVALID` (`POLICY_SOURCES`: `FILE`, `DEFAULTS`).
 
 ```text
-executor_launch.py schema --stage PLAN [--role CODE_REVIEWER]
+executor_launch.py schema --stage REVIEW [--role SECURITY_REVIEWER]
 executor_launch.py preflight --executor claude|codex [--model M] [--probe]
 executor_launch.py build --stage S --prompt-file P --journal J --final F [--executor E] [--model M] [--timeout SEC] [--role R] [--repo DIR] [--add-dir DIR] [--policy FILE]
 executor_launch.py run   (same flags as build)
