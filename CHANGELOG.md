@@ -4,6 +4,24 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Breaking
+- MANUAL mode: a user "continue"/"pode seguir" now authorizes progress **up to the next HUMAN checkpoint** (the next stop `sdd.py next` ends the turn on), not a single action; `MANUAL_ACTION_COMPLETE` now means "the progress authorized in MANUAL is done; a new 'continue' authorizes the next stretch", no longer "the one requested action ran". This shipped in 14.0.0 without a Breaking note.
+- `sdd.py transition --to <current stage>` is refused (`STEP_MISMATCH`; `state_format.apply_transition` raises `STATE_TRANSITION_INVALID`). Gate-failure and REVIEW stops (`FOCUSED_TESTS_FAILED`, `FORMAT_FAILED`, `ANALYZE_FAILED`, `CI_FAILED`, `REVIEW_CHANGES_REQUIRED`, `REVIEW_BLOCKED`) now print `sdd.py reopen --reason … --quote …` instead of `sdd.py transition --to IMPLEMENT …`.
+- `sdd.py waive` refuses AGENT (command-verified) checks with `WAIVE_REQUIRES_HUMAN_CHECK` unless `sdd.py request-decision` opened a `HUMAN_DECISION_REQUIRED` stop for the check and `sdd.py answer --check` recorded the user's words; the waiver `--quote` must be that answer. HUMAN checks are unchanged.
+- Every `stop_reasons.STOP_REASONS` entry now has a non-null `next_command`; several changed kind or command (`BASELINE_DRIFT_EXTERNAL`, `PREEXISTING_FILE_MODIFIED`, `OWNERSHIP_VIOLATION` → `sdd.py rebaseline`; `GATE_TIMEOUT`, `CI_TIMEOUT` → rerun; `DONE` → `sdd.py close`; `WORKER_BLOCKED`, `NO_NEW_HYPOTHESIS`, `NO_PROGRESS` → `sdd.py unblock`; `SCOPE_CHANGE_REQUIRED` → `sdd.py approve-scope`; `PROMPT_BUDGET_EXCEEDED` → `budget --raise prompt_bytes`; `BUDGET_REACHED` no longer prints a `<budget>` placeholder). Automation matching `next_command: null` must not.
+- `sdd.py start` sizes `stage_transitions` as forward transitions + `review_cycles` × the IMPLEMENT→REVIEW re-advance (CODE 11, DECISION_DOC 7, was 7 and 5).
+
+### Added
+- `sdd.py reopen` (FIX slice in IMPLEMENT after a failed gate or REVIEW, also inside IMPLEMENT for DECISION_DOC), `request-decision`, `answer --check`, `gate --rerun --quote`, `rebaseline`, `approve-scope`, `close` (DONE → IDLE, summary in `closed_demands`), `pause`/`resume`, `reprepare` (archive an undispatched PREPARED action and refund its executor call), `budget --raise prompt_bytes`. `start` output gains `limits_explained`.
+- Stop reasons `LOOP_PAUSED` and `EXECUTOR_UNAVAILABLE`; `sdd.py next` step `REPREPARE`; `stop_reasons.USER_PLACEHOLDERS`.
+
+### Fixed
+- DECISION_DOC: a failed local gate in IMPLEMENT no longer prints a lateral IMPLEMENT → IMPLEMENT transition that spent `stage_transitions` without progress.
+- A REVIEW `CHANGES_REQUIRED` reopen no longer hits `STAGE_TRANSITION_BUDGET_REACHED` before DONE.
+- Dead ends: `GATE_TIMEOUT` stayed TIMEOUT forever; a missing executor re-printed DISPATCH while the journal stayed PREPARED; enabling or disabling CI after REVIEW looped on `DONE_GATES_NOT_PASSED` (a gate whose GATES.md row changed is now re-run, DONE re-reads the CI policy, and an enabled CI with its run budget spent stops with `CI_RUN_BUDGET_REACHED`); baseline drift, protected-file changes and ownership violations had no command; a DONE demand blocked every new `start`.
+- PAUSED mode is honored: `sdd.py next` prints no PREPARE/DISPATCH while paused.
+- Controller card (`.hermes.md`) again forbids editing Hermes profile configuration or granting hook consent and states that stage agents never dispatch sub-agents.
+
 ## 14.0.0 - 2026-10-08
 
 ### Breaking

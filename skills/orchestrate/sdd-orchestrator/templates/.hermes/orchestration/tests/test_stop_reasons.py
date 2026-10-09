@@ -98,6 +98,23 @@ class StopReasonRegistryTests(unittest.TestCase):
                 if command is not None:
                     self.assertIn("sdd.py", described["next_command"])
 
+    def test_every_stop_reason_has_a_concrete_next_command(self) -> None:
+        """No stop is a dead end: every code names a command, and its only placeholders are the user's words."""
+        for code, (_, _, command) in stop_reasons.STOP_REASONS.items():
+            with self.subTest(code=code):
+                self.assertTrue(command and command.strip())
+                described = stop_reasons.describe(code)["next_command"]
+                self.assertIn("sdd.py", described)
+                for placeholder in re.findall(r"<[^<>]+>", described):
+                    self.assertIn(placeholder, stop_reasons.USER_PLACEHOLDERS)
+
+    def test_gate_failures_reopen_in_place_instead_of_a_lateral_transition(self) -> None:
+        for code in ("FOCUSED_TESTS_FAILED", "FORMAT_FAILED", "ANALYZE_FAILED", "CI_FAILED", "REVIEW_BLOCKED", "REVIEW_CHANGES_REQUIRED"):
+            with self.subTest(code=code):
+                command = stop_reasons.describe(code)["next_command"]
+                self.assertIn(" reopen ", command)
+                self.assertNotIn("transition --to", command)
+
     def test_budget_stop_reasons_use_the_singular_policy_names(self) -> None:
         import bounded_run_driver
 
@@ -108,10 +125,10 @@ class StopReasonRegistryTests(unittest.TestCase):
         import sdd
 
         for code, (_, _, command) in stop_reasons.STOP_REASONS.items():
-            match = re.search(r"budget --raise (\S+)", command or "")
-            if match and match.group(1) != "<budget>":
+            match = re.search(r"budget --raise (\S+)", command)
+            if match:
                 with self.subTest(code=code):
-                    self.assertIn(match.group(1), sdd.BUDGET_NAMES)
+                    self.assertIn(match.group(1), sdd.RAISABLE_BUDGETS)
 
 
 if __name__ == "__main__":

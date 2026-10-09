@@ -25,6 +25,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -53,6 +54,10 @@ BUDGET_NAMES = (
     "stage_transitions", "executor_calls", "corrective_retries", "tdd_slices",
     "investigation_expansions", "review_cycles", "ci_runs",
 )
+#: ``budget --raise`` also accepts the demand's prompt ceiling (bytes, delivery.max_prompt_bytes).
+RAISABLE_BUDGETS = (*BUDGET_NAMES, "prompt_bytes")
+LOCAL_GATES = ("focused_tests", "format", "analyze")
+MAX_CLOSED_DEMANDS = 20
 DEFAULT_MAX_PROMPT_BYTES = 48 * 1024
 DEFAULT_GATE_TIMEOUT = 300
 MAX_SOURCE_LINES = 120
@@ -71,7 +76,7 @@ STAGE_PLAYBOOKS = {
 IMPLEMENT_PLAYBOOK = {"CODE": "sdd-tdd", "DECISION_DOC": "sdd-release-readiness"}
 DOC_SLICE = "DOC"
 #: Step names printed in ``step``; each maps to a fixed command batch.
-STEPS = ("RECOVER", "PREPARE", "DISPATCH", "VALIDATE", "CLASSIFY_INVALID", "ACCEPT", "ROLLOVER", "TRANSITION", "GATES", "STOP")
+STEPS = ("RECOVER", "PREPARE", "REPREPARE", "DISPATCH", "VALIDATE", "CLASSIFY_INVALID", "ACCEPT", "ROLLOVER", "TRANSITION", "GATES", "STOP")
 EMITTED_STOP_REASONS = (
     "IDLE_NO_DEMAND", "STATE_INCONSISTENT", "BASELINE_DRIFT_EXTERNAL", "PREEXISTING_FILE_MODIFIED",
     "EXECUTOR_TIMEOUT", "EXECUTOR_FAILED", "RETRY_BUDGET_REACHED", "EXECUTOR_CALL_BUDGET_REACHED",
@@ -81,7 +86,7 @@ EMITTED_STOP_REASONS = (
     "SCOPE_CHANGE_REQUIRED", "JEV_GOVERNANCE_REQUIRED", "GATE_COMMAND_UNCONFIGURED", "GATE_CONFIRMATION_REQUIRED",
     "FOCUSED_TESTS_FAILED", "FORMAT_FAILED", "ANALYZE_FAILED", "CI_FAILED", "GATE_TIMEOUT",
     "REVIEW_CHANGES_REQUIRED", "REVIEW_BLOCKED", "OWNERSHIP_VIOLATION", "DONE_GATES_NOT_PASSED",
-    "ACTION_RECOVERY_REQUIRED", "DONE",
+    "ACTION_RECOVERY_REQUIRED", "DONE", "CI_TIMEOUT", "LOOP_PAUSED", "EXECUTOR_UNAVAILABLE",
 )
 GATE_FAILURE_STOP_REASONS = {
     "focused_tests": "FOCUSED_TESTS_FAILED", "format": "FORMAT_FAILED", "analyze": "ANALYZE_FAILED", "ci": "CI_FAILED",
@@ -261,11 +266,13 @@ class Ctx:
             self.text = self.state_path.read_text(encoding="utf-8")
             self.state = sf.parse(self.text)
         except (OSError, sf.StateFormatError) as exc:
-            raise SddError("STATE_INCONSISTENT", f"STATE.md cannot be read: {exc}", next_command=None) from exc
+            raise SddError("STATE_INCONSISTENT", f"STATE.md cannot be read: {exc}",
+                           next_step="Restore STATE.md from its last committed copy (`action_journal.py paths` names it and the history); never repair it by hand.",
+                           next_command=aj.paths_command()) from exc
         try:
             self.journal = aj.load_journal(self.journal_path)
         except aj.JournalError as exc:
-            raise SddError("ACTION_RECOVERY_REQUIRED", str(exc), next_step=exc.next_step, next_command=None) from exc
+            raise SddError("ACTION_RECOVERY_REQUIRED", str(exc), next_step=exc.next_step, next_command=exc.next_command or aj.paths_command()) from exc
         self.recovery = aj.recovery_decision(self.journal, journal_path=self.journal_path)
 
     # -- STATE accessors
@@ -296,9 +303,16 @@ class Ctx:
             raise SddError("ACTION_RECOVERY_REQUIRED", f"The journal holds action {self.journal['action']['id']} ({self.journal['action']['status']}); STATE may change only through it.",
                            next_command=sdd("next"))
 
-    def write_state(self, data: dict[str, Any], log: str) -> None:
-        """Direct STATE write: only while no action is in flight (pristine IDLE journal)."""
-        self.require_pristine()
+    def write_state(self, data: dict[str, Any], log: str, *, control_only: bool = False) -> None:
+        """Direct STATE write: only while no action is in flight (pristine IDLE journal).
+
+        ``control_only`` (pause/resume) may also write while an action is open, except
+        inside its STATE-commit window (VALIDATED, STATE_COMMITTED), whose hashes it would break.
+        """
+        if not control_only:
+            self.require_pristine()
+        elif self.journal["action"]["status"] in {"VALIDATED", "STATE_COMMITTED"}:
+            raise SddError("ACTION_RECOVERY_REQUIRED", "The open action is committing STATE; finish it first.", next_command=sdd("next"))
         atomic_write_text(self.state_path, sf.dump(self.text, data, log=f"{now()} {log}"))
         self.reload()
 
@@ -383,10 +397,13 @@ def plan_dispatch(ctx: Ctx) -> dict[str, Any]:
             return stop("HUMAN_DECISION_REQUIRED", checks=due,
                         next_command=sdd("waive", "--check", due[0], "--by", "requester", "--quote", "<user words>", "--reason", "<why>"))
     key = action_key(stage, role, slice_id)
-    attempts = history_attempts(ctx, key)
+    every_attempt = history_attempts(ctx, key)
+    # An action archived before its process started (e.g. `sdd.py reprepare` after the
+    # executor vanished) was never an attempt: it costs neither a retry nor a parent.
+    attempts = [item for item in every_attempt if item["process"]["started_at"] or item["action"]["status"] not in {"BLOCKED", "INTERRUPTED"}]
     released = [index for index, item in enumerate(attempts) if item["action"]["status"] == "RELEASED"]
     series = attempts[released[-1] + 1:] if released else attempts
-    n = (int(attempts[-1]["action"]["id"].rsplit("-", 1)[-1]) if attempts else 0) + 1
+    n = (int(every_attempt[-1]["action"]["id"].rsplit("-", 1)[-1]) if every_attempt else 0) + 1
     parent = series[-1] if series and series[-1]["action"]["status"] in {"INTERRUPTED", "BLOCKED"} else None
     retries_used = len([item for item in series if item["action"]["status"] in {"INTERRUPTED", "BLOCKED"}])
     used, maximum = budget(data, "corrective_retries")
@@ -512,7 +529,7 @@ def build_manifest(ctx: Ctx, data: dict[str, Any], stage: str, *, role: str | No
         "project_root": str(ctx.repo),
         "ticket": str((data.get("ticket") or {}).get("id")),
         "stage": stage,
-        "limits": {"max_sources": 12, "max_lines_per_source": 250, "max_prompt_bytes": DEFAULT_MAX_PROMPT_BYTES},
+        "limits": {"max_sources": 12, "max_lines_per_source": 250, "max_prompt_bytes": int(delivery.get("max_prompt_bytes") or DEFAULT_MAX_PROMPT_BYTES)},
         "project_context": {
             "status": status or "MISSING",
             "checked_head": project.get("checked_head") if status != "MISSING" else None,
@@ -592,6 +609,7 @@ def controller_data(ctx: Ctx, plan: dict[str, Any], manifest: dict[str, Any], *,
     if stage == "REVIEW":
         data["gates"] = {name: (ctx.state.get("gates") or {}).get(name, {}).get("status", "PENDING") for name in GATE_NAMES}
         data["agent_owned"] = (ctx.state.get("ownership") or {}).get("agent_owned") or []
+        data["human_accepted_paths"] = (ctx.state.get("ownership") or {}).get("human_accepted") or []
     previous = delivery.get("summaries") or {}
     data["previous"] = {name: ({"summary": item.get("summary")} if brief else item) for name, item in previous.items()}
     if plan["parent"]:
@@ -714,6 +732,14 @@ def recovery_step(ctx: Ctx) -> dict[str, Any] | None:
         return None
     if decision["decision"] == "DISPATCH_ALLOWED" and status == "PREPARED":
         action = journal_action(ctx)
+        recorded = str(ctx.journal["action"]["executor"] or "").lower()
+        selected = executor_for(action["stage"])
+        if recorded != selected and shutil.which(selected):
+            return step("REPREPARE", [sdd("reprepare")],
+                        f"policies/EXECUTORS.md now selects {selected} for {action['stage']}, not the prepared {recorded}: archive the undispatched action "
+                        "(its executor call is refunded), then `sdd.py next` prepares it again.", action_id=action["id"])
+        if shutil.which(recorded) is None:
+            return stopped(ctx, stop("EXECUTOR_UNAVAILABLE", executor=recorded, action_id=action["id"]))
         arguments = ["run", "--stage", action["stage"], "--journal", str(ctx.journal_path), "--prompt-file", str(action["prompt"]), "--final", str(action["final"])]
         if action["role"]:
             arguments += ["--role", action["role"]]
@@ -777,38 +803,73 @@ def stage_complete(ctx: Ctx) -> bool:
     return stage.lower() in accepted
 
 
+def gate_config_changed(entry: dict[str, Any], row: dict[str, Any]) -> bool:
+    """True when policies/GATES.md no longer matches the configuration a recorded gate result ran with."""
+    if entry.get("not_applicable"):
+        return not row.get("not_applicable")
+    if entry.get("command") is not None and entry["command"] != row.get("command"):
+        return True
+    return entry.get("timeout") is not None and entry["timeout"] != row.get("timeout")
+
+
+def gate_settled(name: str, entry: dict[str, Any], row: dict[str, Any]) -> bool:
+    status = entry.get("status")
+    if name == "ci" and status == "DISABLED_BY_PROJECT_POLICY":
+        return not ci_enabled()
+    return status == "PASS" and not gate_config_changed(entry, row)
+
+
 def gates_step(ctx: Ctx, names: tuple[str, ...]) -> dict[str, Any] | None:
+    """Run every gate not yet settled under the current GATES.md; a changed row is re-run, never trusted."""
     table = gate_table()
     gates = ctx.state.get("gates") or {}
-    pending = [name for name in names if (gates.get(name) or {}).get("status") not in {"PASS", "DISABLED_BY_PROJECT_POLICY"}]
-    if not pending:
-        return None
     commands = []
-    for name in pending:
-        status = (gates.get(name) or {}).get("status")
+    for name in names:
+        entry = gates.get(name) or {}
         row = table.get(name) or {"unconfigured": True}
-        if status in {"FAIL", "TIMEOUT"}:
-            return stopped(ctx, stop("GATE_TIMEOUT" if status == "TIMEOUT" else GATE_FAILURE_STOP_REASONS[name], gate=name))
+        if gate_settled(name, entry, row):
+            continue
+        status = entry.get("status")
+        if status in {"FAIL", "TIMEOUT"} and not gate_config_changed(entry, row):
+            if status == "TIMEOUT":
+                return stopped(ctx, stop("CI_TIMEOUT" if name == "ci" else "GATE_TIMEOUT", gate=name, timeout_seconds=row.get("timeout"),
+                                         next_command=sdd("gate", "--name", name, "--rerun", "--quote", "<user words>")))
+            return stopped(ctx, stop(GATE_FAILURE_STOP_REASONS[name], gate=name))
         if row.get("not_applicable"):
             return stopped(ctx, stop("GATE_CONFIRMATION_REQUIRED", gate=name,
                                      next_command=sdd("gate", "--name", name, "--not-applicable", "--by", "requester", "--quote", "<user words>")))
         if row.get("unconfigured") or not row.get("command"):
-            return stopped(ctx, stop("GATE_COMMAND_UNCONFIGURED", gate=name, next_command=None))
+            return stopped(ctx, stop("GATE_COMMAND_UNCONFIGURED", gate=name))
         commands.append(sdd("gate", "--name", name))
+    if not commands:
+        return None
     return step("GATES", commands, "Run the gates in order (each records its result in STATE and the wiki), then `sdd.py next`.")
 
 
 def done_gate_failure(ctx: Ctx) -> str | None:
     gates = ctx.state.get("gates") or {}
-    for name in ("focused_tests", "format", "analyze"):
+    for name in LOCAL_GATES:
         if (gates.get(name) or {}).get("status") != "PASS":
             return name
     if (gates.get("review") or {}).get("status") != "APPROVED":
         return "review"
-    expected = "PASS" if ci_enabled() else "DISABLED_BY_PROJECT_POLICY"
-    if (gates.get("ci") or {}).get("status") != expected:
-        return "ci"
-    return None
+    ci = (gates.get("ci") or {}).get("status")
+    if ci_enabled():
+        return None if ci == "PASS" else "ci"
+    # CI disabled by policy: never run, never PASS; only a CI run that already failed still blocks DONE.
+    return "ci" if ci in {"FAIL", "TIMEOUT"} else None
+
+
+def done_gate_command(ctx: Ctx, missing: str) -> str:
+    """The one command that makes progress on a gate DONE still lacks: run it, or reopen IMPLEMENT when it failed."""
+    status = ((ctx.state.get("gates") or {}).get(missing) or {}).get("status")
+    if status in {"FAIL", "TIMEOUT", "CHANGES_REQUIRED", "BLOCKED"} or missing not in GATE_NAMES:
+        return reopen_command()
+    return sdd("gate", "--name", missing)
+
+
+def reopen_command() -> str:
+    return sdd("reopen", "--reason", "<failure>", "--quote", "<user words>")
 
 
 def transition_step(ctx: Ctx) -> dict[str, Any]:
@@ -828,8 +889,21 @@ def transition_step(ctx: Ctx) -> dict[str, Any]:
     if target == "DONE":
         missing = done_gate_failure(ctx)
         if missing:
-            return stopped(ctx, stop("DONE_GATES_NOT_PASSED", gate=missing))
+            return stopped(ctx, stop("DONE_GATES_NOT_PASSED", gate=missing, next_command=done_gate_command(ctx, missing)))
     return step("TRANSITION", [sdd(*arguments)], f"Move STATE from {stage} to {target} with provenance, then `sdd.py next`.", target=target)
+
+
+def loop_mode(ctx: Ctx) -> str:
+    return (ctx.state.get("loop") or {}).get("mode") or "MANUAL"
+
+
+def decision_request_stop(ctx: Ctx) -> dict[str, Any] | None:
+    """An open `request-decision` (non-HUMAN check the user must decide) stops before any dispatch."""
+    for check, request in sorted((ctx.delivery.get("decision_requests") or {}).items()):
+        if not request.get("answer"):
+            return stop("HUMAN_DECISION_REQUIRED", checks=[check], question=request.get("question"),
+                        next_command=sdd("answer", "--check", check, "--quote", "<user words>"))
+    return None
 
 
 def decide_next(ctx: Ctx) -> dict[str, Any]:
@@ -838,6 +912,9 @@ def decide_next(ctx: Ctx) -> dict[str, Any]:
             return recovery_step(ctx) or stopped(ctx, stop("ACTION_RECOVERY_REQUIRED"))
         return stopped(ctx, stop("IDLE_NO_DEMAND"))
     recovered = recovery_step(ctx)
+    if loop_mode(ctx) == "PAUSED" and ctx.stage != "DONE" and (recovered is None or recovered.get("step") not in {"ACCEPT", "ROLLOVER"}):
+        # PAUSED starts nothing; only finishing an already committed result is allowed.
+        return stopped(ctx, stop("LOOP_PAUSED"))
     if recovered is not None:
         return recovered
     if ctx.stage == "DONE":
@@ -847,35 +924,40 @@ def decide_next(ctx: Ctx) -> dict[str, Any]:
         return stopped(ctx, drift)
     blockers = ctx.delivery.get("worker_blockers") or []
     if blockers:
-        return stopped(ctx, stop("WORKER_BLOCKED", blockers=blockers[:5], next_command=sdd("unblock", "--quote", "<user words resolving the blocker>")))
+        return stopped(ctx, stop("WORKER_BLOCKED", blockers=blockers[:5]))
     open_questions = [item for item in ctx.delivery.get("open_questions") or [] if not item.get("answer")]
     if ctx.stage == "CLARIFY" and open_questions:
         first = open_questions[0]
         return stopped(ctx, stop("CLARIFICATION_REQUIRED", questions=[item["question"] for item in open_questions],
                                  next_command=sdd("answer", "--index", str(first["index"]), "--quote", "<user words>")))
+    requested = decision_request_stop(ctx)
+    if requested:
+        return stopped(ctx, requested)
     gates = ctx.state.get("gates") or {}
-    review = (gates.get("review") or {}).get("status")
-    if ctx.stage == "REVIEW" and review in {"CHANGES_REQUIRED", "BLOCKED"}:
-        return stopped(ctx, stop("REVIEW_CHANGES_REQUIRED" if review == "CHANGES_REQUIRED" else "REVIEW_BLOCKED",
-                                 next_command=sdd("transition", "--to", "IMPLEMENT", "--reason", "<review findings>", "--quote", "<user words>")))
+    review = gates.get("review") or {}
+    if ctx.stage == "REVIEW" and review.get("ownership_violations"):
+        return stopped(ctx, stop("OWNERSHIP_VIOLATION", paths=review["ownership_violations"][:10]))
+    if ctx.stage == "REVIEW" and review.get("status") in {"CHANGES_REQUIRED", "BLOCKED"}:
+        return stopped(ctx, stop("REVIEW_CHANGES_REQUIRED" if review["status"] == "CHANGES_REQUIRED" else "REVIEW_BLOCKED"))
     if stage_complete(ctx):
         gate_stage = "TEST" if ctx.profile == "CODE" else "IMPLEMENT"
-        if ctx.stage == gate_stage:
-            pending = gates_step(ctx, ("focused_tests", "format", "analyze"))
+        if ctx.stage in {gate_stage, "REVIEW"}:
+            # REVIEW re-checks the local gates too: a GATES.md row changed after they passed is re-run.
+            pending = gates_step(ctx, LOCAL_GATES)
             if pending:
                 return pending
         if ctx.stage == "REVIEW" and ci_enabled():
-            used, maximum = budget(ctx.state, "ci_runs")
-            if (gates.get("ci") or {}).get("status") != "PASS" and used >= maximum:
-                return stopped(ctx, stop("CI_RUN_BUDGET_REACHED"))
             pending = gates_step(ctx, ("ci",))
             if pending:
+                used, maximum = budget(ctx.state, "ci_runs")
+                if pending.get("step") == "GATES" and used >= maximum:
+                    return stopped(ctx, stop("CI_RUN_BUDGET_REACHED"))
                 return pending
         return transition_step(ctx)
     acceptance = ctx.delivery.get("acceptance") or {}
     if ctx.stage in {"TASKS", "IMPLEMENT", "TEST", "REVIEW"} and any(check.get("verifier") == "AGENT" for check in acceptance.values()) \
             and not (gate_table().get("focused_tests") or {}).get("command"):
-        return stopped(ctx, stop("GATE_COMMAND_UNCONFIGURED", gate="focused_tests", next_command=None))
+        return stopped(ctx, stop("GATE_COMMAND_UNCONFIGURED", gate="focused_tests"))
     plan = plan_dispatch(ctx)
     if plan["status"] == "STOP":
         return stopped(ctx, plan)
@@ -933,9 +1015,21 @@ def cmd_next(ctx: Ctx, _args: argparse.Namespace) -> dict[str, Any]:
     return result
 
 
+def reopen_length(path: tuple[str, ...]) -> int:
+    """Forward transitions a reopen re-spends: IMPLEMENT back up to REVIEW."""
+    return path.index("REVIEW") - path.index("IMPLEMENT")
+
+
+def stage_transition_limit(path: tuple[str, ...], review_cycles: int) -> int:
+    """The profile path plus one re-advance per review cycle, so every authorized REVIEW reopen can still reach DONE."""
+    return len(path) - 1 + review_cycles * reopen_length(path)
+
+
 def cmd_start(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     if ctx.stage != "IDLE":
-        raise SddError("DEMAND_ACTIVE", f"Ticket {ctx.ticket} is active at {ctx.stage}; finish or resume it first.", next_command=sdd("next"))
+        raise SddError("DEMAND_ACTIVE", f"Ticket {ctx.ticket} is active at {ctx.stage}; finish or resume it first"
+                       + (" (DONE: close it to return STATE to IDLE)." if ctx.stage == "DONE" else "."),
+                       next_command=sdd("close") if ctx.stage == "DONE" else sdd("next"))
     if not ctx.pristine():
         raise SddError("ACTION_RECOVERY_REQUIRED", "The journal is not pristine; recover it before starting a demand.", next_command=sdd("next"))
     if not TICKET_PATTERN.match(args.ticket):
@@ -954,8 +1048,9 @@ def cmd_start(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     profile = "DECISION_DOC" if args.deliverable_kind == "DECISION_DOC" else "CODE"
     path = sf.profile_path(profile)
     data["ticket"] = {"id": args.ticket, "title": args.title, "objective": args.objective, "scope_confirmed": []}
-    limits = {"stage_transitions": len(path) - 1, "executor_calls": args.executor_calls, "tdd_slices": args.tdd_slices,
-              "review_cycles": 2, "ci_runs": 1}
+    review_cycles = 2
+    limits = {"stage_transitions": stage_transition_limit(path, review_cycles), "executor_calls": args.executor_calls,
+              "tdd_slices": args.tdd_slices, "review_cycles": review_cycles, "ci_runs": 1}
     loop = data.setdefault("loop", {})
     loop["budgets"] = {
         **{name: {"max": limits[name], "used": 0} for name in limits},
@@ -984,6 +1079,8 @@ def cmd_start(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
                     + (f"; protected pre-existing: {', '.join(protected)}" if protected else ""))
     record_wiki(ctx, "stage", f"{args.ticket} started", f"Request: {quote}\n\nProfile: {profile} ({' -> '.join(path)})\nLimits: {json.dumps(limits)}", stage="SPECIFY")
     return {"status": "STARTED", "ticket": args.ticket, "profile": profile, "stages": list(path), "limits": limits,
+            "limits_explained": {"stage_transitions": f"{len(path) - 1} forward transitions + {review_cycles} review_cycles x "
+                                                      f"{reopen_length(path)} to re-advance from a reopened IMPLEMENT to REVIEW"},
             "protected_preexisting": protected,
             "authorization": "This request authorizes progress up to the next HUMAN checkpoint within these limits; show this preview once, then run the loop.",
             "next_step": "Run `sdd.py next` and execute exactly the printed commands until it ends the turn.", "next_command": sdd("next")}
@@ -1120,6 +1217,16 @@ def cmd_reject(ctx: Ctx, _args: argparse.Namespace) -> dict[str, Any]:
     return {**stop("CONTRACT_INVALID"), "status": "CLASSIFIED_INVALID", "action_id": action["id"], "invalid_fields": fields}
 
 
+def slice_hashes(ctx: Ctx, data: dict[str, Any], slice_ids: list[str]) -> list[str]:
+    import stage_context
+
+    hashes = []
+    for slice_id in slice_ids:
+        manifest = build_manifest(ctx, data, "IMPLEMENT", slice_id=slice_id)
+        hashes.append(hashlib.sha256(stage_context._canonical(stage_context.slice_contract(manifest, slice_id))).hexdigest())
+    return hashes
+
+
 def apply_result(ctx: Ctx, data: dict[str, Any], action: dict[str, Any], result: dict[str, Any], digest: str) -> str:
     """Fold one validated worker result into STATE; return a one-line log."""
     stage, role = action["stage"], action["role"]
@@ -1130,6 +1237,8 @@ def apply_result(ctx: Ctx, data: dict[str, Any], action: dict[str, Any], result:
     if stage == "REVIEW":
         review = result["review_result"]
         data.setdefault("gates", {})["review"] = {"status": review["status"], "action_id": action["id"]}
+        if review["ownership"]["violations"]:
+            data["gates"]["review"]["ownership_violations"] = sorted({item["path"] for item in review["ownership"]["violations"]})
         used, _ = budget(data, "review_cycles")
         set_budget(data, "review_cycles", used=used + 1)
         if review["status"] == "APPROVED" and not ci_enabled():
@@ -1163,13 +1272,7 @@ def apply_result(ctx: Ctx, data: dict[str, Any], action: dict[str, Any], result:
                 check["slice_id"] = DOC_SLICE
         planned = list(dict.fromkeys(check["slice_id"] for check in delivery["acceptance"].values() if check["slice_id"]))
         delivery["slices"] = {"planned": planned, "completed": [], "editable_paths": sorted(set(payload["impact_files"]))}
-        import stage_context
-
-        hashes = []
-        for slice_id in planned:
-            manifest = build_manifest(ctx, data, "IMPLEMENT", slice_id=slice_id)
-            hashes.append(hashlib.sha256(stage_context._canonical(stage_context.slice_contract(manifest, slice_id))).hexdigest())
-        delivery["approved_slice_sha256s"] = hashes
+        delivery["approved_slice_sha256s"] = slice_hashes(ctx, data, planned)
     if stage == "IMPLEMENT":
         slice_id = current_slice(ctx)
         delivery["slices"]["completed"] = [*delivery["slices"].get("completed", []), slice_id]
@@ -1218,16 +1321,34 @@ def cmd_accept(ctx: Ctx, _args: argparse.Namespace) -> dict[str, Any]:
                     stage=action["stage"])
     aj.release_action(ctx.journal_path)
     ctx.reload()
-    if action["stage"] == "REVIEW":
-        review = json.loads(action["final"].read_text(encoding="utf-8"))["review_result"]
-        if review["ownership"]["violations"]:
-            return {**stop("OWNERSHIP_VIOLATION"), "status": "ACCEPTED", "action_id": action["id"]}
     return {"status": "ACCEPTED", "action_id": action["id"], "next_step": "Roll over with the command `sdd.py next` prints.", "next_command": sdd("next")}
+
+
+def reopen_slices(data: dict[str, Any]) -> str:
+    """Open the next FIX slice (it inherits the last slice's checks) and reset every gate; return its id."""
+    delivery = data.setdefault("delivery", {})
+    slices = delivery.setdefault("slices", {})
+    last = (slices.get("planned") or ["FIX"])[-1]
+    fix = f"FIX{len([item for item in slices.get('planned', []) if item.startswith('FIX')]) + 1}"
+    slices["planned"] = [*slices.get("planned", []), fix]
+    for check in delivery.get("acceptance", {}).values():
+        if check.get("slice_id") == last:
+            check["slice_id"] = fix
+    delivery["approved_slice_sha256s"] = []
+    accepted = delivery.setdefault("accepted", {})
+    for stage_key in ("test", "review"):
+        accepted.pop(stage_key, None)
+    data["gates"] = {name: {"status": "PENDING"} for name in ("focused_tests", "format", "analyze", "review", "ci")}
+    return fix
 
 
 def cmd_transition(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     ctx.require_pristine()
     current = ctx.stage
+    if args.to == current:
+        raise SddError("STEP_MISMATCH", f"{current} -> {current} is not a transition: it would spend stage_transitions without progress. "
+                       "A failed gate or review reopens the work with `sdd.py reopen` (a FIX slice inside IMPLEMENT).",
+                       next_command=reopen_command() if current in sf.REOPEN_TARGETS or current == "IMPLEMENT" else sdd("next"))
     data = copy.deepcopy(ctx.state)
     reopen = sf.FSM_ORDER.index(args.to) < sf.FSM_ORDER.index(current) if args.to in sf.FSM_ORDER and current in sf.FSM_ORDER else False
     provenance = None
@@ -1243,41 +1364,55 @@ def cmd_transition(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
             if args.artifact and Path(args.artifact) != Path(accepted["artifact"]):
                 raise SddError("STEP_MISMATCH", "--artifact is not the accepted artifact of this stage.", next_command=sdd("next"))
             if sha256_file(Path(accepted["artifact"])) != accepted["artifact_sha256"]:
-                raise SddError("STATE_INCONSISTENT", f"The accepted {current} artifact changed after acceptance.", next_command=None)
+                raise SddError("STATE_INCONSISTENT", f"The accepted {current} artifact changed after acceptance.")
             provenance = {"action_id": accepted["action_id"], "artifact": accepted["artifact"], "artifact_sha256": accepted["artifact_sha256"], "at": now()}
         if args.to == "DONE":
             missing = done_gate_failure(ctx)
             if missing:
-                raise SddError("DONE_GATES_NOT_PASSED", f"Gate {missing} does not allow DONE.")
+                raise SddError("DONE_GATES_NOT_PASSED", f"Gate {missing} does not allow DONE.", next_command=done_gate_command(ctx, missing))
+            if not ci_enabled() and (data["gates"].get("ci") or {}).get("status") != "PASS":
+                data["gates"]["ci"] = {"status": "DISABLED_BY_PROJECT_POLICY"}
         set_budget(data, "stage_transitions", used=used + 1)
     elif not (args.reason and args.quote):
-        raise SddError("STEP_MISMATCH", "Reopening a stage needs --reason and the user's --quote.",
-                       next_command=sdd("transition", "--to", args.to, "--reason", "<why>", "--quote", "<user words>"))
+        raise SddError("STEP_MISMATCH", "Reopening a stage needs --reason and the user's --quote.", next_command=reopen_command())
     try:
         data = sf.apply_transition(data, args.to, profile=ctx.profile, provenance=provenance,
                                    clarify_skip_reason=args.skip_reason, reopen_reason=f"{args.reason} (user: {args.quote})" if reopen else None)
     except sf.StateFormatError as exc:
         raise SddError("STEP_MISMATCH", str(exc), next_command=sdd("next")) from exc
     set_budget(data, "investigation_expansions", used=0)
-    if reopen:
-        slices = data.setdefault("delivery", {}).setdefault("slices", {})
-        last = (slices.get("planned") or ["FIX"])[-1]
-        fix = f"FIX{len([item for item in slices.get('planned', []) if item.startswith('FIX')]) + 1}"
-        slices["planned"] = [*slices.get("planned", []), fix]
-        for check in data["delivery"].get("acceptance", {}).values():
-            if check.get("slice_id") == last:
-                check["slice_id"] = fix
-        data["delivery"]["approved_slice_sha256s"] = []
-        accepted = data["delivery"].setdefault("accepted", {})
-        for stage_key in ("test", "review"):
-            accepted.pop(stage_key, None)
-        data["gates"] = {name: {"status": "PENDING"} for name in ("focused_tests", "format", "analyze", "review", "ci")}
+    fix = reopen_slices(data) if reopen else None
     data.setdefault("resume", {})["next_action"] = args.to
-    ctx.write_state(data, f"{current} -> {args.to}" + (f" (reopened: {args.reason})" if reopen else "") + (f" (CLARIFY skipped: {args.skip_reason})" if args.skip_reason else ""))
+    ctx.write_state(data, f"{current} -> {args.to}" + (f" (reopened: {args.reason}; slice {fix})" if reopen else "") + (f" (CLARIFY skipped: {args.skip_reason})" if args.skip_reason else ""))
     if args.to == "DONE":
         record_wiki(ctx, "stage", f"{ctx.ticket} DONE", f"Engineering validated. Gates: {json.dumps(data.get('gates'))}\nNo commit or push was performed.", stage="DONE")
         record_wiki(ctx, "decision", f"{ctx.ticket} delivered", f"Delivered {ctx.state['ticket'].get('title')} under the {ctx.profile} profile; review APPROVED, gates passed.", stage="DONE")
     return {"status": "TRANSITIONED", "from": current, "to": args.to, "next_step": "Run `sdd.py next`.", "next_command": sdd("next")}
+
+
+def cmd_reopen(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
+    """Reopen the implementation after a failed gate or review: a FIX slice in IMPLEMENT, never a lateral transition."""
+    ctx.require_pristine()
+    if not (args.reason.strip() and args.quote.strip()):
+        raise SddError("STEP_MISMATCH", "--reason and the user's literal --quote are required.", next_command=reopen_command())
+    current = ctx.stage
+    if current in sf.REOPEN_TARGETS:
+        args.to, args.artifact, args.skip_reason = "IMPLEMENT", None, None
+        result = cmd_transition(ctx, args)
+        ctx.reload()
+        return {**result, "status": "REOPENED", "fix_slice": (ctx.delivery.get("slices") or {}).get("planned", [None])[-1]}
+    gates = ctx.state.get("gates") or {}
+    failed = [name for name in GATE_NAMES if (gates.get(name) or {}).get("status") in {"FAIL", "TIMEOUT"}]
+    if current != "IMPLEMENT" or not stage_complete(ctx) or not failed:
+        raise SddError("STEP_MISMATCH", f"Nothing to reopen at {current}: reopen follows a failed gate or a REVIEW that requires changes.", next_command=sdd("next"))
+    data = copy.deepcopy(ctx.state)
+    fix = reopen_slices(data)
+    data.setdefault("stage_provenance", {})[f"IMPLEMENT->{fix}"] = {"reason": f"{args.reason} (user: {args.quote})", "failed_gates": failed, "at": now()}
+    data.setdefault("resume", {})["next_action"] = f"IMPLEMENT {fix}"
+    ctx.write_state(data, f"IMPLEMENT reopened in place for {fix} (failed: {', '.join(failed)}; {args.reason}; user: \"{args.quote}\")")
+    record_wiki(ctx, "decision", f"{ctx.ticket} IMPLEMENT reopened ({fix})", f"Failed gates: {', '.join(failed)}\nReason: {args.reason}\nUser: {args.quote}", stage="IMPLEMENT")
+    return {"status": "REOPENED", "from": current, "to": "IMPLEMENT", "fix_slice": fix,
+            "next_step": f"Run `sdd.py next`: it dispatches IMPLEMENT slice {fix}, then re-runs every gate.", "next_command": sdd("next")}
 
 
 def cmd_waive(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
@@ -1291,17 +1426,59 @@ def cmd_waive(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
                        next_command=sdd("waive", "--check", args.check, "--by", "requester", "--quote", args.quote, "--reason", args.reason))
     if not args.quote.strip() or not args.reason.strip():
         raise SddError("STEP_MISMATCH", "--quote (the user's literal words) and --reason are required.", next_command=sdd("next"))
+    verifier = acceptance[args.check].get("verifier")
+    binding = None
+    if verifier != "HUMAN":
+        # A non-HUMAN check is verified by a command; only the user may waive it, through an answered decision stop.
+        request = (ctx.delivery.get("decision_requests") or {}).get(args.check) or {}
+        if not request.get("answer"):
+            raise SddError("WAIVE_REQUIRES_HUMAN_CHECK", f"{args.check} is a {verifier} check: only an answered HUMAN_DECISION_REQUIRED stop for it can waive it, "
+                           "never a quote typed by the controller. Request the user's decision first.",
+                           next_command=sdd("request-decision", "--check", args.check, "--reason", "<reason>"))
+        if args.quote != request["answer"]:
+            raise SddError("WAIVE_REQUIRES_HUMAN_CHECK", f"--quote must be the user's recorded answer for {args.check}.",
+                           next_command=sdd("waive", "--check", args.check, "--by", args.by, "--quote", request["answer"], "--reason", args.reason))
+        binding = {"decision_request": args.check, "answered_at": request.get("answered_at")}
     data = copy.deepcopy(ctx.state)
     waiver = {"by": args.by, "reason": args.reason, "quote": args.quote, "recorded_at": now()}
     data.setdefault("delivery", {}).setdefault("waivers", {})[args.check] = waiver
+    if binding:
+        data["delivery"].setdefault("decision_bindings", {})[args.check] = binding
     ctx.write_state(data, f"{args.check} decided by {args.by}: \"{args.quote}\" ({args.reason})")
     record_wiki(ctx, "decision", f"{ctx.ticket} {args.check} waived", f"Check: {acceptance[args.check]['criterion']}\nBy: {args.by}\nQuote: {args.quote}\nReason: {args.reason}", stage=ctx.stage)
     return {"status": "WAIVED", "check": args.check, "waiver": waiver, "next_step": "Run `sdd.py next`; validation receives it as recorded_waivers.", "next_command": sdd("next")}
 
 
+def cmd_request_decision(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
+    """Open a HUMAN_DECISION_REQUIRED stop for a non-HUMAN check; `sdd.py next` asks the user."""
+    ctx.require_pristine()
+    acceptance = ctx.delivery.get("acceptance") or {}
+    if args.check not in acceptance:
+        raise SddError("STEP_MISMATCH", f"{args.check} is not an acceptance check of {ctx.ticket}.", next_command=sdd("status"))
+    if not args.reason.strip():
+        raise SddError("STEP_MISMATCH", "--reason is required.", next_command=sdd("request-decision", "--check", args.check, "--reason", "<reason>"))
+    data = copy.deepcopy(ctx.state)
+    question = f"May {args.check} ({acceptance[args.check]['criterion']}) be waived? Reason: {args.reason}"
+    data.setdefault("delivery", {}).setdefault("decision_requests", {})[args.check] = {"question": question, "reason": args.reason, "requested_at": now()}
+    ctx.write_state(data, f"Decision requested for {args.check}: {args.reason}")
+    return {"status": "DECISION_REQUESTED", "check": args.check, "question": question,
+            "next_step": "Run `sdd.py next`: it stops with HUMAN_DECISION_REQUIRED and the command recording the user's answer.", "next_command": sdd("next")}
+
+
 def cmd_answer(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     ctx.require_pristine()
     data = copy.deepcopy(ctx.state)
+    if args.check:
+        request = (data.setdefault("delivery", {}).get("decision_requests") or {}).get(args.check)
+        if request is None:
+            raise SddError("STEP_MISMATCH", f"No decision was requested for {args.check}.",
+                           next_command=sdd("request-decision", "--check", args.check, "--reason", "<reason>"))
+        request.update(answer=args.quote, answered_at=now())
+        data["delivery"].setdefault("answers", []).append({"question": request["question"], "answer": args.quote, "recorded_at": request["answered_at"]})
+        ctx.write_state(data, f"Decision for {args.check}: \"{args.quote}\"")
+        return {"status": "ANSWERED", "check": args.check,
+                "next_step": "If the user's answer approves the waiver, record it with this command; otherwise reopen the work with `sdd.py reopen`.",
+                "next_command": sdd("waive", "--check", args.check, "--by", "requester", "--quote", args.quote, "--reason", "<why>")}
     questions = data.setdefault("delivery", {}).get("open_questions") or []
     match = next((item for item in questions if item.get("index") == args.index), None)
     if match is None:
@@ -1319,11 +1496,128 @@ def cmd_unblock(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     data = copy.deepcopy(ctx.state)
     blockers = data.setdefault("delivery", {}).get("worker_blockers") or []
     data["delivery"]["worker_blockers"] = []
-    data["delivery"].setdefault("answers", []).append({"question": "; ".join(blockers), "answer": args.quote, "recorded_at": now()})
+    data["delivery"].setdefault("answers", []).append({"question": "; ".join(blockers) or "user direction", "answer": args.quote, "recorded_at": now()})
     key = ctx.stage.lower()
     data["delivery"].get("accepted", {}).pop(key, None)
     ctx.write_state(data, f"Blockers resolved by the user: \"{args.quote}\"")
     return {"status": "UNBLOCKED", "next_step": "Run `sdd.py next`; the stage is redispatched with the user's answer.", "next_command": sdd("next")}
+
+
+def cmd_rebaseline(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
+    """Record the user's acceptance of external drift, changed protected files or REVIEW ownership findings, and capture the new baseline."""
+    ctx.require_pristine()
+    if not args.quote.strip():
+        raise SddError("STEP_MISMATCH", "--quote with the user's literal words is required.", next_command=sdd("rebaseline", "--quote", "<user words>"))
+    drift = baseline_stop(ctx)
+    review = (ctx.state.get("gates") or {}).get("review") or {}
+    violations = list(review.get("ownership_violations") or [])
+    if drift is None and not violations:
+        raise SddError("STEP_MISMATCH", "Nothing to rebaseline: no baseline drift, protected-file change or ownership violation is recorded.", next_command=sdd("next"))
+    data = copy.deepcopy(ctx.state)
+    baseline = data.setdefault("baseline", {})
+    head = git(ctx.repo, "rev-parse", "HEAD").strip()
+    branch = git(ctx.repo, "branch", "--show-current").strip()
+    entry = {"quote": args.quote, "at": now(), "accepted": drift["stop_reason"] if drift else "OWNERSHIP_VIOLATION",
+             "from": {"head": baseline.get("head"), "branch": baseline.get("branch")}, "to": {"head": head, "branch": branch}}
+    if drift:
+        protected = list(baseline.get("protected_preexisting") or [])
+        baseline.update(head=head, branch=branch, captured_at=now(),
+                        protected_sha256={path: digest for path in protected if (digest := sha256_file(ctx.repo / path))})
+        data.setdefault("repository", {}).update(head=head, branch=branch)
+    if violations:
+        ownership = data.setdefault("ownership", {})
+        ownership["human_accepted"] = sorted({*(ownership.get("human_accepted") or []), *violations})
+        data["gates"]["review"] = {"status": "PENDING"}
+        data.setdefault("delivery", {}).setdefault("accepted", {}).pop("review", None)
+        entry["paths"] = violations
+    data.setdefault("delivery", {}).setdefault("rebaselines", []).append(entry)
+    ctx.write_state(data, f"Rebaseline accepted by the user ({entry['accepted']}): \"{args.quote}\"; baseline {branch}@{head[:12]}")
+    record_wiki(ctx, "decision", f"{ctx.ticket} rebaseline", json.dumps(entry, ensure_ascii=False, indent=1), stage=ctx.stage)
+    return {"status": "REBASELINED", "accepted": entry["accepted"], "head": head, "branch": branch,
+            "next_step": "Run `sdd.py next`" + ("; REVIEW is dispatched again with the accepted paths." if violations else "."), "next_command": sdd("next")}
+
+
+def cmd_approve_scope(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
+    """Record the user's approval of the current slice contracts after SCOPE_CHANGE_REQUIRED."""
+    ctx.require_pristine()
+    if not args.quote.strip():
+        raise SddError("STEP_MISMATCH", "--quote with the user's literal words is required.", next_command=sdd("approve-scope", "--quote", "<user words>"))
+    data = copy.deepcopy(ctx.state)
+    planned = list(((data.get("delivery") or {}).get("slices") or {}).get("planned") or [])
+    data["delivery"]["approved_slice_sha256s"] = slice_hashes(ctx, data, planned)
+    data["delivery"].setdefault("scope_approvals", []).append({"quote": args.quote, "slices": planned, "at": now()})
+    ctx.write_state(data, f"Scope of slices {', '.join(planned)} approved by the user: \"{args.quote}\"")
+    return {"status": "SCOPE_APPROVED", "slices": planned, "next_step": "Run `sdd.py next`.", "next_command": sdd("next")}
+
+
+def cmd_close(ctx: Ctx, _args: argparse.Namespace) -> dict[str, Any]:
+    """DONE -> IDLE: archive the demand summary in STATE and free the controller for a new `start`."""
+    ctx.require_pristine()
+    if ctx.stage != "DONE":
+        raise SddError("STEP_MISMATCH", f"close applies to a DONE demand; {ctx.ticket} is at {ctx.stage}.", next_command=sdd("next"))
+    data = copy.deepcopy(ctx.state)
+    summary = {"ticket": ctx.ticket, "title": (data.get("ticket") or {}).get("title"), "profile": ctx.profile,
+               "started_at": ctx.delivery.get("started_at"), "closed_at": now(),
+               "gates": {name: (entry or {}).get("status") for name, entry in (data.get("gates") or {}).items()},
+               "history_dir": str(ctx.history_dir / ctx.ticket)}
+    data["closed_demands"] = [*(data.get("closed_demands") or []), summary][-MAX_CLOSED_DEMANDS:]
+    data["ticket"] = {"id": "IDLE", "title": None, "objective": None, "scope_confirmed": []}
+    data["stage"] = {"current": "IDLE", "status": "WAITING", "completed": [], "skipped": []}
+    data["stage_provenance"] = {}
+    data.pop("delivery", None)
+    data["baseline"] = {"captured": False, "head": None, "branch": None, "protected_preexisting": []}
+    data["gates"] = {name: {"status": "PENDING"} for name in ("focused_tests", "format", "analyze", "review", "ci")}
+    data.setdefault("loop", {}).setdefault("control", {})["stop_reason"] = "NONE"
+    data["resume"] = {"last_gate": None, "next_action": None, "next_command": sdd("next")}
+    ctx.write_state(data, f"Demand {summary['ticket']} closed (DONE -> IDLE)")
+    record_wiki(ctx, "stage", f"{summary['ticket']} closed", f"DONE -> IDLE. Gates: {json.dumps(summary['gates'])}", stage="DONE")
+    return {"status": "CLOSED", "ticket": summary["ticket"], "next_step": "STATE is IDLE; start the next demand from the user's request.",
+            "next_command": sr.describe("IDLE_NO_DEMAND")["next_command"]}
+
+
+def cmd_pause(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
+    if ctx.stage == "IDLE":
+        raise SddError("IDLE_NO_DEMAND", "No demand is active; there is nothing to pause.")
+    data = copy.deepcopy(ctx.state)
+    loop = data.setdefault("loop", {})
+    if loop.get("mode") != "PAUSED":
+        loop["paused_from"] = loop.get("mode") or "MANUAL"
+    loop["mode"] = "PAUSED"
+    loop.setdefault("control", {}).update(stop_reason="LOOP_PAUSED", loop_active=False)
+    ctx.write_state(data, f"Loop PAUSED by the user: \"{args.quote}\"", control_only=True)
+    return {"status": "PAUSED", "next_step": "Nothing new starts until the user asks to resume.", "next_command": sdd("resume", "--quote", "<user words>")}
+
+
+def cmd_resume(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
+    if loop_mode(ctx) != "PAUSED":
+        raise SddError("STEP_MISMATCH", f"The loop is {loop_mode(ctx)}, not PAUSED.", next_command=sdd("next"))
+    if not args.quote.strip():
+        raise SddError("STEP_MISMATCH", "--quote with the user's literal words is required.", next_command=sdd("resume", "--quote", "<user words>"))
+    data = copy.deepcopy(ctx.state)
+    loop = data.setdefault("loop", {})
+    loop["mode"] = loop.pop("paused_from", None) or "MANUAL"
+    loop.setdefault("control", {})["stop_reason"] = "NONE"
+    ctx.write_state(data, f"Loop resumed ({loop['mode']}) by the user: \"{args.quote}\"", control_only=True)
+    return {"status": "RESUMED", "mode": loop["mode"], "next_step": "Run `sdd.py next`.", "next_command": sdd("next")}
+
+
+def cmd_reprepare(ctx: Ctx, _args: argparse.Namespace) -> dict[str, Any]:
+    """Archive a PREPARED action that was never dispatched (executor gone or changed) and refund its executor call."""
+    action = ctx.journal["action"]
+    if action["status"] != "PREPARED" or ctx.journal["process"]["started_at"]:
+        raise SddError("STEP_MISMATCH", "reprepare applies only to a PREPARED action whose process never started.", next_command=sdd("next"))
+    try:
+        aj._save_transition(ctx.journal_path, "BLOCKED")
+        archived = aj.archive_blocked_journal(ctx.journal_path, ctx.history_dir, f"never dispatched: executor {str(action['executor']).lower()} unavailable or replaced; re-prepared")
+    except aj.JournalError as exc:
+        raise SddError("ACTION_RECOVERY_REQUIRED", str(exc), next_step=exc.next_step, next_command=sdd("next")) from exc
+    ctx.reload()
+    data = copy.deepcopy(ctx.state)
+    used, _ = budget(data, "executor_calls")
+    set_budget(data, "executor_calls", used=max(0, used - 1))
+    ctx.write_state(data, f"{action['id']} archived undispatched (executor {action['executor']}); executor call refunded")
+    return {"status": "REPREPARED", "archived_action_id": action["id"], "archived_path": archived["archived_path"],
+            "next_step": "Run `sdd.py next`: it prepares the action again with the executor policies/EXECUTORS.md selects.", "next_command": sdd("next")}
 
 
 def cmd_budget(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
@@ -1331,8 +1625,12 @@ def cmd_budget(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     if not args.quote.strip():
         raise SddError("STEP_MISMATCH", "--quote with the user's words authorizing the raise is required.", next_command=sdd("next"))
     data = copy.deepcopy(ctx.state)
-    _, maximum = budget(data, args.raise_name)
-    set_budget(data, args.raise_name, maximum=maximum + args.by)
+    if args.raise_name == "prompt_bytes":
+        maximum = int(ctx.delivery.get("max_prompt_bytes") or DEFAULT_MAX_PROMPT_BYTES)
+        data.setdefault("delivery", {})["max_prompt_bytes"] = maximum + args.by
+    else:
+        _, maximum = budget(data, args.raise_name)
+        set_budget(data, args.raise_name, maximum=maximum + args.by)
     data.setdefault("delivery", {}).setdefault("authorization", {}).setdefault("raises", []).append({"budget": args.raise_name, "by": args.by, "quote": args.quote, "at": now()})
     ctx.write_state(data, f"Budget {args.raise_name} raised by {args.by}: \"{args.quote}\"")
     return {"status": "RAISED", "budget": args.raise_name, "max": maximum + args.by, "next_step": "Run `sdd.py next`.", "next_command": sdd("next")}
@@ -1362,7 +1660,13 @@ def cmd_gate(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
         raise SddError("GATE_CONFIRMATION_REQUIRED", f"GATES.md marks {name} NOT_APPLICABLE; it needs the user's confirmation.",
                        next_command=sdd("gate", "--name", name, "--not-applicable", "--by", "requester", "--quote", "<user words>"))
     if row.get("unconfigured") or not row.get("command"):
-        raise SddError("GATE_COMMAND_UNCONFIGURED", f"{name} has no verified command in policies/GATES.md.", next_command=None)
+        raise SddError("GATE_COMMAND_UNCONFIGURED", f"{name} has no verified command in policies/GATES.md.")
+    previous = gates.get(name) or {}
+    if previous.get("status") == "TIMEOUT" and not gate_config_changed(previous, row):
+        if not args.rerun or not (args.quote or "").strip():
+            raise SddError("CI_TIMEOUT" if name == "ci" else "GATE_TIMEOUT", f"{name} timed out with the same GATES.md row; a rerun needs the user's confirmation.",
+                           next_command=sdd("gate", "--name", name, "--rerun", "--quote", "<user words>"))
+    rerun = {"quote": args.quote, "at": now()} if args.rerun and (args.quote or "").strip() else None
     if name == "ci":
         used, maximum = budget(data, "ci_runs")
         if used >= maximum:
@@ -1379,12 +1683,14 @@ def cmd_gate(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
         status, exit_code, tail = "TIMEOUT", 124, ""
     except OSError as exc:
         status, exit_code, tail = "FAIL", 127, str(exc)
-    gates[name] = {"status": status, "command": row["command"], "exit_code": exit_code, "at": now()}
-    ctx.write_state(data, f"Gate {name} {status} (exit {exit_code})")
+    gates[name] = {"status": status, "command": row["command"], "timeout": row["timeout"], "exit_code": exit_code, "at": now(),
+                   **({"rerun_confirmed": rerun} if rerun else {})}
+    ctx.write_state(data, f"Gate {name} {status} (exit {exit_code})" + (f"; rerun confirmed by the user: \"{rerun['quote']}\"" if rerun else ""))
     record_wiki(ctx, "gate", f"{name} {status}", f"Command: `{row['command']}`\nExit: {exit_code}\n\n{tail}", stage=ctx.stage)
     if status != "PASS":
         code = "CI_TIMEOUT" if (name == "ci" and status == "TIMEOUT") else ("GATE_TIMEOUT" if status == "TIMEOUT" else GATE_FAILURE_STOP_REASONS[name])
-        raise SddError(code, f"Gate {name} {status} (exit {exit_code}).", output_tail=tail)
+        resolution = sdd("gate", "--name", name, "--rerun", "--quote", "<user words>") if status == "TIMEOUT" else reopen_command()
+        raise SddError(code, f"Gate {name} {status} (exit {exit_code}).", next_command=resolution, output_tail=tail)
     return {"status": "PASS", "gate": name, "exit_code": exit_code, "next_step": "Run `sdd.py next`.", "next_command": sdd("next")}
 
 
@@ -1402,7 +1708,9 @@ def record_wiki(ctx: Ctx, kind: str, title: str, body: str, *, stage: str | None
 COMMANDS = {
     "status": cmd_status, "next": cmd_next, "start": cmd_start, "snapshot": cmd_snapshot, "manifest": cmd_manifest,
     "prepare": cmd_prepare, "reject": cmd_reject, "accept": cmd_accept, "transition": cmd_transition, "waive": cmd_waive,
-    "answer": cmd_answer, "unblock": cmd_unblock, "budget": cmd_budget, "gate": cmd_gate,
+    "answer": cmd_answer, "unblock": cmd_unblock, "budget": cmd_budget, "gate": cmd_gate, "reopen": cmd_reopen,
+    "request-decision": cmd_request_decision, "rebaseline": cmd_rebaseline, "approve-scope": cmd_approve_scope,
+    "close": cmd_close, "pause": cmd_pause, "resume": cmd_resume, "reprepare": cmd_reprepare,
 }
 
 
@@ -1438,18 +1746,26 @@ def parser() -> argparse.ArgumentParser:
     transition.add_argument("--skip-reason", help="Why CLARIFY is skipped.")
     transition.add_argument("--reason", help="Why a stage is reopened.")
     transition.add_argument("--quote", help="The user's literal words authorizing a reopen.")
-    waive = commands.add_parser("waive", help="Record a human acceptance decision as a waiver.")
+    reopen = commands.add_parser("reopen", help="After a failed gate or a REVIEW asking for changes: open a FIX slice in IMPLEMENT and reset the gates.")
+    reopen.add_argument("--reason", required=True)
+    reopen.add_argument("--quote", required=True, help="The user's literal words authorizing the reopen.")
+    waive = commands.add_parser("waive", help="Record a human decision as a waiver (non-HUMAN checks only after an answered request-decision).")
     waive.add_argument("--check", required=True)
     waive.add_argument("--by", required=True)
     waive.add_argument("--quote", required=True)
     waive.add_argument("--reason", required=True)
-    answer = commands.add_parser("answer", help="Record the user's answer to an open material question.")
-    answer.add_argument("--index", type=int, required=True)
+    request = commands.add_parser("request-decision", help="Ask the user to decide a non-HUMAN acceptance check (next stops with HUMAN_DECISION_REQUIRED).")
+    request.add_argument("--check", required=True)
+    request.add_argument("--reason", required=True)
+    answer = commands.add_parser("answer", help="Record the user's answer to an open question (--index) or a requested decision (--check).")
+    target = answer.add_mutually_exclusive_group(required=True)
+    target.add_argument("--index", type=int)
+    target.add_argument("--check")
     answer.add_argument("--quote", required=True)
     unblock = commands.add_parser("unblock", help="Clear worker blockers with the user's resolution; the stage is redispatched.")
     unblock.add_argument("--quote", required=True)
     budget_parser = commands.add_parser("budget", help="Raise one demand budget with the user's authorization quote.")
-    budget_parser.add_argument("--raise", dest="raise_name", required=True, choices=BUDGET_NAMES)
+    budget_parser.add_argument("--raise", dest="raise_name", required=True, choices=RAISABLE_BUDGETS)
     budget_parser.add_argument("--by", type=int, default=1)
     budget_parser.add_argument("--quote", required=True)
     gate = commands.add_parser("gate", help="Run one configured gate from policies/GATES.md, or confirm a NOT_APPLICABLE one.")
@@ -1457,6 +1773,17 @@ def parser() -> argparse.ArgumentParser:
     gate.add_argument("--not-applicable", action="store_true")
     gate.add_argument("--by", default="requester")
     gate.add_argument("--quote")
+    gate.add_argument("--rerun", action="store_true", help="Run a TIMEOUT gate again with the same GATES.md row (needs --quote).")
+    rebaseline = commands.add_parser("rebaseline", help="Accept external drift, changed protected files or REVIEW ownership findings with the user's words.")
+    rebaseline.add_argument("--quote", required=True)
+    approve = commands.add_parser("approve-scope", help="Approve the current slice contracts after SCOPE_CHANGE_REQUIRED.")
+    approve.add_argument("--quote", required=True)
+    commands.add_parser("close", help="DONE -> IDLE: archive the demand summary and allow a new start.")
+    pause = commands.add_parser("pause", help="PAUSED: next starts nothing until resume.")
+    pause.add_argument("--quote", required=True)
+    resume = commands.add_parser("resume", help="Leave PAUSED and return to the previous mode.")
+    resume.add_argument("--quote", required=True)
+    commands.add_parser("reprepare", help="Archive a PREPARED, never-dispatched action (executor gone or changed) and refund its call.")
     return result
 
 

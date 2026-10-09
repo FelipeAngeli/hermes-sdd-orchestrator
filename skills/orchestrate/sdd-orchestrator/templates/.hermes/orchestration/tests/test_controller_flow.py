@@ -126,6 +126,14 @@ class DecisionDocProfileTests(unittest.TestCase):
         self.assertEqual("IMPLEMENT", reopened["stage"]["current"])
         self.assertNotIn("TEST", reopened["stage"]["completed"])
 
+    def test_a_stage_never_transitions_to_itself(self) -> None:
+        implement = {"schema_version": 2, "stage": {"current": "IMPLEMENT", "status": "RUNNING", "completed": ["SPECIFY", "PLAN"], "skipped": []}}
+        for kwargs in ({}, {"reopen_reason": "gate failed"}):
+            with self.subTest(**kwargs):
+                with self.assertRaises(state_format.StateFormatError) as caught:
+                    state_format.apply_transition(implement, "IMPLEMENT", profile="DECISION_DOC", **kwargs)
+                self.assertIn("sdd.py reopen", str(caught.exception))
+
     def test_planner_accepts_a_decision_doc_snapshot(self) -> None:
         value = planner_snapshot()
         value["state"]["stage"] = "PLAN"
