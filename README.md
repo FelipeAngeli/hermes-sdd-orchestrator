@@ -56,7 +56,7 @@ The skill is reusable. The controller configuration, project setup, state, incid
 
 ## Project-local engineering skills
 
-Every installation includes three repository-local, progressively loaded playbooks under `.hermes/skills/`: backend engineering, architecture decisions and database design/migrations. They guide planning and implementation while existing specialist sub-agents provide independent review. Stage-context schema 2 binds the canonical Git workspace and byte-verifies required `SKILL.md`/references before hashing their descriptors into slice approval; IMPLEMENT fails closed on extra, missing or changed guidance. Installation never changes global skills or trust. After inspecting the files, run `hermes skills trust` in the target repository and start a new session. See [Project-local engineering skills](docs/components/project-local-skills.md).
+Every installation includes ten repository-local, progressively loaded playbooks under `.hermes/skills/`, listed under [Project-local playbooks](#project-local-playbooks). They guide planning and implementation while the `pr-reviewer` and `security-reviewer` sub-agents provide independent review. Stage-context schema 2 binds the canonical Git workspace and byte-verifies required `SKILL.md`/references before hashing their descriptors into slice approval; IMPLEMENT fails closed on extra, missing or changed guidance. Installation never changes global skills or trust. After inspecting the files, run `hermes skills trust` in the target repository and start a new session. See [Project-local engineering skills](docs/components/project-local-skills.md).
 
 ## Optional TypeSafe/Jev integration
 
@@ -132,8 +132,9 @@ Every other specialty is a project-local skill in `.hermes/skills/` that the sta
 | `sdd-product-owner` | SPECIFY, CLARIFY, TASKS, REVIEW | Value, scope, observable acceptance, `deliverable_kind` (CODE, DECISION_DOC, BOTH) with request quotes, SPEC → TESTS traceability. |
 | `sdd-tech-lead` | PLAN, TASKS, REVIEW | Declared architecture rules, dependencies, performance budgets, operability, reversibility, security pointers. |
 | `sdd-architecture-decisions` | PLAN | Evidence-based design options and ADRs. |
-| `sdd-api-contracts` | PLAN, IMPLEMENT, REVIEW | Client models against specification and deployed server, with ranked sources. |
-| `sdd-database-design-migrations` | PLAN, IMPLEMENT, REVIEW | Schema/data design, expand/contract rollout and the rollout-safety audit. |
+| `sdd-api-contracts` | PLAN, IMPLEMENT, REVIEW | Client models against specification and deployed server, with ranked sources; OpenAPI version detection, validation and breaking changes. |
+| `sdd-database-design-migrations` | PLAN, IMPLEMENT, REVIEW | Schema/data design for relational, document and other NoSQL models, expand/contract rollout and the rollout-safety audit. |
+| `sdd-docker-containers` | PLAN, IMPLEMENT | Dockerfiles, image builds and Compose for local run and tests, with limits on destructive commands. |
 | `sdd-backend-engineering`, `sdd-frontend-engineering` | PLAN, IMPLEMENT | Backend and React/Next.js implementation procedure. |
 | `sdd-tdd` | IMPLEMENT, TEST, REVIEW | RED → GREEN slices and mutation proof that a suite can fail. |
 | `sdd-release-readiness` | REVIEW | READY, BLOCKED or READY_WITH_RISK; regressions in untouched consumers; documentation kept true to the code. |

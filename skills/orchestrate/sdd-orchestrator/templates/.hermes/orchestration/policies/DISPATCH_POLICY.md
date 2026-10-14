@@ -65,6 +65,7 @@ Routing suggestions by change shape, each still subject to the dispatch question
 | API or contract | `data-flow-tracer` (impact) when the contract is shared | `sdd-api-contracts`, `sdd-tech-lead` |
 | Architectural | `data-flow-tracer` (impact) | `sdd-tech-lead`, `sdd-architecture-decisions` |
 | Database schema/data migration | none; the rollout-safety audit is a playbook reference | `sdd-database-design-migrations` |
+| Container build or Compose | none beyond implement, test, review | `sdd-docker-containers` |
 | Pre-release | `security-reviewer` when the change touches its surfaces | `sdd-release-readiness`, `sdd-tdd` |
 | Pull request | `pr-reviewer` for the whole PR and its prior reviews; it names the owner when a deeper finding needs one | `sdd-product-owner`, `sdd-tech-lead` |
 
