@@ -36,7 +36,13 @@ OpenAPI is the specification, maintained by the OpenAPI Initiative. Swagger was 
 
 ## Breaking changes and consumers
 
-Treat as breaking for existing consumers unless the project's versioning policy says otherwise: removing or renaming a path, operation, parameter, property or enum value; making an optional request field required; making a response field optional or nullable; narrowing a type or format; changing authentication; changing status codes or the error envelope. Name the consumers (generated clients, mobile apps, partners) and the version or rollout window that carries the change. Use the project's diff/breaking-change tool when configured.
+Classify by direction, because the same edit can be safe in one and breaking in the other. Treat as breaking for existing consumers unless the project's versioning policy says otherwise:
+
+- Anywhere: removing or renaming a path, operation, parameter or property; changing authentication; changing status codes or the error envelope.
+- Requests (what clients send): adding a required parameter or body field; making an optional field required; narrowing a type, format, length, range or the set of accepted enum values.
+- Responses (what clients read): removing a field or making it optional or nullable; widening a type or format; adding an enum value when clients decode strictly.
+
+Widening what a request accepts, or adding an optional response field, is usually compatible. Name the consumers (generated clients, mobile apps, partners) and the version or rollout window that carries the change. Use the project's diff/breaking-change tool when configured.
 
 ## Compare with server, serializers and clients
 

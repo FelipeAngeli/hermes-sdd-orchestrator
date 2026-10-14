@@ -58,6 +58,7 @@ Do not use for read-only query analysis with no design change, non-persistent da
 - Do not state an engine guarantee, limit or default without the official documentation for the detected version.
 - Do not tighten a constraint or validator before existing data satisfies it.
 - Do not treat ORM/ODM generation success as proof of safe rollout.
+- Do not combine an unbounded backfill and blocking DDL, or promise rollback after destructive conversion without preserved source data.
 - Do not recommend an index without the target query and measured plan.
 - Do not run shared or production migrations without explicit authorization and readback.
 
@@ -65,5 +66,5 @@ Do not use for read-only query analysis with no design change, non-persistent da
 
 - Data model, engine and version are named; model-specific guarantees cite official documentation.
 - Empty-database and existing-data paths both pass; mixed-version compatibility is proven or not required.
-- Backfills are bounded, restartable or idempotent where interruption is possible.
+- Backfills are bounded, restartable or idempotent; lock, transaction and recovery evidence is recorded for material operations.
 - Every destructive step has explicit authorization and a verified recovery decision.

@@ -42,7 +42,7 @@ Never design an unbounded array inside one document. Record the expected maximum
 - Every frequent query has a supporting index; check the plan with the product's explain tool. Compound index field order follows equality, sort, then range in MongoDB-style engines; verify the rule for the detected product.
 - Count index write and storage cost; avoid indexes no query uses.
 - Respect hard limits from the product documentation: maximum document size or item size (for example, 16 MiB per BSON document in MongoDB and 400 KB per item in DynamoDB), nesting depth, index count and key size. Design to stay well below them.
-- Aggregation pipelines run with memory limits per stage and may require explicit disk use or redesign; filter and project early.
+- Aggregation and query engines can impose memory or execution limits (for example, MongoDB limits memory per pipeline stage and spills to disk only when allowed by the version and settings); check the detected product's limits, and filter and project early.
 
 ## Transactions and consistency
 

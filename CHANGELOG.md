@@ -13,6 +13,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 ### Docs
 - README files no longer claim that installation ships three playbooks; they point to the ten shipped playbooks. Packaging tests now require ten project skills and assert the new coverage.
 
+### Fixed
+- Review corrections to the new playbooks before release: `references/openapi.md` classifies breaking changes by request and response direction (including new required request fields and added response enum values); `other-nosql-models.md` no longer states the Cassandra "one table per query pattern" rule for every wide-column store; `document-databases.md` qualifies MongoDB's per-stage aggregation memory limit; `relational-databases.md` cross-references the shared transaction and backfill rules instead of repeating them; `sdd-database-design-migrations` keeps the unbounded-backfill/blocking-DDL and preserved-source-data pitfalls and the lock/transaction/recovery evidence check; `image-build.md` verifies the non-root UID with `--entrypoint id` and `docker image inspect`. Coverage tests use distinctive phrases so removing a section fails them.
+
 ## 15.2.1 - 2026-10-15
 
 ### Fixed

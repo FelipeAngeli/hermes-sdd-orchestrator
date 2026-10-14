@@ -324,7 +324,8 @@ class BundleContractTests(unittest.TestCase):
             "external service", "contract", "sandbox",
         ),
         ("sdd-backend-engineering", "references/observability-and-testing.md"): (
-            "unit", "integration", "end-to-end", "choose", "debugging evidence", "reproduce",
+            "| unit |", "| integration |", "| end-to-end |", "choosing the test layer", "debugging evidence",
+            "a hypothesis without a reproduction",
         ),
         ("sdd-database-design-migrations", "SKILL.md"): (
             "identify the data model", "relational", "document", "key-value", "wide-column",
@@ -332,8 +333,8 @@ class BundleContractTests(unittest.TestCase):
             "references/other-nosql-models.md",
         ),
         ("sdd-database-design-migrations", "references/relational-databases.md"): (
-            "isolation level", "default isolation", "serialization failure", "normalization",
-            "foreign key", "constraint", "explain", "engine and version",
+            "default isolation level differs by engine", "serialization failure", "normalization",
+            "foreign key", "online/concurrent index build", "`explain`", "identify the engine and version",
         ),
         ("sdd-database-design-migrations", "references/document-databases.md"): (
             "access pattern", "embed", "reference", "unbounded", "duplication", "schema validation",
@@ -341,28 +342,33 @@ class BundleContractTests(unittest.TestCase):
             "shard key", "pagination", "mixed-version", "do not assume mongodb",
         ),
         ("sdd-database-design-migrations", "references/other-nosql-models.md"): (
-            "key-value", "wide-column", "search", "partition key", "eventual", "official documentation",
-            "do not port relational",
+            "## key-value stores", "## wide-column stores", "## search engines", "partition key", "eventual",
+            "official documentation", "do not port relational",
         ),
         ("sdd-api-contracts", "references/openapi.md"): (
-            "openapi is the specification", "swagger", "detect the version", "2.0", "3.0", "3.1", "nullable",
-            "\"null\"", "$ref", "required", "enum", "securityschemes", "examples", "pagination", "lint",
-            "breaking", "consumers", "serializer", "never invent", "production",
+            "openapi is the specification", "\"swagger\" names a family of tools", "## detect the version",
+            "`swagger: \"2.0\"`", "`nullable: true`", "`type: [\"string\", \"null\"]`", "`$ref`",
+            "required and nullability", "securityschemes", "examples:", "pagination:", "validator or linter",
+            "classify by direction", "requests (what clients send)", "responses (what clients read)",
+            "adding an enum value", "serializer", "never invent", "never call a production api",
         ),
         ("sdd-docker-containers", "SKILL.md"): (
-            "diagnose", "build", "local run", "deployment", "compose is not", "version", "authorization",
+            "diagnose before editing", "**build**", "**local run**", "**deployment**", "compose is not assumed",
+            "docker compose version", "explicit authorization",
         ),
         ("sdd-docker-containers", "references/image-build.md"): (
-            "multi-stage", "pin", "digest", "build cache", "non-root", "user", ".dockerignore",
-            "--mount=type=secret", "arg", "env", "exec form", "signal",
+            "## multi-stage builds", "pin the base image", "digest", "## build cache", "non-root", "`user`",
+            "## .dockerignore", "--mount=type=secret", "never pass secrets through `arg` or `env`", "exec form",
+            "receives stop signals", "--entrypoint id",
         ),
         ("sdd-docker-containers", "references/compose-local-and-test.md"): (
             "healthcheck", "service_healthy", "depends_on", "named volume", "bind mount", "network",
-            "profiles", "env_file", "secrets", "/run/secrets", "version", "obsolete",
+            "profiles", "`env_file`", "compose `secrets`", "/run/secrets", "top-level `version` field is obsolete",
         ),
         ("sdd-docker-containers", "references/safety-and-deployment.md"): (
-            "docker compose down -v", "docker system prune", "volume", "explicit authorization", "shared",
-            "registry", "production", "orchestrator", "resource limits",
+            "docker compose down -v", "docker system prune", "docker volume rm", "explicit authorization",
+            "## shared environments", "push an image to a registry", "compose is not assumed suitable for production",
+            "orchestrator", "resource limits",
         ),
     }
 

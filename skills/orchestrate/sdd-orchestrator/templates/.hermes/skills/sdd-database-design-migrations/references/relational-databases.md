@@ -20,14 +20,14 @@ Name the engine and version from repository evidence (driver, migration tool con
 - State which anomaly the code must prevent (lost update, write skew, phantom) and the mechanism: constraint, `SELECT ... FOR UPDATE`, optimistic version column, or a stricter isolation level.
 - Stricter isolation can abort transactions with a serialization failure or deadlock; code that uses it must retry the whole transaction with a bound, and only when the transaction is safe to repeat.
 - Do not raise the isolation level globally to fix one path; scope the change and measure contention.
-- Keep transactions short and free of network calls to other systems.
+- Transaction scope, external calls and partial completion follow `transactions-locking-recovery.md`.
 
 ## Migrations, locks and backfills
 
 - Check which DDL takes locks that block reads or writes, and whether it rewrites the table, for the detected engine and version. Set lock and statement timeouts for migrations when the engine supports them.
 - Use the engine's online/concurrent index build where available, and account for its restrictions (for example, some engines cannot run it inside a transaction block) and the cleanup needed after a failed build.
 - Add a constraint in a not-yet-validated state and validate it after a backfill when the engine supports that split.
-- Batch backfills by key range with a stable order; never update an unbounded table in one transaction.
+- Backfill batching and ordering follow `migrations-and-backfills.md`; on large tables prefer key-range batches over offsets.
 
 ## Query analysis
 

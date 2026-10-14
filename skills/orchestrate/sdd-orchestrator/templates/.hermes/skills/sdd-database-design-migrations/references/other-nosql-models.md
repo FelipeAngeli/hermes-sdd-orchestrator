@@ -18,11 +18,11 @@ Examples: Redis, Memcached, Amazon DynamoDB used as key-value, etcd.
 
 Examples: Apache Cassandra, ScyllaDB, Google Cloud Bigtable, Amazon DynamoDB tables with composite keys.
 
-- Design one table per query pattern; the partition key selects the partition and the clustering/sort key orders rows within it.
+- Derive keys from the query patterns. The product decides the shape: Cassandra and ScyllaDB usually use one table per query pattern with a partition key and clustering columns; DynamoDB guidance often favors fewer tables with composite keys and secondary indexes; Bigtable has a single row key whose design encodes the access order. Follow the detected product's documentation.
 - Choose the partition key for even distribution and bounded partition size; a hot or unbounded partition is a design defect.
 - Writes are often upserts; state how a stale write is prevented (timestamps, conditional writes or lightweight transactions where supported, and their cost).
 - State the consistency level for reads and writes and whether reads may be eventual.
-- Secondary indexes and filtering can fan out across partitions; prefer a denormalized table for frequent queries.
+- Secondary indexes and filtering can fan out across partitions; for frequent queries prefer the product's recommended access structure (a denormalized table, a global index or a redesigned key).
 
 ## Search engines
 

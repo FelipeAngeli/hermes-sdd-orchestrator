@@ -54,6 +54,6 @@ Exclude at least: VCS directories (`.git`), local environment and secret files (
 ## Verification
 
 - `docker build` (or `docker buildx build`) with the project's arguments succeeds from a clean checkout.
-- `docker run --rm <image> id -u` (or the image's equivalent) reports a non-zero UID, when the image contains such a command.
+- `docker image inspect -f '{{.Config.User}}' <image>` names the unprivileged user, and `docker run --rm --entrypoint id <image> -u` reports a non-zero UID when the image contains `id` (`--entrypoint` overrides any `ENTRYPOINT`).
 - `docker history --no-trunc <image>` and the image filesystem contain no secret or excluded file.
 - The image starts, answers its health or smoke check and stops cleanly on `docker stop`.
