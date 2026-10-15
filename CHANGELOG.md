@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.2.1 - 2026-10-15
+
 ### Fixed
 - Review fixes for the 15.2.0 terminal progress: the controller entry point and `SKILL.md` now tell the controller to call `terminal_progress.py executor` before each dispatch and `finish --reason` at a stop, so the new fields are actually populated; a persisted progress file whose `reason` is unregistered, or set while the run is still running, is refused as `PROGRESS_STATE_INVALID`; a missing `stop_reasons.py` reports `PROGRESS_REASON_INVALID` instead of a traceback; three explanations now match their authoritative next step (reopen needs the user's agreement; CI may be disabled by project policy; executor-neutral wording). Docs no longer describe the old `DONE (8/8)` layout or the old dashboard fields in the READMEs.
 
