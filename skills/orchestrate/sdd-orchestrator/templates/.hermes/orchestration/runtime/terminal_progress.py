@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import copy
+import importlib.util
 import json
 import os
 import secrets
@@ -17,12 +18,18 @@ from typing import Any, Callable
 if os.name == "posix":
     import fcntl
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 STAGES = ("SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST", "REVIEW", "DONE")
 MAX_ACTIVITIES = 20
 MAX_TEXT = 240
 MAX_FILE_BYTES = 256 * 1024
 DEFAULT_PROGRESS_PATH = Path(__file__).resolve().parents[1] / "TERMINAL_PROGRESS.json"
+#: Display names; the FSM codes stay visible next to them.
+STAGE_LABELS = {
+    "SPECIFY": "Especificar", "CLARIFY": "Esclarecer", "PLAN": "Planejar", "TASKS": "Tarefas",
+    "IMPLEMENT": "Implementar", "TEST": "Testar", "REVIEW": "Revisar", "DONE": "Concluído",
+}
+HISTORY_LABELS = {"COMPLETED": "concluída", "SKIPPED": "pulada", "BLOCKED": "bloqueada", "PAUSED": "pausada"}
 
 
 class ProgressError(ValueError):
@@ -75,7 +82,28 @@ def _seconds(started: Any, finished: datetime) -> int:
     return int((finished - start).total_seconds())
 
 
-def new_progress(provider: str, stage: str, at: datetime | None = None) -> dict[str, Any]:
+def _optional_text(value: Any) -> str | None:
+    return None if value is None else _text(value)
+
+
+def _stop_reasons() -> Any:
+    path = Path(__file__).resolve().with_name("stop_reasons.py")
+    spec = importlib.util.spec_from_file_location("sdd_progress_stop_reasons", path)
+    if spec is None or spec.loader is None:
+        raise ProgressError("PROGRESS_REASON_INVALID")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def new_progress(
+    provider: str,
+    stage: str,
+    at: datetime | None = None,
+    *,
+    executor: str | None = None,
+    model: str | None = None,
+) -> dict[str, Any]:
     moment = at or utc_now()
     provider = _text(provider)
     stage = _stage(stage)
@@ -84,6 +112,9 @@ def new_progress(provider: str, stage: str, at: datetime | None = None) -> dict[
         "schema_version": SCHEMA_VERSION,
         "run": {
             "provider": provider,
+            "executor": _optional_text(executor),
+            "model": _optional_text(model),
+            "reason": None,
             "status": "RUNNING",
             "started_at": stamp,
             "finished_at": None,
@@ -109,18 +140,39 @@ def new_progress(provider: str, stage: str, at: datetime | None = None) -> dict[
     }
 
 
+def _upgrade_schema_one(value: dict[str, Any]) -> None:
+    """Add the schema-2 executor/model/reason fields to a schema-1 file in place."""
+    run, stage = value.get("run"), value.get("stage")
+    if not isinstance(run, dict) or not isinstance(stage, dict) or not isinstance(stage.get("history"), list):
+        raise ProgressError("PROGRESS_STATE_INVALID")
+    if {"executor", "model", "reason"} & set(run):
+        raise ProgressError("PROGRESS_STATE_INVALID")
+    run.update({"executor": None, "model": None, "reason": None})
+    for entry in stage["history"]:
+        if not isinstance(entry, dict) or {"executor", "model"} & set(entry):
+            raise ProgressError("PROGRESS_STATE_INVALID")
+        entry.update({"executor": None, "model": None})
+    value["schema_version"] = SCHEMA_VERSION
+
+
 def validate_progress(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != {"schema_version", "run", "stage", "activities", "jev", "updated_at"}:
         raise ProgressError("PROGRESS_STATE_INVALID")
+    if value.get("schema_version") == 1:
+        _upgrade_schema_one(value)
     if value.get("schema_version") != SCHEMA_VERSION:
         raise ProgressError("PROGRESS_STATE_INVALID")
     run = value.get("run")
     stage = value.get("stage")
     jev = value.get("jev")
     activities = value.get("activities")
-    if not isinstance(run, dict) or set(run) != {"provider", "status", "started_at", "finished_at"}:
+    run_keys = {"provider", "executor", "model", "reason", "status", "started_at", "finished_at"}
+    if not isinstance(run, dict) or set(run) != run_keys:
         raise ProgressError("PROGRESS_STATE_INVALID")
     _text(run.get("provider"), "PROGRESS_STATE_INVALID")
+    for key in ("executor", "model", "reason"):
+        if run.get(key) is not None:
+            _text(run[key], "PROGRESS_STATE_INVALID")
     if run.get("status") not in {"RUNNING", "DONE", "BLOCKED", "PAUSED"}:
         raise ProgressError("PROGRESS_STATE_INVALID")
     _parse_instant(run.get("started_at"))
@@ -134,8 +186,12 @@ def validate_progress(value: Any) -> dict[str, Any]:
         raise ProgressError("PROGRESS_STATE_INVALID")
     seen: set[str] = set()
     for entry in stage["history"]:
-        if not isinstance(entry, dict) or set(entry) != {"name", "status", "started_at", "finished_at", "elapsed_seconds"}:
+        history_keys = {"name", "status", "started_at", "finished_at", "elapsed_seconds", "executor", "model"}
+        if not isinstance(entry, dict) or set(entry) != history_keys:
             raise ProgressError("PROGRESS_STATE_INVALID")
+        for key in ("executor", "model"):
+            if entry.get(key) is not None:
+                _text(entry[key], "PROGRESS_STATE_INVALID")
         name = _stage(entry.get("name"))
         if name in seen or entry.get("status") not in {"COMPLETED", "SKIPPED", "BLOCKED", "PAUSED"}:
             raise ProgressError("PROGRESS_STATE_INVALID")
@@ -187,6 +243,34 @@ def record_activity(value: dict[str, Any], message: str, at: datetime | None = N
     return validate_progress(changed)
 
 
+def set_executor(
+    value: dict[str, Any],
+    executor: str,
+    model: str | None = None,
+    at: datetime | None = None,
+) -> dict[str, Any]:
+    """Record the executor and model actually dispatched for the current stage."""
+    _running(value)
+    stamp = _instant(at or utc_now())
+    changed = copy.deepcopy(value)
+    changed["run"]["executor"] = _text(executor)
+    changed["run"]["model"] = _optional_text(model)
+    changed["updated_at"] = stamp
+    return validate_progress(changed)
+
+
+def _closed_entry(changed: dict[str, Any], name: str, status: str, stamp: str, moment: datetime) -> dict[str, Any]:
+    return {
+        "name": name,
+        "status": status,
+        "started_at": changed["stage"]["started_at"],
+        "finished_at": stamp,
+        "elapsed_seconds": _seconds(changed["stage"]["started_at"], moment),
+        "executor": changed["run"]["executor"],
+        "model": changed["run"]["model"],
+    }
+
+
 def enter_stage(
     value: dict[str, Any],
     stage: str,
@@ -209,13 +293,7 @@ def enter_stage(
     moment = at or utc_now()
     stamp = _instant(moment)
     changed = copy.deepcopy(value)
-    changed["stage"]["history"].append({
-        "name": current,
-        "status": previous_status,
-        "started_at": changed["stage"]["started_at"],
-        "finished_at": stamp,
-        "elapsed_seconds": _seconds(changed["stage"]["started_at"], moment),
-    })
+    changed["stage"]["history"].append(_closed_entry(changed, current, previous_status, stamp, moment))
     for skipped in STAGES[current_index + 1:target_index]:
         changed["stage"]["history"].append({
             "name": skipped,
@@ -223,9 +301,14 @@ def enter_stage(
             "started_at": stamp,
             "finished_at": stamp,
             "elapsed_seconds": 0,
+            "executor": None,
+            "model": None,
         })
     changed["stage"]["current"] = target
     changed["stage"]["started_at"] = stamp
+    # Each stage may use another executor; never carry the previous one forward as a guess.
+    changed["run"]["executor"] = None
+    changed["run"]["model"] = None
     changed["updated_at"] = stamp
     return validate_progress(changed)
 
@@ -282,10 +365,18 @@ def finish_jev(
     return validate_progress(changed)
 
 
-def finish_run(value: dict[str, Any], status: str, at: datetime | None = None) -> dict[str, Any]:
+def finish_run(
+    value: dict[str, Any],
+    status: str,
+    at: datetime | None = None,
+    *,
+    reason: str | None = None,
+) -> dict[str, Any]:
     _running(value)
     if status not in {"DONE", "BLOCKED", "PAUSED"}:
         raise ProgressError("PROGRESS_STATUS_INVALID")
+    if reason is not None and reason not in _stop_reasons().STOP_REASONS:
+        raise ProgressError("PROGRESS_REASON_INVALID")
     moment = at or utc_now()
     stamp = _instant(moment)
     changed = copy.deepcopy(value)
@@ -294,13 +385,9 @@ def finish_run(value: dict[str, Any], status: str, at: datetime | None = None) -
     current = changed["stage"]["current"]
     if status == "DONE" and current not in {"REVIEW", "DONE"}:
         raise ProgressError("PROGRESS_TRANSITION_INVALID")
-    changed["stage"]["history"].append({
-        "name": current,
-        "status": "COMPLETED" if status == "DONE" else status,
-        "started_at": changed["stage"]["started_at"],
-        "finished_at": stamp,
-        "elapsed_seconds": _seconds(changed["stage"]["started_at"], moment),
-    })
+    changed["stage"]["history"].append(
+        _closed_entry(changed, current, "COMPLETED" if status == "DONE" else status, stamp, moment)
+    )
     if status == "DONE" and current == "REVIEW":
         changed["stage"]["current"] = "DONE"
         changed["stage"]["started_at"] = stamp
@@ -310,8 +397,10 @@ def finish_run(value: dict[str, Any], status: str, at: datetime | None = None) -
             "started_at": stamp,
             "finished_at": stamp,
             "elapsed_seconds": 0,
+            "executor": None,
+            "model": None,
         })
-    changed["run"].update({"status": status, "finished_at": stamp})
+    changed["run"].update({"status": status, "finished_at": stamp, "reason": reason})
     changed["updated_at"] = stamp
     return validate_progress(changed)
 
@@ -330,44 +419,75 @@ def _paint(text: str, code: str, enabled: bool) -> str:
     return f"\x1b[{code}m{text}\x1b[0m" if enabled else text
 
 
+def _row(label: str, text: str) -> str:
+    return f"│ {label:<12} {text}"
+
+
+def _who(executor: str | None, model: str | None) -> str:
+    if executor is None:
+        return "não informado"
+    return f"{executor} · {model}" if model else executor
+
+
+def _bar(done: int, total: int, width: int = 16) -> str:
+    filled = round(width * done / total)
+    return "█" * filled + "░" * (width - filled)
+
+
 def render(value: dict[str, Any], *, now: datetime | None = None, color: bool = False) -> str:
     validate_progress(value)
     moment = now or utc_now()
+    run = value["run"]
     current = value["stage"]["current"]
     current_index = STAGES.index(current)
-    remaining = len(STAGES) - current_index - 1
-    elapsed = _seconds(value["stage"]["started_at"], moment) if value["run"]["status"] == "RUNNING" else 0
-    lines = [
-        _paint("╭─ HERMES SDD · PROGRESSO", "1;36", color),
-        f"│ Provider       {value['run']['provider']}",
-        f"│ Fase atual     {current} ({current_index + 1}/{len(STAGES)})",
-        f"│ Fases restantes {remaining}",
-        f"│ Estado         {value['run']['status']}",
-        "│",
-        "│ Tempos por fase",
-    ]
+    label = f"{STAGE_LABELS[current]} ({current})"
+    position = current_index + 1
+    running = run["status"] == "RUNNING"
+    elapsed = _seconds(value["stage"]["started_at"], moment) if running else 0
+    lines = [_paint("╭─ Hermes SDD · progresso", "1;36", color), _row("Hermes", run["provider"])]
+    if running:
+        lines.append(_row("Agora", f"{label} · fase {position} de {len(STAGES)} · há {_duration(elapsed)}"))
+        lines.append(_row("Executor", _who(run["executor"], run["model"])))
+    elif run["status"] == "DONE":
+        lines.append(_row("Estado", _paint("Concluído · todas as fases terminaram", "1;32", color)))
+    else:
+        word = "Bloqueado" if run["status"] == "BLOCKED" else "Pausado"
+        lines.append(_row("Estado", _paint(f"{word} em {label}", "1;33", color)))
+    lines.append(_row("Progresso", f"{_bar(position, len(STAGES))} {position} de {len(STAGES)} fases"))
+    if run["reason"] is not None:
+        explanation = _stop_reasons().explain(run["reason"])
+        lines.extend([
+            "│",
+            _row("O que houve", explanation["what"]),
+            _row("Por quê", explanation["why"]),
+            _row("O que fazer", explanation["action"]),
+            _row("", f"(código técnico: {run['reason']})"),
+        ])
+    lines.extend(["│", "│ Fases"])
     for entry in value["stage"]["history"]:
         marker = {"COMPLETED": "✓", "SKIPPED": "↷", "BLOCKED": "!", "PAUSED": "Ⅱ"}[entry["status"]]
-        lines.append(f"│   {marker} {entry['name']:<10} {_duration(entry['elapsed_seconds'])} · {entry['status'].lower()}")
-    if value["run"]["status"] == "RUNNING":
+        line = f"│   {marker} {entry['name']:<10} {_duration(entry['elapsed_seconds'])} · {HISTORY_LABELS[entry['status']]}"
+        if entry["executor"] is not None:
+            line += f" · {_who(entry['executor'], entry['model'])}"
+        lines.append(line)
+    if running:
         lines.append(f"│   ▶ {current:<10} {_duration(elapsed)} · em andamento")
     jev = value["jev"]
-    lines.extend(["│", "│ Jev"])
+    lines.append("│")
     if jev["active"]:
-        jev_elapsed = _seconds(jev["started_at"], moment)
-        lines.append(f"│   Jev            em uso · {jev['provider']} · {_duration(jev_elapsed)}")
+        lines.append(_row("Jev", f"em uso · {jev['provider']} · {_duration(_seconds(jev['started_at'], moment))}"))
     elif jev["started_at"] is not None:
-        lines.append(f"│   Jev            concluído · {jev['provider']} · {_duration(jev['elapsed_seconds'])}")
+        lines.append(_row("Jev", f"concluído · {jev['provider']} · {_duration(jev['elapsed_seconds'])}"))
     else:
-        lines.append("│   Jev            não usado")
+        lines.append(_row("Jev", "não usado nesta execução"))
     if jev["area"]:
-        lines.append(f"│   Atuação         {jev['area']}")
+        lines.append(_row("  Atuação", jev["area"]))
     if jev["questions"]:
-        lines.append(f"│   Decisões        {', '.join(jev['questions'])}")
+        lines.append(_row("  Decisões", ", ".join(jev["questions"])))
     if jev["model"]:
-        lines.append(f"│   Modelo          {jev['model']}")
+        lines.append(_row("  Modelo", jev["model"]))
     if jev["status"] not in {"NÃO USADO", "EM USO"}:
-        lines.append(f"│   Resultado       {jev['status']}")
+        lines.append(_row("  Resultado", jev["status"]))
     lines.extend(["│", "│ Atividade recente"])
     if value["activities"]:
         for activity in value["activities"][-5:]:
@@ -585,6 +705,11 @@ def main(argv: list[str] | None = None) -> int:
     start.add_argument("--provider", required=True)
     start.add_argument("--stage", choices=STAGES, default="SPECIFY")
     start.add_argument("--activity")
+    start.add_argument("--executor")
+    start.add_argument("--model")
+    executor = commands.add_parser("executor")
+    executor.add_argument("--name", required=True)
+    executor.add_argument("--model")
     stage = commands.add_parser("stage")
     stage.add_argument("--name", choices=STAGES, required=True)
     stage.add_argument("--previous-status", choices=("COMPLETED", "SKIPPED"), default="COMPLETED")
@@ -599,6 +724,7 @@ def main(argv: list[str] | None = None) -> int:
     jev_finish.add_argument("--model")
     finish = commands.add_parser("finish")
     finish.add_argument("--status", choices=("DONE", "BLOCKED", "PAUSED"), required=True)
+    finish.add_argument("--reason")
     commands.add_parser("show")
     for command in commands.choices.values():
         _common(command)
@@ -610,13 +736,15 @@ def main(argv: list[str] | None = None) -> int:
                     existing = _load_progress_at(parent, name)
                     if existing["run"]["status"] == "RUNNING":
                         raise ProgressError("PROGRESS_RUN_ACTIVE")
-                value = new_progress(args.provider, args.stage)
+                value = new_progress(args.provider, args.stage, executor=args.executor, model=args.model)
                 if args.activity:
                     value = record_activity(value, args.activity)
             else:
                 value = _load_progress_at(parent, name)
                 if args.command == "stage":
                     value = enter_stage(value, args.name, previous_status=args.previous_status)
+                elif args.command == "executor":
+                    value = set_executor(value, args.name, args.model)
                 elif args.command == "activity":
                     value = record_activity(value, args.message)
                 elif args.command == "jev-start":
@@ -624,7 +752,7 @@ def main(argv: list[str] | None = None) -> int:
                 elif args.command == "jev-finish":
                     value = finish_jev(value, args.status, model=args.model)
                 elif args.command == "finish":
-                    value = finish_run(value, args.status)
+                    value = finish_run(value, args.status, reason=args.reason)
             if args.command != "show":
                 _save_progress_at(parent, name, value)
         if args.json:

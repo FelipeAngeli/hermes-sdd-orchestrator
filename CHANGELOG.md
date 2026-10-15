@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+- Friendlier terminal progress (phase 1). The dashboard is in Brazilian Portuguese and shows the executor and model actually used by the current stage and by each finished stage (`terminal_progress.py executor --name --model`, or `start --executor --model`), never carrying one stage's executor into the next. `finish --reason <stop_reason>` explains a stop as *O que houve / Por quê / O que fazer* and keeps the technical code. Every stop reason now has a plain-language explanation in `stop_reasons.EXPLANATIONS`, and `describe()` (and therefore every `sdd.py` stop payload) adds an `explanation` object without changing existing keys. Persisted presentation state moves to schema 2; schema-1 files still load.
+
 ## 15.1.1 - 2026-10-09
 
 ### Fixed
