@@ -88,11 +88,16 @@ def _optional_text(value: Any) -> str | None:
 
 def _stop_reasons() -> Any:
     path = Path(__file__).resolve().with_name("stop_reasons.py")
-    spec = importlib.util.spec_from_file_location("sdd_progress_stop_reasons", path)
-    if spec is None or spec.loader is None:
-        raise ProgressError("PROGRESS_REASON_INVALID")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    try:
+        spec = importlib.util.spec_from_file_location("sdd_progress_stop_reasons", path)
+        if spec is None or spec.loader is None:
+            raise ProgressError("PROGRESS_REASON_INVALID")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except ProgressError:
+        raise
+    except (OSError, ImportError, SyntaxError) as error:
+        raise ProgressError("PROGRESS_REASON_INVALID") from error
     return module
 
 
@@ -173,6 +178,10 @@ def validate_progress(value: Any) -> dict[str, Any]:
     for key in ("executor", "model", "reason"):
         if run.get(key) is not None:
             _text(run[key], "PROGRESS_STATE_INVALID")
+    if run.get("reason") is not None and (
+        run.get("status") == "RUNNING" or run["reason"] not in _stop_reasons().STOP_REASONS
+    ):
+        raise ProgressError("PROGRESS_STATE_INVALID")
     if run.get("status") not in {"RUNNING", "DONE", "BLOCKED", "PAUSED"}:
         raise ProgressError("PROGRESS_STATE_INVALID")
     _parse_instant(run.get("started_at"))

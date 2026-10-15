@@ -141,6 +141,56 @@ class TerminalProgressTests(unittest.TestCase):
         with self.assertRaisesRegex(progress.ProgressError, "PROGRESS_REASON_INVALID"):
             progress.finish_run(value, "BLOCKED", reason="NOT_A_REGISTERED_CODE")
 
+    def test_entering_a_stage_clears_the_previous_executor(self) -> None:
+        progress = load_progress()
+        value = progress.new_progress("anthropic", "PLAN", instant("2026-10-05T12:00:00Z"), executor="claude")
+
+        tasks = progress.enter_stage(value, "TASKS", instant("2026-10-05T12:00:10Z"))
+
+        self.assertIsNone(tasks["run"]["executor"])
+        self.assertIsNone(tasks["run"]["model"])
+        self.assertEqual("claude", tasks["stage"]["history"][-1]["executor"])
+
+    def test_a_hand_edited_reason_is_refused_when_unregistered_or_while_running(self) -> None:
+        progress = load_progress()
+        value = progress.new_progress("openai-codex", "IMPLEMENT", instant("2026-10-05T12:00:00Z"))
+        running = dict(value, run=dict(value["run"], reason="FOCUSED_TESTS_FAILED"))
+        with self.assertRaisesRegex(progress.ProgressError, "PROGRESS_STATE_INVALID"):
+            progress.validate_progress(running)
+        blocked = progress.finish_run(value, "BLOCKED", instant("2026-10-05T12:00:01Z"), reason="FOCUSED_TESTS_FAILED")
+        forged = dict(blocked, run=dict(blocked["run"], reason="NOT_A_REGISTERED_CODE"))
+        with self.assertRaisesRegex(progress.ProgressError, "PROGRESS_STATE_INVALID"):
+            progress.validate_progress(forged)
+
+    @unittest.skipUnless(os.name == "posix", "descriptor-anchored paths require POSIX")
+    def test_cli_records_the_executor_and_explains_the_stop(self) -> None:
+        import contextlib
+        import io
+
+        progress = load_progress()
+        with tempfile.TemporaryDirectory(prefix="sdd-progress-cli-") as temp:
+            path = str(Path(temp).resolve() / "progress.json")
+            common = ["--file", path, "--no-color"]
+            for argv in (
+                ["start", "--provider", "anthropic", "--stage", "IMPLEMENT", *common],
+                ["executor", "--name", "codex", "--model", "gpt-5.6-sol", *common],
+            ):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(0, progress.main(argv))
+            refused = io.StringIO()
+            with contextlib.redirect_stdout(refused):
+                code = progress.main(["finish", "--status", "BLOCKED", "--reason", "NOT_A_REGISTERED_CODE", *common])
+            shown = io.StringIO()
+            with contextlib.redirect_stdout(shown):
+                self.assertEqual(0, progress.main(["finish", "--status", "BLOCKED", "--reason", "CI_FAILED", *common]))
+
+        self.assertEqual(2, code)
+        self.assertIn("PROGRESS_REASON_INVALID", refused.getvalue())
+        self.assertIn("! IMPLEMENT", shown.getvalue())
+        self.assertIn("codex · gpt-5.6-sol", shown.getvalue())
+        self.assertIn("O que fazer", shown.getvalue())
+        self.assertIn("código técnico: CI_FAILED", shown.getvalue())
+
     def test_only_clarify_may_be_skipped_between_visible_stages(self) -> None:
         progress = load_progress()
         specify = progress.new_progress("openai-codex", "SPECIFY", instant("2026-10-05T12:00:00Z"))

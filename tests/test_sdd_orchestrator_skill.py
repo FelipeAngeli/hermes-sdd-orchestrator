@@ -392,9 +392,15 @@ class BundleContractTests(unittest.TestCase):
         progress_tool = ORCHESTRATION / "runtime" / "terminal_progress.py"
 
         self.assertTrue(progress_tool.is_file())
-        for command in ("terminal_progress.py start", "terminal_progress.py activity", "terminal_progress.py stage", "terminal_progress.py finish"):
+        for command in (
+            "terminal_progress.py start", "terminal_progress.py activity", "terminal_progress.py stage",
+            "terminal_progress.py executor", "terminal_progress.py finish", "--reason",
+        ):
             self.assertIn(command, entrypoint)
-        for visible_field in ("provider", "current stage", "remaining stages", "time per stage", "jev", "recent activity"):
+        for visible_field in (
+            "provider", "current stage", "progress bar", "executor and model", "time per stage",
+            "what happened / why / what to do", "jev", "recent activity",
+        ):
             self.assertIn(visible_field, installed_readme)
 
         # Constants are declared in constants.py and listed by managed_exclude_entries() in templates.py.
