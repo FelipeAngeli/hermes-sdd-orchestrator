@@ -72,17 +72,124 @@ class TerminalProgressTests(unittest.TestCase):
 
         dashboard = progress.render(value, now=instant("2026-10-05T12:00:25Z"), color=False)
 
-        self.assertIn("Provider       openai-codex", dashboard)
-        self.assertIn("Fase atual     TASKS (4/8)", dashboard)
-        self.assertIn("Fases restantes 4", dashboard)
+        self.assertIn("Hermes       openai-codex", dashboard)
+        self.assertIn("Agora        Tarefas (TASKS) · fase 4 de 8 · há 5s", dashboard)
+        self.assertIn("4 de 8 fases", dashboard)
         self.assertIn("PLAN", dashboard)
         self.assertIn("20s", dashboard)
         self.assertIn("TASKS", dashboard)
-        self.assertIn("5s", dashboard)
-        self.assertIn("Jev            concluído · jev-ai · 2s", dashboard)
-        self.assertIn("Atuação         classificação de risco e roteamento", dashboard)
+        self.assertIn("Jev          concluído · jev-ai · 2s", dashboard)
+        self.assertIn("classificação de risco e roteamento", dashboard)
         self.assertIn("risk, specialist", dashboard)
         self.assertIn("Validando caminhos e símbolos", dashboard)
+
+    def test_dashboard_names_the_executor_and_model_of_each_stage(self) -> None:
+        progress = load_progress()
+        value = progress.new_progress(
+            "anthropic", "PLAN", instant("2026-10-05T12:00:00Z"), executor="claude", model="claude-opus-5-5",
+        )
+        value = progress.enter_stage(value, "TASKS", instant("2026-10-05T12:01:00Z"))
+        value = progress.set_executor(value, "codex", "gpt-5.6-sol", instant("2026-10-05T12:01:01Z"))
+
+        dashboard = progress.render(value, now=instant("2026-10-05T12:01:30Z"), color=False)
+
+        self.assertIn("Executor     codex · gpt-5.6-sol", dashboard)
+        self.assertIn("PLAN       1m 00s · concluída · claude · claude-opus-5-5", dashboard)
+        self.assertEqual(
+            {"executor": "claude", "model": "claude-opus-5-5"},
+            {key: value["stage"]["history"][-1][key] for key in ("executor", "model")},
+        )
+
+    def test_unknown_executor_is_shown_as_not_informed_never_guessed(self) -> None:
+        progress = load_progress()
+        value = progress.new_progress("openai-codex", "SPECIFY", instant("2026-10-05T12:00:00Z"))
+
+        dashboard = progress.render(value, now=instant("2026-10-05T12:00:01Z"), color=False)
+
+        self.assertIn("Executor     não informado", dashboard)
+
+    def test_schema_one_progress_files_still_load_and_render(self) -> None:
+        progress = load_progress()
+        legacy = progress.new_progress("openai-codex", "PLAN", instant("2026-10-05T12:00:00Z"))
+        legacy = progress.enter_stage(legacy, "TASKS", instant("2026-10-05T12:00:10Z"))
+        legacy["schema_version"] = 1
+        legacy["run"].pop("executor")
+        legacy["run"].pop("model")
+        legacy["run"].pop("reason")
+        for entry in legacy["stage"]["history"]:
+            entry.pop("executor")
+            entry.pop("model")
+
+        upgraded = progress.validate_progress(legacy)
+
+        self.assertEqual(progress.SCHEMA_VERSION, upgraded["schema_version"])
+        self.assertIsNone(upgraded["run"]["executor"])
+        self.assertIn("Tarefas (TASKS)", progress.render(upgraded, now=instant("2026-10-05T12:00:11Z")))
+
+    def test_a_stopped_run_explains_what_happened_why_and_what_to_do(self) -> None:
+        progress = load_progress()
+        value = progress.new_progress("openai-codex", "IMPLEMENT", instant("2026-10-05T12:00:00Z"))
+
+        blocked = progress.finish_run(value, "BLOCKED", instant("2026-10-05T12:00:09Z"), reason="FOCUSED_TESTS_FAILED")
+        dashboard = progress.render(blocked, now=instant("2026-10-05T12:00:09Z"), color=False)
+
+        self.assertIn("Bloqueado em Implementar (IMPLEMENT)", dashboard)
+        self.assertIn("O que houve", dashboard)
+        self.assertIn("Por quê", dashboard)
+        self.assertIn("O que fazer", dashboard)
+        self.assertIn("código técnico: FOCUSED_TESTS_FAILED", dashboard)
+        with self.assertRaisesRegex(progress.ProgressError, "PROGRESS_REASON_INVALID"):
+            progress.finish_run(value, "BLOCKED", reason="NOT_A_REGISTERED_CODE")
+
+    def test_entering_a_stage_clears_the_previous_executor(self) -> None:
+        progress = load_progress()
+        value = progress.new_progress("anthropic", "PLAN", instant("2026-10-05T12:00:00Z"), executor="claude")
+
+        tasks = progress.enter_stage(value, "TASKS", instant("2026-10-05T12:00:10Z"))
+
+        self.assertIsNone(tasks["run"]["executor"])
+        self.assertIsNone(tasks["run"]["model"])
+        self.assertEqual("claude", tasks["stage"]["history"][-1]["executor"])
+
+    def test_a_hand_edited_reason_is_refused_when_unregistered_or_while_running(self) -> None:
+        progress = load_progress()
+        value = progress.new_progress("openai-codex", "IMPLEMENT", instant("2026-10-05T12:00:00Z"))
+        running = dict(value, run=dict(value["run"], reason="FOCUSED_TESTS_FAILED"))
+        with self.assertRaisesRegex(progress.ProgressError, "PROGRESS_STATE_INVALID"):
+            progress.validate_progress(running)
+        blocked = progress.finish_run(value, "BLOCKED", instant("2026-10-05T12:00:01Z"), reason="FOCUSED_TESTS_FAILED")
+        forged = dict(blocked, run=dict(blocked["run"], reason="NOT_A_REGISTERED_CODE"))
+        with self.assertRaisesRegex(progress.ProgressError, "PROGRESS_STATE_INVALID"):
+            progress.validate_progress(forged)
+
+    @unittest.skipUnless(os.name == "posix", "descriptor-anchored paths require POSIX")
+    def test_cli_records_the_executor_and_explains_the_stop(self) -> None:
+        import contextlib
+        import io
+
+        progress = load_progress()
+        with tempfile.TemporaryDirectory(prefix="sdd-progress-cli-") as temp:
+            path = str(Path(temp).resolve() / "progress.json")
+            common = ["--file", path, "--no-color"]
+            for argv in (
+                ["start", "--provider", "anthropic", "--stage", "IMPLEMENT", *common],
+                ["executor", "--name", "codex", "--model", "gpt-5.6-sol", *common],
+            ):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(0, progress.main(argv))
+            refused = io.StringIO()
+            with contextlib.redirect_stdout(refused):
+                code = progress.main(["finish", "--status", "BLOCKED", "--reason", "NOT_A_REGISTERED_CODE", *common])
+            shown = io.StringIO()
+            with contextlib.redirect_stdout(shown):
+                self.assertEqual(0, progress.main(["finish", "--status", "BLOCKED", "--reason", "CI_FAILED", *common]))
+
+        self.assertEqual(2, code)
+        self.assertIn("PROGRESS_REASON_INVALID", refused.getvalue())
+        self.assertIn("! IMPLEMENT", shown.getvalue())
+        self.assertIn("codex · gpt-5.6-sol", shown.getvalue())
+        self.assertIn("O que fazer", shown.getvalue())
+        self.assertIn("código técnico: CI_FAILED", shown.getvalue())
 
     def test_only_clarify_may_be_skipped_between_visible_stages(self) -> None:
         progress = load_progress()
@@ -106,7 +213,7 @@ class TerminalProgressTests(unittest.TestCase):
         self.assertEqual("BLOCKED", blocked["stage"]["history"][-1]["status"])
         dashboard = progress.render(blocked, now=instant("2026-10-05T12:00:09Z"), color=False)
         self.assertIn("IMPLEMENT", dashboard)
-        self.assertIn("9s · blocked", dashboard)
+        self.assertIn("9s · bloqueada", dashboard)
 
     def test_done_run_finishes_at_done_with_no_remaining_stage(self) -> None:
         progress = load_progress()
@@ -120,8 +227,8 @@ class TerminalProgressTests(unittest.TestCase):
             [(item["name"], item["status"], item["elapsed_seconds"]) for item in done["stage"]["history"]],
         )
         dashboard = progress.render(done, now=instant("2026-10-05T12:00:09Z"), color=False)
-        self.assertIn("Fase atual     DONE (8/8)", dashboard)
-        self.assertIn("Fases restantes 0", dashboard)
+        self.assertIn("Concluído", dashboard)
+        self.assertIn("8 de 8 fases", dashboard)
 
     @unittest.skipUnless(os.name == "posix", "descriptor-anchored paths require POSIX")
     def test_progress_refuses_symlinked_ancestors_without_writing_outside(self) -> None:

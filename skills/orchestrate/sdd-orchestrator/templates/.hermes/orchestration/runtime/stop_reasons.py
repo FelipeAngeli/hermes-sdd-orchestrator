@@ -148,6 +148,99 @@ STOP_REASONS: dict[str, tuple[str, str, str]] = {
     "NO_NEXT_ACTION": (PAUSED, "Legacy driver: nothing left in the plan; use `sdd.py next`.", _NEXT),
 }
 
+#: Plain-language explanation for each code, in Brazilian Portuguese: what happened,
+#: why the controller stopped, and what the user does next. Presentation only; the
+#: kind, next_step and next_command above stay authoritative.
+EXPLANATIONS: dict[str, tuple[str, str, str]] = {
+    "NONE": ("Nada interrompeu o fluxo.", "Não há bloqueio, pausa nem decisão pendente.", "Seguir para o próximo passo com sdd.py next."),
+    "STAGE_TRANSITION_BUDGET_REACHED": ("O limite de mudanças de fase desta demanda acabou.", "O orçamento evita que a entrega avance sem fim sem você acompanhar.", "Decidir se autoriza mais transições; o comando de aumento já vem pronto."),
+    "EXECUTOR_CALL_BUDGET_REACHED": ("O limite de chamadas aos executores acabou.", "Cada chamada tem custo; o orçamento mantém o gasto sob seu controle.", "Decidir se autoriza mais chamadas."),
+    "RETRY_BUDGET_REACHED": ("As tentativas de correção desta ação acabaram.", "Repetir sem limite costuma esconder um problema que precisa de outra abordagem.", "Autorizar mais uma tentativa ou reabrir a fase com uma nova direção."),
+    "TDD_SLICE_BUDGET_REACHED": ("O limite de fatias de TDD foi atingido; a implementação continua aberta.", "As fatias foram planejadas; passar disso indica escopo maior que o previsto.", "Autorizar mais fatias ou revisar o plano."),
+    "INVESTIGATION_BUDGET_REACHED": ("O limite de expansões de investigação desta fase acabou.", "O contexto enviado aos agentes é limitado para manter custo e foco.", "Autorizar uma expansão explícita ou estreitar o que será lido."),
+    "REVIEW_CYCLE_BUDGET_REACHED": ("O limite de ciclos de revisão acabou.", "Muitas rodadas de revisão indicam problema de fundo que pede sua atenção.", "Decidir se autoriza mais uma revisão."),
+    "CI_RUN_BUDGET_REACHED": ("O limite de execuções de CI acabou.", "O CI não é repetido automaticamente para não mascarar falhas.", "Decidir se autoriza mais uma execução de CI."),
+    "EXTERNAL_MUTATION_REQUIRED": ("O próximo passo altera algo fora da máquina (commit, push, tracker ou backend).", "Mudanças externas sempre exigem autorização separada sua.", "Autorizar fora do loop, se quiser; a entrega local continua sem isso."),
+    "BUDGET_REACHED": ("Um limite total da entrega local foi atingido.", "Os limites mantêm a execução automática dentro do que você aprovou.", "Ver qual orçamento acabou em sdd.py next e decidir se aumenta."),
+    "COST_BUDGET_REACHED": ("O limite de custo das correções acabou.", "Correções extras usam modelos pagos; o teto protege seu orçamento.", "Autorizar mais custo ou um nível mais barato."),
+    "CORRECTIVE_RETRY_EXHAUSTED": ("A única tentativa de correção desta ação já foi usada.", "Cada ação tem uma correção automática; mais que isso precisa de você.", "Autorizar mais uma tentativa, se fizer sentido."),
+    "EXECUTOR_TIMEOUT": ("O executor excedeu o tempo limite duas vezes.", "A primeira vez já teve uma nova tentativa com contexto reduzido.", "Aumentar o tempo da fase em EXECUTORS.md ou autorizar mais uma tentativa."),
+    "EXECUTOR_FAILED": ("O processo do executor falhou de novo após a nova tentativa.", "Pode ser instalação, login ou modelo indisponível no executor.", "Rodar o preflight do executor e então autorizar nova tentativa."),
+    "EXECUTOR_PROCESS_ENDED_WITHOUT_ARTIFACT": ("O executor terminou sem entregar a resposta final.", "Sem o resultado, não há o que validar.", "Arquivar como interrompido (comando pronto) e deixar preparar a nova tentativa."),
+    "ACTION_RECOVERY_REQUIRED": ("Há uma ação aberta no diário de execução.", "Uma execução anterior parou no meio; é preciso reconciliar antes de seguir.", "Rodar sdd.py next, que mostra o comando de recuperação."),
+    "ACTION_BLOCKED": ("A ação atual foi bloqueada.", "O controlador não seguirá com uma ação que não pôde ser concluída com segurança.", "Arquivar com um motivo (comando pronto) e seguir."),
+    "DIRTY_OR_INCONSISTENT_IDLE": ("O diário parado contém evidências soltas.", "Restos de uma execução anterior poderiam confundir a próxima.", "Arquivar com um motivo (comando pronto) e seguir."),
+    "JOURNAL_INCONSISTENT": ("O diário de execução tem uma combinação impossível de evidências.", "Nenhum comando produz esse estado; é mais seguro parar.", "Bloquear e arquivar a ação (comando pronto) e seguir."),
+    "ARTIFACT_PENDING": ("Já existe uma resposta final para uma ação que não foi despachada.", "Isso indica um arquivo inesperado; ele não será aproveitado.", "Bloquear e arquivar a ação, depois seguir."),
+    "STATE_DESYNC": ("O estado da demanda difere do esperado pela ação preparada.", "O estado pode ter sido alterado por fora; nunca é corrigido à mão.", "Seguir o comando de arquivamento mostrado por sdd.py next."),
+    "STATE_PATH_REQUIRED": ("O registro da ação não indica onde está o estado.", "Sem o caminho, o controlador não consegue confirmar o que mudou.", "Arquivar a ação como bloqueada e seguir."),
+    "STATE_PATH_UNSAFE": ("O caminho do estado no diário não é o desta worktree.", "Gravar em outro lugar poderia corromper outra entrega.", "Arquivar a ação e seguir."),
+    "STATE_COMMIT_FILE_MISSING": ("O arquivo de estado (STATE.md) sumiu ou não é um arquivo normal.", "Sem ele, o controlador não sabe em que ponto a entrega está.", "Restaurar o STATE.md e seguir."),
+    "STATE_INCONSISTENT": ("O STATE.md não pôde ser lido ou um artefato aceito mudou.", "Estado corrompido não é consertado à mão para não perder rastreabilidade.", "Restaurar o último estado registrado e conferir com sdd.py status."),
+    "CONTRACT_INVALID": ("A resposta do executor não passou na validação do contrato.", "Resultados fora do formato acordado não são aceitos.", "Seguir: a única correção automática já vem preparada com os erros."),
+    "WORKER_BLOCKED": ("O executor relatou um impedimento para continuar.", "Ele precisa de uma informação ou decisão que não tem.", "Responder ao impedimento; a fase será refeita com sua resposta."),
+    "CLARIFICATION_REQUIRED": ("Há perguntas importantes em aberto sobre o pedido.", "Seguir sem a resposta poderia entregar algo diferente do esperado.", "Responder às perguntas listadas; cada resposta tem seu comando."),
+    "HUMAN_DECISION_REQUIRED": ("Um critério de aceite precisa da sua decisão.", "Esse critério foi definido como dependente de pessoa, não de teste.", "Registrar sua decisão, ou recusar e encerrar a demanda."),
+    "SCOPE_CHANGE_REQUIRED": ("O contrato da fatia mudou em relação ao aprovado.", "Mudança de escopo não é aceita sem sua aprovação.", "Aprovar o novo escopo, ou pedir para manter o original."),
+    "INVESTIGATION_BUDGET_EXCEEDED": ("O contexto reunido passou do limite permitido.", "Contexto grande demais encarece e dispersa os agentes.", "Autorizar uma expansão ou reduzir as fontes."),
+    "PROMPT_BUDGET_EXCEEDED": ("A instrução ao executor ficou grande demais, mesmo reduzida.", "O limite evita custo alto e respostas piores.", "Autorizar um prompt maior, se fizer sentido."),
+    "MANIFEST_INVALID": ("O manifesto de contexto da fase foi recusado.", "Ele aponta arquivos, hashes ou skills que não conferem.", "Corrigir o dado indicado nos achados e seguir."),
+    "JEV_GOVERNANCE_REQUIRED": ("Falta a decisão do Jev para esta fase.", "Você consentiu com o Jev automático, mas ele ainda não classificou este ticket.", "Rodar a decisão do Jev, ou retirar o consentimento no setup, e seguir."),
+    "BASELINE_DRIFT_EXTERNAL": ("O branch ou o último commit mudou por fora.", "Alguém alterou o repositório fora do controlador durante a entrega.", "Decidir se continua sobre a nova base."),
+    "PREEXISTING_FILE_MODIFIED": ("Um arquivo protegido foi alterado durante a demanda.", "Arquivos que já existiam são protegidos; nada é revertido automaticamente.", "Decidir se aceita a mudança."),
+    "FOCUSED_TESTS_FAILED": ("Os testes focados falharam.", "A mudança quebrou um comportamento coberto por testes.", "Reabrir a implementação para uma fatia de correção, com sua concordância."),
+    "FORMAT_FAILED": ("A formatação de código falhou.", "O código não segue o formatador configurado no projeto.", "Reabrir a implementação para corrigir, com sua concordância."),
+    "ANALYZE_FAILED": ("A análise estática encontrou problemas.", "O analisador do projeto aponta erros que bloqueiam a entrega.", "Reabrir a implementação para corrigir, com sua concordância."),
+    "CI_FAILED": ("O CI falhou.", "O CI nunca é repetido automaticamente para não esconder falhas.", "Reabrir a implementação para corrigir, com sua concordância."),
+    "CI_TIMEOUT": ("O CI excedeu o tempo limite.", "Sem resultado do CI, a entrega não avança.", "Decidir se roda o CI mais uma vez."),
+    "GATE_TIMEOUT": ("Um gate de verificação excedeu o tempo limite.", "Sem resultado, o gate bloqueia o avanço.", "Aumentar o tempo do gate em GATES.md ou confirmar nova execução."),
+    "REVIEW_BLOCKED": ("A revisão encontrou um bloqueio.", "Há um problema que impede aceitar a entrega como está.", "Reabrir a implementação com sua concordância."),
+    "REVIEW_CHANGES_REQUIRED": ("A revisão pediu mudanças.", "O revisor encontrou pontos que precisam ser corrigidos antes de concluir.", "Reabrir a implementação para uma fatia de correção, com sua concordância."),
+    "OWNERSHIP_VIOLATION": ("A revisão encontrou alterações fora dos arquivos permitidos.", "Os agentes só podem escrever nos caminhos que receberam.", "Decidir se aceita essas alterações ou reabre a implementação."),
+    "GATE_COMMAND_UNCONFIGURED": ("Um gate obrigatório não tem comando configurado.", "Sem comando verificado, não dá para provar que a entrega passa.", "Configurar o gate em GATES.md (o detect_stack sugere) e seguir."),
+    "GATE_CONFIRMATION_REQUIRED": ("Um gate está marcado como não aplicável.", "Pular uma verificação exige sua confirmação explícita.", "Confirmar com o comando mostrado, se concordar."),
+    "CONTROLLER_POLICY_CHANGED_DURING_DEMAND": ("Uma política do controlador mudou durante a demanda.", "Esses arquivos definem comandos e executores; um agente poderia tê-los alterado.", "Ver a diferença e confirmar, se a mudança for sua."),
+    "CONTROLLER_POLICY_UNPINNED": ("Uma política do controlador não tem hash registrado nesta demanda.", "Sem o hash, não dá para saber quem alterou o arquivo.", "Revisar o arquivo e confirmar."),
+    "CONTROLLER_POLICY_CONFIRMATION_REQUIRED": ("A confirmação da política precisa das suas palavras.", "A confirmação fica registrada com o que você disse.", "Responder e registrar com o comando mostrado."),
+    "CONTROLLER_POLICY_UNREADABLE": ("Uma política do controlador sumiu ou não pode ser lida.", "Sem o arquivo, não há o que confirmar; ele precisa ser recriado.", "Restaurar a partir da skill instalada e confirmar o conteúdo."),
+    "CONTROLLER_WRITABLE_BY_WORKER": ("O controlador está dentro do repositório que o executor pode escrever.", "Um executor com escrita poderia alterar o próprio controlador sem ser notado.", "Encerrar a demanda e mover o controlador para o Obsidian (passos prontos)."),
+    "STATE_MODIFIED_DURING_ACTION": ("O estado mudou enquanto uma ação estava aberta.", "Mudança fora do diário indica escrita indevida; o resultado é descartado.", "Encerrar a demanda (nada é revertido) e começar de novo."),
+    "DONE_GATES_NOT_PASSED": ("Ainda falta passar algum gate para concluir.", "Concluir exige testes, formatação, análise e revisão aprovados, e CI aprovado ou desativado pela política do projeto.", "Seguir: sdd.py next mostra qual gate falta."),
+    "FOCUSED_TESTS_REQUIRED": ("A formatação só roda depois dos testes focados.", "Os gates têm ordem fixa.", "Rodar primeiro o gate de testes focados."),
+    "TEST_AND_FORMAT_REQUIRED": ("A análise só roda depois de testes e formatação.", "Os gates têm ordem fixa.", "Concluir testes e formatação primeiro."),
+    "TEST_FORMAT_AND_ANALYZE_REQUIRED": ("A revisão só roda depois de testes, formatação e análise.", "Os gates têm ordem fixa.", "Concluir os gates locais primeiro."),
+    "REVIEW_PREREQUISITES_REQUIRED": ("O CI só roda depois dos gates locais e da revisão aprovada.", "Os gates têm ordem fixa.", "Concluir a revisão primeiro."),
+    "CI_DISABLED_BY_PROJECT_POLICY": ("O CI está desativado pela política do projeto.", "Ele fica registrado como desativado, nunca como aprovado.", "Seguir para avaliar a conclusão."),
+    "IMPLEMENTATION_SLICES_NOT_GREEN": ("Nem todas as fatias planejadas estão verdes.", "Os gates só fazem sentido com a implementação completa.", "Terminar a implementação primeiro."),
+    "IMPLEMENTATION_CURSOR_INVALID": ("As fatias concluídas não seguem a ordem planejada.", "A ordem garante que cada fatia parta da anterior.", "Gerar um novo snapshot e replanejar."),
+    "PLAN_STALE": ("O plano não corresponde mais ao estado atual.", "Algo mudou desde que o plano foi feito.", "Gerar um novo snapshot e plano (sem nova aprovação)."),
+    "BLOCKED": ("A demanda está bloqueada.", "Há um impedimento registrado no estado.", "Ver o motivo em sdd.py status e a recuperação em sdd.py next."),
+    "HUMAN_REQUIRED": ("A próxima ação planejada precisa de uma decisão sua.", "Envolve arquivo protegido, escopo, arquitetura ou mudança externa.", "Responder com o comando que sdd.py next mostra."),
+    "MANUAL_ACTION_COMPLETE": ("No modo manual, o passo autorizado terminou.", "No modo manual, nada avança sem você pedir.", "Dizer continuar para avançar até a próxima decisão."),
+    "LOOP_PAUSED": ("O loop está pausado.", "Você pediu pausa; nada novo começa.", "Retomar quando quiser, com seu pedido explícito."),
+    "EXECUTOR_UNAVAILABLE": ("O executor desta fase não está instalado.", "Nada foi enviado; o binário não está no PATH.", "Instalar o executor ou escolher outro em EXECUTORS.md."),
+    "DONE": ("A entrega foi concluída e validada.", "Os gates exigidos e a revisão passaram.", "Ver a proposta de commit (precisa de autorização) e fechar a demanda."),
+    "PLAN_COMPLETE": ("Todas as ações planejadas rodaram.", "O plano atual acabou.", "Gerar novo snapshot e plano para o próximo ponto."),
+    "PLAN_EMPTY": ("O plano não tem ação para rodar.", "Normalmente há uma decisão humana pendente.", "Ver o motivo em sdd.py next."),
+    "SEQUENCE_SKIPPED": ("A próxima ação do estado não é a próxima do plano.", "O plano ficou fora de sincronia.", "Gerar novo snapshot e plano."),
+    "LOOP_INACTIVE": ("O loop automático não está ativo.", "O modo é manual ou está pausado.", "Usar sdd.py next para avançar manualmente."),
+    "NEXT_HUMAN_CHECKPOINT": ("A execução chegou ao próximo ponto de decisão humana.", "Esse ponto foi definido no plano aprovado.", "Ver qual é a decisão em sdd.py next."),
+    "RECOVERY_RECONCILIATION_REQUIRED": ("Uma ação pendente precisa ser reconciliada.", "Uma execução anterior não terminou de forma limpa.", "Seguir o comando de recuperação de sdd.py next."),
+    "IDLE_NO_DEMAND": ("Nenhuma demanda está ativa.", "O controlador está ocioso.", "Iniciar uma demanda a partir do seu pedido."),
+    "ABANDON_REQUESTED": ("Você recusou a decisão ou pediu para encerrar a demanda.", "Encerrar exige suas palavras e um motivo, que ficam registrados.", "Confirmar o encerramento com o comando mostrado."),
+    "DEMAND_ACTIVE": ("Já existe uma demanda ativa.", "Um controlador conduz uma demanda por vez.", "Continuar, fechar a concluída ou encerrar a atual."),
+    "TICKET_INVALID": ("O identificador do ticket não é válido.", "Ele vira nome de pasta; só letras, números, ponto, hífen e sublinhado.", "Iniciar de novo com um identificador válido."),
+    "STEP_MISMATCH": ("O comando não se aplica ao momento atual.", "A fase, o diário ou as evidências não permitem esse passo agora.", "Usar sdd.py next, que mostra o passo válido."),
+    "WAIVE_REQUIRES_HUMAN_CHECK": ("Só critérios humanos podem ser dispensados com uma frase.", "Critérios de agente ou comando precisam de decisão registrada antes.", "Pedir a decisão primeiro com o comando mostrado."),
+    "AGENT_OWNED_PATH_UNSAFE": ("Um caminho dos agentes começa com hífen.", "Ele seria lido como opção de um comando de gate.", "Retirar o caminho da posse dos agentes (o arquivo não é alterado)."),
+    "NO_NEW_HYPOTHESIS": ("A correção proposta repete uma hipótese já tentada.", "Repetir a mesma ideia não traz progresso.", "Sugerir uma nova hipótese específica."),
+    "NO_PROGRESS": ("A última correção não mudou nada observável.", "Insistir no mesmo caminho só gasta tempo e custo.", "Investigar a falha e indicar uma nova direção."),
+    "PLAN_CURSOR_MISMATCH": ("O driver antigo encontrou o plano fora de sincronia.", "Esse driver está obsoleto.", "Usar sdd.py next."),
+    "MODE_NOT_BOUNDED_AUTO": ("O driver antigo exige o modo automático limitado.", "Esse driver está obsoleto.", "Usar sdd.py next."),
+    "HUMAN_APPROVAL_REQUIRED": ("Há uma aprovação humana pendente.", "O estado registra que você precisa aprovar antes de seguir.", "Responder e então seguir com sdd.py next."),
+    "NO_NEXT_ACTION": ("O driver antigo não tem mais ações no plano.", "Esse driver está obsoleto.", "Usar sdd.py next."),
+}
+
 #: Codes a runtime emits through a computed value rather than a literal (journal
 #: error codes surfaced by ``recover`` when the STATE commit cannot be hashed).
 DYNAMIC_STOP_REASONS = frozenset({"STATE_PATH_REQUIRED", "STATE_PATH_UNSAFE", "STATE_COMMIT_FILE_MISSING"})
@@ -158,14 +251,21 @@ def sdd_command() -> str:
 
 
 def describe(code: str) -> dict[str, Any]:
-    """Return {stop_reason, kind, next_step, next_command} for a registered code."""
+    """Return {stop_reason, kind, next_step, next_command, explanation} for a registered code."""
     kind, step, command = STOP_REASONS.get(code, STOP_REASONS["BLOCKED"])
     return {
         "stop_reason": code,
         "kind": kind,
         "next_step": step,
         "next_command": command.format(sdd=sdd_command()),
+        "explanation": explain(code),
     }
+
+
+def explain(code: str) -> dict[str, str]:
+    """Return the plain-language {what, why, action} for a code (unknown codes fall back to BLOCKED)."""
+    what, why, action = EXPLANATIONS.get(code, EXPLANATIONS["BLOCKED"])
+    return {"what": what, "why": why, "action": action}
 
 
 def policy_table() -> str:

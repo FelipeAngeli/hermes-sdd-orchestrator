@@ -115,6 +115,24 @@ class StopReasonRegistryTests(unittest.TestCase):
                 for placeholder in re.findall(r"<[^<>]+>", described):
                     self.assertIn(placeholder, stop_reasons.USER_PLACEHOLDERS | stop_reasons.RUNTIME_PLACEHOLDERS)
 
+    def test_every_stop_reason_has_a_human_explanation(self) -> None:
+        """Every code explains, in plain Portuguese, what happened, why and what to do."""
+        self.assertEqual(set(stop_reasons.STOP_REASONS), set(stop_reasons.EXPLANATIONS))
+        for code in stop_reasons.STOP_REASONS:
+            with self.subTest(code=code):
+                explanation = stop_reasons.describe(code)["explanation"]
+                self.assertEqual({"what", "why", "action"}, set(explanation))
+                for field, text in explanation.items():
+                    self.assertTrue(text.strip(), field)
+                    self.assertTrue(text.isprintable(), field)
+                    self.assertLessEqual(len(text), 240, field)
+                    self.assertNotIn(code, text, "the explanation is prose, not the code again")
+
+    def test_describe_keeps_its_existing_keys_and_only_adds_the_explanation(self) -> None:
+        described = stop_reasons.describe("FOCUSED_TESTS_FAILED")
+        self.assertEqual({"stop_reason", "kind", "next_step", "next_command", "explanation"}, set(described))
+        self.assertEqual("BLOCKED", described["kind"])
+
     def test_gate_failures_reopen_in_place_instead_of_a_lateral_transition(self) -> None:
         for code in ("FOCUSED_TESTS_FAILED", "FORMAT_FAILED", "ANALYZE_FAILED", "CI_FAILED", "REVIEW_BLOCKED", "REVIEW_CHANGES_REQUIRED"):
             with self.subTest(code=code):

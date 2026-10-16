@@ -4,6 +4,16 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.2.1 - 2026-10-15
+
+### Fixed
+- Review fixes for the 15.2.0 terminal progress: the controller entry point and `SKILL.md` now tell the controller to call `terminal_progress.py executor` before each dispatch and `finish --reason` at a stop, so the new fields are actually populated; a persisted progress file whose `reason` is unregistered, or set while the run is still running, is refused as `PROGRESS_STATE_INVALID`; a missing `stop_reasons.py` reports `PROGRESS_REASON_INVALID` instead of a traceback; three explanations now match their authoritative next step (reopen needs the user's agreement; CI may be disabled by project policy; executor-neutral wording). Docs no longer describe the old `DONE (8/8)` layout or the old dashboard fields in the READMEs.
+
+## 15.2.0 - 2026-10-15
+
+### Added
+- Friendlier terminal progress (phase 1). The dashboard is in Brazilian Portuguese and shows the executor and model actually used by the current stage and by each finished stage (`terminal_progress.py executor --name --model`, or `start --executor --model`), never carrying one stage's executor into the next. `finish --reason <stop_reason>` explains a stop as *O que houve / Por quê / O que fazer* and keeps the technical code. Every stop reason now has a plain-language explanation in `stop_reasons.EXPLANATIONS`, and `describe()` (and therefore every `sdd.py` stop payload) adds an `explanation` object without changing existing keys. Persisted presentation state moves to schema 2; schema-1 files still load.
+
 ## 15.1.1 - 2026-10-09
 
 ### Fixed

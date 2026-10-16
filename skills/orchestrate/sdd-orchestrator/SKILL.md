@@ -1,7 +1,7 @@
 ---
 name: sdd-orchestrator
 description: Install and run safe project-local SDD orchestration.
-version: 15.1.1
+version: 15.2.1
 author: Felipe Angeli (FelipeAngeli), Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -63,7 +63,7 @@ Paths below are relative to the controller root: the Obsidian project container 
 5. Start a demand with `SDD start --ticket <id> --title <t> --objective <o> [--deliverable-kind CODE|DECISION_DOC|BOTH]`. It moves IDLE → SPECIFY, records protected pre-existing files as the baseline and prints the authorization preview with its limits once. Schema 1 BOUNDED_AUTO requires a fresh deterministic preview and approval linked to that exact plan. Schema 2 LOCAL_DELIVERY uses its existing explicit authorization bound to ticket, scope, workspace and cumulative limits; replanning does not request a new approval. A request such as "orquestre/implemente <demand>" is that authorization; in MANUAL, "continue/pode seguir" authorizes progress to the next human checkpoint.
 6. Loop: run `SDD next`, execute exactly the printed `commands` in order (stop at the first non-zero exit), and run `SDD next` again. The batch covers recovery, the stage-context manifest (`SDD manifest`), `stage_context.py check` (including `max_prompt_bytes`), the executor launch, result validation with `validate_protocol.py --context`, the journaled STATE commit, gates, wiki records and the transition. Completion: `end_turn` is true with a `stop_reason`.
 7. At a stop, report `stop_reason` and `next_step` to the user. Human decisions go through the printed command: `SDD answer` (material question), `SDD waive --check AC-n --by requester --quote "..." --reason "..."` (HUMAN acceptance), `SDD budget --raise <budget> --quote "..."`, `SDD unblock`. Every stop reason has exactly one next action in `policies/LOOP_POLICY.md` §9.
-8. Terminal progress (POSIX, optional): `runtime/terminal_progress.py start|activity|stage|finish`; it never replaces STATE.
+8. Terminal progress (POSIX, optional): `runtime/terminal_progress.py start|activity|stage|executor|finish`. Record `executor --name --model` with the executor and model actually launched before each dispatch, and pass `finish --reason <stop_reason>` at a stop so the dashboard explains it; it never replaces STATE.
 
 ## Pitfalls
 
