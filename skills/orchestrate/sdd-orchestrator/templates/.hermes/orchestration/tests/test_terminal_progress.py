@@ -113,6 +113,9 @@ class TerminalProgressTests(unittest.TestCase):
         legacy = progress.new_progress("openai-codex", "PLAN", instant("2026-10-05T12:00:00Z"))
         legacy = progress.enter_stage(legacy, "TASKS", instant("2026-10-05T12:00:10Z"))
         legacy["schema_version"] = 1
+        legacy.pop("summary")
+        legacy["jev"].pop("decisions")
+        legacy["jev"].pop("threshold")
         legacy["run"].pop("executor")
         legacy["run"].pop("model")
         legacy["run"].pop("reason")
@@ -190,6 +193,133 @@ class TerminalProgressTests(unittest.TestCase):
         self.assertIn("codex · gpt-5.6-sol", shown.getvalue())
         self.assertIn("O que fazer", shown.getvalue())
         self.assertIn("código técnico: CI_FAILED", shown.getvalue())
+
+    def test_summary_shows_milestones_next_step_and_pending_human_decision(self) -> None:
+        progress = load_progress()
+        value = progress.new_progress("anthropic", "IMPLEMENT", instant("2026-10-05T12:00:00Z"))
+        for index, text in enumerate(("Spec aprovada com 5 critérios", "Plano: 4 fatias", "Fatia 1 RED → GREEN"), 1):
+            value = progress.record_milestone(value, text, instant(f"2026-10-05T12:00:0{index}Z"))
+        value = progress.set_next_step(value, "Fatia 2: placa duplicada", instant("2026-10-05T12:00:05Z"))
+        value = progress.set_attention(value, "Responder 1 pergunta → sdd.py answer", instant("2026-10-05T12:00:06Z"))
+
+        dashboard = progress.render(value, now=instant("2026-10-05T12:00:07Z"), color=False)
+
+        self.assertIn("│ Até aqui", dashboard)
+        self.assertIn("• Fatia 1 RED → GREEN", dashboard)
+        self.assertIn("Próximo      Fatia 2: placa duplicada", dashboard)
+        self.assertIn("Precisa de você? Sim: Responder 1 pergunta → sdd.py answer", dashboard)
+
+        cleared = progress.set_attention(value, None, instant("2026-10-05T12:00:08Z"))
+        self.assertIn("Precisa de você? Não", progress.render(cleared, now=instant("2026-10-05T12:00:08Z")))
+
+    def test_milestones_are_bounded_to_the_most_recent(self) -> None:
+        progress = load_progress()
+        value = progress.new_progress("anthropic", "PLAN", instant("2026-10-05T12:00:00Z"))
+        for index in range(progress.MAX_MILESTONES + 3):
+            value = progress.record_milestone(value, f"marco {index}", instant("2026-10-05T12:00:01Z"))
+
+        self.assertEqual(progress.MAX_MILESTONES, len(value["summary"]["milestones"]))
+        self.assertEqual(f"marco {progress.MAX_MILESTONES + 2}", value["summary"]["milestones"][-1]["message"])
+
+    def test_readable_jev_shows_confidence_and_what_waits_for_the_user(self) -> None:
+        progress = load_progress()
+        value = progress.new_progress("anthropic", "PLAN", instant("2026-10-05T12:00:00Z"))
+        value = progress.start_jev(value, provider="typesafe", area="classificação", questions=["risk", "specialist"],
+                                   at=instant("2026-10-05T12:00:01Z"))
+        value = progress.finish_jev(
+            value, "REVIEW", instant("2026-10-05T12:00:02Z"), model="jev-1.13.0", threshold=0.7,
+            decisions=[
+                {"id": "risk", "value": "MEDIUM", "confidence": 0.91, "disposition": "DECIDED",
+                 "reason": "AT_OR_ABOVE_THRESHOLD"},
+                {"id": "specialist", "value": None, "confidence": 0.52, "disposition": "REVIEW",
+                 "reason": "BELOW_THRESHOLD"},
+                {"id": "owner", "value": None, "confidence": None, "disposition": "REVIEW",
+                 "reason": "JEV_GOVERNANCE_REMOTE_FAILED"},
+            ],
+        )
+
+        dashboard = progress.render(value, now=instant("2026-10-05T12:00:03Z"), color=False)
+
+        self.assertIn("decidiu 1 de 3", dashboard)
+        self.assertIn("✓ risk: MEDIUM (0,91)", dashboard)
+        self.assertIn("? specialist: confiança 0,52, abaixo de 0,70 → aguardando você", dashboard)
+        self.assertIn("? owner: sem resposta válida do Jev → aguardando você", dashboard)
+        self.assertNotIn("0,00", dashboard, "a failed call is never shown as a zero-confidence answer")
+
+    def test_jev_decisions_reject_invalid_confidence_and_control_characters(self) -> None:
+        progress = load_progress()
+        active = progress.start_jev(progress.new_progress("x", "PLAN"), provider="t", area="a", questions=["q"])
+        valid = {"id": "q", "value": "x", "confidence": 0.9, "disposition": "DECIDED", "reason": "AT_OR_ABOVE_THRESHOLD"}
+        bad_items = [
+            dict(valid, confidence=1.5), dict(valid, confidence=-0.1), dict(valid, confidence=True),
+            dict(valid, confidence=float("nan")), dict(valid, confidence=float("inf")), dict(valid, confidence="0.5"),
+            dict(valid, value="x\x1b[31m"), dict(valid, id="q\u2028"), dict(valid, value="x" * 241),
+            dict(valid, disposition="MAYBE"),
+        ]
+        for item in bad_items:
+            with self.subTest(item=repr(item)):
+                with self.assertRaisesRegex(progress.ProgressError, "PROGRESS_JEV_INVALID"):
+                    progress.finish_jev(active, "DECIDED", decisions=[item])
+        with self.assertRaisesRegex(progress.ProgressError, "PROGRESS_JEV_INVALID"):
+            progress.finish_jev(active, "DECIDED", threshold=float("nan"))
+
+    def test_summary_fields_reject_control_characters(self) -> None:
+        progress = load_progress()
+        value = progress.new_progress("x", "PLAN")
+        for unsafe in ("csi\x9b31m", "line\u2028break", "bidi\u202eforged", " ", "x" * 241):
+            for setter in (progress.record_milestone, progress.set_next_step, progress.set_attention):
+                with self.subTest(setter=setter.__name__, unsafe=repr(unsafe)):
+                    with self.assertRaisesRegex(progress.ProgressError, "PROGRESS_INPUT_INVALID"):
+                        setter(value, unsafe)
+
+    def test_mixed_schema_files_are_refused(self) -> None:
+        progress = load_progress()
+        current = progress.new_progress("x", "PLAN")
+        schema_three_without_summary = {key: item for key, item in current.items() if key != "summary"}
+        schema_two_with_summary = dict(current, schema_version=2)
+        schema_one_with_summary = dict(current, schema_version=1)
+        for broken in (schema_three_without_summary, schema_two_with_summary, schema_one_with_summary):
+            with self.subTest(version=broken.get("schema_version"), keys=sorted(broken)):
+                with self.assertRaisesRegex(progress.ProgressError, "PROGRESS_STATE_INVALID"):
+                    progress.validate_progress(__import__("copy").deepcopy(broken))
+
+    @unittest.skipUnless(os.name == "posix", "descriptor-anchored paths require POSIX")
+    def test_cli_records_the_summary(self) -> None:
+        import contextlib
+        import io
+
+        progress = load_progress()
+        with tempfile.TemporaryDirectory(prefix="sdd-progress-summary-") as temp:
+            common = ["--file", str(Path(temp).resolve() / "progress.json"), "--no-color"]
+            shown = io.StringIO()
+            with contextlib.redirect_stdout(shown):
+                for argv in (
+                    ["start", "--provider", "anthropic", "--stage", "PLAN", *common],
+                    ["milestone", "--message", "Plano aprovado", *common],
+                    ["next-step", "--message", "Gerar tarefas", *common],
+                    ["attention", "--message", "Aprovar escopo", *common],
+                    ["attention", *common],
+                ):
+                    self.assertEqual(0, progress.main(argv))
+
+        last = shown.getvalue().rsplit("╭─", 1)[1]
+        self.assertIn("• Plano aprovado", last)
+        self.assertIn("Próximo      Gerar tarefas", last)
+        self.assertIn("Precisa de você? Não", last)
+
+    def test_schema_two_progress_files_still_load(self) -> None:
+        progress = load_progress()
+        legacy = progress.new_progress("openai-codex", "PLAN", instant("2026-10-05T12:00:00Z"))
+        legacy["schema_version"] = 2
+        legacy.pop("summary")
+        legacy["jev"].pop("decisions")
+        legacy["jev"].pop("threshold")
+
+        upgraded = progress.validate_progress(legacy)
+
+        self.assertEqual(progress.SCHEMA_VERSION, upgraded["schema_version"])
+        self.assertEqual([], upgraded["summary"]["milestones"])
+        self.assertEqual([], upgraded["jev"]["decisions"])
 
     def test_only_clarify_may_be_skipped_between_visible_stages(self) -> None:
         progress = load_progress()

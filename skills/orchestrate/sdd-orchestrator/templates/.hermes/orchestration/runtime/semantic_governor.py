@@ -1067,19 +1067,69 @@ def _start_progress(path: Path, value: dict[str, Any], provider: str) -> tuple[A
         return None
 
 
+def _display_text(value: Any) -> str | None:
+    """Printable, bounded text for the dashboard, or None when it cannot be shown safely."""
+    if value is None:
+        return None
+    text = str(value)
+    if not text.strip() or not text.isprintable():
+        return None
+    return text if len(text) <= 240 else text[:237] + "..."
+
+
+def _readable_decisions(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """Project decisions for the dashboard, item by item; an odd item is downgraded, never fatal."""
+    readable: list[dict[str, Any]] = []
+    decisions = report.get("decisions")
+    if not isinstance(decisions, dict):
+        return readable
+    for question_id, decision in list(decisions.items())[:64]:
+        identifier = _display_text(question_id)
+        if identifier is None or not isinstance(decision, dict):
+            continue
+        confidence = decision.get("confidence")
+        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
+            confidence = None
+        disposition = "DECIDED" if decision.get("disposition") == "DECIDED" else "REVIEW"
+        value = _display_text(decision.get("value"))
+        if disposition == "DECIDED" and value is None:
+            disposition = "REVIEW"
+        readable.append({
+            "id": identifier,
+            "value": value,
+            "confidence": None if confidence is None else float(confidence),
+            "disposition": disposition,
+            "reason": _display_text(decision.get("reason")),
+        })
+    return readable
+
+
+def _report_threshold(report: dict[str, Any]) -> float | None:
+    threshold = report.get("threshold")
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not 0 <= threshold <= 1:
+        return None
+    return float(threshold)
+
+
 def _finish_progress(path: Path, context: tuple[Any, str] | None, report: dict[str, Any]) -> None:
     if context is None:
         return
     module, _ = context
     try:
-        progress = module.update_progress(
-            path,
-            lambda value: module.finish_jev(
-                value,
-                report["status"],
-                model=report.get("model"),
-            ),
-        )
+        def close(value: dict[str, Any]) -> dict[str, Any]:
+            try:
+                return module.finish_jev(
+                    value,
+                    report["status"],
+                    model=report.get("model"),
+                    decisions=_readable_decisions(report),
+                    threshold=_report_threshold(report),
+                )
+            except module.ProgressError:
+                # The readable decisions are optional detail; closing Jev must never depend on them.
+                return module.finish_jev(value, report["status"], model=report.get("model"))
+
+        progress = module.update_progress(path, close)
         print(module.render(progress, color=False), file=sys.stderr)
     except Exception as error:
         print(f"aviso de progresso: {type(error).__name__}", file=sys.stderr)
