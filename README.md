@@ -54,6 +54,10 @@ Hermes profile (once)                         Target Git project (per project)
 
 The skill is reusable. The controller configuration, project setup, state, incident log, and journal are project-local and added only to the target repository's Git `info/exclude`. The installer never overwrites existing configuration or modifies tracked files.
 
+## Store review guardians
+
+Two standalone skills audit mobile apps before submission, read-only: `appstore-review-guardian` (iOS `.ipa`/`.app` and iOS/Flutter projects) and `google-play-review-guardian` (`.aab`/`.apk` and Android/Flutter projects). They check artifacts and projects against Apple and Google Play rules kept as data with their official sources and consultation dates, produce Markdown and JSON reports, and gate a release as `READY`, `NEEDS_REVIEW` or `BLOCKED` — never marking an unexecuted check as `PASS`. Install with `hermes skills install FelipeAngeli/hermes-sdd-orchestrator/skills/release/<skill> --yes`. See [Store review guardians](docs/components/store-review-guardians.md).
+
 ## Project-local engineering skills
 
 Every installation includes ten repository-local, progressively loaded playbooks under `.hermes/skills/`, listed under [Project-local playbooks](#project-local-playbooks). They guide planning and implementation while the `pr-reviewer` and `security-reviewer` sub-agents provide independent review. Stage-context schema 2 binds the canonical Git workspace and byte-verifies required `SKILL.md`/references before hashing their descriptors into slice approval; IMPLEMENT fails closed on extra, missing or changed guidance. Installation never changes global skills or trust. After inspecting the files, run `hermes skills trust` in the target repository and start a new session. See [Project-local engineering skills](docs/components/project-local-skills.md).

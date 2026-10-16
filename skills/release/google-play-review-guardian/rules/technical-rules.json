@@ -1,0 +1,869 @@
+{
+ "schema_version": "1.0",
+ "source_registry": "references/sources.md",
+ "consulted_at": "2026-10-16",
+ "rules": [
+  {
+   "id": "TECH-TARGET-API-LEVEL",
+   "name": "Nível de API alvo mínimo (novos apps e atualizações)",
+   "description": "Novos apps e atualizações precisam declarar targetSdkVersion igual ou superior ao mínimo vigente para o formato do app. Valores são DADOS desta regra, nunca constantes no código.",
+   "category": "target_api",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/11926878?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2026-08-31",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Envio de novo app ou atualização ao Google Play; exceto apps permanentemente privados de distribuição interna de uma organização.",
+   "severity_if_violated": "BLOCKER",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory",
+   "source_quote": "Starting August 31, 2026: New apps and app updates must target Android 16 (API level 36) or higher to be submitted to Google Play; except for Wear OS, and Android Automotive OS apps, which must target Android 15 (API level 35) or higher, and Android TV and Android XR apps, which must target Android 14 (API level 34) or higher.",
+   "extension_note": "You will be able to request an extension to November 1, 2026 if you need more time to update your app. (formulário via Policy status no Play Console; só vale se concedida) Registrado apenas para requisitos com vigência em 2026-08-31; para TV (API 34, vigente desde 2025-08-31) a página não oferece extensão de envio.",
+   "exceptions": [
+    "Permanently private apps that are restricted to users in a specific organization and intended for internal distribution only."
+   ],
+   "requirements": [
+    {
+     "form_factor": "phone/tablet",
+     "submission": [
+      "new_app",
+      "app_update"
+     ],
+     "min_target_api": 36,
+     "android_version": "Android 16",
+     "effective_from": "2026-08-31",
+     "extension_until": "2026-11-01"
+    },
+    {
+     "form_factor": "phone/tablet",
+     "submission": [
+      "new_app",
+      "app_update"
+     ],
+     "min_target_api": 35,
+     "android_version": "Android 15",
+     "effective_from": "2025-08-31",
+     "extension_until": null
+    },
+    {
+     "form_factor": "wear",
+     "submission": [
+      "new_app",
+      "app_update"
+     ],
+     "min_target_api": 35,
+     "android_version": "Android 15",
+     "effective_from": "2026-08-31",
+     "extension_until": "2026-11-01"
+    },
+    {
+     "form_factor": "wear",
+     "submission": [
+      "new_app",
+      "app_update"
+     ],
+     "min_target_api": 34,
+     "android_version": "Android 14",
+     "effective_from": "2025-08-31",
+     "extension_until": null
+    },
+    {
+     "form_factor": "tv",
+     "submission": [
+      "new_app",
+      "app_update"
+     ],
+     "min_target_api": 34,
+     "android_version": "Android 14",
+     "effective_from": "2025-08-31",
+     "extension_until": null
+    },
+    {
+     "form_factor": "automotive",
+     "submission": [
+      "new_app",
+      "app_update"
+     ],
+     "min_target_api": 35,
+     "android_version": "Android 15",
+     "effective_from": "2026-08-31",
+     "extension_until": "2026-11-01"
+    },
+    {
+     "form_factor": "automotive",
+     "submission": [
+      "new_app",
+      "app_update"
+     ],
+     "min_target_api": 34,
+     "android_version": "Android 14",
+     "effective_from": "2025-08-31",
+     "extension_until": null
+    },
+    {
+     "form_factor": "xr",
+     "submission": [
+      "new_app",
+      "app_update"
+     ],
+     "min_target_api": 34,
+     "android_version": "Android 14",
+     "effective_from": "2026-08-31",
+     "extension_until": "2026-11-01"
+    }
+   ]
+  },
+  {
+   "id": "TECH-TARGET-API-AVAILABILITY",
+   "name": "Disponibilidade de apps existentes por nível de API alvo",
+   "description": "Apps já publicados abaixo do mínimo de disponibilidade deixam de ser descobertos por novos usuários em dispositivos com Android mais novo que o target do app.",
+   "category": "target_api",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/11926878?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2026-08-31",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "App já publicado (existing app), sem nova atualização.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory",
+   "source_quote": "Currently, existing apps (across mobile and Android Auto) must target Android 15 (API level 35) or higher by August 31, 2026, including Android 14 (API level 34) or higher for Wear OS, Android 13 (API level 33) or higher for Android TV, Android 14 (API level 34) or higher for Android XR, and Android 12L (API Level 32) or higher for Android Automotive OS.",
+   "requirements": [
+    {
+     "form_factor": "phone/tablet",
+     "submission": [
+      "existing_app"
+     ],
+     "min_target_api": 35,
+     "effective_from": "2026-08-31",
+     "extension_until": "2026-11-01"
+    },
+    {
+     "form_factor": "wear",
+     "submission": [
+      "existing_app"
+     ],
+     "min_target_api": 34,
+     "effective_from": "2026-08-31",
+     "extension_until": "2026-11-01"
+    },
+    {
+     "form_factor": "tv",
+     "submission": [
+      "existing_app"
+     ],
+     "min_target_api": 33,
+     "effective_from": "2026-08-31",
+     "extension_until": "2026-11-01"
+    },
+    {
+     "form_factor": "xr",
+     "submission": [
+      "existing_app"
+     ],
+     "min_target_api": 34,
+     "effective_from": "2026-08-31",
+     "extension_until": "2026-11-01"
+    },
+    {
+     "form_factor": "automotive",
+     "submission": [
+      "existing_app"
+     ],
+     "min_target_api": 32,
+     "effective_from": "2026-08-31",
+     "extension_until": "2026-11-01"
+    }
+   ],
+   "note": "O texto da página tem pequenas inconsistências entre a seção 'App availability' e 'What to do to comply' para TV (33 vs. 'Android 12 or lower'); os valores registrados são os da seção 'App availability requirements'."
+  },
+  {
+   "id": "TECH-16KB-PAGE-SIZE",
+   "name": "Suporte a páginas de memória de 16 KB (ELF)",
+   "description": "Apps com target ≥ 35 precisam suportar 16 KB em dispositivos 64-bit; cada segmento PT_LOAD das .so 64-bit deve ter alinhamento ≥ 2**14.",
+   "category": "native",
+   "official_url": "https://developer.android.com/guide/practices/page-sizes",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2025-11-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Artefato contém bibliotecas nativas 64-bit e targetSdk ≥ 35.",
+   "severity_if_violated": "BLOCKER",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory",
+   "source_quote": "all apps targeting Android 15 (API level 35) and higher must support 16 KB memory page sizes on 64-bit devices on Google Play. Starting February 1, 2027, if your app updates don't support 16 KB memory page sizes, you won't be able to release these updates.",
+   "enforcement": {
+    "min_target_api": 35,
+    "update_block_from": "2027-02-01",
+    "abis": [
+     "arm64-v8a",
+     "x86_64"
+    ]
+   },
+   "note": "effective_from 2025-11-01 confirmado no Android Developers Blog oficial (https://android-developers.googleblog.com/2025/05/prepare-play-apps-for-devices-with-16kb-page-size.html): 'Starting November 1st, 2025, all new apps and updates to existing apps submitted to Google Play and targeting Android 15+ devices must support 16 KB page sizes.' A página page-sizes consultada hoje menciona adicionalmente: a partir de 2027-02-01 atualizações sem suporte a 16 KB não poderão ser lançadas.",
+   "secondary_urls": [
+    "https://android-developers.googleblog.com/2025/05/prepare-play-apps-for-devices-with-16kb-page-size.html"
+   ]
+  },
+  {
+   "id": "TECH-16KB-ZIP-ALIGN",
+   "name": "Alinhamento ZIP de 16 KB das .so não comprimidas",
+   "description": "Bibliotecas nativas armazenadas sem compressão no APK precisam iniciar em offset múltiplo de 16 KB (zipalign -c -P 16 -v 4).",
+   "category": "native",
+   "official_url": "https://developer.android.com/guide/practices/page-sizes",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2025-11-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "APK com .so não comprimidas e targetSdk ≥ 35.",
+   "severity_if_violated": "BLOCKER",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "TECH-64BIT",
+   "name": "Suporte a arquiteturas 64-bit",
+   "description": "Apps com código nativo devem fornecer versões 64-bit das bibliotecas.",
+   "category": "native",
+   "official_url": "https://developer.android.com/google/play/requirements/64-bit",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2019-08-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Artefato contém bibliotecas nativas.",
+   "severity_if_violated": "BLOCKER",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory",
+   "source_quote": "Apps published on Google Play need to support 64-bit architectures."
+  },
+  {
+   "id": "TECH-AAB-REQUIRED",
+   "name": "Publicação de novos apps com Android App Bundle",
+   "description": "Desde agosto de 2021 novos apps precisam ser publicados com .aab.",
+   "category": "build",
+   "official_url": "https://developer.android.com/guide/app-bundle",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2021-08-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Novo app no Google Play.",
+   "severity_if_violated": "BLOCKER",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory",
+   "source_quote": "From August 2021, new apps are required to publish with the Android App Bundle on Google Play."
+  },
+  {
+   "id": "TECH-ARTIFACT-INTEGRITY",
+   "name": "Integridade do artefato",
+   "description": "O artefato deve ser um ZIP íntegro com manifest compilado legível. Integridade ZIP não implica aprovação.",
+   "category": "build",
+   "official_url": "https://developer.android.com/guide/app-bundle",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2021-08-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Sempre que um .aab/.apk for auditado.",
+   "severity_if_violated": "BLOCKER",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "TECH-BUNDLETOOL-VALIDATE",
+   "name": "Validação oficial do bundle com bundletool",
+   "description": "Executar `bundletool validate` (ferramenta oficial) sobre o .aab.",
+   "category": "build",
+   "official_url": "https://developer.android.com/tools/bundletool",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2021-08-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Auditoria de .aab.",
+   "severity_if_violated": "BLOCKER",
+   "verification_method": "deterministic",
+   "requirement_level": "recommended"
+  },
+  {
+   "id": "TECH-PACKAGE-NAME",
+   "name": "Application ID válido",
+   "description": "applicationId em formato de pacote Java com ao menos dois segmentos; não pode ser alterado após a publicação.",
+   "category": "build",
+   "official_url": "https://developer.android.com/studio/publish/preparing",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2010-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Sempre.",
+   "severity_if_violated": "BLOCKER",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "TECH-VERSION-CODE",
+   "name": "versionCode válido",
+   "description": "versionCode deve ser inteiro positivo; o maior valor aceito pelo Google Play é 2100000000.",
+   "category": "build",
+   "official_url": "https://developer.android.com/studio/publish/versioning",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2010-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Sempre.",
+   "severity_if_violated": "BLOCKER",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory",
+   "source_quote": "Note: The greatest value Google Play allows for versionCode is 2100000000."
+  },
+  {
+   "id": "TECH-VERSION-CODE-INCREMENT",
+   "name": "versionCode maior que o último enviado",
+   "description": "Cada envio deve usar versionCode maior que os anteriores.",
+   "category": "build",
+   "official_url": "https://developer.android.com/studio/publish/versioning",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2010-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Atualização de app existente.",
+   "severity_if_violated": "BLOCKER",
+   "verification_method": "manual",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "TECH-DEBUGGABLE",
+   "name": "Artefato não debuggable",
+   "description": "O Google Play recusa upload de APK/AAB debuggable; desative debugging no build de release.",
+   "category": "build",
+   "official_url": "https://developer.android.com/studio/publish/preparing",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2010-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Sempre.",
+   "severity_if_violated": "BLOCKER",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory",
+   "note": "A recusa no upload é documentada na mensagem do Play Console ('You uploaded a debuggable APK or Android App Bundle'); a página oficial instrui desativar debugging."
+  },
+  {
+   "id": "TECH-TEST-ONLY",
+   "name": "Artefato não marcado como testOnly",
+   "description": "android:testOnly=true indica build de teste.",
+   "category": "build",
+   "official_url": "https://developer.android.com/studio/publish/preparing",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2010-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Sempre.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "deterministic",
+   "requirement_level": "recommended"
+  },
+  {
+   "id": "TECH-DEBUG-SIGNATURE",
+   "name": "Não assinar com certificado de debug",
+   "description": "O Google Play não aceita apps assinados com o certificado de debug.",
+   "category": "signing",
+   "official_url": "https://developer.android.com/studio/publish/app-signing",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2010-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Sempre.",
+   "severity_if_violated": "BLOCKER",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory",
+   "source_quote": "most app stores (including the Google Play Store) do not accept apps signed with a debug certificate for publishing."
+  },
+  {
+   "id": "TECH-SIGNATURE-VERIFY",
+   "name": "Assinatura criptograficamente válida",
+   "description": "Validar a assinatura com ferramenta oficial (apksigner para APK; jarsigner para AAB).",
+   "category": "signing",
+   "official_url": "https://developer.android.com/tools/apksigner",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2010-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Sempre.",
+   "severity_if_violated": "BLOCKER",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "TECH-UPLOAD-KEY",
+   "name": "Chave de upload RSA ≥ 2048 bits",
+   "description": "A chave de upload do Play App Signing deve ser RSA de 2048 bits ou mais.",
+   "category": "signing",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/9842756?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2021-08-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Envio de .aab com Play App Signing.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory",
+   "source_quote": "Upload key ... Requirement : Must be an RSA key of 2048 bits or more."
+  },
+  {
+   "id": "TECH-PLAY-APP-SIGNING",
+   "name": "Play App Signing configurado",
+   "description": "O .aab é assinado com a chave de upload; o Google Play assina os APKs distribuídos com a app signing key.",
+   "category": "signing",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/9842756?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2021-08-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Envio de .aab.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "TECH-EXPORTED-EXPLICIT",
+   "name": "android:exported explícito (target ≥ 31)",
+   "description": "Componentes com intent-filter precisam declarar android:exported quando targetSdk ≥ 31; caso contrário o app não instala no Android 12+.",
+   "category": "manifest",
+   "official_url": "https://developer.android.com/about/versions/12/behavior-changes-12",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2021-10-04",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "targetSdk ≥ 31.",
+   "severity_if_violated": "BLOCKER",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory",
+   "source_quote": "If an activity, service, or broadcast receiver uses intent filters and doesn't have an explicitly-declared value for android:exported , your app can't be installed on a device that runs Android 12 or higher."
+  },
+  {
+   "id": "TECH-BILLING-LIBRARY-VERSION",
+   "name": "Versão suportada da Play Billing Library",
+   "description": "Novos apps e atualizações devem usar uma versão suportada da Play Billing Library.",
+   "category": "billing",
+   "official_url": "https://developer.android.com/google/play/billing/deprecation-faq",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2026-08-31",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "App inclui com.android.billingclient.",
+   "severity_if_violated": "BLOCKER",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory",
+   "source_quote": "By Aug 31, 2026, all new apps and updates to existing apps must use Billing Library version 8 or later. If you need more time to update your app, you can request an extension until Nov 1, 2026.",
+   "requirements": [
+    {
+     "min_major": 7,
+     "effective_from": "2025-08-31",
+     "extension_until": "2025-11-01"
+    },
+    {
+     "min_major": 8,
+     "effective_from": "2026-08-31",
+     "extension_until": "2026-11-01"
+    },
+    {
+     "min_major": 9,
+     "effective_from": "2027-08-31",
+     "extension_until": "2027-11-01"
+    }
+   ]
+  },
+  {
+   "id": "TECH-R8-MINIFY",
+   "name": "Minificação/ofuscação no release",
+   "description": "minifyEnabled/isMinifyEnabled no release reduz tamanho e superfície; requer upload do mapping.txt para desofuscar crashes.",
+   "category": "build",
+   "official_url": "https://developer.android.com/studio/publish/preparing",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2010-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Build de release.",
+   "severity_if_violated": "INFO",
+   "verification_method": "deterministic",
+   "requirement_level": "recommended"
+  },
+  {
+   "id": "TECH-AGP-16KB",
+   "name": "Toolchain compatível com 16 KB",
+   "description": "AGP ≥ 8.5.1 alinha .so não comprimidas a 16 KB; NDK r28+ compila 16 KB por padrão.",
+   "category": "native",
+   "official_url": "https://developer.android.com/guide/practices/page-sizes",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2025-11-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Projeto Android com código nativo.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "heuristic",
+   "requirement_level": "recommended"
+  },
+  {
+   "id": "TECH-MERGED-MANIFEST",
+   "name": "Auditar o manifest final (merged)",
+   "description": "Permissões e componentes podem ser injetados por plugins no manifest merge; o manifest do artefato é a fonte de verdade.",
+   "category": "manifest",
+   "official_url": "https://developer.android.com/build/manage-manifests",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2010-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Auditoria de projeto sem artefato.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "recommended"
+  },
+  {
+   "id": "SEC-ARCHIVE-SAFETY",
+   "name": "Arquivo sem entradas inseguras",
+   "description": "Entradas com '../', caminhos absolutos, symlinks, duplicatas ou razão de compressão abusiva indicam artefato adulterado.",
+   "category": "security",
+   "official_url": "https://developer.android.com/privacy-and-security/risks/zip-path-traversal",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2010-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Sempre.",
+   "severity_if_violated": "CRITICAL",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "SEC-EXPORTED-COMPONENTS",
+   "name": "Componentes exportados revisados",
+   "description": "Componentes exportados sem permissão ampliam a superfície de ataque.",
+   "category": "security",
+   "official_url": "https://developer.android.com/privacy-and-security/risks/android-exported",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2010-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Componentes exportados.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "heuristic",
+   "requirement_level": "recommended"
+  },
+  {
+   "id": "SEC-CLEARTEXT",
+   "name": "Tráfego em texto claro",
+   "description": "Evitar HTTP sem TLS; usar usesCleartextTraffic=false ou network security config restritivo.",
+   "category": "security",
+   "official_url": "https://developer.android.com/privacy-and-security/security-config",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2018-08-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Sempre.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "deterministic",
+   "requirement_level": "recommended"
+  },
+  {
+   "id": "SEC-NETWORK-SECURITY-CONFIG",
+   "name": "Network Security Config revisado",
+   "description": "Não confiar em CAs do usuário em release; revisar domain-config e cleartext.",
+   "category": "security",
+   "official_url": "https://developer.android.com/privacy-and-security/security-config",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2018-08-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "networkSecurityConfig declarado.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "recommended"
+  },
+  {
+   "id": "SEC-ALLOW-BACKUP",
+   "name": "Backup de dados sensíveis",
+   "description": "allowBackup ausente equivale a true; excluir tokens/credenciais do backup.",
+   "category": "security",
+   "official_url": "https://developer.android.com/privacy-and-security/risks/backup-best-practices",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2010-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Sempre.",
+   "severity_if_violated": "INFO",
+   "verification_method": "deterministic",
+   "requirement_level": "recommended"
+  },
+  {
+   "id": "SEC-APP-LINKS",
+   "name": "App Links verificados",
+   "description": "autoVerify requer assetlinks.json com o SHA-256 da chave de assinatura do Play.",
+   "category": "security",
+   "official_url": "https://developer.android.com/training/app-links/verify-applinks",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2015-10-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "intent-filter http(s) com autoVerify.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "recommended"
+  },
+  {
+   "id": "SEC-CUSTOM-SCHEME",
+   "name": "Deep links com esquema customizado",
+   "description": "Esquemas customizados podem ser sequestrados; validar entradas.",
+   "category": "security",
+   "official_url": "https://developer.android.com/privacy-and-security/risks/unsafe-use-of-deeplinks",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2010-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Deep link não-http.",
+   "severity_if_violated": "INFO",
+   "verification_method": "deterministic",
+   "requirement_level": "recommended"
+  },
+  {
+   "id": "SEC-SIGNING-SECRETS-IN-VCS",
+   "name": "Chaves e senhas de assinatura fora do Git",
+   "description": "key.properties e keystores não devem ser versionados; vazamento da chave de upload exige reset no Play Console.",
+   "category": "security",
+   "official_url": "https://developer.android.com/studio/publish/app-signing",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2010-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Projeto com key.properties/.jks.",
+   "severity_if_violated": "CRITICAL",
+   "verification_method": "deterministic",
+   "requirement_level": "recommended"
+  },
+  {
+   "id": "SEC-HARDCODED-SECRETS",
+   "name": "Segredos hardcoded no código",
+   "description": "Chaves de API privadas e tokens não devem estar em código/recursos do app.",
+   "category": "security",
+   "official_url": "https://developer.android.com/privacy-and-security/risks/hardcoded-cryptographic-secrets",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2010-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Sempre.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "heuristic",
+   "requirement_level": "recommended"
+  },
+  {
+   "id": "SEC-WEBVIEW-JS-BRIDGE",
+   "name": "WebView com JavaScript bridge",
+   "description": "addJavascriptInterface/setJavaScriptEnabled exigem conteúdo confiável.",
+   "category": "security",
+   "official_url": "https://developer.android.com/privacy-and-security/risks/insecure-webview-native-bridges",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2010-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Uso de WebView.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "heuristic",
+   "requirement_level": "recommended"
+  },
+  {
+   "id": "TECH-ARTIFACT-FRESHNESS",
+   "name": "Artefato corresponde ao código atual",
+   "description": "O artefato auditado deve ser o build da versão que será enviada (versionCode/versionName do projeto).",
+   "category": "build",
+   "official_url": "https://developer.android.com/studio/publish/versioning",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2010-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Auditoria de projeto + artefato.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "deterministic",
+   "requirement_level": "recommended"
+  },
+  {
+   "id": "TECH-FUNCTIONAL-TESTS",
+   "name": "Testes funcionais antes do envio",
+   "description": "Executar testes de inicialização, crashes/ANR, login, navegação, permissões e deep links em dispositivo/emulador; o Play Console também oferece o pre-launch report.",
+   "category": "testing",
+   "official_url": "https://developer.android.com/studio/test",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2010-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Sempre.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "recommended"
+  }
+ ]
+}

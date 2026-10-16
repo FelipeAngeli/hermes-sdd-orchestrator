@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/FelipeAngeli/hermes-sdd-guardians/skills/release/appstore-review-guardian/schemas/audit-report.schema.json",
+  "title": "App Store Review Guardian audit report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "tool", "generated_at", "mode", "disclaimer", "target", "rules", "environment",
+               "sections", "readiness", "final_status", "counts", "pending", "findings", "cache"],
+  "$defs": {
+    "severity": {"enum": ["BLOCKER", "CRITICAL", "WARNING", "INFO", "PASS", "NOT_VERIFIED", "NOT_APPLICABLE"]},
+    "section_status": {"enum": ["BLOCKED", "CRITICAL", "WARNING", "PASS", "PASS_WITH_PENDING", "NOT_VERIFIED", "NOT_APPLICABLE"]},
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "status", "counts"],
+      "properties": {
+        "label": {"type": "string"},
+        "status": {"$ref": "#/$defs/section_status"},
+        "counts": {"$ref": "#/$defs/counts"}
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["BLOCKER", "CRITICAL", "WARNING", "INFO", "PASS", "NOT_VERIFIED", "NOT_APPLICABLE"],
+      "properties": {
+        "BLOCKER": {"type": "integer", "minimum": 0},
+        "CRITICAL": {"type": "integer", "minimum": 0},
+        "WARNING": {"type": "integer", "minimum": 0},
+        "INFO": {"type": "integer", "minimum": 0},
+        "PASS": {"type": "integer", "minimum": 0},
+        "NOT_VERIFIED": {"type": "integer", "minimum": 0},
+        "NOT_APPLICABLE": {"type": "integer", "minimum": 0}
+      }
+    },
+    "indicator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "conformity_pct", "coverage_pct", "executed", "not_verified", "blocking"],
+      "properties": {
+        "label": {"type": "string"},
+        "conformity_pct": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
+        "coverage_pct": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
+        "executed": {"type": "integer", "minimum": 0},
+        "not_verified": {"type": "integer", "minimum": 0},
+        "blocking": {"type": "integer", "minimum": 0}
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "rule_id", "title", "severity", "category", "area", "guideline", "component", "file", "evidence",
+                   "explanation", "verification_method", "requirement_level", "official_url", "consulted_at", "confidence",
+                   "recommendation", "auto_fixable"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^F\\d{3,}$"},
+        "rule_id": {"type": "string", "pattern": "^[A-Z]+(-[A-Z0-9]+)+$"},
+        "title": {"type": "string", "minLength": 1},
+        "severity": {"$ref": "#/$defs/severity"},
+        "category": {"type": "string"},
+        "area": {"enum": ["technical", "privacy", "app_review", "submission", "meta"]},
+        "guideline": {"type": ["string", "null"]},
+        "component": {"type": "string"},
+        "file": {"type": ["string", "null"]},
+        "evidence": {"type": "string"},
+        "explanation": {"type": "string"},
+        "verification_method": {"enum": ["deterministic", "heuristic", "manual"]},
+        "requirement_level": {"enum": ["mandatory", "recommended"]},
+        "official_url": {"type": "string", "pattern": "^https://"},
+        "consulted_at": {"type": "string", "format": "date"},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "recommendation": {"type": "string"},
+        "auto_fixable": {"type": "boolean"},
+        "notes": {"type": "array", "items": {"type": "string"}}
+      },
+      "allOf": [
+        {"if": {"properties": {"severity": {"const": "PASS"}}}, "then": {"properties": {"evidence": {"minLength": 1}}}},
+        {"if": {"properties": {"verification_method": {"const": "heuristic"}}},
+         "then": {"properties": {"severity": {"not": {"enum": ["BLOCKER", "CRITICAL"]}}}}}
+      ]
+    }
+  },
+  "properties": {
+    "schema_version": {"const": 1},
+    "tool": {
+      "type": "object", "additionalProperties": false, "required": ["name", "version"],
+      "properties": {"name": {"const": "appstore-review-guardian"}, "version": {"type": "string"}}
+    },
+    "generated_at": {"type": "string", "format": "date-time"},
+    "mode": {"enum": ["quick", "full", "policy", "gate"]},
+    "disclaimer": {"type": "string", "minLength": 20},
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "required": ["project", "ipa", "app_name", "bundle_id", "version", "build"],
+      "properties": {
+        "project": {"type": ["string", "null"]},
+        "ipa": {"type": ["string", "null"]},
+        "app_name": {"type": ["string", "null"]},
+        "bundle_id": {"type": ["string", "null"]},
+        "version": {"type": ["string", "null"]},
+        "build": {"type": ["string", "null"]},
+        "ipa_sha256": {"type": ["string", "null"]},
+        "facts": {"type": "object"}
+      }
+    },
+    "rules": {
+      "type": "object", "additionalProperties": false,
+      "required": ["count", "rules_consulted_at", "rules_age_days", "sources_cache"],
+      "properties": {
+        "count": {"type": "integer", "minimum": 1},
+        "rules_consulted_at": {"type": "string", "format": "date"},
+        "rules_age_days": {"type": "integer"},
+        "sources_cache": {"type": ["object", "null"]}
+      }
+    },
+    "environment": {
+      "type": "object", "additionalProperties": false, "required": ["platform", "python", "tools", "network"],
+      "properties": {
+        "platform": {"type": "string"},
+        "python": {"type": "string"},
+        "tools": {"type": "object", "additionalProperties": {"type": "boolean"}},
+        "network": {"type": "boolean"}
+      }
+    },
+    "sections": {
+      "type": "object", "additionalProperties": false,
+      "required": ["technical", "privacy", "app_review", "submission"],
+      "properties": {
+        "technical": {"$ref": "#/$defs/section"},
+        "privacy": {"$ref": "#/$defs/section"},
+        "app_review": {"$ref": "#/$defs/section"},
+        "submission": {"$ref": "#/$defs/section"}
+      }
+    },
+    "readiness": {
+      "type": "object", "additionalProperties": false,
+      "required": ["note", "technical", "apple_guidelines", "submission_preparation"],
+      "properties": {
+        "note": {"type": "string"},
+        "technical": {"$ref": "#/$defs/indicator"},
+        "apple_guidelines": {"$ref": "#/$defs/indicator"},
+        "submission_preparation": {"$ref": "#/$defs/indicator"}
+      }
+    },
+    "final_status": {"enum": ["READY", "NEEDS_REVIEW", "BLOCKED"]},
+    "gate_reasons": {"type": "array", "items": {"type": "string"}},
+    "counts": {"$ref": "#/$defs/counts"},
+    "pending": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["finding_id", "rule_id", "title", "reason", "gate_relevant"],
+        "properties": {
+          "finding_id": {"type": "string"}, "rule_id": {"type": "string"}, "title": {"type": "string"},
+          "reason": {"type": "string"}, "gate_relevant": {"type": "boolean"}
+        }
+      }
+    },
+    "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "cache": {
+      "type": "object", "additionalProperties": false, "required": ["file", "hits", "misses"],
+      "properties": {"file": {"type": ["string", "null"]}, "hits": {"type": "integer"}, "misses": {"type": "integer"},
+                     "changed_inputs": {"type": "array", "items": {"type": "string"}}}
+    }
+  }
+}

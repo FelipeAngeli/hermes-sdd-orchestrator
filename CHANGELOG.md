@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+- Two standalone Hermes skills under `skills/release/`: `appstore-review-guardian` (iOS `.ipa`/`.app` and iOS/Flutter projects: Info.plist, privacy manifests and required-reason APIs, entitlements, signing and provisioning, Mach-O architectures and debug symbols, dependencies, App Review Guidelines evidence, App Store Connect checklist) and `google-play-review-guardian` (`.aab`/`.apk` and Android/Flutter projects: merged manifest, target API level from rule data per form factor, permissions policy, 16 KB native-library alignment, signing, Data safety, billing, security, Play Console checklist). Both are read-only, use Python standard library parsers with official tools when present, keep requirements as rule data with official URL and consultation date, re-check their sources with `rules --check-sources`, emit Markdown and schema-valid JSON reports, and gate releases as `READY`/`NEEDS_REVIEW`/`BLOCKED` without ever marking an unexecuted check as `PASS`. CI scans both with the pinned Hermes skills guard and runs their test suites; [docs/components/store-review-guardians.md](docs/components/store-review-guardians.md) documents them.
+
 ## 15.5.1 - 2026-10-16
 
 ### Fixed

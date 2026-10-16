@@ -195,7 +195,7 @@ def load_map() -> dict[str, list[str]]:
 
 def tracked_sources() -> list[str]:
     """Every file the documentation must cover, repo-relative."""
-    roots = [SKILL_ROOT, ROOT / "tests", ROOT / "tools", ROOT / ".github" / "workflows", ROOT / ".githooks"]
+    roots = [SKILL_ROOT, ROOT / "skills" / "release", ROOT / "tests", ROOT / "tools", ROOT / ".github" / "workflows", ROOT / ".githooks"]
     files: list[str] = []
     for root in roots:
         files.extend(
@@ -213,7 +213,7 @@ def owners(relative: str, doc_map: dict[str, list[str]]) -> list[str]:
 def mention(relative: str) -> str:
     """The shortest unambiguous name a page must use for a covered file."""
     path = ROOT / relative
-    for base in (ORCHESTRATION, SKILL_ROOT, ROOT):
+    for base in (ORCHESTRATION, SKILL_ROOT, ROOT / "skills" / "release", ROOT):
         try:
             return path.relative_to(base).as_posix()
         except ValueError:

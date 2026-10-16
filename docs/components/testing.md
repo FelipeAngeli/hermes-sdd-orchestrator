@@ -4,7 +4,7 @@
 
 **Files:** `tests/*` (skill suite, at the repository root) and `orchestration/tests/*` (installed controller suite, shipped to every project).
 
-Both suites use `unittest` and need no external services. The bounded-run tools additionally need `jsonschema`. CI runs both suites on every push and pull request (`.github/workflows/ci.yml`). Before the suites, CI checks out hermes-agent commit `4e9d3c713a3e3d47319ab18a8d8dfade5665270d` and requires the complete distributable skill to receive a `SAFE` verdict from `skills-guard-v5` through `tools/check_skill_security.py`.
+Both suites use `unittest` and need no external services. The bounded-run tools additionally need `jsonschema`. CI runs both suites on every push and pull request (`.github/workflows/ci.yml`). Before the suites, CI checks out hermes-agent commit `4e9d3c713a3e3d47319ab18a8d8dfade5665270d` and requires the complete distributable skill to receive a `SAFE` verdict from `skills-guard-v5` through `tools/check_skill_security.py`. It then scans and tests the two [store review guardians](store-review-guardians.md) (`skills/release/*`) the same way.
 
 The root suite is behavioral at its executable boundaries: installer, documentation-sync and release scenarios run their public CLIs against temporary Git repositories and assert observable files, output, commits and tags. Documentation and agent briefs are treated as published contracts; their tests assert metadata, catalogues, safety boundaries and decision concepts without importing production helpers or mirroring internal control flow.
 
