@@ -268,7 +268,7 @@ skills-lock.json                 # optional TypeSafe project lock
 ├── JEV_CACHE.json, TERMINAL_PROGRESS.json                          (private generated data, untracked)
 ```
 
-Its Commands section names the controller entry point (`runtime/sdd.py status`, `next`, `start`) and points stop reasons to `LOOP_POLICY.md` §9 instead of listing other tools' `--help`.
+Its Commands section names the controller entry point (`runtime/sdd.py status`, `next`, `start`), shows the readable `status --format text` view for people (JSON stays the default the controller reads), and points stop reasons to `LOOP_POLICY.md` §9 instead of listing other tools' `--help`.
 
 The installed guide lists the four sub-agents and the playbooks stage workers load themselves (product owner and tech lead are playbooks, not approvers). The installer does not run `hermes skills trust`; after inspecting `.hermes/skills/`, the user opts in for that repository and starts a new session. No SOUL, profile-level skill or global configuration is changed.
 

@@ -4,6 +4,11 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.5.0 - 2026-10-16
+
+### Added
+- `sdd.py status` and `sdd.py next` accept `--format text` with `--detail compact|normal|verbose`: a readable Brazilian Portuguese view of the same result — ticket (`nenhuma demanda ativa` when idle), stage name and code, profile and mode, the next commands numbered in order, or the stop explained as *O que houve / Por quê / O que fazer* with its resolution command and technical code; verbose adds budgets left, recovery and paths. JSON stays the default with an unchanged layout, so the controller contract is untouched; exit codes are unchanged and terminal controls in rendered values are neutralised. Covered by `tests/test_sdd_readable_output.py`.
+
 ## 15.4.1 - 2026-10-16
 
 ### Fixed

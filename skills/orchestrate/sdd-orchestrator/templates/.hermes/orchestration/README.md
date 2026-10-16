@@ -31,6 +31,7 @@ The controller drives a demand only through the single entry point; it never nee
 ```text
 python3 .hermes/orchestration/runtime/sdd.py status    # compact JSON: paths, stage, recovery, budgets left, next_command
 python3 .hermes/orchestration/runtime/sdd.py next      # the exact command batch for the next step, or the stop and its next_command
+python3 .hermes/orchestration/runtime/sdd.py status --format text   # the same, readable in pt-BR (--detail compact|verbose)
 python3 .hermes/orchestration/runtime/sdd.py start --ticket <id> --title <t> --objective <o> [--deliverable-kind CODE|DECISION_DOC|BOTH]
 ```
 
