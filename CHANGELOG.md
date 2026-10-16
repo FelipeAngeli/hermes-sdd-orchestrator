@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+- Friendlier terminal progress (phase 2). The dashboard adds a live summary: *Até aqui* (recent milestones, `terminal_progress.py milestone`), *Próximo* (`next-step`) and *Precisa de você?* (`attention`). The Jev section now shows each decision with its value and confidence, and marks decisions below 0.70 as `aguardando você`; `semantic_governor.py` passes that data to the dashboard after a live call without changing its decisions, cache or JSON output. The controller entry point and `SKILL.md` tell the controller when to record each item. Presentation state moves to schema 3; schema-1 and schema-2 files still load.
+
 ## 15.3.0 - 2026-10-16
 
 ### Added

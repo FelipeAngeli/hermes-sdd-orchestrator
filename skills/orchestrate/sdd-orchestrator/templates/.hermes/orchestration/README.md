@@ -44,7 +44,7 @@ python3 -m unittest discover -s .hermes/orchestration/tests -p 'test_*.py'
 
 ## Terminal progress
 
-`runtime/terminal_progress.py` gives the classic Hermes terminal a persistent, dependency-free SDD dashboard. It shows, in Brazilian Portuguese, the Hermes provider, current stage and its position with a progress bar, the executor and model of the current and each finished stage, time per stage, a *what happened / why / what to do* explanation when a run stops, Jev status/provider/model and exact classification area, plus recent activity. This presentation file never replaces `STATE.md` or the action journal and must not contain secrets or hidden chain-of-thought.
+`runtime/terminal_progress.py` gives the classic Hermes terminal a persistent, dependency-free SDD dashboard. It shows, in Brazilian Portuguese, the Hermes provider, current stage and its position with a progress bar, the executor and model of the current and each finished stage, time per stage, a live summary of what is done, what comes next and whether the user is needed, a *what happened / why / what to do* explanation when a run stops, Jev status/provider/model, exact classification area and each decision with its confidence (or `aguardando você` below 0.70), plus recent activity. This presentation file never replaces `STATE.md` or the action journal and must not contain secrets or hidden chain-of-thought.
 
 ```text
 python3 .hermes/orchestration/runtime/terminal_progress.py start --provider openai-codex --stage SPECIFY

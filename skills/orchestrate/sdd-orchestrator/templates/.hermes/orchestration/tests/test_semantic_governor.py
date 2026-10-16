@@ -1223,6 +1223,12 @@ answers:
         self.assertEqual("typesafe", saved_progress["jev"]["provider"])
         self.assertEqual("DECIDED", saved_progress["jev"]["status"])
         self.assertEqual(["risk", "needs_security_review"], saved_progress["jev"]["questions"])
+        self.assertEqual(
+            ["risk", "needs_security_review"],
+            [item["id"] for item in saved_progress["jev"]["decisions"]],
+        )
+        self.assertTrue(all(item["disposition"] in {"DECIDED", "REVIEW"} for item in saved_progress["jev"]["decisions"]))
+        self.assertTrue(all(isinstance(item["confidence"], float) for item in saved_progress["jev"]["decisions"]))
 
     def test_cli_cache_hit_makes_no_call_and_prints_no_live_use_announcement(self) -> None:
         governor = load_governor()

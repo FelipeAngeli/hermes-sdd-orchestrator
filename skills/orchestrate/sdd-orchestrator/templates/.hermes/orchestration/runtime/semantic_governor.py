@@ -1067,6 +1067,25 @@ def _start_progress(path: Path, value: dict[str, Any], provider: str) -> tuple[A
         return None
 
 
+def _readable_decisions(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """Project each decision to {id, value, confidence, disposition} for the dashboard (presentation only)."""
+    readable: list[dict[str, Any]] = []
+    decisions = report.get("decisions")
+    if not isinstance(decisions, dict):
+        return readable
+    for question_id, decision in decisions.items():
+        if not isinstance(decision, dict):
+            continue
+        value = decision.get("value")
+        readable.append({
+            "id": str(question_id),
+            "value": None if value is None else str(value),
+            "confidence": float(decision.get("confidence") or 0.0),
+            "disposition": "DECIDED" if decision.get("disposition") == "DECIDED" else "REVIEW",
+        })
+    return readable
+
+
 def _finish_progress(path: Path, context: tuple[Any, str] | None, report: dict[str, Any]) -> None:
     if context is None:
         return
@@ -1078,6 +1097,7 @@ def _finish_progress(path: Path, context: tuple[Any, str] | None, report: dict[s
                 value,
                 report["status"],
                 model=report.get("model"),
+                decisions=_readable_decisions(report),
             ),
         )
         print(module.render(progress, color=False), file=sys.stderr)
