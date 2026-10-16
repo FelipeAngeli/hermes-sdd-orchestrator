@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.4.1 - 2026-10-16
+
 ### Fixed
 - Review fixes for the 15.4.0 dashboard: a failed Jev call is no longer shown as a fabricated `0,00` confidence "below 0.70"; its decisions keep a null confidence and render as `sem resposta válida do Jev`. The threshold shown comes from the report instead of a duplicated constant. The governor's dashboard projection is best-effort per decision (invalid confidences dropped, non-printable values downgraded, long values truncated), and if the dashboard still refuses the detail it closes Jev without it, so the panel can no longer stay stuck as active. Tests now pin invalid confidences, control characters in every new field, mixed-schema files, the CLI summary subcommands, odd governor reports and the stuck-panel path.
 
