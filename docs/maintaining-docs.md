@@ -121,4 +121,4 @@ Hermes agents working in this repository follow the same rule; see `AGENTS.md` a
    git push origin vX.Y.Z
    ```
 
-The version lives in one place: `version:` in `skills/orchestrate/sdd-orchestrator/SKILL.md`. `tests/test_versioning.py` checks that it is SemVer, that it equals the newest release in `CHANGELOG.md`, that `## Unreleased` stays on top and that release sections descend. Every version since `v3.3.0` has a matching Git tag.
+The version lives in one place: `version:` in `skills/orchestrate/sdd-orchestrator/SKILL.md`. `tests/test_versioning.py` checks that it is SemVer, that it equals the newest release in `CHANGELOG.md`, that `## Unreleased` stays on top and that release sections descend. Tags start at `v3.3.0`, but not every version has one: `tools/release.py --tag` tags only the reviewed release HEAD a pull request is merged with, so when a review round adds a second release commit to the same pull request (for example 15.4.0 then 15.4.1), only the last version is tagged. `git tag -l 'v*'` lists the tagged releases.

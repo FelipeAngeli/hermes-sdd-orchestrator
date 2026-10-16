@@ -2589,7 +2589,8 @@ def render_text(command_name: str, result: dict[str, Any], *, detail: str = "nor
         code = _printable(status) or "ERROR"
         message = result.get("message") or code
         if detail == "compact":
-            return f"✖ Erro: {_printable(message)}"
+            command_hint = f" → rode: {_printable(result['next_command'])}" if result.get("next_command") else ""
+            return f"✖ Erro: {_printable(message)}{command_hint}"
         lines = ["╭─ Hermes SDD · erro", _text_row("Erro", message)]
         if code in sr.STOP_REASONS:
             lines.extend(_stop_lines(code, result.get("next_command")))
@@ -2631,6 +2632,8 @@ def _render_status(result: dict[str, Any], detail: str) -> str:
     else:
         lines.append(_text_row("Próximo", result.get("next_action")))
     lines.append(_text_row("Rode", result.get("next_command")))
+    if stop:
+        lines.append(_text_row("", "(o `next` mostra o comando que resolve esta parada)"))
     if detail == "verbose":
         recovery = result.get("recovery") or {}
         lines.extend(["│", _text_row("Recuperação", f"{_printable(recovery.get('decision'))} · journal {_printable(recovery.get('journal_status'))}")])
