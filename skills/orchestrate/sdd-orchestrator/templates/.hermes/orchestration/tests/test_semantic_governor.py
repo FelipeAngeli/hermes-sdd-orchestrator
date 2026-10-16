@@ -1230,6 +1230,58 @@ answers:
         self.assertTrue(all(item["disposition"] in {"DECIDED", "REVIEW"} for item in saved_progress["jev"]["decisions"]))
         self.assertTrue(all(isinstance(item["confidence"], float) for item in saved_progress["jev"]["decisions"]))
 
+    def test_readable_decisions_downgrade_odd_items_instead_of_failing(self) -> None:
+        governor = load_governor()
+        report = {
+            "threshold": 0.7,
+            "decisions": {
+                "ok": {"value": "LOW", "confidence": 0.9, "disposition": "DECIDED", "reason": "AT_OR_ABOVE_THRESHOLD"},
+                "failed": {"value": None, "confidence": None, "disposition": "REVIEW", "reason": "JEV_GOVERNANCE_REMOTE_FAILED"},
+                "text": {"value": "x", "confidence": "high", "disposition": "DECIDED", "reason": "?"},
+                "nan": {"value": "x", "confidence": float("nan"), "disposition": "DECIDED", "reason": "?"},
+                "long": {"value": "y" * 300, "confidence": 0.95, "disposition": "DECIDED", "reason": "?"},
+                "control": {"value": "bad\x1b[0m", "confidence": 0.95, "disposition": "DECIDED", "reason": "?"},
+                "not-a-dict": "oops",
+            },
+        }
+
+        readable = {item["id"]: item for item in governor._readable_decisions(report)}
+
+        self.assertEqual(0.9, readable["ok"]["confidence"])
+        self.assertIsNone(readable["failed"]["confidence"])
+        self.assertIsNone(readable["text"]["confidence"])
+        self.assertIsNone(readable["nan"]["confidence"])
+        self.assertLessEqual(len(readable["long"]["value"]), 240)
+        self.assertEqual("REVIEW", readable["control"]["disposition"])
+        self.assertNotIn("not-a-dict", readable)
+        self.assertEqual(0.7, governor._report_threshold(report))
+
+    def test_progress_closes_jev_even_when_decisions_cannot_be_shown(self) -> None:
+        governor = load_governor()
+        progress_spec = importlib.util.spec_from_file_location(
+            "sdd_terminal_progress_for_close", RUNTIME / "terminal_progress.py"
+        )
+        assert progress_spec is not None and progress_spec.loader is not None
+        progress_module = importlib.util.module_from_spec(progress_spec)
+        sys.modules[progress_spec.name] = progress_module
+        progress_spec.loader.exec_module(progress_module)
+        with tempfile.TemporaryDirectory(prefix="sdd-jev-close-") as temp:
+            path = Path(temp).resolve() / "progress.json"
+            progress_module.save_progress(
+                path,
+                progress_module.start_jev(
+                    progress_module.new_progress("openai-codex", "PLAN"),
+                    provider="typesafe", area="classificação", questions=["q"],
+                ),
+            )
+            with mock.patch.object(governor, "_readable_decisions", return_value=[{"broken": True}]):
+                governor._finish_progress(path, (progress_module, "PLAN"), {"status": "REVIEW", "model": None})
+            saved = progress_module.load_progress(path)
+
+        self.assertFalse(saved["jev"]["active"])
+        self.assertEqual("REVIEW", saved["jev"]["status"])
+        self.assertEqual([], saved["jev"]["decisions"])
+
     def test_cli_cache_hit_makes_no_call_and_prints_no_live_use_announcement(self) -> None:
         governor = load_governor()
         with tempfile.TemporaryDirectory(prefix="sdd-jev-cli-cache-") as temp:

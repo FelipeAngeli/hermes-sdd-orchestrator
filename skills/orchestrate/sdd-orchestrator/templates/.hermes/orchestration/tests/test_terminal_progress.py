@@ -115,6 +115,7 @@ class TerminalProgressTests(unittest.TestCase):
         legacy["schema_version"] = 1
         legacy.pop("summary")
         legacy["jev"].pop("decisions")
+        legacy["jev"].pop("threshold")
         legacy["run"].pop("executor")
         legacy["run"].pop("model")
         legacy["run"].pop("reason")
@@ -226,23 +227,85 @@ class TerminalProgressTests(unittest.TestCase):
         value = progress.start_jev(value, provider="typesafe", area="classificação", questions=["risk", "specialist"],
                                    at=instant("2026-10-05T12:00:01Z"))
         value = progress.finish_jev(
-            value, "REVIEW", instant("2026-10-05T12:00:02Z"), model="jev-1.13.0",
+            value, "REVIEW", instant("2026-10-05T12:00:02Z"), model="jev-1.13.0", threshold=0.7,
             decisions=[
-                {"id": "risk", "value": "MEDIUM", "confidence": 0.91, "disposition": "DECIDED"},
-                {"id": "specialist", "value": None, "confidence": 0.52, "disposition": "REVIEW"},
+                {"id": "risk", "value": "MEDIUM", "confidence": 0.91, "disposition": "DECIDED",
+                 "reason": "AT_OR_ABOVE_THRESHOLD"},
+                {"id": "specialist", "value": None, "confidence": 0.52, "disposition": "REVIEW",
+                 "reason": "BELOW_THRESHOLD"},
+                {"id": "owner", "value": None, "confidence": None, "disposition": "REVIEW",
+                 "reason": "JEV_GOVERNANCE_REMOTE_FAILED"},
             ],
         )
 
         dashboard = progress.render(value, now=instant("2026-10-05T12:00:03Z"), color=False)
 
-        self.assertIn("decidiu 1 de 2", dashboard)
+        self.assertIn("decidiu 1 de 3", dashboard)
         self.assertIn("✓ risk: MEDIUM (0,91)", dashboard)
         self.assertIn("? specialist: confiança 0,52, abaixo de 0,70 → aguardando você", dashboard)
+        self.assertIn("? owner: sem resposta válida do Jev → aguardando você", dashboard)
+        self.assertNotIn("0,00", dashboard, "a failed call is never shown as a zero-confidence answer")
+
+    def test_jev_decisions_reject_invalid_confidence_and_control_characters(self) -> None:
+        progress = load_progress()
+        active = progress.start_jev(progress.new_progress("x", "PLAN"), provider="t", area="a", questions=["q"])
+        valid = {"id": "q", "value": "x", "confidence": 0.9, "disposition": "DECIDED", "reason": "AT_OR_ABOVE_THRESHOLD"}
+        bad_items = [
+            dict(valid, confidence=1.5), dict(valid, confidence=-0.1), dict(valid, confidence=True),
+            dict(valid, confidence=float("nan")), dict(valid, confidence=float("inf")), dict(valid, confidence="0.5"),
+            dict(valid, value="x\x1b[31m"), dict(valid, id="q\u2028"), dict(valid, value="x" * 241),
+            dict(valid, disposition="MAYBE"),
+        ]
+        for item in bad_items:
+            with self.subTest(item=repr(item)):
+                with self.assertRaisesRegex(progress.ProgressError, "PROGRESS_JEV_INVALID"):
+                    progress.finish_jev(active, "DECIDED", decisions=[item])
         with self.assertRaisesRegex(progress.ProgressError, "PROGRESS_JEV_INVALID"):
-            progress.finish_jev(
-                progress.start_jev(progress.new_progress("x", "PLAN"), provider="t", area="a", questions=["q"]),
-                "DECIDED", decisions=[{"id": "q", "value": "x", "confidence": 1.5, "disposition": "DECIDED"}],
-            )
+            progress.finish_jev(active, "DECIDED", threshold=float("nan"))
+
+    def test_summary_fields_reject_control_characters(self) -> None:
+        progress = load_progress()
+        value = progress.new_progress("x", "PLAN")
+        for unsafe in ("csi\x9b31m", "line\u2028break", "bidi\u202eforged", " ", "x" * 241):
+            for setter in (progress.record_milestone, progress.set_next_step, progress.set_attention):
+                with self.subTest(setter=setter.__name__, unsafe=repr(unsafe)):
+                    with self.assertRaisesRegex(progress.ProgressError, "PROGRESS_INPUT_INVALID"):
+                        setter(value, unsafe)
+
+    def test_mixed_schema_files_are_refused(self) -> None:
+        progress = load_progress()
+        current = progress.new_progress("x", "PLAN")
+        schema_three_without_summary = {key: item for key, item in current.items() if key != "summary"}
+        schema_two_with_summary = dict(current, schema_version=2)
+        schema_one_with_summary = dict(current, schema_version=1)
+        for broken in (schema_three_without_summary, schema_two_with_summary, schema_one_with_summary):
+            with self.subTest(version=broken.get("schema_version"), keys=sorted(broken)):
+                with self.assertRaisesRegex(progress.ProgressError, "PROGRESS_STATE_INVALID"):
+                    progress.validate_progress(__import__("copy").deepcopy(broken))
+
+    @unittest.skipUnless(os.name == "posix", "descriptor-anchored paths require POSIX")
+    def test_cli_records_the_summary(self) -> None:
+        import contextlib
+        import io
+
+        progress = load_progress()
+        with tempfile.TemporaryDirectory(prefix="sdd-progress-summary-") as temp:
+            common = ["--file", str(Path(temp).resolve() / "progress.json"), "--no-color"]
+            shown = io.StringIO()
+            with contextlib.redirect_stdout(shown):
+                for argv in (
+                    ["start", "--provider", "anthropic", "--stage", "PLAN", *common],
+                    ["milestone", "--message", "Plano aprovado", *common],
+                    ["next-step", "--message", "Gerar tarefas", *common],
+                    ["attention", "--message", "Aprovar escopo", *common],
+                    ["attention", *common],
+                ):
+                    self.assertEqual(0, progress.main(argv))
+
+        last = shown.getvalue().rsplit("╭─", 1)[1]
+        self.assertIn("• Plano aprovado", last)
+        self.assertIn("Próximo      Gerar tarefas", last)
+        self.assertIn("Precisa de você? Não", last)
 
     def test_schema_two_progress_files_still_load(self) -> None:
         progress = load_progress()
@@ -250,6 +313,7 @@ class TerminalProgressTests(unittest.TestCase):
         legacy["schema_version"] = 2
         legacy.pop("summary")
         legacy["jev"].pop("decisions")
+        legacy["jev"].pop("threshold")
 
         upgraded = progress.validate_progress(legacy)
 

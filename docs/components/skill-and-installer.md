@@ -186,7 +186,7 @@ Each live use writes `JEV EM USO` before network access and a timed `JEV USADO` 
 | `--provider` | Fixed credential/destination pair: `typesafe` (default) or `jev-ai`. |
 | `--env-file` | Credential file override; default `.hermes/.env`. |
 | `--cache` | Private decision-cache path; default `.hermes/orchestration/JEV_CACHE.json`. |
-| `--progress` | Private terminal-dashboard state; default `.hermes/orchestration/TERMINAL_PROGRESS.json`. An absent file disables dashboard synchronization without creating a run. |
+| `--progress` | Private terminal-dashboard state; default `.hermes/orchestration/TERMINAL_PROGRESS.json`. An absent file disables dashboard synchronization without creating a run. After a live call the governor sends each decision (id, value, confidence, disposition, reason) and the report threshold to the dashboard, best-effort per item; if the dashboard refuses that detail, Jev is closed without it so the panel never stays active. Decisions, cache and stdout JSON are unaffected. |
 | `--project-setup` | Guarded consent record; default `.hermes/orchestration/PROJECT_SETUP.md`. Automatic evaluation requires the exact enabled TypeSafe consent object. |
 | `--timeout` | Finite connector timeout greater than 0 through 300 seconds. |
 | `--json` | Emit the stable machine-readable report on stdout. |

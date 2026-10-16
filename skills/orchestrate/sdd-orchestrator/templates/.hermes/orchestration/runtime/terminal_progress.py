@@ -23,7 +23,6 @@ STAGES = ("SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST", "REVIEW", 
 MAX_ACTIVITIES = 20
 MAX_MILESTONES = 5
 MAX_DECISIONS = 64
-JEV_THRESHOLD = 0.70
 MAX_TEXT = 240
 MAX_FILE_BYTES = 256 * 1024
 DEFAULT_PROGRESS_PATH = Path(__file__).resolve().parents[1] / "TERMINAL_PROGRESS.json"
@@ -144,6 +143,7 @@ def new_progress(
             "elapsed_seconds": None,
             "status": "NÃO USADO",
             "decisions": [],
+            "threshold": None,
         },
         "summary": {"milestones": [], "next_step": None, "attention": None},
         "updated_at": stamp,
@@ -167,24 +167,30 @@ def _upgrade_schema_one(value: dict[str, Any]) -> None:
 def _upgrade_schema_two(value: dict[str, Any]) -> None:
     """Add the schema-3 summary and Jev decisions to a schema-2 file in place."""
     jev = value.get("jev")
-    if "summary" in value or not isinstance(jev, dict) or "decisions" in jev:
+    if "summary" in value or not isinstance(jev, dict) or {"decisions", "threshold"} & set(jev):
         raise ProgressError("PROGRESS_STATE_INVALID")
     jev["decisions"] = []
+    jev["threshold"] = None
     value["summary"] = {"milestones": [], "next_step": None, "attention": None}
     value["schema_version"] = SCHEMA_VERSION
+
+
+def _is_probability(value: Any) -> bool:
+    # NaN fails both comparisons, so it is rejected together with infinities and out-of-range values.
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and 0 <= value <= 1
 
 
 def _validate_decisions(decisions: Any, code: str) -> list[dict[str, Any]]:
     if not isinstance(decisions, list) or len(decisions) > MAX_DECISIONS:
         raise ProgressError(code)
     for item in decisions:
-        if not isinstance(item, dict) or set(item) != {"id", "value", "confidence", "disposition"}:
+        if not isinstance(item, dict) or set(item) != {"id", "value", "confidence", "disposition", "reason"}:
             raise ProgressError(code)
         _text(item["id"], code)
-        if item["value"] is not None:
-            _text(item["value"], code)
-        confidence = item["confidence"]
-        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
+        for key in ("value", "reason"):
+            if item[key] is not None:
+                _text(item[key], code)
+        if item["confidence"] is not None and not _is_probability(item["confidence"]):
             raise ProgressError(code)
         if item["disposition"] not in {"DECIDED", "REVIEW"}:
             raise ProgressError(code)
@@ -257,7 +263,7 @@ def validate_progress(value: Any) -> dict[str, Any]:
         _text(activity.get("message"), "PROGRESS_STATE_INVALID")
     expected_jev = {
         "active", "provider", "model", "area", "questions", "started_at", "finished_at", "elapsed_seconds", "status",
-        "decisions",
+        "decisions", "threshold",
     }
     if not isinstance(jev, dict) or set(jev) != expected_jev or not isinstance(jev.get("active"), bool):
         raise ProgressError("PROGRESS_STATE_INVALID")
@@ -275,6 +281,8 @@ def validate_progress(value: Any) -> dict[str, Any]:
         raise ProgressError("PROGRESS_STATE_INVALID")
     _text(jev.get("status"), "PROGRESS_STATE_INVALID")
     _validate_decisions(jev.get("decisions"), "PROGRESS_STATE_INVALID")
+    if jev.get("threshold") is not None and not _is_probability(jev["threshold"]):
+        raise ProgressError("PROGRESS_STATE_INVALID")
     summary = value.get("summary")
     if not isinstance(summary, dict) or set(summary) != {"milestones", "next_step", "attention"}:
         raise ProgressError("PROGRESS_STATE_INVALID")
@@ -434,6 +442,7 @@ def start_jev(
         "elapsed_seconds": None,
         "status": "EM USO",
         "decisions": [],
+        "threshold": None,
     }
     changed["updated_at"] = stamp
     return validate_progress(changed)
@@ -446,11 +455,14 @@ def finish_jev(
     *,
     model: str | None = None,
     decisions: list[dict[str, Any]] | None = None,
+    threshold: float | None = None,
 ) -> dict[str, Any]:
     _running(value)
     if not value["jev"]["active"]:
         raise ProgressError("PROGRESS_JEV_INVALID")
     readable = _validate_decisions(copy.deepcopy(decisions or []), "PROGRESS_JEV_INVALID")
+    if threshold is not None and not _is_probability(threshold):
+        raise ProgressError("PROGRESS_JEV_INVALID")
     moment = at or utc_now()
     stamp = _instant(moment)
     changed = copy.deepcopy(value)
@@ -460,7 +472,11 @@ def finish_jev(
         "finished_at": stamp,
         "elapsed_seconds": _seconds(changed["jev"]["started_at"], moment),
         "status": _text(status),
-        "decisions": [dict(item, confidence=float(item["confidence"])) for item in readable],
+        "decisions": [
+            dict(item, confidence=None if item["confidence"] is None else float(item["confidence"]))
+            for item in readable
+        ],
+        "threshold": None if threshold is None else float(threshold),
     })
     changed["updated_at"] = stamp
     return validate_progress(changed)
@@ -535,6 +551,23 @@ def _bar(done: int, total: int, width: int = 16) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
+def _decimal(value: float) -> str:
+    return f"{value:.2f}".replace(".", ",")
+
+
+def _decision_line(item: dict[str, Any], threshold: float | None) -> str:
+    """One Jev decision; never states a confidence or threshold that the report did not carry."""
+    confidence = item["confidence"]
+    if item["disposition"] == "DECIDED":
+        shown = f" ({_decimal(confidence)})" if confidence is not None else ""
+        return f"│   ✓ {item['id']}: {item['value']}{shown}"
+    if confidence is None:
+        return f"│   ? {item['id']}: sem resposta válida do Jev → aguardando você"
+    if item["reason"] == "BELOW_THRESHOLD" and threshold is not None:
+        return f"│   ? {item['id']}: confiança {_decimal(confidence)}, abaixo de {_decimal(threshold)} → aguardando você"
+    return f"│   ? {item['id']}: confiança {_decimal(confidence)} → aguardando você"
+
+
 def render(value: dict[str, Any], *, now: datetime | None = None, color: bool = False) -> str:
     validate_progress(value)
     moment = now or utc_now()
@@ -599,12 +632,7 @@ def render(value: dict[str, Any], *, now: datetime | None = None, color: bool = 
         decided = sum(item["disposition"] == "DECIDED" for item in jev["decisions"])
         lines.append(_row("  Resumo", f"decidiu {decided} de {len(jev['decisions'])}"))
         for item in jev["decisions"]:
-            confidence = f"{item['confidence']:.2f}".replace(".", ",")
-            threshold = f"{JEV_THRESHOLD:.2f}".replace(".", ",")
-            if item["disposition"] == "DECIDED":
-                lines.append(f"│   ✓ {item['id']}: {item['value']} ({confidence})")
-            else:
-                lines.append(f"│   ? {item['id']}: confiança {confidence}, abaixo de {threshold} → aguardando você")
+            lines.append(_decision_line(item, jev["threshold"]))
     elif jev["questions"]:
         lines.append(_row("  Decisões", ", ".join(jev["questions"])))
     if jev["model"]:
