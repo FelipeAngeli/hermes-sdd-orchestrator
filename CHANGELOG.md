@@ -4,6 +4,11 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.5.1 - 2026-10-16
+
+### Fixed
+- `sdd.py status|next --format text --detail compact` now keeps the `next_command` of an error payload (`✖ Erro: … → rode: <command>`), and `status --format text` with an active stop says that `next` prints the command that resolves it instead of implying it shows that command itself; `docs/components/fsm-and-loop.md` now describes both. `docs/maintaining-docs.md` no longer claims every version since v3.3.0 has a Git tag: only the reviewed release HEAD a pull request is merged with is tagged.
+
 ## 15.5.0 - 2026-10-16
 
 ### Added

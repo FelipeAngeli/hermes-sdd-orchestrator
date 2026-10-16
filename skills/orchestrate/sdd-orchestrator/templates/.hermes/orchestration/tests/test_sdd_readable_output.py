@@ -78,6 +78,8 @@ class RenderTextTests(unittest.TestCase):
         self.assertIn(f"O que houve  {explanation['what']}", text)
         self.assertIn(f"O que fazer  {explanation['action']}", text)
         self.assertIn("código técnico: FOCUSED_TESTS_FAILED", text)
+        self.assertIn("o `next` mostra o comando que resolve esta parada", text)
+        self.assertNotIn("o `next` mostra", sdd.render_text("status", STATUS, detail="normal"))
 
     def test_next_text_lists_the_commands_in_order(self) -> None:
         text = sdd.render_text("next", NEXT_OK, detail="normal")
@@ -123,6 +125,12 @@ class RenderTextTests(unittest.TestCase):
 
         self.assertIn("Erro         ValueError: boom", text)
         self.assertIn("Rode         python sdd.py status", text)
+        self.assertEqual(
+            "✖ Erro: ValueError: boom → rode: python sdd.py status",
+            sdd.render_text("next", error, detail="compact"),
+        )
+        without_command = {key: value for key, value in error.items() if key != "next_command"}
+        self.assertEqual("✖ Erro: ValueError: boom", sdd.render_text("next", without_command, detail="compact"))
 
     def test_text_never_contains_terminal_controls(self) -> None:
         hostile = dict(NEXT_OK, next_step="evil\x1b[31m red\x9b2J", commands=["ok\x07bell"])
