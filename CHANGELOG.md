@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.3.0 - 2026-10-16
+
 ### Added
 - New project-local playbook `sdd-docker-containers` for Dockerfile, image-build and Docker Compose work. It diagnoses existing container files and Docker/Buildx/Compose versions before editing, keeps build, local run and deployment separate (Compose is not assumed to be production-ready), and covers multi-stage builds, base-image pinning, build cache, non-root users, `.dockerignore`, BuildKit secret mounts, health-checked `depends_on`, volumes, Compose secrets and explicit authorization for `down -v`, prune, remote-context and registry commands. PLAN, IMPLEMENT and the dispatch routing table now name it.
 - `sdd-database-design-migrations` 0.2.0 stays the common persistence playbook and now identifies the data model, engine and version first, routing to new references: `relational-databases.md` (version-specific isolation, serialization failures, constraints, DDL locks, plan analysis), `document-databases.md` (access patterns, embed versus reference, validation, size limits, transactions, sharding, mixed-version migration, without assuming MongoDB semantics) and `other-nosql-models.md` (key-value, wide-column, search).
