@@ -4,6 +4,20 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.3.0 - 2026-10-16
+
+### Added
+- New project-local playbook `sdd-docker-containers` for Dockerfile, image-build and Docker Compose work. It diagnoses existing container files and Docker/Buildx/Compose versions before editing, keeps build, local run and deployment separate (Compose is not assumed to be production-ready), and covers multi-stage builds, base-image pinning, build cache, non-root users, `.dockerignore`, BuildKit secret mounts, health-checked `depends_on`, volumes, Compose secrets and explicit authorization for `down -v`, prune, remote-context and registry commands. PLAN, IMPLEMENT and the dispatch routing table now name it.
+- `sdd-database-design-migrations` 0.2.0 stays the common persistence playbook and now identifies the data model, engine and version first, routing to new references: `relational-databases.md` (version-specific isolation, serialization failures, constraints, DDL locks, plan analysis), `document-databases.md` (access patterns, embed versus reference, validation, size limits, transactions, sharding, mixed-version migration, without assuming MongoDB semantics) and `other-nosql-models.md` (key-value, wide-column, search).
+- `sdd-api-contracts` 0.2.0 adds `references/openapi.md`: OpenAPI as the specification and Swagger as tooling, version detection with version-specific rules (2.0, 3.0 `nullable`, 3.1 JSON Schema 2020-12), an authoring/review checklist, `$ref` validation with the project's configured linter, breaking changes for consumers and comparison with servers, serializers and clients.
+- `sdd-backend-engineering` 0.2.0 adds `security-config-and-limits.md` (resource/tenant authorization, configuration and secrets, timeouts, concurrency bounds, backpressure, rate limits) and `caching-and-integrations.md` (invalidation, queues, external services), and extends `observability-and-testing.md` with reproducible debugging evidence and criteria for choosing unit, component, integration or end-to-end tests.
+
+### Docs
+- README files no longer claim that installation ships three playbooks; they point to the ten shipped playbooks. Packaging tests now require ten project skills and assert the new coverage.
+
+### Fixed
+- Review corrections to the new playbooks before release: `references/openapi.md` classifies breaking changes by request and response direction (including new required request fields and added response enum values); `other-nosql-models.md` no longer states the Cassandra "one table per query pattern" rule for every wide-column store; `document-databases.md` qualifies MongoDB's per-stage aggregation memory limit; `relational-databases.md` cross-references the shared transaction and backfill rules instead of repeating them; `sdd-database-design-migrations` keeps the unbounded-backfill/blocking-DDL and preserved-source-data pitfalls and the lock/transaction/recovery evidence check; `image-build.md` verifies the non-root UID with `--entrypoint id` and `docker image inspect`. Coverage tests use distinctive phrases so removing a section fails them.
+
 ## 15.2.1 - 2026-10-15
 
 ### Fixed

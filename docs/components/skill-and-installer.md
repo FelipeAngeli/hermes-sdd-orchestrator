@@ -253,7 +253,7 @@ skills-lock.json                 # optional TypeSafe project lock
 .hermes/skills/                  → project-local-skills.md (explicit repository trust)
 ├── sdd-product-owner/, sdd-tech-lead/, sdd-architecture-decisions/, sdd-api-contracts/
 ├── sdd-backend-engineering/, sdd-frontend-engineering/, sdd-database-design-migrations/
-├── sdd-tdd/, sdd-release-readiness/
+├── sdd-docker-containers/, sdd-tdd/, sdd-release-readiness/
 └── typesafe-ai/                 # optional external TypeSafe skill
 .hermes/orchestration/
 ├── agents/      → stage-agents.md

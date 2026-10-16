@@ -1,13 +1,13 @@
 ---
 name: sdd-api-contracts
 description: Keep client models, API specs and servers in agreement.
-version: 0.1.0
+version: 0.2.0
 author: Felipe Angeli (FelipeAngeli), Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
   hermes:
-    tags: [API, contracts, schemas, serialization, compatibility]
+    tags: [API, contracts, OpenAPI, schemas, serialization, compatibility]
     related_skills: [sdd-backend-engineering, sdd-tech-lead]
 ---
 
@@ -17,7 +17,7 @@ Project-local playbook for changes that cross a wire boundary: client models, se
 
 ## When to Use
 
-Use when a slice adds or changes an endpoint, request or response shape, field, enum, nullability, error envelope, pagination contract, authentication scheme or a client model that mirrors one.
+Use when a slice adds or changes an endpoint, request or response shape, field, enum, nullability, error envelope, pagination contract, authentication scheme, an OpenAPI description or a client model that mirrors one.
 
 Do not use for internal function signatures with no wire boundary, or to call a live API without explicit authorization.
 
@@ -34,14 +34,15 @@ Do not use for internal function signatures with no wire boundary, or to call a 
 | Which source wins when specification, server and client disagree | `references/source-hierarchy.md` |
 | Field-by-field comparison surfaces | `references/contract-surfaces.md` |
 | Evidence rules, fixtures and live-call limits | `references/evidence-and-limits.md` |
+| OpenAPI version, authoring, validation, breaking changes | `references/openapi.md` |
 
 ## Procedure
 
-1. **Resolve scope and authority.** Name the endpoints, models and the authoritative environment. Done when every source to compare has a path or an explicit gap.
+1. **Resolve scope and authority.** Name the endpoints, models and the authoritative environment. When an OpenAPI description exists, detect its version and whether it is generated or hand-written. Done when every source to compare has a path or an explicit gap.
 2. **Align field by field, both directions.** A field the client sends that the server ignores and a field the server returns that the client drops are different defects.
 3. **Classify blast radius.** Silent data loss, runtime deserialization failure, wrong value reaching a business rule, or dead code.
 4. **Plan compatibility.** For a change, state which clients keep working, which version or prefix carries the change, and how unknown enum values fail closed.
-5. **Prove with real payloads.** Fixtures come from a real server payload or the authoritative specification, not from the client model under test.
+5. **Prove with real payloads.** Fixtures come from a real server payload or the authoritative specification, not from the client model under test. A changed OpenAPI description passes the project's configured validator or linter.
 6. **Report gaps.** Request a human or backend-owner decision for an unresolvable divergence instead of choosing a winner by plausibility.
 
 ## Pitfalls
@@ -51,6 +52,7 @@ Do not use for internal function signatures with no wire boundary, or to call a 
 - Do not invent a field, endpoint, status code, enum value or nullability to close a gap.
 - Do not trust a green client test whose fixtures were written from the client model.
 - Do not edit a read-only server checkout; it is reference material.
+- Do not apply rules of one OpenAPI version to another, or edit generated output instead of its source.
 
 ## Verification
 

@@ -56,7 +56,7 @@ A skill é reutilizável. A configuração do controlador, o setup do projeto, o
 
 ## Skills de engenharia locais ao projeto
 
-Cada instalação inclui três playbooks carregados progressivamente em `.hermes/skills/`: engenharia de backend, decisões de arquitetura e design/migrações de banco de dados. Eles orientam planejamento e implementação, enquanto os subagentes especializados existentes fazem revisão independente. O schema 2 de contexto de estágio vincula o workspace Git canônico e verifica byte a byte os arquivos `SKILL.md` e referências exigidos antes de incluir seus descritores no hash de aprovação da fatia; IMPLEMENT falha de forma fechada quando há orientação extra, ausente ou alterada. A instalação nunca muda skills globais nem a confiança do repositório. Depois de inspecionar os arquivos, execute `hermes skills trust` no repositório de destino e inicie uma nova sessão. Veja [Skills de engenharia locais ao projeto](docs/components/project-local-skills.md).
+Cada instalação inclui dez playbooks carregados progressivamente em `.hermes/skills/`, listados em [Playbooks locais do projeto](#playbooks-locais-do-projeto). Eles orientam planejamento e implementação, enquanto os subagentes `pr-reviewer` e `security-reviewer` fazem revisão independente. O schema 2 de contexto de estágio vincula o workspace Git canônico e verifica byte a byte os arquivos `SKILL.md` e referências exigidos antes de incluir seus descritores no hash de aprovação da fatia; IMPLEMENT falha de forma fechada quando há orientação extra, ausente ou alterada. A instalação nunca muda skills globais nem a confiança do repositório. Depois de inspecionar os arquivos, execute `hermes skills trust` no repositório de destino e inicie uma nova sessão. Veja [Skills de engenharia locais ao projeto](docs/components/project-local-skills.md).
 
 ## Integração opcional TypeSafe/Jev
 
@@ -132,8 +132,9 @@ Toda outra especialidade é uma skill local em `.hermes/skills/` que o próprio 
 | `sdd-product-owner` | SPECIFY, CLARIFY, TASKS, REVIEW | Valor, escopo, aceite observável, `deliverable_kind` (CODE, DECISION_DOC, BOTH) com citações do pedido, rastreabilidade SPEC → TESTS. |
 | `sdd-tech-lead` | PLAN, TASKS, REVIEW | Regras de arquitetura declaradas, dependências, orçamentos de desempenho, operabilidade, reversibilidade, indicações de segurança. |
 | `sdd-architecture-decisions` | PLAN | Opções de design e ADRs baseados em evidência. |
-| `sdd-api-contracts` | PLAN, IMPLEMENT, REVIEW | Modelos do cliente comparados à especificação e ao servidor implantado, com fontes ranqueadas. |
-| `sdd-database-design-migrations` | PLAN, IMPLEMENT, REVIEW | Design de schema/dados, rollout expand/contract e a auditoria de segurança do rollout. |
+| `sdd-api-contracts` | PLAN, IMPLEMENT, REVIEW | Modelos do cliente comparados à especificação e ao servidor implantado, com fontes ranqueadas; detecção de versão, validação e mudanças incompatíveis em OpenAPI. |
+| `sdd-database-design-migrations` | PLAN, IMPLEMENT, REVIEW | Design de schema/dados para modelos relacionais, documentais e outros NoSQL, rollout expand/contract e a auditoria de segurança do rollout. |
+| `sdd-docker-containers` | PLAN, IMPLEMENT | Dockerfiles, build de imagens e Compose para execução local e testes, com limites para comandos destrutivos. |
 | `sdd-backend-engineering`, `sdd-frontend-engineering` | PLAN, IMPLEMENT | Procedimento de implementação backend e React/Next.js. |
 | `sdd-tdd` | IMPLEMENT, TEST, REVIEW | Fatias RED → GREEN e prova por mutação de que a suíte pode falhar. |
 | `sdd-release-readiness` | REVIEW | READY, BLOCKED ou READY_WITH_RISK; regressões em consumidores não tocados; documentação fiel ao código. |

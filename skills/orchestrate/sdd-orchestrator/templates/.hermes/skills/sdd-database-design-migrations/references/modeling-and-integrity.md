@@ -1,5 +1,7 @@
 # Modeling and integrity
 
+Shared across data models. Read "table", "row" and "column" as "collection", "document" and "field" (or the model's equivalent); the model-specific reference states where a rule differs, for example where a document store enforces an invariant with a validator or unique index instead of a foreign key.
+
 ## Ownership
 
 Model data around authoritative ownership and invariants, not screen shape. Record each table/entity's identity, lifecycle, tenant scope and deletion policy.

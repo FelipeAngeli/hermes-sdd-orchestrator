@@ -2,7 +2,7 @@
 
 ## Observability
 
-Instrument decisions and outcomes, not raw payloads. Prefer stable operation names and bounded labels.
+Instrument decisions and outcomes, not raw payloads. Prefer stable operation names and bounded labels. Use the logging, metrics and tracing libraries the project already uses.
 
 - Logs: correlation identity, safe resource identity, decision/outcome and error class.
 - Metrics: rate, errors, duration and saturation for user-visible or shared-resource paths.
@@ -10,16 +10,29 @@ Instrument decisions and outcomes, not raw payloads. Prefer stable operation nam
 
 Do not emit secrets, tokens, complete request bodies, personal data or unbounded identifiers. Redaction is a fallback, not permission to log sensitive content.
 
-## Test ownership
+## Debugging evidence
 
-Choose the lowest layer that can observe the acceptance invariant:
+When a slice fixes or investigates a defect, record evidence another engineer can reproduce:
 
-- unit: pure domain/application rule;
-- component: handler/service with controlled I/O boundary;
-- integration: serialization, DI, database, queue or external adapter wiring;
-- E2E: critical user outcome not proven below.
+- the exact input, configuration and version that reproduce the failure, with sensitive values removed;
+- the failing command or request and its observed output before the fix;
+- the log lines, metric or trace span that locate the failure, by correlation identity;
+- the same command passing after the fix.
 
-Mocks prove caller decisions, not integration compatibility. A green fixture built from the same model under test is not independent contract evidence.
+A hypothesis without a reproduction is reported as unconfirmed, not as the cause.
+
+## Choosing the test layer
+
+Choose the lowest layer that can fail for the acceptance invariant, then add a higher layer only for what the lower one cannot observe:
+
+| Layer | Choose it when | It cannot prove |
+| --- | --- | --- |
+| Unit | The rule is pure domain/application logic with inputs and outputs under test control. | Wiring, serialization, real I/O behavior. |
+| Component | A handler or service must run with its real collaborators except an explicit I/O boundary. | Behavior of the real database, broker or provider. |
+| Integration | Correctness depends on serialization, dependency injection, a real database/cache/queue, migrations, transactions or an adapter's wire format. Prefer the project's disposable test infrastructure. | The complete user outcome across deployed services. |
+| End-to-end | A critical user outcome crosses several deployed components and is not proven below. Keep these few and stable. | Fine-grained branches; use lower layers for them. |
+
+Mocks prove caller decisions, not integration compatibility. A green fixture built from the same model under test is not independent contract evidence. A test that needs a shared or external environment requires authorization; otherwise record the gap.
 
 ## Failure cases
 

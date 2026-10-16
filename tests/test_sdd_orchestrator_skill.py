@@ -62,6 +62,7 @@ PROJECT_SKILLS = {
     "sdd-backend-engineering",
     "sdd-frontend-engineering",
     "sdd-database-design-migrations",
+    "sdd-docker-containers",
     "sdd-tdd",
     "sdd-release-readiness",
 }
@@ -311,6 +312,85 @@ class BundleContractTests(unittest.TestCase):
                 self.assertIsNone(pattern.search(document.read_text(encoding="utf-8")))
         for name in REMOVED_SUB_AGENTS:
             self.assertFalse((ORCHESTRATION / "sub-agents" / f"{name}.md").exists())
+
+    #: Engineering concerns each backend-side playbook must cover, by skill and reference file.
+    ENGINEERING_COVERAGE = {
+        ("sdd-backend-engineering", "references/security-config-and-limits.md"): (
+            "authorize against the target resource", "tenant", "secret", "configuration",
+            "timeout", "concurrency", "connection pool", "backpressure", "rate limit",
+        ),
+        ("sdd-backend-engineering", "references/caching-and-integrations.md"): (
+            "invalidation", "stale", "stampede", "queue", "dead-letter", "ordering",
+            "external service", "contract", "sandbox",
+        ),
+        ("sdd-backend-engineering", "references/observability-and-testing.md"): (
+            "| unit |", "| integration |", "| end-to-end |", "choosing the test layer", "debugging evidence",
+            "a hypothesis without a reproduction",
+        ),
+        ("sdd-database-design-migrations", "SKILL.md"): (
+            "identify the data model", "relational", "document", "key-value", "wide-column",
+            "references/relational-databases.md", "references/document-databases.md",
+            "references/other-nosql-models.md",
+        ),
+        ("sdd-database-design-migrations", "references/relational-databases.md"): (
+            "default isolation level differs by engine", "serialization failure", "normalization",
+            "foreign key", "online/concurrent index build", "`explain`", "identify the engine and version",
+        ),
+        ("sdd-database-design-migrations", "references/document-databases.md"): (
+            "access pattern", "embed", "reference", "unbounded", "duplication", "schema validation",
+            "schema version", "document size", "index", "aggregation", "transaction", "single-document",
+            "shard key", "pagination", "mixed-version", "do not assume mongodb",
+        ),
+        ("sdd-database-design-migrations", "references/other-nosql-models.md"): (
+            "## key-value stores", "## wide-column stores", "## search engines", "partition key", "eventual",
+            "official documentation", "do not port relational",
+        ),
+        ("sdd-api-contracts", "references/openapi.md"): (
+            "openapi is the specification", "\"swagger\" names a family of tools", "## detect the version",
+            "`swagger: \"2.0\"`", "`nullable: true`", "`type: [\"string\", \"null\"]`", "`$ref`",
+            "required and nullability", "securityschemes", "examples:", "pagination:", "validator or linter",
+            "classify by direction", "requests (what clients send)", "responses (what clients read)",
+            "adding an enum value", "serializer", "never invent", "never call a production api",
+        ),
+        ("sdd-docker-containers", "SKILL.md"): (
+            "diagnose before editing", "**build**", "**local run**", "**deployment**", "compose is not assumed",
+            "docker compose version", "explicit authorization",
+        ),
+        ("sdd-docker-containers", "references/image-build.md"): (
+            "## multi-stage builds", "pin the base image", "digest", "## build cache", "non-root", "`user`",
+            "## .dockerignore", "--mount=type=secret", "never pass secrets through `arg` or `env`", "exec form",
+            "receives stop signals", "--entrypoint id",
+        ),
+        ("sdd-docker-containers", "references/compose-local-and-test.md"): (
+            "healthcheck", "service_healthy", "depends_on", "named volume", "bind mount", "network",
+            "profiles", "`env_file`", "compose `secrets`", "/run/secrets", "top-level `version` field is obsolete",
+        ),
+        ("sdd-docker-containers", "references/safety-and-deployment.md"): (
+            "docker compose down -v", "docker system prune", "docker volume rm", "explicit authorization",
+            "## shared environments", "push an image to a registry", "compose is not assumed suitable for production",
+            "orchestrator", "resource limits",
+        ),
+    }
+
+    def test_backend_data_api_and_container_playbooks_cover_required_concerns(self) -> None:
+        skills = TEMPLATES / ".hermes" / "skills"
+        for (skill, relative), concepts in self.ENGINEERING_COVERAGE.items():
+            path = skills / skill / relative
+            with self.subTest(file=f"{skill}/{relative}"):
+                self.assertTrue(path.is_file())
+                text = normalized(path.read_text(encoding="utf-8"))
+                for concept in concepts:
+                    with self.subTest(concept=concept):
+                        self.assertIn(normalized(concept), text)
+
+    def test_container_playbook_is_routed_from_plan_implement_and_dispatch(self) -> None:
+        for brief in ("plan.md", "implement.md"):
+            text = (ORCHESTRATION / "agents" / brief).read_text(encoding="utf-8")
+            section = text.split("## Playbooks", 1)[1].split("\n## ", 1)[0]
+            with self.subTest(brief=brief):
+                self.assertIn("`sdd-docker-containers`", section)
+        dispatch = (ORCHESTRATION / "policies" / "DISPATCH_POLICY.md").read_text(encoding="utf-8")
+        self.assertIn("`sdd-docker-containers`", dispatch)
 
     def test_absorbed_specialist_knowledge_survives_in_playbooks(self) -> None:
         skills = TEMPLATES / ".hermes" / "skills"

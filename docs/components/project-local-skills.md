@@ -4,7 +4,7 @@
 
 **Files:** `templates/.hermes/skills/*`.
 
-These skills carry reusable engineering and role judgment (product owner, tech lead, TDD, release readiness) into the target repository without adding reviewer workers. Each [stage brief](stage-agents.md) names the skills to load in its `Playbooks` section. Hermes discovers them under `<project-root>/.hermes/skills/` only for sessions in that checkout. Installation copies them but never edits profile configuration or trust; the user explicitly runs `hermes skills trust` for the repository, and a new session then sees them as project skills.
+These skills carry reusable engineering and role judgment (product owner, tech lead, backend, database, API contracts, containers, TDD, release readiness) into the target repository without adding reviewer workers. Each [stage brief](stage-agents.md) names the skills to load in its `Playbooks` section. Hermes discovers them under `<project-root>/.hermes/skills/` only for sessions in that checkout. Installation copies them but never edits profile configuration or trust; the user explicitly runs `hermes skills trust` for the repository, and a new session then sees them as project skills.
 
 Project rules, code, accepted decisions and authoritative contracts override every generic skill rule. Skills answer **how to do the work** inside every stage. Sub-agents answer a named independent question; they remain controller-selected, isolated and budgeted. The controller never dispatches a generic backend or architecture reviewer merely because a skill exists.
 
@@ -12,16 +12,21 @@ Project rules, code, accepted decisions and authoritative contracts override eve
 
 | File | Purpose |
 | --- | --- |
-| `templates/.hermes/skills/sdd-backend-engineering/SKILL.md` | Routes backend slices through boundary, failure, compatibility, evidence and operations decisions. |
+| `templates/.hermes/skills/sdd-backend-engineering/SKILL.md` | Routes backend slices through boundary, resource authorization, limits, configuration, failure, compatibility, evidence and operations decisions without imposing a framework. |
 | `templates/.hermes/skills/sdd-backend-engineering/references/api-and-idempotency.md` | API contracts, pagination and duplicate-write guarantees. |
 | `templates/.hermes/skills/sdd-backend-engineering/references/errors-retries-jobs.md` | Error ownership, cancellation, bounded retries and durable job behavior. |
-| `templates/.hermes/skills/sdd-backend-engineering/references/observability-and-testing.md` | Secret-safe observability and the lowest behavioral test that owns an invariant. |
+| `templates/.hermes/skills/sdd-backend-engineering/references/observability-and-testing.md` | Secret-safe observability, reproducible debugging evidence and criteria for choosing unit, component, integration or end-to-end tests. |
+| `templates/.hermes/skills/sdd-backend-engineering/references/security-config-and-limits.md` | Resource- and tenant-level authorization, input validation, configuration and secrets, sensitive data, timeouts, concurrency bounds, backpressure and rate limits. |
+| `templates/.hermes/skills/sdd-backend-engineering/references/caching-and-integrations.md` | Cache keys, staleness and invalidation, queue delivery/ordering/dead-letter handling, and external-service adapters, timeouts and sandbox tests. |
 | `templates/.hermes/skills/sdd-architecture-decisions/SKILL.md` | Produces evidence-based architectural options, decisions, impact and ADRs. |
 | `templates/.hermes/skills/sdd-architecture-decisions/references/decision-workflow.md` | Decision record, alternatives, trade-offs, migration and reopening evidence. |
 | `templates/.hermes/skills/sdd-architecture-decisions/references/boundaries-and-dependencies.md` | Module/layer ownership, public surfaces and dependency direction. |
 | `templates/.hermes/skills/sdd-architecture-decisions/references/ddd-fit.md` | Proceed/downgrade/refuse gate for strategic and tactical DDD. |
-| `templates/.hermes/skills/sdd-database-design-migrations/SKILL.md` | Plans data/schema changes, rollout, recovery and independent migration audit. |
-| `templates/.hermes/skills/sdd-database-design-migrations/references/modeling-and-integrity.md` | Ownership, keys, relationships, null/default semantics, units and constraints. |
+| `templates/.hermes/skills/sdd-database-design-migrations/SKILL.md` | Common persistence playbook: identifies the data model, engine and version, then plans data/schema changes, rollout, recovery and the migration audit, routing to model-specific references; keeps the backfill/DDL, preserved-source and lock/recovery-evidence checks. |
+| `templates/.hermes/skills/sdd-database-design-migrations/references/relational-databases.md` | Relational engines: version-specific isolation and serialization failures, normalization, constraints and foreign keys, DDL locks, online index builds and plan analysis, cross-referencing the shared transaction and backfill references. |
+| `templates/.hermes/skills/sdd-database-design-migrations/references/document-databases.md` | Document stores: access-pattern modeling, embed versus reference, duplication, schema validation and versioning, size limits, indexes, transactions, pagination, sharding and mixed-version migration, qualifying product-specific limits instead of assuming MongoDB semantics. |
+| `templates/.hermes/skills/sdd-database-design-migrations/references/other-nosql-models.md` | Key-value, wide-column and search models: what to establish from official documentation before designing keys, partitions, consistency and reindexing, with per-product key shapes (Cassandra/ScyllaDB, DynamoDB, Bigtable). |
+| `templates/.hermes/skills/sdd-database-design-migrations/references/modeling-and-integrity.md` | Ownership, keys, relationships, null/default semantics, units and constraints, shared across data models. |
 | `templates/.hermes/skills/sdd-database-design-migrations/references/migrations-and-backfills.md` | Expand/contract ordering, bounded backfills and mixed-version compatibility. |
 | `templates/.hermes/skills/sdd-database-design-migrations/references/transactions-locking-recovery.md` | Transaction scope, lock evidence, interruption and recovery. |
 | `templates/.hermes/skills/sdd-database-design-migrations/references/query-and-index-evidence.md` | Query plans, pagination and evidence required for index decisions. |
@@ -43,6 +48,11 @@ Project rules, code, accepted decisions and authoritative contracts override eve
 | `templates/.hermes/skills/sdd-api-contracts/references/source-hierarchy.md` | Ranked contract sources and rollout order for a contract change. |
 | `templates/.hermes/skills/sdd-api-contracts/references/contract-surfaces.md` | Field, type, nullability, enum, collection, endpoint, request, response and semantic surfaces. |
 | `templates/.hermes/skills/sdd-api-contracts/references/evidence-and-limits.md` | Citation rules, client-written fixtures and live-call authorization limits. |
+| `templates/.hermes/skills/sdd-api-contracts/references/openapi.md` | OpenAPI (specification) versus Swagger (tooling), version detection, authoring checklist, `$ref` validation with the project's linter, breaking changes classified by request and response direction, and comparison with server, serializers and clients. |
+| `templates/.hermes/skills/sdd-docker-containers/SKILL.md` | Dockerfile and Compose work: diagnoses existing container files and tool versions, separates build, local run and deployment, and limits destructive commands. |
+| `templates/.hermes/skills/sdd-docker-containers/references/image-build.md` | Multi-stage builds, pinned bases, build cache, non-root user, `.dockerignore`, BuildKit secret mounts, exec-form entrypoints and a non-root check that overrides `ENTRYPOINT`. |
+| `templates/.hermes/skills/sdd-docker-containers/references/compose-local-and-test.md` | Compose for development and tests: health checks with `depends_on` conditions, networks, volumes, `env_file` versus interpolation, Compose secrets, profiles and isolated test projects. |
+| `templates/.hermes/skills/sdd-docker-containers/references/safety-and-deployment.md` | Authorization for volume/prune/remote-context commands, shared environments, registries and the deployment-platform boundary. |
 | `templates/.hermes/skills/sdd-tdd/SKILL.md` | Test-first slices and proof that a suite can fail, for IMPLEMENT, TEST and REVIEW (formerly `tdd-guardian`, `tdd-implementer`, `test-runner`). |
 | `templates/.hermes/skills/sdd-tdd/references/test-design.md` | Tests derived from business rules, RED before code, test-quality rules. |
 | `templates/.hermes/skills/sdd-tdd/references/mutation-proof.md` | One-at-a-time production mutations, reverted, with a byte-identical baseline. |
@@ -85,7 +95,9 @@ The slice contract separately lists the skill name and slice IDs that require it
 | Scope, acceptance, deliverable kind, traceability | `sdd-product-owner`, loaded by the stage worker. |
 | Declared architecture, dependencies, performance, reversibility | `sdd-tech-lead`, loaded by the stage worker. |
 | API/server/client divergence | `sdd-api-contracts`. |
-| Migration rollout/data/recovery judgment | `sdd-database-design-migrations` (`references/rollout-safety-audit.md`). |
+| Migration rollout/data/recovery judgment; relational or NoSQL model guidance | `sdd-database-design-migrations` (`references/rollout-safety-audit.md` and the reference for the detected model). |
+| OpenAPI description authoring, validation and breaking changes | `sdd-api-contracts` (`references/openapi.md`). |
+| Dockerfile, image build and Compose for local run and tests | `sdd-docker-containers`. |
 | Whether tests can fail; focused validation | `sdd-tdd`. |
 | Release verdict, regressions, documentation truth | `sdd-release-readiness`. |
 | Bounded code evidence, data-flow trace or impact map | `data-flow-tracer` sub-agent. |
@@ -103,7 +115,8 @@ Playbooks are never dispatched and never act as approvers. Product-owner and tec
 
 ## Verification
 
-- Packaging tests require exactly these nine skill directories, valid portable frontmatter, required sections and at least three references each.
+- Packaging tests require exactly these ten skill directories, valid portable frontmatter, required sections and at least three references each.
+- Coverage tests require the backend, database, OpenAPI and container references to name their required concerns, and require PLAN, IMPLEMENT and the dispatch routing table to name `sdd-docker-containers`.
 - Documentation tests require this catalogue to match every installed project-skill file in both directions.
 - Stage-context tests cover missing, extra, duplicate, unsafe, unknown-slice and byte/frontmatter-mismatched playbooks/references and prove loaded guidance changes the approved slice hash.
 - Installer regression tests prove the installer adds exclusions only for bundled skill directories, does not newly hide unrelated project skills and preserves user-owned exclusion entries.

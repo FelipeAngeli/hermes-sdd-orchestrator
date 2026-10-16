@@ -25,7 +25,7 @@ Implement exactly one authorized vertical slice with strict RED → minimal impl
 
 ## Playbooks
 
-Load `sdd-tdd` for every slice, plus each playbook the slice contract requires (for example `sdd-api-contracts`, `sdd-database-design-migrations`, `sdd-backend-engineering`, `sdd-frontend-engineering`, or `sdd-release-readiness` for a documentation slice). Their path, version and hash must appear in the manifest.
+Load `sdd-tdd` for every slice, plus each playbook the slice contract requires (for example `sdd-api-contracts`, `sdd-database-design-migrations`, `sdd-backend-engineering`, `sdd-frontend-engineering`, `sdd-docker-containers`, or `sdd-release-readiness` for a documentation slice). Their path, version and hash must appear in the manifest.
 
 ## Boundaries
 

@@ -1,5 +1,7 @@
 # Migrations and backfills
 
+Shared across data models. For a document or other NoSQL store, "schema" includes validators, mappings and the shapes application code reads; see the model-specific reference for lazy migration and product limits.
+
 ## Expand/contract
 
 For mixed-version rollout:
