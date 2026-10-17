@@ -1,0 +1,195 @@
+{
+ "captured_at": "2026-10-16",
+ "note": "Hash do conte\u00fado normalizado (texto vis\u00edvel de <main> para HTML; primaryContentSections para DocC JSON) capturado na cria\u00e7\u00e3o das regras.",
+ "sources": {
+  "https://developer.apple.com/app-store/app-privacy-details/": {
+   "fetch_url": "https://developer.apple.com/app-store/app-privacy-details/",
+   "status": 200,
+   "sha256": "0dad486e78e4a6f443213f7aa7ff1bd36446f901d19d1d5df6183021e6c3114b",
+   "stable": true,
+   "bytes": 134919
+  },
+  "https://developer.apple.com/app-store/review/guidelines/": {
+   "fetch_url": "https://developer.apple.com/app-store/review/guidelines/",
+   "status": 200,
+   "sha256": "13bea4397e4204cb0455b63b84aaa122422ede258cba0351c64b52ae2c19448d",
+   "stable": true,
+   "bytes": 240818
+  },
+  "https://developer.apple.com/documentation/bundleresources/describing-data-use-in-privacy-manifests": {
+   "fetch_url": "https://developer.apple.com/tutorials/data/documentation/bundleresources/describing-data-use-in-privacy-manifests.json",
+   "status": 200,
+   "sha256": "988248e16b818308b6302053a976fd5c6e177086f49f79393ec92bf6d4885418",
+   "stable": true,
+   "bytes": 19579
+  },
+  "https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api": {
+   "fetch_url": "https://developer.apple.com/tutorials/data/documentation/bundleresources/describing-use-of-required-reason-api.json",
+   "status": 200,
+   "sha256": "6ce3ea0709d2c2b41264f7d77a5067f09aafcd4d4d201919349bfa236b96ed44",
+   "stable": true,
+   "bytes": 17105
+  },
+  "https://developer.apple.com/documentation/bundleresources/entitlements/aps-environment": {
+   "fetch_url": "https://developer.apple.com/tutorials/data/documentation/bundleresources/entitlements/aps-environment.json",
+   "status": 200,
+   "sha256": "b5024d273da44d0d846d3e9c3b85406d8def55c6924d3ec5c5473c38b48af17d",
+   "stable": true,
+   "bytes": 11970
+  },
+  "https://developer.apple.com/documentation/bundleresources/information-property-list": {
+   "fetch_url": "https://developer.apple.com/tutorials/data/documentation/bundleresources/information-property-list.json",
+   "status": 200,
+   "sha256": "226d1a837ed6ad43bf0a17d687b0d36220c25eb395207a1894bff317e7ab08a6",
+   "stable": true,
+   "bytes": 65841
+  },
+  "https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundleshortversionstring": {
+   "fetch_url": "https://developer.apple.com/tutorials/data/documentation/bundleresources/information-property-list/cfbundleshortversionstring.json",
+   "status": 200,
+   "sha256": "5aa07a51b0769bfbe9ce3112d72030258fdce089a4b7a754403423d6e77f4464",
+   "stable": true,
+   "bytes": 11670
+  },
+  "https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundleversion": {
+   "fetch_url": "https://developer.apple.com/tutorials/data/documentation/bundleresources/information-property-list/cfbundleversion.json",
+   "status": 200,
+   "sha256": "ace34ec39f1d026e7bf20e209148d01d50a0e23fbf0b9acdda11979ce6fd0e8a",
+   "stable": true,
+   "bytes": 12091
+  },
+  "https://developer.apple.com/documentation/bundleresources/information-property-list/itsappusesnonexemptencryption": {
+   "fetch_url": "https://developer.apple.com/tutorials/data/documentation/bundleresources/information-property-list/itsappusesnonexemptencryption.json",
+   "status": 200,
+   "sha256": "7ceb86839091d53885acb9922563d091cbce4987ae1719797182744544897b42",
+   "stable": true,
+   "bytes": 21405
+  },
+  "https://developer.apple.com/documentation/bundleresources/information-property-list/minimumosversion": {
+   "fetch_url": "https://developer.apple.com/tutorials/data/documentation/bundleresources/information-property-list/minimumosversion.json",
+   "status": 200,
+   "sha256": "9f971ce05df9dd7b847d1d850c588d7dd5bea51e8e7b812557f47830c2a34da0",
+   "stable": true,
+   "bytes": 14938
+  },
+  "https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsallowsarbitraryloads": {
+   "fetch_url": "https://developer.apple.com/tutorials/data/documentation/bundleresources/information-property-list/nsapptransportsecurity/nsallowsarbitraryloads.json",
+   "status": 200,
+   "sha256": "0973746287b6a3a27f638433e54084ca71e6d01b1d1acc6ef52d16911559dda2",
+   "stable": true,
+   "bytes": 18501
+  },
+  "https://developer.apple.com/documentation/bundleresources/information-property-list/uibackgroundmodes": {
+   "fetch_url": "https://developer.apple.com/tutorials/data/documentation/bundleresources/information-property-list/uibackgroundmodes.json",
+   "status": 200,
+   "sha256": "f9cdbe49e7393f1984b412dd07ec1a81f2bfdbbd04a74d219ea7db06a3c645a1",
+   "stable": true,
+   "bytes": 11965
+  },
+  "https://developer.apple.com/documentation/bundleresources/privacy-manifest-files": {
+   "fetch_url": "https://developer.apple.com/tutorials/data/documentation/bundleresources/privacy-manifest-files.json",
+   "status": 200,
+   "sha256": "3c0362d831187756ccc22aacf28ab78cfbcfb9084cb9e441e512dd95114af244",
+   "stable": true,
+   "bytes": 21639
+  },
+  "https://developer.apple.com/documentation/bundleresources/protected-resources": {
+   "fetch_url": "https://developer.apple.com/tutorials/data/documentation/bundleresources/protected-resources.json",
+   "status": 200,
+   "sha256": "5cb2745688d7d98c71525e2a2c81cc687d8c945322f8e1ab18a2c1bbebc8e304",
+   "stable": true,
+   "bytes": 125049
+  },
+  "https://developer.apple.com/documentation/security": {
+   "fetch_url": "https://developer.apple.com/tutorials/data/documentation/security.json",
+   "status": 200,
+   "sha256": "796fbafb442c8d11ed55af7e1714aa0bf47224ec74aae2399fface201e94460f",
+   "stable": true,
+   "bytes": 69570
+  },
+  "https://developer.apple.com/documentation/technotes/tn3125-inside-code-signing-provisioning-profiles": {
+   "fetch_url": "https://developer.apple.com/tutorials/data/documentation/technotes/tn3125-inside-code-signing-provisioning-profiles.json",
+   "status": 200,
+   "sha256": "9d7b47e6ade1f82ffd68a57c3265eb3586631b0f764edf7be9915d30a5525f63",
+   "stable": true,
+   "bytes": 38977
+  },
+  "https://developer.apple.com/documentation/technotes/tn3181-debugging-invalid-privacy-manifest": {
+   "fetch_url": "https://developer.apple.com/tutorials/data/documentation/technotes/tn3181-debugging-invalid-privacy-manifest.json",
+   "status": 200,
+   "sha256": "45afafb02f9167f72d97ffc4b0b33c556aaea1c8998c81ce6b07b4867eebd3f3",
+   "stable": true,
+   "bytes": 22079
+  },
+  "https://developer.apple.com/documentation/xcode/distributing-your-app-for-beta-testing-and-releases": {
+   "fetch_url": "https://developer.apple.com/tutorials/data/documentation/xcode/distributing-your-app-for-beta-testing-and-releases.json",
+   "status": 200,
+   "sha256": "69c769fba71b91128231a7c5086fa439561b1549bdd45db296d6302253aef762",
+   "stable": true,
+   "bytes": 46567
+  },
+  "https://developer.apple.com/help/app-store-connect/": {
+   "fetch_url": "https://developer.apple.com/help/app-store-connect/",
+   "status": 200,
+   "sha256": "1029749211fa26b2b84a1ecf5a6c203bbb6284c917276822e2da14a5ece1513d",
+   "stable": true,
+   "bytes": 365842
+  },
+  "https://developer.apple.com/help/app-store-connect/manage-app-information/overview-of-export-compliance": {
+   "fetch_url": "https://developer.apple.com/help/app-store-connect/manage-app-information/overview-of-export-compliance",
+   "status": 200,
+   "sha256": "925c5df8bfbfe2d0fe1fe7c206282658470d14ed3a3df1fefccccb6554922130",
+   "stable": true,
+   "bytes": 367746
+  },
+  "https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds": {
+   "fetch_url": "https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds",
+   "status": 200,
+   "sha256": "dcb7a7e09de2ca83388bcecf262c3370298b26822e84f87c7171fe188e2c083a",
+   "stable": true,
+   "bytes": 371327
+  },
+  "https://developer.apple.com/help/app-store-connect/reference/app-information/app-information": {
+   "fetch_url": "https://developer.apple.com/help/app-store-connect/reference/app-information/app-information",
+   "status": 200,
+   "sha256": "97e7b6e23397e119ba49f2d2f50db98bef38bda7a904d8d175a50fbe2229dcd1",
+   "stable": true,
+   "bytes": 377346
+  },
+  "https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information": {
+   "fetch_url": "https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information",
+   "status": 200,
+   "sha256": "058330d0597b1c256b4ae9beea9a67bfd7a755b0080c86adc979d000e3de8e01",
+   "stable": true,
+   "bytes": 375069
+  },
+  "https://developer.apple.com/news/upcoming-requirements/": {
+   "fetch_url": "https://developer.apple.com/news/upcoming-requirements/",
+   "status": 200,
+   "sha256": "7fb8151d1b8f8a9760e42cde88a6bfc294c539c0c139eb1daac21a3d7b05eaea",
+   "stable": true,
+   "bytes": 137188
+  },
+  "https://developer.apple.com/support/offering-account-deletion-in-your-app/": {
+   "fetch_url": "https://developer.apple.com/support/offering-account-deletion-in-your-app/",
+   "status": 200,
+   "sha256": "3e93de84b457148d1c19ad42b9483176018879a06fec7d616ae4fd3bd00ff42a",
+   "stable": true,
+   "bytes": 134270
+  },
+  "https://developer.apple.com/support/third-party-SDK-requirements/": {
+   "fetch_url": "https://developer.apple.com/support/third-party-SDK-requirements/",
+   "status": 200,
+   "sha256": "c6b04c6e1c336227ce4d160c02149cf112dfb9770c0014dc1390b8f011c243a6",
+   "stable": true,
+   "bytes": 108969
+  },
+  "https://docs.flutter.dev/deployment/ios": {
+   "fetch_url": "https://docs.flutter.dev/deployment/ios",
+   "status": 200,
+   "sha256": "99a2a8961332b12d4adc5a2952dd9c602a8c86dd0fcf52adc775d782b84053e6",
+   "stable": true,
+   "bytes": 173330
+  }
+ }
+}

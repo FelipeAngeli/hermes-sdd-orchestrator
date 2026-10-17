@@ -29,6 +29,14 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_*.py'
       - name: Installed controller tests
         run: python -m unittest discover -s skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/tests -p 'test_*.py'
+      - name: Store review guardian security scan
+        run: |
+          python tools/check_skill_security.py --hermes-root .ci/hermes-agent --skill skills/release/appstore-review-guardian
+          python tools/check_skill_security.py --hermes-root .ci/hermes-agent --skill skills/release/google-play-review-guardian
+      - name: Store review guardian tests
+        run: |
+          python -m unittest discover -s skills/release/appstore-review-guardian/tests -p 'test_*.py'
+          python -m unittest discover -s skills/release/google-play-review-guardian/tests -p 'test_*.py'
       - name: Documentation updated with the orchestration
         if: github.event_name == 'pull_request'
         run: python tools/check_docs_sync.py --base "origin/${{ github.base_ref }}"

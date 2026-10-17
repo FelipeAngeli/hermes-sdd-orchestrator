@@ -1,0 +1,5 @@
+# Read only by the Hermes security scanner (skills_guard); the installer still copies tests/.
+# The fixtures deliberately contain hostile inputs (zip-slip paths, absolute paths, shell
+# metacharacters passed as plain arguments, fake certificates) to prove the scripts reject them.
+# CI still runs them from the repository: see docs/components/store-review-guardians.md.
+tests/

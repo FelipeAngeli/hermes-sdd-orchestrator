@@ -12,7 +12,7 @@
 | Content tests | Pages name their files. Links and anchors resolve. The page graph is connected. CLI flags, subcommands, statuses, decisions, actions, ecosystems and agent tables match the code. | `tests/test_docs.py` |
 | Change check | A changed source file requires its owning page **and** `CHANGELOG.md` to change in the same diff. | `tools/check_docs_sync.py` |
 | Local hook | Runs the change check on every commit. | `.githooks/commit-msg` |
-| CI | Checks out the real PR `head.sha` (not GitHub's synthetic merge commit), runs both suites and checks docs against the base branch. | `.github/workflows/ci.yml` |
+| CI | Checks out the real PR `head.sha` (not GitHub's synthetic merge commit), runs both suites, scans and tests the two [store review guardians](components/store-review-guardians.md) (`--skill skills/release/<skill>`), and checks docs against the base branch. | `.github/workflows/ci.yml` |
 | Skill security | `tools/check_skill_security.py` verifies the pinned hermes-agent commit and scanner version, scans the complete distributable skill as a community source, and fails unless the verdict is `SAFE`. CI checks out the pinned scanner before running it. | `tools/check_skill_security.py`, `.github/workflows/ci.yml` |
 
 Enable the hook once per clone:

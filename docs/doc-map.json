@@ -88,6 +88,10 @@
       "tools/*",
       ".githooks/*",
       ".github/workflows/*"
+    ],
+    "docs/components/store-review-guardians.md": [
+      "skills/release/appstore-review-guardian/*",
+      "skills/release/google-play-review-guardian/*"
     ]
   }
 }

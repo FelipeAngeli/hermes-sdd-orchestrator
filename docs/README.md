@@ -32,6 +32,7 @@ Each page owns a set of files (see [doc-map.json](doc-map.json)) and is the sing
 | [Repository-local Hermes hooks](components/hooks.md) | Opt-in shell hooks for slice scope, verification evidence, bounded STATE context and sub-agent audit events |
 | [Obsidian vault](components/obsidian-vault.md) | Vault binding, write containment, worktree bootstrap and migrations |
 | [Context graph](components/context-graph.md) | Modules, rules, tests and decisions as connected notes; querying related context before acting |
+| [Store review guardians](components/store-review-guardians.md) | `appstore-review-guardian` and `google-play-review-guardian`: read-only pre-submission audits of iOS and Android apps |
 | [Testing](components/testing.md) | Both test suites and what each test file guarantees |
 
 ## How the pages connect

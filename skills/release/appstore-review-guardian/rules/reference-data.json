@@ -1,0 +1,659 @@
+{
+ "consulted_at": "2026-10-16",
+ "guidelines_last_updated": "October 16, 2026",
+ "upload_minimums": {
+  "min_ios_deployment_target": "13.0",
+  "min_ios_effective_from": "2026-09-09",
+  "min_xcode_major": 26,
+  "min_sdk_major": 26,
+  "min_sdk_effective_from": "2026-04-28",
+  "source": "https://developer.apple.com/news/upcoming-requirements/"
+ },
+ "privacy_manifest": {
+  "file_name": "PrivacyInfo.xcprivacy",
+  "top_level_keys": [
+   "NSPrivacyTracking",
+   "NSPrivacyTrackingDomains",
+   "NSPrivacyCollectedDataTypes",
+   "NSPrivacyAccessedAPITypes"
+  ],
+  "collected_item_keys": [
+   "NSPrivacyCollectedDataType",
+   "NSPrivacyCollectedDataTypeLinked",
+   "NSPrivacyCollectedDataTypeTracking",
+   "NSPrivacyCollectedDataTypePurposes"
+  ],
+  "accessed_item_keys": [
+   "NSPrivacyAccessedAPIType",
+   "NSPrivacyAccessedAPITypeReasons"
+  ]
+ },
+ "required_reason_categories": {
+  "NSPrivacyAccessedAPICategoryFileTimestamp": [
+   "DDA9.1",
+   "C617.1",
+   "3B52.1",
+   "0A2A.1"
+  ],
+  "NSPrivacyAccessedAPICategorySystemBootTime": [
+   "35F9.1",
+   "8FFB.1",
+   "3D61.1"
+  ],
+  "NSPrivacyAccessedAPICategoryDiskSpace": [
+   "85F4.1",
+   "E174.1",
+   "7D9E.1",
+   "B728.1"
+  ],
+  "NSPrivacyAccessedAPICategoryActiveKeyboards": [
+   "3EC4.1",
+   "54BD.1"
+  ],
+  "NSPrivacyAccessedAPICategoryUserDefaults": [
+   "CA92.1",
+   "1C8F.1",
+   "C56D.1",
+   "AC6B.1"
+  ]
+ },
+ "required_reason_symbols": {
+  "_note": "Agulhas exatas (delimitadas por NUL) procuradas nas tabelas de símbolos/seletores do Mach-O. Derivadas da lista de APIs da página 'Describing use of required reason API'. Prefixo '~' = busca por substring (símbolos Swift mangled).",
+  "NSPrivacyAccessedAPICategoryFileTimestamp": [
+   "_stat",
+   "_fstat",
+   "_fstatat",
+   "_lstat",
+   "_getattrlist",
+   "_getattrlistbulk",
+   "_fgetattrlist",
+   "_getattrlistat",
+   "_NSFileCreationDate",
+   "_NSFileModificationDate",
+   "_NSURLContentModificationDateKey",
+   "_NSURLCreationDateKey",
+   "fileModificationDate"
+  ],
+  "NSPrivacyAccessedAPICategorySystemBootTime": [
+   "_mach_absolute_time",
+   "systemUptime"
+  ],
+  "NSPrivacyAccessedAPICategoryDiskSpace": [
+   "_statfs",
+   "_statvfs",
+   "_fstatfs",
+   "_fstatvfs",
+   "_NSURLVolumeAvailableCapacityKey",
+   "_NSURLVolumeAvailableCapacityForImportantUsageKey",
+   "_NSURLVolumeAvailableCapacityForOpportunisticUsageKey",
+   "_NSURLVolumeTotalCapacityKey",
+   "_NSFileSystemFreeSize",
+   "_NSFileSystemSize"
+  ],
+  "NSPrivacyAccessedAPICategoryActiveKeyboards": [
+   "activeInputModes"
+  ],
+  "NSPrivacyAccessedAPICategoryUserDefaults": [
+   "_OBJC_CLASS_$_NSUserDefaults",
+   "~$s10Foundation12UserDefaultsC"
+  ]
+ },
+ "collected_data_types": [
+  "NSPrivacyCollectedDataTypeName",
+  "NSPrivacyCollectedDataTypeEmailAddress",
+  "NSPrivacyCollectedDataTypePhoneNumber",
+  "NSPrivacyCollectedDataTypePhysicalAddress",
+  "NSPrivacyCollectedDataTypeOtherUserContactInfo",
+  "NSPrivacyCollectedDataTypeHealth",
+  "NSPrivacyCollectedDataTypeFitness",
+  "NSPrivacyCollectedDataTypePaymentInfo",
+  "NSPrivacyCollectedDataTypeCreditInfo",
+  "NSPrivacyCollectedDataTypeOtherFinancialInfo",
+  "NSPrivacyCollectedDataTypePreciseLocation",
+  "NSPrivacyCollectedDataTypeCoarseLocation",
+  "NSPrivacyCollectedDataTypeSensitiveInfo",
+  "NSPrivacyCollectedDataTypeContacts",
+  "NSPrivacyCollectedDataTypeEmailsOrTextMessages",
+  "NSPrivacyCollectedDataTypePhotosorVideos",
+  "NSPrivacyCollectedDataTypeAudioData",
+  "NSPrivacyCollectedDataTypeGameplayContent",
+  "NSPrivacyCollectedDataTypeCustomerSupport",
+  "NSPrivacyCollectedDataTypeOtherUserContent",
+  "NSPrivacyCollectedDataTypeBrowsingHistory",
+  "NSPrivacyCollectedDataTypeSearchHistory",
+  "NSPrivacyCollectedDataTypeUserID",
+  "NSPrivacyCollectedDataTypeDeviceID",
+  "NSPrivacyCollectedDataTypePurchaseHistory",
+  "NSPrivacyCollectedDataTypeProductInteraction",
+  "NSPrivacyCollectedDataTypeAdvertisingData",
+  "NSPrivacyCollectedDataTypeOtherUsageData",
+  "NSPrivacyCollectedDataTypeCrashData",
+  "NSPrivacyCollectedDataTypePerformanceData",
+  "NSPrivacyCollectedDataTypeOtherDiagnosticData",
+  "NSPrivacyCollectedDataTypeEnvironmentScanning",
+  "NSPrivacyCollectedDataTypeHands",
+  "NSPrivacyCollectedDataTypeHead",
+  "NSPrivacyCollectedDataTypeOtherDataTypes"
+ ],
+ "collected_data_purposes": [
+  "NSPrivacyCollectedDataTypePurposeThirdPartyAdvertising",
+  "NSPrivacyCollectedDataTypePurposeDeveloperAdvertising",
+  "NSPrivacyCollectedDataTypePurposeAnalytics",
+  "NSPrivacyCollectedDataTypePurposeProductPersonalization",
+  "NSPrivacyCollectedDataTypePurposeAppFunctionality",
+  "NSPrivacyCollectedDataTypePurposeOther"
+ ],
+ "usage_description_keys": [
+  "NFCReaderUsageDescription",
+  "NSAccessoryTrackingUsageDescription",
+  "NSAppBundlesUsageDescription",
+  "NSAppDataUsageDescription",
+  "NSAppleEventsUsageDescription",
+  "NSAppleMusicUsageDescription",
+  "NSAudioCaptureUsageDescription",
+  "NSBluetoothAlwaysUsageDescription",
+  "NSBluetoothPeripheralUsageDescription",
+  "NSCalendarsFullAccessUsageDescription",
+  "NSCalendarsUsageDescription",
+  "NSCalendarsWriteOnlyAccessUsageDescription",
+  "NSCameraUsageDescription",
+  "NSContactsUsageDescription",
+  "NSCriticalMessagingUsageDescription",
+  "NSDesktopFolderUsageDescription",
+  "NSDocumentsFolderUsageDescription",
+  "NSDownloadsFolderUsageDescription",
+  "NSEnterpriseMCAMUsageDescription",
+  "NSFaceIDUsageDescription",
+  "NSFallDetectionUsageDescription",
+  "NSFileProviderDomainUsageDescription",
+  "NSFileProviderPresenceUsageDescription",
+  "NSFinancialDataUsageDescription",
+  "NSGKFriendListUsageDescription",
+  "NSHandsTrackingUsageDescription",
+  "NSHealthClinicalHealthRecordsShareUsageDescription",
+  "NSHealthShareUsageDescription",
+  "NSHealthUpdateUsageDescription",
+  "NSHomeKitUsageDescription",
+  "NSIdentityUsageDescription",
+  "NSLocalNetworkUsageDescription",
+  "NSLocationAlwaysAndWhenInUseUsageDescription",
+  "NSLocationAlwaysUsageDescription",
+  "NSLocationUsageDescription",
+  "NSLocationWhenInUseUsageDescription",
+  "NSMainCameraUsageDescription",
+  "NSMicrophoneUsageDescription",
+  "NSMotionUsageDescription",
+  "NSNearbyInteractionAllowOnceUsageDescription",
+  "NSNearbyInteractionUsageDescription",
+  "NSNetworkVolumesUsageDescription",
+  "NSPhotoLibraryAddUsageDescription",
+  "NSPhotoLibraryUsageDescription",
+  "NSRemindersFullAccessUsageDescription",
+  "NSRemindersUsageDescription",
+  "NSRemovableVolumesUsageDescription",
+  "NSSensorKitUsageDescription",
+  "NSSiriUsageDescription",
+  "NSSpeechRecognitionUsageDescription",
+  "NSSystemAdministrationUsageDescription",
+  "NSSystemExtensionUsageDescription",
+  "NSUserTrackingMarkdownUsageDescription",
+  "NSUserTrackingUsageDescription",
+  "NSVideoSubscriberAccountUsageDescription",
+  "NSWorldSensingUsageDescription"
+ ],
+ "background_modes": [
+  "audio",
+  "bluetooth-central",
+  "bluetooth-peripheral",
+  "external-accessory",
+  "fetch",
+  "location",
+  "nearby-interaction",
+  "network-authentication",
+  "newsstand-content",
+  "processing",
+  "push-to-talk",
+  "remote-notification",
+  "screen-capture",
+  "voip"
+ ],
+ "sdks_requiring_manifest": [
+  "Abseil",
+  "AFNetworking",
+  "Alamofire",
+  "AppAuth",
+  "BoringSSL / openssl_grpc",
+  "Capacitor",
+  "Charts",
+  "connectivity_plus",
+  "Cordova",
+  "device_info_plus",
+  "DKImagePickerController",
+  "DKPhotoGallery",
+  "FBAEMKit",
+  "FBLPromises",
+  "FBSDKCoreKit",
+  "FBSDKCoreKit_Basics",
+  "FBSDKLoginKit",
+  "FBSDKShareKit",
+  "file_picker",
+  "FirebaseABTesting",
+  "FirebaseAuth",
+  "FirebaseCore",
+  "FirebaseCoreDiagnostics",
+  "FirebaseCoreExtension",
+  "FirebaseCoreInternal",
+  "FirebaseCrashlytics",
+  "FirebaseDynamicLinks",
+  "FirebaseFirestore",
+  "FirebaseInstallations",
+  "FirebaseMessaging",
+  "FirebaseRemoteConfig",
+  "Flutter",
+  "flutter_inappwebview",
+  "flutter_local_notifications",
+  "fluttertoast",
+  "FMDB",
+  "geolocator_apple",
+  "GoogleDataTransport",
+  "GoogleSignIn",
+  "GoogleToolboxForMac",
+  "GoogleUtilities",
+  "grpcpp",
+  "GTMAppAuth",
+  "GTMSessionFetcher",
+  "hermes",
+  "image_picker_ios",
+  "IQKeyboardManager",
+  "IQKeyboardManagerSwift",
+  "Kingfisher",
+  "leveldb",
+  "Lottie",
+  "MBProgressHUD",
+  "nanopb",
+  "OneSignal",
+  "OneSignalCore",
+  "OneSignalExtension",
+  "OneSignalOutcomes",
+  "OpenSSL",
+  "OrderedSet",
+  "package_info",
+  "package_info_plus",
+  "path_provider",
+  "path_provider_ios",
+  "Promises",
+  "Protobuf",
+  "Reachability",
+  "RealmSwift",
+  "RxCocoa",
+  "RxRelay",
+  "RxSwift",
+  "SDWebImage",
+  "share_plus",
+  "shared_preferences_ios",
+  "SnapKit",
+  "sqflite",
+  "Starscream",
+  "SVProgressHUD",
+  "SwiftyGif",
+  "SwiftyJSON",
+  "Toast",
+  "UnityFramework",
+  "url_launcher",
+  "url_launcher_ios",
+  "video_player_avfoundation",
+  "wakelock",
+  "webview_flutter_wkwebview"
+ ],
+ "sdk_repackaging_aliases": {
+  "_note": "Inferência do guardian (não é lista Apple): implementações federadas que reempacotam um SDK listado. Achados por alias são heurísticos.",
+  "sqflite": [
+   "sqflite_darwin"
+  ],
+  "path_provider": [
+   "path_provider_foundation"
+  ],
+  "shared_preferences_ios": [
+   "shared_preferences_foundation"
+  ],
+  "url_launcher": [
+   "url_launcher_ios"
+  ],
+  "wakelock": [
+   "wakelock_plus"
+  ],
+  "package_info": [
+   "package_info_plus"
+  ],
+  "Firebase": []
+ },
+ "asc_limits": {
+  "name_min": 2,
+  "name_max": 30,
+  "subtitle_max": 30,
+  "keywords_max_bytes": 100,
+  "keyword_min_chars": 3,
+  "description_max": 4000,
+  "promotional_text_max": 170,
+  "privacy_policy_url_required_ios": true
+ },
+ "generic_purpose_patterns": [
+  "^allow (this )?app to access",
+  "^this app (needs|requires|uses) (access|your)",
+  "^(we )?need(s)? access to",
+  "^permission (needed|required)",
+  "^(access|usage) required$",
+  "^for (app )?functionality$",
+  "^\\$\\(.*\\)$",
+  "^(todo|tbd|placeholder|lorem ipsum)"
+ ],
+ "resource_signals": {
+  "_note": "Plugins Flutter/pods cujo uso típico requer a chave. Usado só como heurística (PRIV-USAGE-003).",
+  "NSPhotoLibraryUsageDescription": {
+   "plugins": [
+    "image_picker_ios",
+    "photo_manager",
+    "wechat_assets_picker",
+    "file_picker",
+    "images_picker"
+   ],
+   "frameworks": [],
+   "code": [
+    "ImageSource\\.gallery",
+    "pickMultiImage\\(",
+    "pickImage\\(",
+    "pickMedia\\(",
+    "PhotoManager\\."
+   ]
+  },
+  "NSPhotoLibraryAddUsageDescription": {
+   "plugins": [
+    "image_gallery_saver",
+    "gal",
+    "saver_gallery"
+   ],
+   "frameworks": [],
+   "code": []
+  },
+  "NSCameraUsageDescription": {
+   "plugins": [
+    "camera",
+    "camera_avfoundation",
+    "mobile_scanner",
+    "qr_code_scanner"
+   ],
+   "frameworks": [],
+   "code": [
+    "ImageSource\\.camera",
+    "CameraController\\(",
+    "MobileScanner\\("
+   ]
+  },
+  "NSMicrophoneUsageDescription": {
+   "plugins": [
+    "record",
+    "flutter_sound",
+    "speech_to_text",
+    "camera_avfoundation"
+   ],
+   "frameworks": [],
+   "code": []
+  },
+  "NSLocationWhenInUseUsageDescription": {
+   "plugins": [
+    "geolocator_apple",
+    "location",
+    "google_maps_flutter_ios"
+   ],
+   "frameworks": [],
+   "code": [
+    "Geolocator\\.",
+    "getCurrentPosition\\(",
+    "Location\\(\\)\\.",
+    "requestPermission\\("
+   ]
+  },
+  "NSFaceIDUsageDescription": {
+   "plugins": [
+    "local_auth_darwin",
+    "local_auth_ios"
+   ],
+   "frameworks": [],
+   "code": []
+  },
+  "NSContactsUsageDescription": {
+   "plugins": [
+    "flutter_contacts",
+    "contacts_service",
+    "fast_contacts"
+   ],
+   "frameworks": [
+    "Contacts"
+   ],
+   "code": []
+  },
+  "NSCalendarsFullAccessUsageDescription": {
+   "plugins": [
+    "device_calendar",
+    "add_2_calendar"
+   ],
+   "frameworks": [],
+   "code": []
+  },
+  "NSSpeechRecognitionUsageDescription": {
+   "plugins": [
+    "speech_to_text"
+   ],
+   "frameworks": [
+    "Speech"
+   ],
+   "code": []
+  },
+  "NSBluetoothAlwaysUsageDescription": {
+   "plugins": [
+    "flutter_blue_plus",
+    "flutter_reactive_ble",
+    "flutter_blue"
+   ],
+   "frameworks": [
+    "CoreBluetooth"
+   ],
+   "code": []
+  },
+  "NSUserTrackingUsageDescription": {
+   "plugins": [
+    "app_tracking_transparency"
+   ],
+   "frameworks": [
+    "AppTrackingTransparency"
+   ],
+   "code": []
+  },
+  "NSHealthShareUsageDescription": {
+   "plugins": [
+    "health"
+   ],
+   "frameworks": [
+    "HealthKit"
+   ],
+   "code": []
+  },
+  "NSMotionUsageDescription": {
+   "plugins": [
+    "pedometer",
+    "sensors_plus"
+   ],
+   "frameworks": [],
+   "code": []
+  }
+ },
+ "code_signals": {
+  "social_login_deps": [
+   "google_sign_in",
+   "flutter_facebook_auth",
+   "flutter_login_facebook",
+   "twitter_login",
+   "firebase_ui_oauth_google",
+   "firebase_ui_oauth_facebook",
+   "flutter_line_sdk",
+   "kakao_flutter_sdk"
+  ],
+  "social_login_code": [
+   "GoogleSignIn\\(",
+   "FacebookAuth\\.",
+   "OAuthProvider\\.google",
+   "OAuthProvider\\.facebook",
+   "OAuthProvider\\.twitter",
+   "OAuthProvider\\.linkedin",
+   "GoogleAuthProvider",
+   "FacebookAuthProvider",
+   "TwitterAuthProvider",
+   "signInWithOAuth\\(",
+   "(?:signIn\\w*|mutate|login\\w*)\\(\\s*['\"](?:google|facebook|twitter|linkedin|x)['\"]"
+  ],
+  "apple_login_deps": [
+   "sign_in_with_apple",
+   "the_apple_sign_in",
+   "apple_sign_in"
+  ],
+  "apple_login_code": [
+   "OAuthProvider\\.apple",
+   "AppleAuthProvider",
+   "SignInWithApple\\.",
+   "signInWithApple",
+   "AppleIDAuthorizationScopes",
+   "(?:signIn\\w*|mutate|login\\w*)\\(\\s*['\"]apple['\"]"
+  ],
+  "account_creation_code": [
+   "createUserWithEmailAndPassword",
+   "\\.signUp\\(",
+   "signUpWithEmail",
+   "createAccount\\(",
+   "registerUser\\(",
+   "['\"]/(?:auth/)?(?:register|signup|sign-up)['\"]",
+   "[Cc]riar conta",
+   "[Cc]reate (an )?account",
+   "[Cc]adastr(ar|e-se)"
+  ],
+  "account_deletion_code": [
+   "deleteAccount",
+   "delete_account",
+   "deleteUser\\(",
+   "\\.user\\??\\.delete\\(",
+   "currentUser\\??\\.delete\\(",
+   "[Ee]xcluir (minha )?conta",
+   "[Aa]pagar (minha )?conta",
+   "[Dd]elete (my )?account",
+   "['\"]/(?:me|account|users?/me)['\"][^\\n]{0,80}\\.delete"
+  ],
+  "login_code": [
+   "signInWithPassword",
+   "signInWithEmailAndPassword",
+   "\\.signIn\\(",
+   "signInWithOAuth\\(",
+   "login\\(",
+   "[Ee]ntrar com",
+   "[Ss]ign in"
+  ],
+  "iap_deps": [
+   "in_app_purchase",
+   "in_app_purchase_storekit",
+   "purchases_flutter",
+   "flutter_inapp_purchase",
+   "adapty_flutter",
+   "superwallkit_flutter",
+   "qonversion_flutter"
+  ],
+  "iap_restore_code": [
+   "restorePurchases",
+   "restoreTransactions",
+   "restorePurchase\\(",
+   "[Rr]estaurar compras",
+   "[Rr]estore [Pp]urchases"
+  ],
+  "subscription_code": [
+   "autoRenewable",
+   "subscriptionGroup",
+   "['\"][^'\"\\n]*(?:[Aa]ssinatura|[Ss]ubscription)[^'\"\\n]*['\"]",
+   "ProductDetails[^\\n]*subscription"
+  ],
+  "external_payment_deps": [
+   "flutter_stripe",
+   "stripe_payment",
+   "mercado_pago_mobile_checkout",
+   "flutter_paypal",
+   "razorpay_flutter",
+   "pagarme",
+   "flutter_braintree"
+  ],
+  "external_payment_code": [
+   "checkout\\.stripe\\.com",
+   "buy\\.stripe\\.com",
+   "paypal\\.com/checkout",
+   "mercadopago\\.com",
+   "pagseguro"
+  ],
+  "ugc_code": [
+   "createPost\\(",
+   "addComment\\(",
+   "postComment\\(",
+   "sendMessage\\(",
+   "uploadPost\\(",
+   "[Pp]ublicar",
+   "[Cc]oment(ar|ário)",
+   "[Cc]omment"
+  ],
+  "ugc_moderation_code": [
+   "reportContent",
+   "reportPost",
+   "reportUser",
+   "[Dd]enunciar",
+   "[Rr]eport (post|content|user|abuse)",
+   "blockUser",
+   "[Bb]loquear usu"
+  ],
+  "privacy_policy_code": [
+   "https?://[^'\"\\s]*(privac|privacidade|politica-de-privacidade|privacy-policy)[^'\"\\s]*",
+   "[Pp]ol[íi]tica de [Pp]rivacidade",
+   "[Pp]rivacy [Pp]olicy"
+  ],
+  "placeholder_code": [
+   "(?i:lorem ipsum)",
+   "['\"]\\s*(?i:coming soon|em breve|under construction|em constru[çc][ãa]o|not implemented|n[ãa]o implementado|todo|placeholder)\\s*[.!…]*\\s*['\"]"
+  ],
+  "push_deps": [
+   "firebase_messaging",
+   "onesignal_flutter",
+   "pushwoosh_flutter",
+   "airship_flutter",
+   "flutter_apns",
+   "flutter_apns_only"
+  ],
+  "tracking_deps": [
+   "app_tracking_transparency",
+   "facebook_app_events",
+   "appsflyer_sdk",
+   "adjust_sdk",
+   "google_mobile_ads",
+   "branch_flutter_sdk",
+   "singular_flutter_sdk"
+  ],
+  "code_push_deps": [
+   "shorebird_code_push"
+  ]
+ },
+ "sources": {},
+ "federated_facades": {
+  "_note": "Pacotes Dart de fachada sem código iOS; a implementação iOS é que embarca no app.",
+  "url_launcher": "url_launcher_ios",
+  "path_provider": "path_provider_foundation",
+  "shared_preferences": "shared_preferences_foundation",
+  "sqflite": "sqflite_darwin",
+  "image_picker": "image_picker_ios",
+  "video_player": "video_player_avfoundation",
+  "geolocator": "geolocator_apple",
+  "webview_flutter": "webview_flutter_wkwebview",
+  "local_auth": "local_auth_darwin",
+  "in_app_purchase": "in_app_purchase_storekit"
+ }
+}

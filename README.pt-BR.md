@@ -54,6 +54,10 @@ Perfil Hermes (uma vez)                       Projeto Git de destino (por projet
 
 A skill é reutilizável. A configuração do controlador, o setup do projeto, o estado, o registro de incidentes e o journal são locais ao projeto e adicionados somente ao `info/exclude` do Git no repositório de destino. O instalador nunca sobrescreve configuração existente nem modifica arquivos rastreados.
 
+## Guardiões de revisão das lojas
+
+Duas skills independentes auditam apps mobile antes do envio, somente leitura: `appstore-review-guardian` (`.ipa`/`.app` e projetos iOS/Flutter) e `google-play-review-guardian` (`.aab`/`.apk` e projetos Android/Flutter). Elas verificam artefatos e projetos contra regras da Apple e do Google Play mantidas como dados, com fonte oficial e data de consulta, geram relatórios Markdown e JSON e classificam o release como `READY`, `NEEDS_REVIEW` ou `BLOCKED` — sem nunca marcar como `PASS` uma verificação que não rodou. Instale com `hermes skills install FelipeAngeli/hermes-sdd-orchestrator/skills/release/<skill> --yes`. Consulte [Store review guardians](docs/components/store-review-guardians.md).
+
 ## Skills de engenharia locais ao projeto
 
 Cada instalação inclui dez playbooks carregados progressivamente em `.hermes/skills/`, listados em [Playbooks locais do projeto](#playbooks-locais-do-projeto). Eles orientam planejamento e implementação, enquanto os subagentes `pr-reviewer` e `security-reviewer` fazem revisão independente. O schema 2 de contexto de estágio vincula o workspace Git canônico e verifica byte a byte os arquivos `SKILL.md` e referências exigidos antes de incluir seus descritores no hash de aprovação da fatia; IMPLEMENT falha de forma fechada quando há orientação extra, ausente ou alterada. A instalação nunca muda skills globais nem a confiança do repositório. Depois de inspecionar os arquivos, execute `hermes skills trust` no repositório de destino e inicie uma nova sessão. Veja [Skills de engenharia locais ao projeto](docs/components/project-local-skills.md).
