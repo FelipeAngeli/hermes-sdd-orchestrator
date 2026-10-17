@@ -408,7 +408,9 @@ def run_audit(args, mode: str) -> tuple[dict, Path]:
     confirmations = declarations.get("manual_confirmations") or {}
     if confirmations:
         for f in findings:
-            if f.severity == NOT_VERIFIED and f.verification_method == "manual" and f.rule_id in confirmations:
+            # Only an explicit, recorded user confirmation turns a pending manual/heuristic item into
+            # a visible INFO "confirmado pelo usuário"; nothing is ever promoted to PASS or N/A.
+            if f.severity == NOT_VERIFIED and f.verification_method in ("manual", "heuristic") and f.rule_id in confirmations:
                 f.severity = INFO
                 f.title = f"{f.title} — confirmado pelo usuário"
                 f.evidence = f"confirmação do usuário: {str(confirmations[f.rule_id])[:200]}"

@@ -110,7 +110,9 @@ class TestFlutterProject(CLIBase):
                 "TECH-BUNDLETOOL-VALIDATE", "TECH-16KB-ZIP-ALIGN", "TECH-PLAY-APP-SIGNING", "TECH-SIGNATURE-VERIFY",
                 "TECH-VERSION-CODE-INCREMENT", "TECH-MERGED-MANIFEST", "PRIV-DATA-SAFETY-FORM", "PRIV-PRIVACY-POLICY",
                 "POL-PLAY-BILLING", "POL-CONTENT-RATING", "POL-TARGET-AUDIENCE", "POL-ADS-DECLARATION", "POL-APP-ACCESS",
-                "POL-PERMISSIONS-DECLARATION", "POL-STORE-LISTING", "PRIV-SDK-DATA-DISCLOSURE")}}))
+                "POL-PERMISSIONS-DECLARATION", "POL-STORE-LISTING", "PRIV-SDK-DATA-DISCLOSURE",
+                # declared "does not apply" items stay pending until the user confirms them explicitly
+                "PRIV-ACCOUNT-DELETION", "POL-CLOSED-TESTING")}}))
         # remove background location and cleartext from the source manifest
         (root / "android/app/src/main/AndroidManifest.xml").write_text(
             '<manifest xmlns:android="http://schemas.android.com/apk/res/android"><application android:label="Demo"/></manifest>')
@@ -124,7 +126,24 @@ class TestFlutterProject(CLIBase):
         self.assertEqual(bad, [], bad)
         self.assertEqual(summary["status"], "READY")
         self.assertEqual(code, 0)
+        guessed = [f for f in r["findings"] if f["severity"] in ("PASS", "NOT_APPLICABLE")
+                   and f["verification_method"] != "deterministic"]
+        self.assertEqual(guessed, [], "READY never rests on a heuristic or declared PASS/N-A")
+        confirmed = {f["rule_id"] for f in r["findings"] if "confirmado pelo usuário" in f["title"]}
+        self.assertTrue({"PRIV-ACCOUNT-DELETION", "POL-CLOSED-TESTING"} <= confirmed)
         self.assertIn("não garante aprovação", r["status_disclaimer"])
+
+    def test_declared_not_applicable_without_confirmation_is_not_ready(self):
+        root = fx.make_flutter_project(self.tmp / "proj2", key_properties=False)
+        aab = fx.make_aab(self.tmp / "app2.aab", fx.manifest_tree(permissions=["android.permission.INTERNET"]),
+                          libs={"arm64-v8a/libx.so": fx.make_elf()})
+        decl = self.tmp / "decl2.json"
+        decl.write_text(json.dumps({"account": {"type": "organization"}, "account_creation": False}))
+        out = self.tmp / "out2"
+        code, stdout, _ = self.run_cli("gate", "--release", str(root), "--aab", str(aab), "--output-dir", str(out),
+                                       "--declarations", str(decl), "--json", "--as-of", "2026-10-16")
+        self.assertNotEqual(json.loads(stdout)["status"], "READY")
+        self.assertNotEqual(code, 0)
 
     def test_quick_mode_not_ready_and_offline(self):
         root = fx.make_flutter_project(self.tmp / "proj")

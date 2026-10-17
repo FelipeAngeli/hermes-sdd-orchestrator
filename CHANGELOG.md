@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- Second review round of the store review guardians: in `google-play-review-guardian` an inferred `NOT_APPLICABLE` (absence of monetisation signals, a declared account type or "no account creation") could hide a mandatory rule and let the gate reach `READY`; the central guard now downgrades inferred `NOT_APPLICABLE` to `NOT_VERIFIED` and inferred `BLOCKER`/`CRITICAL` to `WARNING` on every construction path, matching `appstore-review-guardian`, and a user declaration only becomes a visible `INFO` when `--declarations` records an explicit confirmation for that rule. A hostile repository can no longer stall an audit: git's exclude and attribute files are neutralised, the first timeout stops the remaining checks, the number of probed sensitive paths is capped, and an undetermined Git status is reported as undetermined instead of "outside a Git repository".
+
 ## 15.6.1 - 2026-10-16
 
 ### Fixed

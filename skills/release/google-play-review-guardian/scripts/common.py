@@ -179,13 +179,23 @@ class Finding:
             raise ValueError(f"bad confidence {self.confidence}")
         if self.section not in SECTIONS:
             raise ValueError(f"bad section {self.section}")
-        if self.severity == PASS and self.verification_method != "deterministic":
+        inferred = self.verification_method != "deterministic"
+        if self.severity == PASS and inferred:
             # PASS means "requirement really verified". A heuristic (inferred from a name,
             # version string or regex) or manual (user-declared) outcome is never a PASS:
             # mandatory rules stay pending, recommended ones become INFO "to confirm".
             self.severity = NOT_VERIFIED if self.requirement_level == "mandatory" else INFO
             if NEEDS_CONFIRMATION not in self.title:
                 self.title = f"{self.title} {NEEDS_CONFIRMATION}"
+        elif self.severity == NOT_APPLICABLE and inferred:
+            # "Does not apply" inferred from absence of signals or from a user declaration must
+            # not hide a rule (it would let the gate reach READY): it stays pending.
+            self.severity = NOT_VERIFIED
+            if NEEDS_CONFIRMATION not in self.title:
+                self.title = f"{self.title} {NEEDS_CONFIRMATION}"
+        elif self.severity in (BLOCKER, CRITICAL) and (inferred or self.confidence == "low"):
+            # BLOCKER/CRITICAL need confirmed evidence; anything inferred is capped at WARNING.
+            self.severity = WARNING
         self.evidence = redact(self.evidence)
         self.recommendation = redact(self.recommendation)
         self.component = redact(self.component)
@@ -206,9 +216,8 @@ class FindingFactory:
         rule = self.rules.get(rule_id)
         if rule is None:
             raise KeyError(f"unknown rule id {rule_id}")
-        # Hard semantic guards: BLOCKER/CRITICAL need confirmed evidence.
-        if severity in (BLOCKER, CRITICAL) and (method == "manual" or confidence == "low"):
-            severity = WARNING
+        # Severity guards (no PASS/N-A/BLOCKER/CRITICAL without deterministic evidence) live in
+        # Finding.__post_init__ so every construction path, including cache reloads, gets them.
         return Finding(
             rule_id=rule_id, severity=severity, section=section, title=title,
             component=component or "-", evidence=evidence or "-",
@@ -622,7 +631,10 @@ def run_tool(cmd: list[str], timeout: int = 120, env: dict[str, str] | None = No
 # The only commands used are rev-parse, ls-files and check-ignore: they do not diff, fetch,
 # page or run filters, so diff.external/textconv, core.sshCommand, core.pager and
 # filter.*.clean/smudge are never reached (still neutralised above or by the closed stdin/no tty).
-GIT_HARDENING = ("core.fsmonitor=false", "core.hooksPath=/dev/null", "core.untrackedCache=false", "protocol.allow=never")
+#   core.excludesFile / core.attributesFile=/dev/null: a hostile repo could point them at a FIFO and
+#   hang every check-ignore until the timeout (DoS); .git/info/exclude still applies (bounded below).
+GIT_HARDENING = ("core.fsmonitor=false", "core.hooksPath=/dev/null", "core.untrackedCache=false", "protocol.allow=never",
+                 "core.excludesFile=/dev/null", "core.attributesFile=/dev/null")
 
 
 def git_env() -> dict[str, str]:

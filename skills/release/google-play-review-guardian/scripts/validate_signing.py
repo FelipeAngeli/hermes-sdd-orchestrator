@@ -336,6 +336,10 @@ def project_signing_hygiene(sensitive_files: list[str], git_status: dict[str, di
             fs.append(F("SEC-SIGNING-SECRETS-IN-VCS", WARNING, "security", "Arquivo de assinatura não ignorado pelo Git",
                         component=rel, evidence=f"{rel} não rastreado, mas também não está no .gitignore (conteúdo não lido)",
                         recommendation=f"Adicione `{name}` ao .gitignore para evitar commit acidental."))
+        elif st.get("unknown"):
+            fs.append(F("SEC-SIGNING-SECRETS-IN-VCS", NOT_VERIFIED, "security", "Status Git do arquivo de assinatura indeterminado",
+                        component=rel, evidence="git não respondeu a tempo ou o limite de arquivos foi atingido: status indeterminado (conteúdo não lido)", method="manual",
+                        recommendation=f"Confira manualmente com `git ls-files --error-unmatch -- {rel}` e `git check-ignore -v -- {rel}`."))
         else:
             fs.append(F("SEC-SIGNING-SECRETS-IN-VCS", NOT_VERIFIED, "security", "Status Git do arquivo de assinatura desconhecido",
                         component=rel, evidence="projeto fora de um repositório Git ou git indisponível (conteúdo não lido)", method="manual"))

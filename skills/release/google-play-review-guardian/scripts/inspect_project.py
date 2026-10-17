@@ -220,6 +220,9 @@ def flutter_sdk_defaults(android_dir: Path) -> dict:
 
 
 # ---------------------------------------------------------------- git
+MAX_GIT_PATHS = 20  # sensitive files checked individually; more are reported as undetermined
+
+
 def git_status_for(paths: list[Path], cwd: Path) -> dict[str, dict]:
     """tracked/ignored status via git (read-only commands, hardened: see common.run_git).
 
@@ -227,16 +230,25 @@ def git_status_for(paths: list[Path], cwd: Path) -> dict[str, dict]:
     out: dict[str, dict] = {}
     top = common.run_git(cwd, "rev-parse", "--show-toplevel")
     if not top.ok:
+        if top.error in ("timeout", "os_error"):
+            return {str(p.relative_to(cwd)): {"unknown": True} for p in paths}
         return out
-    for p in paths:
+    stalled = False
+    for n, p in enumerate(paths):
         rel = str(p.relative_to(cwd))
+        if stalled or n >= MAX_GIT_PATHS:
+            # A hostile repository can make git hang (e.g. .git/info/exclude as a FIFO); after
+            # the first timeout, or past the path cap, the rest is reported as undetermined.
+            out[rel] = {"unknown": True}
+            continue
         # exit codes: 0 = yes, 1 = no, anything else (128 fatal, timeout, not found) = unknown
         t = common.run_git(cwd, "ls-files", "--error-unmatch", pathspecs=[rel])
-        i = common.run_git(cwd, "check-ignore", "-q", pathspecs=[rel])
+        i = common.run_git(cwd, "check-ignore", "-q", pathspecs=[rel]) if t.error != "timeout" else t
         if t.returncode in (0, 1) and i.returncode in (0, 1):
             out[rel] = {"in_repo": True, "tracked": t.returncode == 0, "ignored": i.returncode == 0}
         else:
-            out[rel] = {}
+            out[rel] = {"unknown": True}
+            stalled = "timeout" in (t.error, i.error)
     return out
 
 

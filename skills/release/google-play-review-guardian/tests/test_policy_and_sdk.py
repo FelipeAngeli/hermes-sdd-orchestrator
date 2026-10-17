@@ -160,8 +160,10 @@ class TestSeverityAndGate(TempDirCase):
 
     def test_section_status(self):
         self.assertEqual(common.section_status([]), common.NOT_VERIFIED)
-        na = F("POL-PLAY-BILLING", common.NOT_APPLICABLE, "billing", "na", method="heuristic", confidence="medium")
+        na = F("TECH-16KB-PAGE-SIZE", common.NOT_APPLICABLE, "page_size_16kb", "na")
         self.assertEqual(common.section_status([na]), common.NOT_APPLICABLE)
+        guessed = F("POL-PLAY-BILLING", common.NOT_APPLICABLE, "billing", "na", method="heuristic", confidence="medium")
+        self.assertEqual(common.section_status([guessed]), common.NOT_VERIFIED)
 
     def test_unknown_rule_rejected(self):
         with self.assertRaises(KeyError):
@@ -184,11 +186,13 @@ class TestClosedTesting(TempDirCase):
 
     def test_organization_not_applicable(self):
         fs = validate_play_console.validate_testing({"type": "organization", "created": "2024-05-01"}, F)
-        self.assertEqual(sev(fs, "POL-CLOSED-TESTING"), {common.NOT_APPLICABLE})
+        # A user-declared account type is not verified evidence: the rule stays pending until confirmed.
+        self.assertEqual(sev(fs, "POL-CLOSED-TESTING"), {common.NOT_VERIFIED})
+        self.assertIn("organizacional", by_rule(fs, "POL-CLOSED-TESTING")[0].title.lower())
 
     def test_old_personal_not_applicable(self):
         fs = validate_play_console.validate_testing({"type": "personal", "created": "2023-11-01"}, F)
-        self.assertEqual(sev(fs, "POL-CLOSED-TESTING"), {common.NOT_APPLICABLE})
+        self.assertEqual(sev(fs, "POL-CLOSED-TESTING"), {common.NOT_VERIFIED})
 
     def test_new_personal_requirement(self):
         fs = validate_play_console.validate_testing({"type": "personal", "created": "2024-01-10"}, F)

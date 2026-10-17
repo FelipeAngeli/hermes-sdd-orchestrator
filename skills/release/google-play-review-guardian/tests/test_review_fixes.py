@@ -3,6 +3,7 @@ ZIP total budget, private output permissions and synthetic examples."""
 from __future__ import annotations
 
 import io
+import dataclasses
 import json
 import os
 import shutil
@@ -19,6 +20,7 @@ import common
 import fixtures as fx
 import guardian
 import inspect_project
+import validate_signing
 
 GIT = shutil.which("git")
 HARDENING = ("core.fsmonitor=false", "core.hooksPath=/dev/null", "core.untrackedCache=false", "protocol.allow=never")
@@ -73,6 +75,53 @@ class TestGitHardening(TempDirCase):
             text = py.read_text(encoding="utf-8")
             self.assertFalse('subprocess.run(["git"' in text, py.name)
 
+    def test_exclude_and_attribute_files_are_neutralised(self):
+        argv = common.git_cmd(Path("/repo"), "check-ignore", "-q", pathspecs=["x"])
+        for opt in ("core.excludesFile=/dev/null", "core.attributesFile=/dev/null"):
+            self.assertEqual(argv[argv.index(opt) - 1], "-c")
+
+    def test_a_hanging_git_stops_after_the_first_timeout_and_is_reported_as_unknown(self):
+        root = self.tmp / "p"
+        (root / "android").mkdir(parents=True)
+        paths = []
+        for i in range(5):
+            p = root / "android" / f"m{i}" / "key.properties"
+            p.parent.mkdir()
+            p.write_text("x")
+            paths.append(p)
+        calls = []
+
+        def fake(cmd, timeout=120, env=None):
+            calls.append(cmd)
+            if "rev-parse" in cmd:
+                return common.ToolResult(True, 0, str(root) + "\n", "")
+            return common.ToolResult(False, None, error="timeout")
+
+        with mock.patch("common.run_tool", side_effect=fake):
+            st = inspect_project.git_status_for(paths, root)
+        self.assertEqual(2, len(calls), "rev-parse + the first command that timed out; nothing after it")
+        self.assertTrue(all(v == {"unknown": True} for v in st.values()))
+        self.assertEqual(len(paths), len(st))
+        fs = validate_signing.project_signing_hygiene([str(p.relative_to(root)) for p in paths], st, F)
+        self.assertTrue(all(f.severity == common.NOT_VERIFIED for f in fs))
+        self.assertTrue(all("indeterminado" in f.evidence for f in fs))
+        self.assertFalse(any("fora de um repositório" in f.evidence for f in fs))
+
+    def test_sensitive_path_count_is_capped(self):
+        root = self.tmp / "p"
+        root.mkdir()
+        paths = [root / f"k{i}.jks" for i in range(inspect_project.MAX_GIT_PATHS + 7)]
+        for p in paths:
+            p.write_text("x")
+
+        def fake(cmd, timeout=120, env=None):
+            return common.ToolResult(True, 0, str(root) + "\n", "") if "rev-parse" in cmd else common.ToolResult(True, 0)
+
+        with mock.patch("common.run_tool", side_effect=fake):
+            st = inspect_project.git_status_for(paths, root)
+        self.assertEqual(inspect_project.MAX_GIT_PATHS, sum(1 for v in st.values() if v.get("in_repo")))
+        self.assertEqual(7, sum(1 for v in st.values() if v == {"unknown": True}))
+
     @unittest.skipUnless(GIT, "git not installed")
     def test_malicious_fsmonitor_is_not_executed(self):
         repo = self.tmp / "repo"
@@ -112,6 +161,34 @@ class TestNoHeuristicPass(TempDirCase):
         f = F("TECH-TARGET-API-LEVEL", common.PASS, "target_sdk", "Target ok", method="heuristic", confidence="medium")
         self.assertEqual(f.severity, common.NOT_VERIFIED)
         self.assertEqual(common.final_status([f, F("TECH-DEBUGGABLE", common.PASS, "android_build", "ok")]), common.NEEDS_REVIEW)
+
+    def test_heuristic_and_manual_not_applicable_never_hide_a_rule(self):
+        cases = (("POL-PLAY-BILLING", "billing", "heuristic"), ("PRIV-ACCOUNT-DELETION", "data_safety", "manual"),
+                 ("POL-CLOSED-TESTING", "testing", "manual"))
+        for rule, section, method in cases:
+            with self.subTest(rule=rule, method=method):
+                f = F(rule, common.NOT_APPLICABLE, section, "n/a", method=method, confidence="medium")
+                self.assertEqual(f.severity, common.NOT_VERIFIED)
+                self.assertNotEqual(common.final_status([f, F("TECH-DEBUGGABLE", common.PASS, "android_build", "ok")]),
+                                    common.READY)
+        # Deterministic N/A (e.g. no native libraries in the artifact) is still N/A.
+        det = F("TECH-16KB-PAGE-SIZE", common.NOT_APPLICABLE, "page_size_16kb", "no .so")
+        self.assertEqual(det.severity, common.NOT_APPLICABLE)
+        # Every construction path goes through the guard (cache reload included).
+        self.assertEqual(dataclasses.replace(det, verification_method="heuristic").severity, common.NOT_VERIFIED)
+
+    def test_heuristic_blocker_or_critical_is_capped_at_warning(self):
+        for sev_in in (common.BLOCKER, common.CRITICAL):
+            for method, confidence in (("heuristic", "high"), ("heuristic", "medium"), ("manual", "high"),
+                                       ("deterministic", "low")):
+                with self.subTest(sev=sev_in, method=method, confidence=confidence):
+                    f = F("POL-PLAY-BILLING", sev_in, "billing", "x", method=method, confidence=confidence)
+                    self.assertEqual(f.severity, common.WARNING)
+                    direct = common.Finding(rule_id="POL-PLAY-BILLING", severity=sev_in, section="billing", title="x",
+                                            component="-", evidence="-", verification_method=method,
+                                            confidence=confidence, recommendation="-")
+                    self.assertEqual(direct.severity, common.WARNING)
+        self.assertEqual(F("TECH-DEBUGGABLE", common.BLOCKER, "android_build", "x").severity, common.BLOCKER)
 
     def test_finding_direct_construction_also_guarded(self):
         f = common.Finding(rule_id="X", severity=common.PASS, section="android_build", title="t", component="-",

@@ -4,12 +4,12 @@
     "name": "google-play-review-guardian",
     "version": "0.1.0"
   },
-  "generated_at": "2026-10-17T00:20:05+00:00",
+  "generated_at": "2026-10-17T00:55:27+00:00",
   "mode": "gate",
   "target": {
-    "project": "/private/tmp/gprg-example/demo_app",
-    "aab": "/private/tmp/gprg-example/demo_app/build/app/outputs/bundle/release/app-release.aab",
-    "apk": "/private/tmp/gprg-example/demo_app/build/app/outputs/flutter-apk/app-release.apk",
+    "project": "/private/tmp/gprg-ex2/demo_app",
+    "aab": "/private/tmp/gprg-ex2/demo_app/build/app/outputs/bundle/release/app-release.aab",
+    "apk": "/private/tmp/gprg-ex2/demo_app/build/app/outputs/flutter-apk/app-release.apk",
     "aab_sha256": null,
     "apk_sha256": null,
     "project_type": "flutter",
@@ -126,8 +126,8 @@
   "coverage": {
     "mode": "gate",
     "artifacts_autodiscovered": [
-      "/private/tmp/gprg-example/demo_app/build/app/outputs/bundle/release/app-release.aab",
-      "/private/tmp/gprg-example/demo_app/build/app/outputs/flutter-apk/app-release.apk"
+      "/private/tmp/gprg-ex2/demo_app/build/app/outputs/bundle/release/app-release.aab",
+      "/private/tmp/gprg-ex2/demo_app/build/app/outputs/flutter-apk/app-release.apk"
     ],
     "network": "não utilizada na auditoria (somente rules --check-sources e API opcional)",
     "project_type": "flutter",
@@ -244,10 +244,10 @@
       {
         "name": "base/lib/armeabi-v7a/libapp.so",
         "abi": "armeabi-v7a",
-        "size": 372,
+        "size": 432,
         "compressed": true,
-        "elf_class": 32,
-        "machine": "arm",
+        "elf_class": 64,
+        "machine": "aarch64",
         "elf_16kb": true,
         "elf_detail": "PT_LOAD align 0x4000",
         "relro_16kb": true,
@@ -268,27 +268,12 @@
         "elf_method": "python-elf",
         "zip_offset": 16384,
         "zip_16kb": true
-      },
-      {
-        "name": "lib/armeabi-v7a/libapp.so",
-        "abi": "armeabi-v7a",
-        "size": 372,
-        "compressed": false,
-        "elf_class": 32,
-        "machine": "arm",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x4000",
-        "relro_16kb": true,
-        "relro_detail": "sem GNU_RELRO",
-        "elf_method": "python-elf",
-        "zip_offset": 32768,
-        "zip_16kb": true
       }
     ],
     "artifacts": [
       {
         "kind": "aab",
-        "path": "/private/tmp/gprg-example/demo_app/build/app/outputs/bundle/release/app-release.aab",
+        "path": "/private/tmp/gprg-ex2/demo_app/build/app/outputs/bundle/release/app-release.aab",
         "sha256": null,
         "modules": [
           "base"
@@ -320,12 +305,11 @@
       },
       {
         "kind": "apk",
-        "path": "/private/tmp/gprg-example/demo_app/build/app/outputs/flutter-apk/app-release.apk",
+        "path": "/private/tmp/gprg-ex2/demo_app/build/app/outputs/flutter-apk/app-release.apk",
         "sha256": null,
         "modules": null,
         "abis": [
-          "arm64-v8a",
-          "armeabi-v7a"
+          "arm64-v8a"
         ],
         "verification": {
           "manifest": "deterministic (parser AXML em Python)",
@@ -386,7 +370,7 @@
       "section": "permissions",
       "title": "Tipo de foreground service sem a permissão correspondente",
       "component": "app-release.aab",
-      "evidence": "com.example.PlayerService:mediaPlayback requer FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+      "evidence": "com.example.Player:mediaPlayback requer FOREGROUND_SERVICE_MEDIA_PLAYBACK",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "Adicione a permissão FOREGROUND_SERVICE_<TIPO> correspondente no AndroidManifest.xml.",
@@ -434,7 +418,7 @@
       "section": "permissions",
       "title": "Tipos de foreground service exigem declaração no Play Console",
       "component": "app-release.aab",
-      "evidence": "tipos: mediaPlayback; serviços: com.example.PlayerService",
+      "evidence": "tipos: mediaPlayback; serviços: com.example.Player",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "Em Play Console > App content > Foreground service permissions, descreva cada tipo, o impacto se adiado/interrompido e anexe vídeo.",
@@ -610,7 +594,7 @@
       "section": "android_build",
       "title": "ABIs 64-bit presentes",
       "component": "app-release.apk",
-      "evidence": "ABIs: arm64-v8a, armeabi-v7a",
+      "evidence": "ABIs: arm64-v8a",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",
@@ -658,7 +642,7 @@
       "section": "android_build",
       "title": "Estrutura do APK íntegra e manifest legível",
       "component": "app-release.apk",
-      "evidence": "5 entradas; CRC verificado=True; manifest: deterministic (parser AXML em Python)",
+      "evidence": "4 entradas; CRC verificado=True; manifest: deterministic (parser AXML em Python)",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",

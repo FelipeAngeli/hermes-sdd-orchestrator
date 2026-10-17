@@ -9,7 +9,7 @@ Package: com.example.app
 Version: 2.1.0
 Version Code: 45
 Min/Target/Compile SDK: 24 / 36 / 36
-Mode: gate   Generated: 2026-10-17T00:20:05+00:00
+Mode: gate   Generated: 2026-10-17T00:55:27+00:00
 
 ANDROID BUILD
 Status: NEEDS_REVIEW
@@ -145,9 +145,9 @@ RECOMMENDED ACTIONS:
 
 ## Alvo e cobertura
 
-- Alvo: `{"project": "/private/tmp/gprg-example/demo_app", "aab": "/private/tmp/gprg-example/demo_app/build/app/outputs/bundle/release/app-release.aab", "apk": "/private/tmp/gprg-example/demo_app/build/app/outputs/flutter-apk/app-release.apk", "aab_sha256": null, "apk_sha256": null, "project_type": "flutter", "form_factor": "phone/tablet", "submission": null}`
+- Alvo: `{"project": "/private/tmp/gprg-ex2/demo_app", "aab": "/private/tmp/gprg-ex2/demo_app/build/app/outputs/bundle/release/app-release.aab", "apk": "/private/tmp/gprg-ex2/demo_app/build/app/outputs/flutter-apk/app-release.apk", "aab_sha256": null, "apk_sha256": null, "project_type": "flutter", "form_factor": "phone/tablet", "submission": null}`
 - mode: gate
-- artifacts_autodiscovered: ['/private/tmp/gprg-example/demo_app/build/app/outputs/bundle/release/app-release.aab', '/private/tmp/gprg-example/demo_app/build/app/outputs/flutter-apk/app-release.apk']
+- artifacts_autodiscovered: ['/private/tmp/gprg-ex2/demo_app/build/app/outputs/bundle/release/app-release.aab', '/private/tmp/gprg-ex2/demo_app/build/app/outputs/flutter-apk/app-release.apk']
 - network: não utilizada na auditoria (somente rules --check-sources e API opcional)
 - project_type: flutter
 - gradle_file: android/app/build.gradle
@@ -171,10 +171,10 @@ RECOMMENDED ACTIONS:
 
 | ID | Severidade | Regra | Componente | Evidência | Método | Confiança | Recomendação | Fonte (consulta) |
 |---|---|---|---|---|---|---|---|---|
-| GPRG-001 | BLOCKER | POL-FOREGROUND-SERVICE (mandatory) | app-release.aab | com.example.PlayerService:mediaPlayback requer FOREGROUND_SERVICE_MEDIA_PLAYBACK | deterministic | high | Adicione a permissão FOREGROUND_SERVICE_<TIPO> correspondente no AndroidManifest.xml. | [support.google.com/googleplay/android-developer/](https://support.google.com/googleplay/android-developer/answer/13392821?hl=en) (2026-10-16) |
+| GPRG-001 | BLOCKER | POL-FOREGROUND-SERVICE (mandatory) | app-release.aab | com.example.Player:mediaPlayback requer FOREGROUND_SERVICE_MEDIA_PLAYBACK | deterministic | high | Adicione a permissão FOREGROUND_SERVICE_<TIPO> correspondente no AndroidManifest.xml. | [support.google.com/googleplay/android-developer/](https://support.google.com/googleplay/android-developer/answer/13392821?hl=en) (2026-10-16) |
 | GPRG-002 | BLOCKER | TECH-BILLING-LIBRARY-VERSION (mandatory) | monetização | billing_client=7.1.1; mínimo 8 desde 2026-08-31 | deterministic | high | Atualize com.android.billingclient (ou in_app_purchase_android) para a versão suportada; extensão possível conforme a página oficial. | [developer.android.com/google/play/billing/deprec](https://developer.android.com/google/play/billing/deprecation-faq) (2026-10-16) |
 | GPRG-003 | WARNING | POL-BACKGROUND-LOCATION (mandatory) | app-release.aab | declarada(s): android.permission.ACCESS_BACKGROUND_LOCATION; origem provável: não determinado (verifique o manifest-merger-report) | deterministic | high | Confirme que é funcionalidade principal; caso contrário remova (ex.: `<uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" tools:node="remove"/>` no manifest do app). Se necessária, preencha o Permissions Declaration Form e implemente divulgação destacada. | [support.google.com/googleplay/android-developer/](https://support.google.com/googleplay/android-developer/answer/9799150?hl=en) (2026-10-16) |
-| GPRG-004 | WARNING | POL-FOREGROUND-SERVICE (mandatory) | app-release.aab | tipos: mediaPlayback; serviços: com.example.PlayerService | deterministic | high | Em Play Console > App content > Foreground service permissions, descreva cada tipo, o impacto se adiado/interrompido e anexe vídeo. | [support.google.com/googleplay/android-developer/](https://support.google.com/googleplay/android-developer/answer/13392821?hl=en) (2026-10-16) |
+| GPRG-004 | WARNING | POL-FOREGROUND-SERVICE (mandatory) | app-release.aab | tipos: mediaPlayback; serviços: com.example.Player | deterministic | high | Em Play Console > App content > Foreground service permissions, descreva cada tipo, o impacto se adiado/interrompido e anexe vídeo. | [support.google.com/googleplay/android-developer/](https://support.google.com/googleplay/android-developer/answer/13392821?hl=en) (2026-10-16) |
 | GPRG-005 | WARNING | PRIV-ACCOUNT-DELETION (mandatory) | Data safety | criação: lib/main.dart:2 'signUp'; nenhum sinal de fluxo de exclusão no código; URL web de exclusão não informada | heuristic | medium | Ofereça caminho no app para excluir conta e dados e um link web funcional; informe a URL no Data safety. Desativação temporária não atende. | [support.google.com/googleplay/android-developer/](https://support.google.com/googleplay/android-developer/answer/13327111?hl=en) (2026-10-16) |
 | GPRG-006 | WARNING | PRIV-SDK-DATA-DISCLOSURE (mandatory) | Data safety | firebase_analytics (analytics: revisar App activity, Device or other IDs) | heuristic | medium | Confira a documentação de Data safety de cada SDK (SDK Index) e, se necessário, instrumente o tráfego (ex.: proxy em build de teste) antes de preencher o formulário. | [support.google.com/googleplay/android-developer/](https://support.google.com/googleplay/android-developer/answer/10787469?hl=en) (2026-10-16) |
 | GPRG-007 | INFO | TECH-AAB-REQUIRED (mandatory) | app-release.apk | artefato analisado é APK | deterministic | high | Para publicação, envie o Android App Bundle (.aab). Use o APK apenas para testes/sideload. | [developer.android.com/guide/app-bundle](https://developer.android.com/guide/app-bundle) (2026-10-16) |
@@ -185,10 +185,10 @@ RECOMMENDED ACTIONS:
 | GPRG-012 | INFO | PRIV-ADVERTISING-ID (mandatory) | app-release.aab | AD_ID ausente: o Advertising ID retornará zeros em target ≥ 33 | deterministic | high | Declare 'não usa Advertising ID' no Play Console se for o caso. | [support.google.com/googleplay/android-developer/](https://support.google.com/googleplay/android-developer/answer/6048248?hl=en) (2026-10-16) |
 | GPRG-013 | INFO | TECH-BILLING-LIBRARY-VERSION (mandatory) | monetização | billing_client=7.1.1 | deterministic | high | Planeje a migração. | [developer.android.com/google/play/billing/deprec](https://developer.android.com/google/play/billing/deprecation-faq) (2026-10-16) |
 | GPRG-014 | PASS | TECH-64BIT (mandatory) | app-release.aab | ABIs: arm64-v8a, armeabi-v7a | deterministic | high | - | [developer.android.com/google/play/requirements/6](https://developer.android.com/google/play/requirements/64-bit) (2026-10-16) |
-| GPRG-015 | PASS | TECH-64BIT (mandatory) | app-release.apk | ABIs: arm64-v8a, armeabi-v7a | deterministic | high | - | [developer.android.com/google/play/requirements/6](https://developer.android.com/google/play/requirements/64-bit) (2026-10-16) |
+| GPRG-015 | PASS | TECH-64BIT (mandatory) | app-release.apk | ABIs: arm64-v8a | deterministic | high | - | [developer.android.com/google/play/requirements/6](https://developer.android.com/google/play/requirements/64-bit) (2026-10-16) |
 | GPRG-016 | PASS | TECH-AAB-REQUIRED (mandatory) | app-release.aab | BundleConfig.pb + base/manifest presentes | deterministic | high | - | [developer.android.com/guide/app-bundle](https://developer.android.com/guide/app-bundle) (2026-10-16) |
 | GPRG-017 | PASS | TECH-ARTIFACT-INTEGRITY (mandatory) | app-release.aab | 9 entradas; CRC verificado=True; módulos=base; deterministic (decodificador protobuf aapt2 XmlNode em Python) | deterministic | high | - | [developer.android.com/guide/app-bundle](https://developer.android.com/guide/app-bundle) (2026-10-16) |
-| GPRG-018 | PASS | TECH-ARTIFACT-INTEGRITY (mandatory) | app-release.apk | 5 entradas; CRC verificado=True; manifest: deterministic (parser AXML em Python) | deterministic | high | - | [developer.android.com/guide/app-bundle](https://developer.android.com/guide/app-bundle) (2026-10-16) |
+| GPRG-018 | PASS | TECH-ARTIFACT-INTEGRITY (mandatory) | app-release.apk | 4 entradas; CRC verificado=True; manifest: deterministic (parser AXML em Python) | deterministic | high | - | [developer.android.com/guide/app-bundle](https://developer.android.com/guide/app-bundle) (2026-10-16) |
 | GPRG-019 | PASS | TECH-DEBUGGABLE (mandatory) | android/app/build.gradle | debuggable ausente/false em release | deterministic | high | - | [developer.android.com/studio/publish/preparing](https://developer.android.com/studio/publish/preparing) (2026-10-16) |
 | GPRG-020 | PASS | TECH-DEBUGGABLE (mandatory) | app-release.aab:AndroidManifest.xml | android:debuggable=None (ausente = false) | deterministic | high | - | [developer.android.com/studio/publish/preparing](https://developer.android.com/studio/publish/preparing) (2026-10-16) |
 | GPRG-021 | PASS | TECH-DEBUGGABLE (mandatory) | app-release.apk:AndroidManifest.xml | android:debuggable=None (ausente = false) | deterministic | high | - | [developer.android.com/studio/publish/preparing](https://developer.android.com/studio/publish/preparing) (2026-10-16) |
@@ -247,7 +247,6 @@ RECOMMENDED ACTIONS:
 | base/lib/arm64-v8a/libapp.so | arm64-v8a | True | PT_LOAD align 0x4000 [python-elf] | n/a |
 | base/lib/armeabi-v7a/libapp.so | armeabi-v7a | True | PT_LOAD align 0x4000 [python-elf] | n/a |
 | lib/arm64-v8a/libapp.so | arm64-v8a | True | PT_LOAD align 0x4000 [python-elf] | True |
-| lib/armeabi-v7a/libapp.so | armeabi-v7a | True | PT_LOAD align 0x4000 [python-elf] | True |
 
 ## SDKs relevantes para privacidade/cobrança (indícios, não prova de coleta)
 
