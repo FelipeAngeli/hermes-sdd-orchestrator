@@ -4,12 +4,12 @@
     "name": "google-play-review-guardian",
     "version": "0.1.0"
   },
-  "generated_at": "2026-10-17T00:55:27+00:00",
+  "generated_at": "2026-10-17T01:12:15+00:00",
   "mode": "gate",
   "target": {
-    "project": "/private/tmp/gprg-ex2/demo_app",
-    "aab": "/private/tmp/gprg-ex2/demo_app/build/app/outputs/bundle/release/app-release.aab",
-    "apk": "/private/tmp/gprg-ex2/demo_app/build/app/outputs/flutter-apk/app-release.apk",
+    "project": "/private/tmp/gprg-example/demo_app",
+    "aab": "/private/tmp/gprg-example/demo_app/build/app/outputs/bundle/release/app-release.aab",
+    "apk": "/private/tmp/gprg-example/demo_app/build/app/outputs/flutter-apk/app-release.apk",
     "aab_sha256": null,
     "apk_sha256": null,
     "project_type": "flutter",
@@ -126,8 +126,8 @@
   "coverage": {
     "mode": "gate",
     "artifacts_autodiscovered": [
-      "/private/tmp/gprg-ex2/demo_app/build/app/outputs/bundle/release/app-release.aab",
-      "/private/tmp/gprg-ex2/demo_app/build/app/outputs/flutter-apk/app-release.apk"
+      "/private/tmp/gprg-example/demo_app/build/app/outputs/bundle/release/app-release.aab",
+      "/private/tmp/gprg-example/demo_app/build/app/outputs/flutter-apk/app-release.apk"
     ],
     "network": "não utilizada na auditoria (somente rules --check-sources e API opcional)",
     "project_type": "flutter",
@@ -244,10 +244,10 @@
       {
         "name": "base/lib/armeabi-v7a/libapp.so",
         "abi": "armeabi-v7a",
-        "size": 432,
+        "size": 372,
         "compressed": true,
-        "elf_class": 64,
-        "machine": "aarch64",
+        "elf_class": 32,
+        "machine": "arm",
         "elf_16kb": true,
         "elf_detail": "PT_LOAD align 0x4000",
         "relro_16kb": true,
@@ -273,7 +273,7 @@
     "artifacts": [
       {
         "kind": "aab",
-        "path": "/private/tmp/gprg-ex2/demo_app/build/app/outputs/bundle/release/app-release.aab",
+        "path": "/private/tmp/gprg-example/demo_app/build/app/outputs/bundle/release/app-release.aab",
         "sha256": null,
         "modules": [
           "base"
@@ -305,7 +305,7 @@
       },
       {
         "kind": "apk",
-        "path": "/private/tmp/gprg-ex2/demo_app/build/app/outputs/flutter-apk/app-release.apk",
+        "path": "/private/tmp/gprg-example/demo_app/build/app/outputs/flutter-apk/app-release.apk",
         "sha256": null,
         "modules": null,
         "abis": [

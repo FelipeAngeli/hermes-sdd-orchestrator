@@ -9,7 +9,7 @@ Package: com.example.app
 Version: 2.1.0
 Version Code: 45
 Min/Target/Compile SDK: 24 / 36 / 36
-Mode: gate   Generated: 2026-10-17T00:55:27+00:00
+Mode: gate   Generated: 2026-10-17T01:12:15+00:00
 
 ANDROID BUILD
 Status: NEEDS_REVIEW
@@ -145,9 +145,9 @@ RECOMMENDED ACTIONS:
 
 ## Alvo e cobertura
 
-- Alvo: `{"project": "/private/tmp/gprg-ex2/demo_app", "aab": "/private/tmp/gprg-ex2/demo_app/build/app/outputs/bundle/release/app-release.aab", "apk": "/private/tmp/gprg-ex2/demo_app/build/app/outputs/flutter-apk/app-release.apk", "aab_sha256": null, "apk_sha256": null, "project_type": "flutter", "form_factor": "phone/tablet", "submission": null}`
+- Alvo: `{"project": "/private/tmp/gprg-example/demo_app", "aab": "/private/tmp/gprg-example/demo_app/build/app/outputs/bundle/release/app-release.aab", "apk": "/private/tmp/gprg-example/demo_app/build/app/outputs/flutter-apk/app-release.apk", "aab_sha256": null, "apk_sha256": null, "project_type": "flutter", "form_factor": "phone/tablet", "submission": null}`
 - mode: gate
-- artifacts_autodiscovered: ['/private/tmp/gprg-ex2/demo_app/build/app/outputs/bundle/release/app-release.aab', '/private/tmp/gprg-ex2/demo_app/build/app/outputs/flutter-apk/app-release.apk']
+- artifacts_autodiscovered: ['/private/tmp/gprg-example/demo_app/build/app/outputs/bundle/release/app-release.aab', '/private/tmp/gprg-example/demo_app/build/app/outputs/flutter-apk/app-release.apk']
 - network: não utilizada na auditoria (somente rules --check-sources e API opcional)
 - project_type: flutter
 - gradle_file: android/app/build.gradle

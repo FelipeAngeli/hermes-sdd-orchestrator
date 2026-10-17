@@ -89,6 +89,17 @@ class TestCentralPassGuard(unittest.TestCase):
         self.assertEqual(d["severity"], NOT_VERIFIED)
         self.assertTrue(d["notes"])
 
+    def test_inferred_or_low_confidence_blocker_is_capped_at_warning(self):
+        for sev_in in (common.BLOCKER, common.CRITICAL):
+            for method, conf in (("heuristic", 0.9), ("manual", 0.9), ("deterministic", 0.1)):
+                with self.subTest(severity=sev_in, method=method, confidence=conf):
+                    d = Finding("PLIST-ID-001", sev_in, "app", "x", verification_method=method,
+                                confidence=conf).to_dict(1)
+                    self.assertEqual(d["severity"], common.WARNING)
+                    self.assertTrue(d["notes"])
+        kept = Finding("PLIST-ID-001", common.BLOCKER, "app", "x").to_dict(1)
+        self.assertEqual(kept["severity"], common.BLOCKER)
+
     def test_deterministic_pass_kept(self):
         d = Finding("PLIST-ID-001", PASS, "app", "CFBundleIdentifier=com.x").to_dict(1)
         self.assertEqual(d["severity"], PASS)

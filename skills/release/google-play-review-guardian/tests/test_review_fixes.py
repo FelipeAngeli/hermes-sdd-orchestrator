@@ -6,6 +6,7 @@ import io
 import dataclasses
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -342,6 +343,22 @@ class TestNoPrivateData(unittest.TestCase):
         self.assertEqual(r["app"]["package"], "com.example.app")
         bad = [f["rule_id"] for f in r["findings"] if f["severity"] == "PASS" and f["verification_method"] != "deterministic"]
         self.assertEqual(bad, [])
+        guessed_na = [f["rule_id"] for f in r["findings"]
+                      if f["severity"] == "NOT_APPLICABLE" and f["verification_method"] != "deterministic"]
+        self.assertEqual(guessed_na, [])
+
+    def test_example_report_matches_the_documented_provenance(self):
+        readme = (SKILL_DIR / "examples/README.md").read_text(encoding="utf-8")
+        blob = (SKILL_DIR / "examples/google-play-audit-report.json").read_text(encoding="utf-8")
+        md = (SKILL_DIR / "examples/google-play-audit-report.md").read_text(encoding="utf-8")
+        for path in set(re.findall(r"/private/tmp/[\w./-]+", blob + md)):
+            # every build path inside the committed report must be the one the README documents
+            self.assertTrue(path.startswith("/private/tmp/gprg-example/"), path)
+            self.assertIn("/private/tmp/gprg-example/", readme)
+        libs = {lib["abi"]: lib for lib in json.loads(blob)["inventory"]["native_libs"]}
+        self.assertEqual((64, "aarch64"), (libs["arm64-v8a"]["elf_class"], libs["arm64-v8a"]["machine"]))
+        self.assertEqual((32, "arm"), (libs["armeabi-v7a"]["elf_class"], libs["armeabi-v7a"]["machine"]))
+        self.assertTrue((SKILL_DIR / "tests/make_examples.py").is_file())
 
 
 if __name__ == "__main__":

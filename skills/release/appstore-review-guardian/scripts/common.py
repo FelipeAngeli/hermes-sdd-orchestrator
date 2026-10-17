@@ -168,8 +168,11 @@ class Finding:
         if method in NON_DETERMINISTIC and sev == NOT_APPLICABLE:
             notes.append("NOT_APPLICABLE por ausência de evidência heurística rebaixado para NOT_VERIFIED")
             sev = NOT_VERIFIED
-        if method == "heuristic" and sev in FAILING:
-            notes.append(f"severidade rebaixada de {sev} para WARNING (achado heurístico)")
+        if sev in FAILING and (method in NON_DETERMINISTIC or float(self.confidence) < 0.5):
+            # BLOCKER/CRITICAL assert a confirmed fact: an inferred or low-confidence finding is a warning.
+            why = "achado heurístico" if method == "heuristic" else (
+                "declaração manual" if method == "manual" else "confiança baixa")
+            notes.append(f"severidade rebaixada de {sev} para WARNING ({why})")
             sev = WARNING
         if rule.get("requirement_level") == "recommended" and sev in FAILING:
             notes.append(f"severidade rebaixada de {sev} para WARNING (regra apenas recomendada)")
