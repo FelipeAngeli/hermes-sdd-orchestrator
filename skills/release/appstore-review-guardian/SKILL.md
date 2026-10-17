@@ -27,12 +27,12 @@ Auditor preventivo e somente leitura para submissões à App Store. Scripts dete
 
 - Python 3.10+. Nada mais é obrigatório. Com `jsonschema` instalado, o relatório é validado contra `schemas/audit-report.schema.json`; sem ele, a validação é pulada.
 - macOS com Xcode Command Line Tools (`codesign`, `security`) é opcional. Sem essas ferramentas (Linux/CI), as checagens criptográficas de assinatura e perfil ficam `NOT_VERIFIED`, nunca `PASS`.
-- Rede é opcional: só `rules --check-sources` e `--network` (AASA de Universal Links) a usam. Offline, o guardian degrada sem erro.
+- Rede é opcional: só `rules --check-sources` e `--network` (AASA de Universal Links) a usam. Offline, o guardian degrada sem erro. Com `--network`, o AASA só é buscado para hosts `applinks:`/`webcredentials:` que sejam nomes DNS públicos (IP literal, `localhost`, nome de rótulo único, `.local`/`.internal`/`.lan`/`.home.arpa` e nomes que resolvem para IP privado/loopback/link-local/reservado/multicast são recusados), via HTTPS na porta 443, sem redirecionamento, sem proxy, com timeout de 10 s e no máximo 128 KiB.
 - App Store Connect API: não suportada sem biblioteca ES256. Variáveis `ASC_*` são só detectadas. Nunca peça a chave `.p8` no chat.
 
 ## How to Run
 
-Rode tudo pela ferramenta `terminal`. `S` é o diretório desta skill (o `skill_dir` retornado por `skill_view`). Use sempre `--output-dir` fora do projeto auditado.
+Rode tudo pela ferramenta `terminal`. `S` é o diretório desta skill (o `skill_dir` retornado por `skill_view`). Use sempre `--output-dir` fora do projeto auditado. Sem `--output-dir`, cada execução cria um diretório novo e privado (`mkdtemp`, 0700). Diretórios criados pelo guardian são 0700 e relatórios/cache são 0600, porque contêm caminhos absolutos do projeto.
 
 ```
 terminal(command="python3 S/scripts/guardian.py gate --release <app_flutter> --ipa <App.ipa> --output-dir /tmp/asrg/<app> --json", timeout=600)
@@ -68,9 +68,9 @@ python3 S/scripts/generate_report.py appstore-audit-report.json --validate --md 
 | CRITICAL | Violação confirmada ou risco muito alto de rejeição |
 | WARNING | Possível problema; precisa de validação |
 | INFO | Recomendação |
-| PASS | Verificação executada e requisito atendido |
+| PASS | Verificação **determinística** executada e requisito atendido (nunca vem de heurística nem de declaração manual) |
 | NOT_VERIFIED | Não executada ou sem evidência suficiente |
-| NOT_APPLICABLE | Comprovadamente não se aplica |
+| NOT_APPLICABLE | Comprovadamente não se aplica (só por checagem determinística) |
 
 ## Procedure
 
@@ -87,7 +87,10 @@ Entregue ao usuário: status do gate, bloqueios e riscos com a correção de cad
 ## Pitfalls
 
 - READY ≠ aprovação. O disclaimer está no relatório e precisa ser repassado.
-- O código rebaixa automaticamente PASS sem evidência para NOT_VERIFIED, heurística para no máximo WARNING e regra `recommended` para no máximo WARNING. Não "promova" severidades à mão.
+- `Finding.to_dict` aplica guardas centrais que nenhum módulo contorna: PASS heurístico em regra obrigatória vira NOT_VERIFIED (evidência achada, falta confirmação humana); PASS heurístico em regra recomendada e PASS `manual` (declarado no `--asc-metadata`) viram INFO; NOT_APPLICABLE heurístico (ausência de sinal) vira NOT_VERIFIED; heurística nunca passa de WARNING; regra `recommended` nunca passa de WARNING; PASS sem evidência vira NOT_VERIFIED. O schema rejeita PASS/NOT_APPLICABLE com método `heuristic`/`manual`, e o gate nunca dá READY apoiado em heurística. Não "promova" severidades à mão.
+- Como as guidelines 4.8, 5.1.1(v), 3.1.1, 1.2, 2.1 e 5.1.1(i) só têm checagem heurística, um projeto com login, conta ou compras sempre termina pelo menos em NEEDS_REVIEW até a confirmação humana. Isso é intencional.
+- Um módulo que falha com erro inesperado (entrada hostil, limite do sistema de arquivos) vira `MODULE-ERROR-001` NOT_VERIFIED obrigatório, em vez de derrubar a auditoria. O resultado com falha não é cacheado.
+- Entradas do `.ipa` com nome conflitante (maiúsculas/minúsculas, arquivo × diretório) ou componente com mais de 255 bytes não são extraídas: aparecem como `IPA-STRUCT-001` NOT_VERIFIED, com o nome e o motivo.
 - Um `.app` de `flutter build ios --no-codesign` sempre dá `SIGN-001` BLOCKER. Isso é esperado: rotule como UNSIGNED e não trate como bloqueio do código.
 - `aps-environment=development` no `.entitlements` de origem é WARNING (o Xcode troca pelo perfil na exportação). No `.ipa` assinado, vira CRITICAL.
 - `PRIV-RRAPI-002` acusa referência de símbolo, não uso. Confira se o SDK que usa a API já declara a categoria no próprio manifest.
@@ -97,7 +100,7 @@ Entregue ao usuário: status do gate, bloqueios e riscos com a correção de cad
 
 ## Verification
 
-- Rodar `python3 -m unittest discover -s S/tests -p 'test_*.py'` deve passar. A suíte cobre IPA válido/inválido (zip-slip, symlink, zip bomb, corrompido, sem Payload, sem Info.plist, plist binária), Info.plist, privacy manifest, entitlements, assinatura com e sem `codesign` (mock), projeto Flutter descartável, severidades, cache incremental, relatórios válidos no schema e modo offline.
+- Rodar `python3 -m unittest discover -s S/tests -p 'test_*.py'` deve passar. A suíte cobre IPA válido/inválido (zip-slip, symlink, zip bomb por entrada e agregado, orçamento de bytes lidos, nomes conflitantes ou longos, corrompido, sem Payload, sem Info.plist, plist binária), Info.plist, privacy manifest, entitlements, AASA com DNS/HTTP simulados (SSRF), assinatura com e sem `codesign` (mock), projeto Flutter descartável, severidades (heurística/manual nunca PASS), isolamento de módulos, permissões 0700/0600, cache incremental, relatórios válidos no schema e modo offline.
 - `rules --check-sources` retorna `changed_since_baseline: []` e `errors: {}`.
 - O relatório tem `schema_errors: []` e `final_status` coerente com o código de saída.
-- Exemplos reais em `examples/` (Mently: projeto + `.ipa` UNSIGNED). Fontes em `references/sources.md` e limitações em `references/limitations.md`.
+- Exemplos em `examples/` gerados rodando de fato `guardian.py gate` sobre fixtures sintéticas (projeto Flutter descartável + `.ipa` UNSIGNED em `examples/`, `.ipa` debug-signed com perfil falso em `examples/fixture/`). Regenere com `python3 S/tests/make_examples.py`. Fontes em `references/sources.md` e limitações em `references/limitations.md`.

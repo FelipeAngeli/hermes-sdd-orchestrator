@@ -6,7 +6,7 @@ from pathlib import Path
 
 from common import (BLOCKER, CRITICAL, EXIT_CODES, INFO, NOT_APPLICABLE, NOT_VERIFIED, PASS, SECTIONS,
                     SEVERITY_ORDER, TOOL_NAME, TOOL_VERSION, WARNING, Finding, final_status, now_iso,
-                    redact, section_status)
+                    ensure_private_dir, redact, section_status, write_private)
 
 SEP = "━" * 32
 MD_NAME = "google-play-audit-report.md"
@@ -149,9 +149,9 @@ def render_markdown(r: dict) -> str:
 
 
 def write_reports(report: dict, out_dir: Path) -> tuple[Path, Path]:
-    out_dir.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(out_dir)
     jp = out_dir / JSON_NAME
     mp = out_dir / MD_NAME
-    jp.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    mp.write_text(render_markdown(report), encoding="utf-8")
+    write_private(jp, json.dumps(report, ensure_ascii=False, indent=2))
+    write_private(mp, render_markdown(report))
     return mp, jp

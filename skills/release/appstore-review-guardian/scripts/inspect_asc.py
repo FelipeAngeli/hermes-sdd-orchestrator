@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import BLOCKER, CRITICAL, NOT_VERIFIED, PASS, WARNING, Collector, Finding, ref  # noqa: E402
+from common import BLOCKER, CRITICAL, INFO, NOT_VERIFIED, PASS, WARNING, Collector, Finding, ref  # noqa: E402
 
 TEMPLATE = {
     "_note": "Preencha a partir do App Store Connect. Não inclua senhas reais: use 'provided': true para credenciais de demo.",
@@ -118,15 +118,16 @@ def check_asc(metadata: dict | None, env: dict | None = None) -> tuple[list[Find
     demo = md.get("demo_account") or {}
     notes = text("review_notes")
     if demo.get("provided") is True and notes:
-        c.add("ASC-REVIEW-001", PASS, "asc", "notas de revisão e conta demo informadas (declarado pelo usuário)", confidence=0.6)
-        c.add("REV-DEMO-001", PASS, "asc", "conta demo declarada como fornecida", confidence=0.6, verification_method="manual")
+        c.add("ASC-REVIEW-001", INFO, "asc", "notas de revisão e conta demo informadas (declarado pelo usuário; não verificado)", confidence=0.6)
+        c.add("REV-DEMO-001", INFO, "asc", "conta demo declarada como fornecida (declarado pelo usuário; não verificado)", confidence=0.6,
+              verification_method="manual")
     else:
         c.add("ASC-REVIEW-001", WARNING, "asc", f"notas={'sim' if notes else 'não'}; demo={demo.get('provided')}", confidence=0.7,
               recommendation="Preencha App Review Information com notas específicas e credenciais de demonstração.")
     for rid, key, rec in MANUAL:
         v = md.get(key)
         if v is True:
-            c.add(rid, PASS, "asc", f"{key}=true (declarado pelo usuário)", confidence=0.5, verification_method="manual")
+            c.add(rid, INFO, "asc", f"{key}=true (declarado pelo usuário; não verificado)", confidence=0.5, verification_method="manual")
         elif v is False:
             c.add(rid, WARNING, "asc", f"{key}=false", confidence=0.8, recommendation=rec)
         else:

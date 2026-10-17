@@ -28,10 +28,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from common import (BLOCKER, EXIT_USAGE, INFO, NOT_APPLICABLE, NOT_VERIFIED, PASS, RULES_DIR, SCHEMA_PATH,
+from common import (BLOCKER, CRITICAL, EXIT_USAGE, INFO, NOT_APPLICABLE, NOT_VERIFIED, PASS, RULES_DIR, SCHEMA_PATH,
                     SKILL_DIR, TOOL_VERSION, WARNING, Finding, FindingFactory, HashCache, ToolInfo,
-                    cache_key, discover_tools, finding_from_dict, load_rules, parse_date, rules_digest,
-                    safe_call, today_iso)
+                    ZipBudgetExceeded, cache_key, discover_tools, finding_from_dict, load_rules, parse_date, rules_digest,
+                    ensure_private_dir, make_private_tempdir, safe_call, today_iso, write_private)
 import generate_report
 import inspect_aab
 import inspect_apk
@@ -102,7 +102,10 @@ def build_parser() -> Parser:
 
 # ---------------------------------------------------------------------------
 def default_output_dir(key: str) -> Path:
-    return Path(tempfile.gettempdir()) / "google-play-review-guardian" / hashlib.sha256(key.encode()).hexdigest()[:12]
+    """Fresh private (0700) directory per run; a stable path would be guessable/shared in /tmp.
+
+    Pass --output-dir to reuse the incremental cache between runs."""
+    return make_private_tempdir(prefix="gprg-" + hashlib.sha256(key.encode()).hexdigest()[:8] + "-")
 
 
 def tools_snapshot(tools: dict[str, ToolInfo]) -> dict:
@@ -145,14 +148,19 @@ def analyze_artifact(path: Path, kind: str, tools, F, rules, mode: str, timeout:
                      use_tools: bool) -> dict:
     """Artifact pipeline, cached by sha256(artifact)+rules digest+version+mode."""
     digest = cache.file_hash(path) if cache.enabled else None
-    key = cache_key(kind, digest or "", rules_digest(), TOOL_VERSION, mode, str(use_tools), "v3") if digest else None
+    key = cache_key(kind, digest or "", rules_digest(), TOOL_VERSION, mode, str(use_tools), "v4") if digest else None
     if key:
         hit = cache.get(key)
         if hit:
             hit["findings"] = [finding_from_dict(d) for d in hit["findings"]]
             hit["from_cache"] = True
             return hit
-    insp = (inspect_aab.inspect_aab if kind == "aab" else inspect_apk.inspect_apk)(path, tools, F, timeout)
+    try:
+        insp = (inspect_aab.inspect_aab if kind == "aab" else inspect_apk.inspect_apk)(path, tools, F, timeout)
+    except ZipBudgetExceeded as exc:  # total decompression budget of this archive exhausted (zip bomb)
+        insp = {"manifest": None, "findings": [F("SEC-ARCHIVE-SAFETY", CRITICAL, "security",
+                                                 "Descompressão excede o orçamento total do arquivo", component=path.name,
+                                                 evidence=str(exc), recommendation="Não extraia nem publique este arquivo.")]}
     fs: list[Finding] = list(insp["findings"])
     info = insp.get("manifest")
     res: dict = {"kind": kind, "path": str(path), "manifest": info, "verification": insp.get("verification", {}),
@@ -207,6 +215,7 @@ def run_audit(args, mode: str) -> tuple[dict, Path]:
     out_dir = Path(args.output_dir).resolve() if args.output_dir else default_output_dir(str(project or aab or apk))
     if project and (out_dir == project or project in out_dir.parents):
         raise UsageError("--output-dir não pode ficar dentro do projeto auditado (modo somente leitura)")
+    ensure_private_dir(out_dir)  # a missing --output-dir is created 0700; existing dirs are untouched
     cache = HashCache(out_dir, enabled=not args.no_cache)
     use_tools = not args.no_tools
     tools = discover_tools() if use_tools else no_tools()
@@ -451,7 +460,9 @@ SOURCES_CACHE = "sources-cache.json"
 
 
 def _sources_cache_path(out_dir: Path | None) -> Path:
-    return (out_dir or (Path(tempfile.gettempdir()) / "google-play-review-guardian")) / SOURCES_CACHE
+    # Without --output-dir: a per-user directory (created 0700 by ensure_private_dir).
+    shared = Path(tempfile.gettempdir()) / f"google-play-review-guardian-{os.getuid() if hasattr(os, 'getuid') else 'user'}"
+    return (out_dir or shared) / SOURCES_CACHE
 
 
 def sources_status_line(out_dir: Path | None) -> str:
@@ -492,7 +503,7 @@ def check_sources(offline: bool, ttl_hours: float, out_dir: Path | None, timeout
     rules = load_rules()
     urls = sorted({r["official_url"] for r in rules.values()} | {u for r in rules.values() for u in r.get("secondary_urls", [])})
     path = _sources_cache_path(out_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(path.parent)
     try:
         cache = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -532,7 +543,7 @@ def check_sources(offline: bool, ttl_hours: float, out_dir: Path | None, timeout
     cache["checked_at"] = now.replace(microsecond=0).isoformat()
     cache["drift"] = drift or [d for v in cache["urls"].values() for d in v.get("drift", [])]
     cache["rules_digest"] = rules_digest()
-    path.write_text(json.dumps(cache, indent=1), encoding="utf-8")
+    write_private(path, json.dumps(cache, indent=1))
     return {"cache_file": str(path), "urls": len(urls), "fetched": fetched, "skipped_cached_or_offline": skipped,
             "ok": sum(1 for v in cache["urls"].values() if v.get("status") == 200),
             "errors": {u: v.get("error") for u, v in cache["urls"].items() if v.get("error")},

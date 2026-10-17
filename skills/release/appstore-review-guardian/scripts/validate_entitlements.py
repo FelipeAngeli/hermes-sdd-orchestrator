@@ -6,8 +6,16 @@ Isolated use:
 from __future__ import annotations
 
 import argparse
+import http.client
+import ipaddress
 import json
+import re
+import socket
+import ssl
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -82,18 +90,161 @@ def validate_entitlements(ents: dict, source: str, component: str, file: str,
     return c.items, facts
 
 
-def check_aasa(domains: list[str], fetch, component: str = "app") -> list[Finding]:
-    """fetch(url) -> (status, bytes). Injected so tests can run offline."""
+AASA_SERVICES = ("applinks", "webcredentials")
+AASA_TIMEOUT = 10
+AASA_MAX_BYTES = 128 * 1024
+AASA_UA = "appstore-review-guardian (read-only AASA check)"
+_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+_BLOCKED_SUFFIXES = ("localhost", "local", "internal", "lan", "home.arpa", "localdomain", "intranet", "invalid", "test",
+                     "onion", "arpa")
+
+
+def aasa_host(entry: str) -> tuple[str | None, str]:
+    """Return (hostname, '') for an applinks:/webcredentials: entry that is a public-looking DNS name.
+
+    The host comes from the audited project (untrusted), so anything that is not a plain multi-label
+    DNS name is refused before any resolution: IP literals in every notation (dotted, decimal, hex,
+    octal, IPv6, bracketed), single-label names, local/internal suffixes, wildcards, userinfo,
+    paths and any port other than 443.
+    """
+    if not isinstance(entry, str) or ":" not in entry:
+        return None, "entrada mal formada"
+    service, rest = entry.split(":", 1)
+    if service not in AASA_SERVICES:
+        return None, f"serviço {service!r} não consultado"
+    host = rest.split("?", 1)[0].strip()
+    if not host or len(host) > 260:
+        return None, "host vazio ou longo demais"
+    if any(ch in host for ch in "/@[]\\ \t%#"):
+        return None, "host com caracteres não permitidos (caminho, userinfo, IPv6 entre colchetes)"
+    if host.count(":") > 1:
+        return None, "literal IPv6 não é permitido"
+    if ":" in host:
+        host, port = host.split(":", 1)
+        if port != "443":
+            return None, f"porta {port!r} não permitida (só 443)"
+    host = host.lower()
+    if host.endswith("."):
+        return None, "nome com ponto final não suportado"
+    if host.startswith("*."):
+        return None, "domínio curinga: AASA não consultável diretamente"
+    try:
+        ipaddress.ip_address(host)
+        return None, "literal IP não é permitido"
+    except ValueError:
+        pass
+    labels = host.split(".")
+    if len(labels) < 2:
+        return None, "nome de rótulo único (não é DNS público)"
+    if len(host) > 253 or not all(_LABEL.match(lab) for lab in labels):
+        return None, "nome DNS inválido"
+    if labels[-1].isdigit() or re.fullmatch(r"0x[0-9a-f]+", labels[-1]) or all(re.fullmatch(r"(0x[0-9a-f]+|\d+)", lab) for lab in labels):
+        return None, "parece literal IP em notação alternativa"
+    if any(host == s or host.endswith("." + s) for s in _BLOCKED_SUFFIXES):
+        return None, "sufixo local/reservado"
+    return host, ""
+
+
+def _unsafe_ip(raw: str) -> str | None:
+    try:
+        ip = ipaddress.ip_address(raw.split("%", 1)[0])
+    except ValueError:
+        return "endereço inválido"
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    for attr in ("is_private", "is_loopback", "is_link_local", "is_reserved", "is_multicast", "is_unspecified"):
+        if getattr(ip, attr):
+            return f"{ip} ({attr[3:]})"
+    if not ip.is_global:
+        return f"{ip} (não global)"
+    return None
+
+
+def resolve_public(host: str, resolver=None) -> tuple[str | None, str]:
+    """Resolve host and return the first address only if EVERY resolved address is public."""
+    resolver = resolver or socket.getaddrinfo
+    try:
+        infos = resolver(host, 443, type=socket.SOCK_STREAM)
+    except (OSError, UnicodeError) as exc:
+        return None, f"falha de DNS ({type(exc).__name__})"
+    addrs = [str(i[4][0]) for i in infos if i and len(i) >= 5 and i[4]]
+    if not addrs:
+        return None, "DNS sem endereços"
+    bad = [r for r in (_unsafe_ip(a) for a in addrs) if r]
+    if bad:
+        return None, f"resolve para endereço não público: {bad[:3]}"
+    return addrs[0], ""
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse every redirect (Apple also fetches the AASA without following redirects)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, f"redirecionamento recusado ({code})", headers, fp)
+
+
+def _build_opener(pinned_ip: str) -> urllib.request.OpenerDirector:
+    """HTTPS-only opener that connects to the already-validated IP (no DNS rebinding), verifies the
+    certificate for the original hostname, ignores proxy environment variables and refuses redirects."""
+    ctx = ssl.create_default_context()
+
+    class PinnedHTTPSConnection(http.client.HTTPSConnection):
+        def __init__(self, host, **kw):
+            kw.pop("context", None)
+            super().__init__(host, context=ctx, **kw)
+
+        def connect(self):
+            sock = socket.create_connection((pinned_ip, self.port or 443), self.timeout)
+            self.sock = ctx.wrap_socket(sock, server_hostname=self.host)
+
+    class PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+        def https_open(self, req):
+            return self.do_open(PinnedHTTPSConnection, req)
+
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect(), PinnedHTTPSHandler(context=ctx))
+
+
+def safe_fetch(url: str, pinned_ip: str) -> tuple[int, bytes]:
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or parts.port not in (None, 443) or parts.username or parts.password:
+        raise ValueError("só https na porta 443, sem credenciais")
+    req = urllib.request.Request(url, headers={"User-Agent": AASA_UA, "Accept": "application/json"})
+    try:
+        with _build_opener(pinned_ip).open(req, timeout=AASA_TIMEOUT) as resp:
+            body = resp.read(AASA_MAX_BYTES + 1)
+            if len(body) > AASA_MAX_BYTES:
+                raise ValueError(f"resposta maior que {AASA_MAX_BYTES} bytes")
+            return resp.status, body
+    except urllib.error.HTTPError as exc:
+        return exc.code, b""
+
+
+def check_aasa(domains: list[str], fetch, component: str = "app", resolver=None) -> list[Finding]:
+    """fetch(url, pinned_ip) -> (status, bytes); resolver mimics socket.getaddrinfo. Both injectable for offline tests."""
     out = []
+    hosts: dict[str, set[str]] = {}
     for entry in domains:
-        if not entry.startswith("applinks:"):
+        service = entry.split(":", 1)[0] if isinstance(entry, str) else ""
+        if service not in AASA_SERVICES:
             continue
-        host = entry.split(":", 1)[1].split("?", 1)[0]
+        host, reason = aasa_host(entry)
+        if host is None:
+            out.append(Finding("ENT-ASSOC-001", WARNING, component, f"{entry!r}: {reason}; AASA não consultado", confidence=0.8,
+                               recommendation="Use um nome DNS público (ex.: applinks:example.com) nas associated domains."))
+            continue
+        hosts.setdefault(host, set()).add(service)
+    for host, services in sorted(hosts.items()):
         url = f"https://{host}/.well-known/apple-app-site-association"
+        ip, reason = resolve_public(host, resolver)
+        if ip is None:
+            out.append(Finding("ENT-ASSOC-001", NOT_VERIFIED, component, f"{host}: {reason}; AASA não consultado", confidence=0.3,
+                               recommendation="Confira o AASA manualmente a partir de uma rede pública."))
+            continue
         try:
-            status, body = fetch(url)
-        except Exception as exc:  # noqa: BLE001
-            out.append(Finding("ENT-ASSOC-001", NOT_VERIFIED, component, f"{url}: falha de rede ({type(exc).__name__})", confidence=0.3))
+            status, body = fetch(url, ip)
+        except Exception as exc:  # noqa: BLE001 - any network/size failure degrades to NOT_VERIFIED
+            out.append(Finding("ENT-ASSOC-001", NOT_VERIFIED, component, f"{url}: falha ao consultar ({type(exc).__name__}: {str(exc)[:80]})",
+                               confidence=0.3))
             continue
         if status != 200:
             out.append(Finding("ENT-ASSOC-001", WARNING, component, f"{url} retornou HTTP {status}", confidence=0.8,
@@ -101,12 +252,13 @@ def check_aasa(domains: list[str], fetch, component: str = "app") -> list[Findin
             continue
         try:
             data = json.loads(body.decode("utf-8"))
-            ok = isinstance(data.get("applinks"), dict)
+            missing = [s for s in sorted(services) if not isinstance(data.get(s), dict)]
         except (ValueError, AttributeError):
-            ok = False
-        out.append(Finding("ENT-ASSOC-001", PASS if ok else WARNING, component,
-                           f"{url}: HTTP 200, applinks {'presente' if ok else 'ausente/ inválido'}", confidence=0.8,
-                           recommendation="" if ok else "Inclua o bloco 'applinks' com o appID TEAMID.bundleid."))
+            missing = sorted(services)
+        out.append(Finding("ENT-ASSOC-001", WARNING if missing else PASS, component,
+                           f"{url}: HTTP 200, " + (f"bloco(s) ausente(s)/inválido(s): {missing}" if missing else f"blocos {sorted(services)} presentes"),
+                           confidence=0.8,
+                           recommendation=f"Inclua {missing} com o appID TEAMID.bundleid." if missing else ""))
     return out
 
 

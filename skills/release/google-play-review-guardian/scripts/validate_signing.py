@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 
 from common import (BLOCKER, CRITICAL, INFO, NOT_VERIFIED, PASS, WARNING, FindingFactory, ToolInfo,
-                    read_member, run_tool, tool_cmd, tool_env)
+                    ZipBudgetExceeded, archive_budget, read_member, run_tool, tool_cmd, tool_env)
 
 OID_CN = bytes.fromhex("550403")
 OID_O = bytes.fromhex("55040a")
@@ -196,8 +196,11 @@ def read_signatures(path: Path) -> dict:
                 if re.match(r"^META-INF/[^/]+\.(RSA|DSA|EC)$", info.filename, re.I):
                     out["schemes"].append("v1/jar")
                     try:
-                        for c in pkcs7_certificates(read_member(zf, info, 1024 ** 2)):
+                        for c in pkcs7_certificates(read_member(zf, info, 1024 ** 2, budget=archive_budget(path))):
                             out["certificates"].append({"source": info.filename, **cert_info(c)})
+                    except ZipBudgetExceeded as exc:
+                        out["errors"].append(f"{info.filename}: {exc}")
+                        break
                     except DERError as exc:
                         out["errors"].append(f"{info.filename}: {exc}")
     except zipfile.BadZipFile as exc:

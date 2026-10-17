@@ -43,6 +43,7 @@ SEVERITIES = (BLOCKER, CRITICAL, WARNING, INFO, PASS, NOT_VERIFIED, NOT_APPLICAB
 SEVERITY_ORDER = {s: i for i, s in enumerate(SEVERITIES)}
 
 METHODS = ("deterministic", "heuristic", "manual")
+NEEDS_CONFIRMATION = "(indício heurístico/manual — confirmar)"
 CONFIDENCE = ("high", "medium", "low")
 
 READY = "READY"
@@ -178,6 +179,13 @@ class Finding:
             raise ValueError(f"bad confidence {self.confidence}")
         if self.section not in SECTIONS:
             raise ValueError(f"bad section {self.section}")
+        if self.severity == PASS and self.verification_method != "deterministic":
+            # PASS means "requirement really verified". A heuristic (inferred from a name,
+            # version string or regex) or manual (user-declared) outcome is never a PASS:
+            # mandatory rules stay pending, recommended ones become INFO "to confirm".
+            self.severity = NOT_VERIFIED if self.requirement_level == "mandatory" else INFO
+            if NEEDS_CONFIRMATION not in self.title:
+                self.title = f"{self.title} {NEEDS_CONFIRMATION}"
         self.evidence = redact(self.evidence)
         self.recommendation = redact(self.recommendation)
         self.component = redact(self.component)
@@ -227,6 +235,9 @@ def section_status(findings: Iterable[Finding]) -> str:
         return NEEDS_REVIEW if sev & {PASS, INFO} else NOT_VERIFIED
     if sev <= {NOT_APPLICABLE}:
         return NOT_APPLICABLE
+    # A section is PASS only when at least one check really verified something.
+    if PASS not in sev:
+        return NEEDS_REVIEW
     return PASS
 
 
@@ -239,7 +250,8 @@ def final_status(findings: Iterable[Finding]) -> str:
         return NEEDS_REVIEW
     if any(f.severity == NOT_VERIFIED and f.requirement_level == "mandatory" for f in findings):
         return NEEDS_REVIEW
-    if not any(f.severity == PASS for f in findings):
+    # READY must rest on checks that really verified something (never on a heuristic).
+    if not any(f.severity == PASS and f.verification_method == "deterministic" for f in findings):
         return NEEDS_REVIEW
     return READY
 
@@ -251,6 +263,25 @@ MAX_ENTRIES = 200_000
 MAX_TOTAL_UNCOMPRESSED = 8 * 1024 ** 3
 MAX_RATIO = 200
 RATIO_MIN_SIZE = 10 * 1024 ** 2
+# Budget of bytes actually decompressed (streamed) per archive, across all reads.
+MAX_STREAMED = MAX_TOTAL_UNCOMPRESSED
+
+
+class ZipBudgetExceeded(ValueError):
+    """Raised when the decompressed bytes read from one archive exceed its budget."""
+
+
+class ZipBudget:
+    """Shared cap on bytes actually decompressed from one archive (declared sizes are not trusted)."""
+
+    def __init__(self, limit: int | None = None):
+        self.limit = MAX_STREAMED if limit is None else limit  # read at call time (tests lower it)
+        self.used = 0
+
+    def consume(self, n: int) -> None:
+        self.used += n
+        if self.used > self.limit:
+            raise ZipBudgetExceeded(f"orçamento de descompressão excedido ({self.used} > {self.limit} bytes)")
 
 
 @dataclass
@@ -282,8 +313,14 @@ def unsafe_name(name: str) -> str | None:
     return None
 
 
-def scan_zip(path: Path, crc_check: bool = True) -> ZipScan:
-    """List and validate an archive without extracting it."""
+def scan_zip(path: Path, crc_check: bool = True, *, max_entries: int = MAX_ENTRIES,
+             max_total: int = MAX_TOTAL_UNCOMPRESSED, max_ratio: int = MAX_RATIO,
+             ratio_min_size: int = RATIO_MIN_SIZE, max_streamed: int = MAX_STREAMED) -> ZipScan:
+    """List and validate an archive without extracting it.
+
+    Bomb defences: per-entry ratio, *aggregate* ratio and declared total (so many entries
+    just below the per-entry threshold are still caught), and a budget on the bytes
+    actually streamed during the CRC pass (declared sizes may lie)."""
     if not path.is_file():
         return ZipScan(ok=False, error=f"arquivo não encontrado: {path}")
     if not zipfile.is_zipfile(path):
@@ -293,9 +330,9 @@ def scan_zip(path: Path, crc_check: bool = True) -> ZipScan:
         with zipfile.ZipFile(path) as zf:
             infos = zf.infolist()
             scan.entries = infos
-            if len(infos) > MAX_ENTRIES:
+            if len(infos) > max_entries:
                 scan.issues.append(ZipIssue("too_many_entries", "*", str(len(infos))))
-            total = 0
+            total = compressed = 0
             seen: set[str] = set()
             for info in infos:
                 kind = unsafe_name(info.filename)
@@ -307,21 +344,32 @@ def scan_zip(path: Path, crc_check: bool = True) -> ZipScan:
                     scan.issues.append(ZipIssue("duplicate", info.filename))
                 seen.add(info.filename)
                 total += info.file_size
-                if info.file_size > RATIO_MIN_SIZE and info.file_size / max(info.compress_size, 1) > MAX_RATIO:
+                compressed += info.compress_size
+                if info.file_size > ratio_min_size and info.file_size / max(info.compress_size, 1) > max_ratio:
                     scan.issues.append(ZipIssue("zip_bomb", info.filename,
                                                 f"ratio {info.file_size // max(info.compress_size, 1)}:1"))
-            if total > MAX_TOTAL_UNCOMPRESSED:
+            if total > max_total:
                 scan.issues.append(ZipIssue("zip_bomb", "*", f"total uncompressed {total} bytes"))
+            elif total > ratio_min_size and total / max(compressed, 1) > max_ratio:
+                scan.issues.append(ZipIssue("zip_bomb", "*", f"aggregate ratio {total // max(compressed, 1)}:1 ({total} bytes)"))
             dangerous = any(i.kind in ("zip_bomb", "too_many_entries") for i in scan.issues)
             if crc_check and not dangerous:
                 scan.crc_checked = True
+                budget = ZipBudget(min(max_streamed, MAX_STREAMED))
                 for info in infos:
                     if info.is_dir() or is_symlink(info):
                         continue
                     try:
                         with zf.open(info) as fh:
-                            while fh.read(1024 * 1024):
-                                pass
+                            while True:
+                                chunk = fh.read(1024 * 1024)
+                                if not chunk:
+                                    break
+                                budget.consume(len(chunk))
+                    except ZipBudgetExceeded as exc:
+                        scan.issues.append(ZipIssue("zip_bomb", info.filename, str(exc)))
+                        scan.crc_checked = False
+                        break
                     except (zipfile.BadZipFile, zlib.error, EOFError, OSError, RuntimeError, NotImplementedError) as exc:
                         scan.issues.append(ZipIssue("corrupt", info.filename, f"CRC/descompressão falhou: {type(exc).__name__}"))
                         break
@@ -331,10 +379,32 @@ def scan_zip(path: Path, crc_check: bool = True) -> ZipScan:
     return scan
 
 
-def read_member(zf: zipfile.ZipFile, info: zipfile.ZipInfo, max_bytes: int = 64 * 1024 ** 2) -> bytes:
-    """Read at most max_bytes from a member (bounded, never trusts declared size)."""
+_ARCHIVE_BUDGETS: dict[str, ZipBudget] = {}
+
+
+def archive_budget(path: Path) -> ZipBudget:
+    """One shared budget per archive for every read after scan_zip (all modules, whole run)."""
+    key = str(Path(path).resolve())
+    if key not in _ARCHIVE_BUDGETS or _ARCHIVE_BUDGETS[key].limit != MAX_STREAMED:
+        _ARCHIVE_BUDGETS[key] = ZipBudget()
+    return _ARCHIVE_BUDGETS[key]
+
+
+def read_member(zf: zipfile.ZipFile, info: zipfile.ZipInfo, max_bytes: int = 64 * 1024 ** 2,
+                budget: ZipBudget | None = None) -> bytes:
+    """Read at most max_bytes from a member (bounded, never trusts declared size).
+
+    ``budget`` is shared across reads of the same archive; exceeding it raises ZipBudgetExceeded."""
+    out = bytearray()
     with zf.open(info) as fh:
-        return fh.read(max_bytes)
+        while len(out) < max_bytes:
+            chunk = fh.read(min(1024 * 1024, max_bytes - len(out)))
+            if not chunk:
+                break
+            if budget is not None:
+                budget.consume(len(chunk))
+            out += chunk
+    return bytes(out)
 
 
 def local_data_offset(path: Path, info: zipfile.ZipInfo) -> int:
@@ -367,7 +437,7 @@ class SecureTempDir:
 
 
 def extract_member_safe(zf: zipfile.ZipFile, info: zipfile.ZipInfo, dest_dir: Path, index: int,
-                        max_bytes: int = 512 * 1024 ** 2) -> Path:
+                        max_bytes: int = 512 * 1024 ** 2, budget: ZipBudget | None = None) -> Path:
     """Extract one member to a name we generate (archive paths are never used as paths)."""
     if unsafe_name(info.filename) or is_symlink(info):
         raise ValueError(f"entrada insegura recusada: {info.filename!r}")
@@ -380,11 +450,56 @@ def extract_member_safe(zf: zipfile.ZipFile, info: zipfile.ZipInfo, dest_dir: Pa
             if not chunk:
                 break
             written += len(chunk)
+            if budget is not None:
+                budget.consume(len(chunk))
             if written > max_bytes:
                 raise ValueError("entrada excede limite de extração")
             dst.write(chunk)
     os.chmod(target, 0o600)
     return target
+
+
+# --------------------------------------------------------------------------
+# Private output (reports and cache may describe a private project)
+# --------------------------------------------------------------------------
+def ensure_private_dir(path: Path) -> Path:
+    """Create every missing component of ``path`` with mode 0700 (existing dirs are left as-is)."""
+    path = Path(path)
+    missing = []
+    p = path
+    while not p.exists():
+        missing.append(p)
+        if p.parent == p:
+            break
+        p = p.parent
+    for d in reversed(missing):
+        try:
+            d.mkdir(mode=0o700)
+        except FileExistsError:
+            continue
+        os.chmod(d, 0o700)  # mkdir's mode is filtered by the umask
+    return path
+
+
+def write_private(path: Path, text: str) -> None:
+    """Write a text file with mode 0600 (also tightens an existing file); never follows a symlink."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o600)
+    try:
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fd = -1
+            fh.write(text)
+    finally:
+        if fd != -1:
+            os.close(fd)
+
+
+def make_private_tempdir(prefix: str = "gprg-") -> Path:
+    path = Path(tempfile.mkdtemp(prefix=prefix))
+    os.chmod(path, 0o700)
+    return path
 
 
 # --------------------------------------------------------------------------
@@ -408,7 +523,7 @@ class HashCache:
         self.misses = 0
         self._index: dict = {}
         if self.enabled:
-            self.dir.mkdir(parents=True, exist_ok=True)
+            ensure_private_dir(self.dir)
             self._index = self._load("file-index.json")
 
     def _load(self, name: str) -> dict:
@@ -426,7 +541,7 @@ class HashCache:
         digest = sha256_file(path)
         self._index[key] = {"size": st.st_size, "mtime_ns": st.st_mtime_ns, "sha256": digest}
         if self.enabled:
-            (self.dir / "file-index.json").write_text(json.dumps(self._index, indent=0), encoding="utf-8")
+            write_private(self.dir / "file-index.json", json.dumps(self._index, indent=0))
         return digest
 
     def get(self, key: str) -> Any:
@@ -445,8 +560,8 @@ class HashCache:
         if not self.enabled:
             return
         d = self.dir / "results"
-        d.mkdir(parents=True, exist_ok=True)
-        (d / f"{key}.json").write_text(json.dumps(value), encoding="utf-8")
+        ensure_private_dir(d)
+        write_private(d / f"{key}.json", json.dumps(value))
 
 
 def cache_key(*parts: str) -> str:
@@ -496,6 +611,48 @@ def run_tool(cmd: list[str], timeout: int = 120, env: dict[str, str] | None = No
     if proc.returncode != 0:
         return ToolResult(False, proc.returncode, out, err, error="nonzero")
     return ToolResult(True, 0, out, err)
+
+
+# Config overrides for every git call on an *untrusted* repository. Command-line `-c` beats the
+# repo's .git/config (and anything it [include]s):
+#   core.fsmonitor=false     the hook git runs on index refresh (arbitrary command; PoC in tests)
+#   core.hooksPath=/dev/null no hook can be found even if a future command would run one
+#   core.untrackedCache=false avoid writing the untracked cache into the index
+#   protocol.allow=never     no transport (and thus no core.sshCommand / remote helper) is usable
+# The only commands used are rev-parse, ls-files and check-ignore: they do not diff, fetch,
+# page or run filters, so diff.external/textconv, core.sshCommand, core.pager and
+# filter.*.clean/smudge are never reached (still neutralised above or by the closed stdin/no tty).
+GIT_HARDENING = ("core.fsmonitor=false", "core.hooksPath=/dev/null", "core.untrackedCache=false", "protocol.allow=never")
+
+
+def git_env() -> dict[str, str]:
+    """Minimal environment for git: no system/global config, no prompts, no optional locks.
+
+    Nothing from the caller's environment leaks except PATH/HOME/LANG (so GIT_DIR,
+    GIT_CONFIG_PARAMETERS, credentials, etc. cannot steer or reach git)."""
+    env = {"PATH": os.environ.get("PATH") or os.defpath, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+           "GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0"}
+    for name in ("HOME", "LANG"):
+        value = os.environ.get(name)
+        if value:
+            env[name] = value
+    return env
+
+
+def git_cmd(cwd: Path, *args: str, pathspecs: Iterable[str] = ()) -> list[str]:
+    cmd = ["git"]
+    for opt in GIT_HARDENING:
+        cmd += ["-c", opt]
+    cmd += ["-C", str(cwd), *args]
+    pathspecs = list(pathspecs)
+    if pathspecs:
+        cmd += ["--", *pathspecs]
+    return cmd
+
+
+def run_git(cwd: Path, *args: str, pathspecs: Iterable[str] = (), timeout: int = 20) -> ToolResult:
+    """The only way this skill runs git: hardened argv, minimal env, timeout and output cap."""
+    return run_tool(git_cmd(cwd, *args, pathspecs=pathspecs), timeout=timeout, env=git_env())
 
 
 def _version_key(name: str) -> tuple:

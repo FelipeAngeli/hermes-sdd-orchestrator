@@ -15,8 +15,9 @@ import struct
 import zipfile
 from pathlib import Path
 
-from common import (BLOCKER, INFO, NOT_APPLICABLE, NOT_VERIFIED, PASS, WARNING, FindingFactory, ToolInfo,
-                    SecureTempDir, extract_member_safe, local_data_offset, run_tool, tool_cmd)
+from common import (BLOCKER, CRITICAL, INFO, NOT_APPLICABLE, NOT_VERIFIED, PASS, WARNING, FindingFactory, ToolInfo,
+                    SecureTempDir, ZipBudgetExceeded, archive_budget, extract_member_safe, local_data_offset,
+                    read_member, run_tool, tool_cmd)
 
 PT_LOAD = 1
 PT_GNU_RELRO = 0x6474E552
@@ -113,6 +114,14 @@ def abi_of(name: str) -> str:
     return parts[-2] if len(parts) >= 2 else "?"
 
 
+def _budget_exceeded(F: FindingFactory, comp: str, exc: Exception, libs_out: list, fs: list) -> dict:
+    """The archive decompressed past its total budget: stop reading it (zip-bomb defence)."""
+    fs.append(F("SEC-ARCHIVE-SAFETY", CRITICAL, "security", "Descompressão excede o orçamento total do arquivo",
+                component=comp, evidence=str(exc),
+                recommendation="Não extraia nem publique este arquivo; regere o artefato a partir do código-fonte."))
+    return {"libs": libs_out, "abis": sorted({l["abi"] for l in libs_out}), "findings": fs}
+
+
 def validate_native_libraries(path: Path, kind: str, tools: dict[str, ToolInfo], F: FindingFactory,
                               target_sdk: int | None, timeout: int = 120, use_tools: bool = True) -> dict:
     fs = []
@@ -127,23 +136,25 @@ def validate_native_libraries(path: Path, kind: str, tools: dict[str, ToolInfo],
                         component=comp, evidence="nenhuma entrada lib/<abi>/*.so no artefato",
                         recommendation="-"))
             return {"libs": [], "abis": [], "findings": fs}
+        budget = archive_budget(path)
         with SecureTempDir() as tmp:
             for idx, info in enumerate(so_entries):
                 rec = {"name": info.filename, "abi": abi_of(info.filename), "size": info.file_size,
                        "compressed": info.compress_type != zipfile.ZIP_STORED}
                 try:
-                    with zf.open(info) as fh:
-                        head = fh.read(min(info.file_size, 2 * 1024 * 1024))
+                    head = read_member(zf, info, 2 * 1024 * 1024, budget=budget)
                     seg = parse_elf_segments(head)
                     ok, why = elf_16kb_ok(seg)
                     rok, rwhy = relro_16kb_ok(seg)
                     rec.update({"elf_class": seg["class"], "machine": seg["machine"], "elf_16kb": ok, "elf_detail": why,
                                 "relro_16kb": rok, "relro_detail": rwhy, "elf_method": "python-elf"})
+                except ZipBudgetExceeded as exc:
+                    return _budget_exceeded(F, comp, exc, libs_out, fs)
                 except (ELFError, struct.error) as exc:
                     rec.update({"elf_16kb": None, "elf_detail": f"ELF ilegível: {exc}", "elf_method": "python-elf"})
                 if readelf and readelf.available and rec.get("elf_16kb") is not None:
                     try:
-                        local = extract_member_safe(zf, info, tmp, idx)
+                        local = extract_member_safe(zf, info, tmp, idx, budget=budget)
                         r = run_tool(tool_cmd(readelf, "-Wl", str(local)), timeout=timeout)
                         if r.ok:
                             aligns = parse_readelf_loads(r.stdout)
@@ -153,6 +164,8 @@ def validate_native_libraries(path: Path, kind: str, tools: dict[str, ToolInfo],
                                 rec["elf_detail"] += f" (DIVERGÊNCIA llvm-readelf: {[hex(a) for a in aligns]})"
                                 rec["elf_16kb"] = tool_ok
                         local.unlink(missing_ok=True)
+                    except ZipBudgetExceeded as exc:
+                        return _budget_exceeded(F, comp, exc, libs_out, fs)
                     except (ValueError, OSError) as exc:
                         rec["elf_detail"] += f" (llvm-readelf não executado: {exc})"
                 if kind == "apk" and not rec["compressed"]:

@@ -75,7 +75,7 @@ Quando um fato não pôde ser confirmado na fonte oficial, ele **não** foi codi
 | https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/core/res/res/values/public-final.xml | 2026-10-16 | IDs de atributos (`name` 0x01010003, `exported` 0x01010010, `debuggable` 0x0101000f, `targetSdkVersion` 0x01010270, …). |
 | https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/core/res/res/values/attrs_manifest.xml | 2026-10-16 | Flags de `foregroundServiceType` (dataSync 0x01, mediaPlayback 0x02, …, specialUse 0x40000000). |
 
-O formato `dependencies.pb` do bundle (`AppDependencies.library[].maven_library{groupId=1, artifactId=2, version=5}`) foi inferido do arquivo real do bundletool e conferido no `.aab` do Mently; é usado só para inventário (indício), nunca para findings bloqueantes.
+O formato `dependencies.pb` do bundle (`AppDependencies.library[].maven_library{groupId=1, artifactId=2, version=5}`) foi inferido do arquivo real do bundletool e conferido em um `.aab` real gerado pelo Gradle; é usado só para inventário (indício), nunca para findings bloqueantes.
 
 ## Google Play Developer API (androidpublisher v3)
 

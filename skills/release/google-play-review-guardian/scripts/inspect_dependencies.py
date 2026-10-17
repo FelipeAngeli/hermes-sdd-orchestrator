@@ -9,7 +9,7 @@ import re
 import zipfile
 from pathlib import Path
 
-from common import INFO, NOT_VERIFIED, WARNING, FindingFactory, read_member
+from common import INFO, NOT_VERIFIED, WARNING, FindingFactory, ZipBudgetExceeded, archive_budget, read_member
 
 # package / maven-group prefix -> (category, possible data types to *review*)
 SDK_CATALOG = {
@@ -100,8 +100,9 @@ def inspect_dependencies(pubspec: dict | None, aab_path: Path | None) -> dict:
             with zipfile.ZipFile(aab_path) as zf:
                 name = "BUNDLE-METADATA/com.android.tools.build.libraries/dependencies.pb"
                 if name in zf.namelist():
-                    maven = parse_dependencies_pb(read_member(zf, zf.getinfo(name), 8 * 1024 ** 2))
-        except zipfile.BadZipFile:
+                    maven = parse_dependencies_pb(read_member(zf, zf.getinfo(name), 8 * 1024 ** 2,
+                                                                  budget=archive_budget(aab_path)))
+        except (zipfile.BadZipFile, ZipBudgetExceeded):
             maven = []
     for coord in maven:
         cat = categorize(coord)

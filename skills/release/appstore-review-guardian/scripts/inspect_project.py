@@ -121,7 +121,9 @@ def scan_code(root: Path, patterns: dict[str, list[str]]) -> dict[str, list[str]
 
 
 # --------------------------------------------------------------------------- main audit
-def inspect_project(project: Path, mode: str = "full", network_fetch=None) -> tuple[list[Finding], dict]:
+def inspect_project(project: Path, mode: str = "full", network: bool = False, aasa_fetch=None) -> tuple[list[Finding], dict]:
+    """network=True enables the AASA lookup through validate_entitlements.safe_fetch (SSRF-hardened).
+    aasa_fetch(url, pinned_ip) may be injected by tests."""
     c = Collector()
     loc = locate(project)
     root = loc["root"]
@@ -219,10 +221,11 @@ def inspect_project(project: Path, mode: str = "full", network_fetch=None) -> tu
             ef, efacts = validate_entitlements(pl, "project", "project", f"ios/{ent_rel}", None, info)
             c.extend(ef)
             facts["entitlements"] = efacts
-            if network_fetch and efacts.get("associated_domains"):
-                from validate_entitlements import check_aasa
+            if network and efacts.get("associated_domains"):
+                import validate_entitlements as ve
+                fetch = aasa_fetch or (lambda url, ip: ve.safe_fetch(url, ip))
                 c.items = [f for f in c.items if f.rule_id != "ENT-ASSOC-001"]
-                c.extend(check_aasa(efacts["associated_domains"], network_fetch, "project"))
+                c.extend(ve.check_aasa(efacts["associated_domains"], fetch, "project"))
     elif release:
         c.add("PROJ-ENT-001", INFO, "project", "Release sem CODE_SIGN_ENTITLEMENTS (nenhuma capability com entitlements)", confidence=0.7)
     else:
@@ -328,14 +331,15 @@ def _guideline_checks(c: Collector, root: Path, info: dict, ents: dict, deps: di
     if social or social_code:
         ev = f"login social: deps={social} código={social_code[:2]}"
         if apple or apple_code or siwa_ent:
-            c.add("REV-LOGIN-001", PASS, "project", ev + f"; alternativa Sign in with Apple: deps={apple} código={apple_code[:1]} entitlement={siwa_ent}",
-                  confidence=0.6, verification_method="heuristic",
-                  recommendation="Confirme na UI que a opção Apple tem destaque equivalente.")
+            c.add("REV-LOGIN-001", NOT_VERIFIED, "project", ev + f"; indício de alternativa Sign in with Apple: deps={apple} código={apple_code[:1]} "
+                  f"entitlement={siwa_ent} (heurística: requer confirmação humana)",
+                  confidence=0.6, recommendation="Confirme na UI que a opção Apple (ou equivalente 4.8) é oferecida com destaque equivalente.")
         else:
             c.add("REV-LOGIN-001", WARNING, "project", ev + "; nenhuma alternativa equivalente (ex.: Sign in with Apple) encontrada",
                   confidence=0.6, recommendation="Adicione Sign in with Apple (pacote sign_in_with_apple + capability) ou outro login que atenda à 4.8.")
     else:
-        c.add("REV-LOGIN-001", NOT_APPLICABLE, "project", "nenhum login social/terceiro detectado no código ou dependências", confidence=0.5)
+        c.add("REV-LOGIN-001", NOT_VERIFIED, "project", "nenhum login social/terceiro detectado no código ou dependências (ausência heurística não prova N/A)",
+              confidence=0.4, recommendation="Confirme que o app não oferece login de terceiros; se oferecer, garanta uma alternativa 4.8.")
     if apple or apple_code:
         c.add("REV-LOGIN-002", PASS if siwa_ent else CRITICAL, "project",
               f"Sign in with Apple no código ({(apple_code or apple)[:1]}); entitlement com.apple.developer.applesignin {'presente' if siwa_ent else 'ausente'} no Release",
@@ -344,7 +348,8 @@ def _guideline_checks(c: Collector, root: Path, info: dict, ents: dict, deps: di
     # 5.1.1(v)
     if account:
         if deletion:
-            c.add("REV-ACCTDEL-001", PASS, "project", f"criação de conta {account[:1]}; exclusão {deletion[:2]}", confidence=0.6,
+            c.add("REV-ACCTDEL-001", NOT_VERIFIED, "project", f"criação de conta {account[:1]}; indício de exclusão {deletion[:2]} "
+                  "(heurística: requer confirmação humana)", confidence=0.6,
                   recommendation="Confirme que o fluxo apaga a conta (não só desativa) e é acessível sem contato com suporte.")
         else:
             c.add("REV-ACCTDEL-001", WARNING, "project", f"criação de conta {account[:2]}; nenhum fluxo de exclusão encontrado", confidence=0.55,
@@ -353,7 +358,8 @@ def _guideline_checks(c: Collector, root: Path, info: dict, ents: dict, deps: di
         c.add("REV-ACCTDEL-001", NOT_VERIFIED, "project", "login detectado, criação de conta não identificada no código", confidence=0.3,
               recommendation="Se o app permite criar conta (inclusive via login social), ofereça exclusão no app.")
     else:
-        c.add("REV-ACCTDEL-001", NOT_APPLICABLE, "project", "sem login nem criação de conta detectados", confidence=0.4)
+        c.add("REV-ACCTDEL-001", NOT_VERIFIED, "project", "sem login nem criação de conta detectados (ausência heurística não prova N/A)", confidence=0.3,
+              recommendation="Confirme que o app não permite criar conta; se permitir, ofereça exclusão no app.")
 
     # 2.1 demo account
     if login:
@@ -366,7 +372,7 @@ def _guideline_checks(c: Collector, root: Path, info: dict, ents: dict, deps: di
     storekit = any((root / "ios").glob("*.storekit"))
     if iap or storekit:
         restore = hits.get("iap_restore_code", [])
-        c.add("REV-IAP-002", PASS if restore else WARNING, "project",
+        c.add("REV-IAP-002", INFO if restore else WARNING, "project",
               f"IAP: deps={iap} storekit_config={storekit}; restauração {restore[:1] if restore else 'não encontrada'}", confidence=0.55,
               recommendation="" if restore else "Adicione botão 'Restaurar compras' chamando InAppPurchase.instance.restorePurchases().")
         c.add("REV-IAP-003", NOT_VERIFIED, "submission", "IAPs precisam estar 'Ready to Submit' e visíveis ao revisor (ASC)", confidence=0.8,
@@ -378,24 +384,31 @@ def _guideline_checks(c: Collector, root: Path, info: dict, ents: dict, deps: di
         c.add("REV-IAP-001", WARNING, "project", f"pagamento externo detectado: {ext_pay}", confidence=0.5,
               recommendation="Use IAP para conteúdo digital; pagamento externo só para bens físicos ou exceções 3.1.1(a)/3.1.3.")
     elif iap or storekit:
-        c.add("REV-IAP-001", PASS, "project", f"IAP via {iap or 'StoreKit'}; nenhum SDK/URL de pagamento externo detectado", confidence=0.5)
+        c.add("REV-IAP-001", NOT_VERIFIED, "project", f"IAP via {iap or 'StoreKit'}; nenhum SDK/URL de pagamento externo detectado "
+              "(ausência heurística: requer confirmação humana)", confidence=0.5,
+              recommendation="Confirme que todo conteúdo digital é vendido via IAP (3.1.1).")
     else:
-        c.add("REV-IAP-001", NOT_APPLICABLE, "project", "sem IAP nem pagamento externo detectados", confidence=0.4)
+        c.add("REV-IAP-001", NOT_VERIFIED, "project", "sem IAP nem pagamento externo detectados (ausência heurística não prova N/A)", confidence=0.3,
+              recommendation="Confirme que o app não vende conteúdo digital; se vender, use IAP (3.1.1).")
 
     # UGC
     ugc = hits.get("ugc_code", [])
     if ugc:
         mod = hits.get("ugc_moderation_code", [])
-        c.add("REV-UGC-001", PASS if mod else WARNING, "project",
-              f"sinais de UGC {ugc[:2]}; moderação/denúncia {mod[:2] if mod else 'não encontrada'}", confidence=0.4,
-              recommendation="" if mod else "Se usuários publicam conteúdo, adicione filtro, denúncia, bloqueio de usuários e contato (1.2).")
+        c.add("REV-UGC-001", NOT_VERIFIED if mod else WARNING, "project",
+              f"sinais de UGC {ugc[:2]}; " + (f"indício de moderação/denúncia {mod[:2]} (heurística: requer confirmação humana)"
+                                             if mod else "moderação/denúncia não encontrada"), confidence=0.4,
+              recommendation="Confirme filtro, denúncia, bloqueio de usuários e contato publicado (1.2)." if mod else
+              "Se usuários publicam conteúdo, adicione filtro, denúncia, bloqueio de usuários e contato (1.2).")
     else:
-        c.add("REV-UGC-001", NOT_APPLICABLE, "project", "nenhum sinal de conteúdo gerado por usuários", confidence=0.4)
+        c.add("REV-UGC-001", NOT_VERIFIED, "project", "nenhum sinal de conteúdo gerado por usuários (ausência heurística não prova N/A)", confidence=0.3,
+              recommendation="Confirme que usuários não publicam conteúdo visível a outros; se publicarem, atenda à 1.2.")
 
     # Privacy policy in-app
     pp = hits.get("privacy_policy_code", [])
-    c.add("PRIV-POLICY-001", PASS if pp else WARNING, "project",
-          f"referência à política de privacidade no código: {pp[:2]}" if pp else "nenhuma URL/tela de política de privacidade encontrada",
+    c.add("PRIV-POLICY-001", NOT_VERIFIED if pp else WARNING, "project",
+          f"indício de política de privacidade no código: {pp[:2]} (heurística: requer confirmação humana)" if pp
+          else "nenhuma URL/tela de política de privacidade encontrada",
           confidence=0.55 if pp else 0.5,
           recommendation="Confirme que o link está acessível no app (ex.: tela de login e Configurações)." if pp else
           "Adicione link para a política de privacidade dentro do app e no ASC (5.1.1(i)).")
@@ -406,7 +419,9 @@ def _guideline_checks(c: Collector, root: Path, info: dict, ents: dict, deps: di
         c.add("REV-PLACEHOLDER-001", WARNING, "project", f"textos temporários: {ph[:3]}", confidence=0.45,
               recommendation="Remova textos 'em breve'/'lorem ipsum' de telas acessíveis ao revisor (2.1).")
     else:
-        c.add("REV-PLACEHOLDER-001", PASS, "project", "nenhum placeholder óbvio em literais do código", confidence=0.4)
+        c.add("REV-PLACEHOLDER-001", NOT_VERIFIED, "project", "nenhum placeholder óbvio em literais do código (ausência heurística: "
+              "revise as telas acessíveis ao revisor)", confidence=0.3,
+              recommendation="Navegue pelo build de release e confirme que não há telas vazias, 'em breve' ou lorem ipsum (2.1).")
 
     # Push
     push = deps_of("push_deps")
@@ -419,7 +434,8 @@ def _guideline_checks(c: Collector, root: Path, info: dict, ents: dict, deps: di
     trk = deps_of("tracking_deps")
     if trk:
         has = bool(info.get("NSUserTrackingUsageDescription"))
-        c.add("PRIV-ATT-001", WARNING if not has else PASS, "project", f"SDKs de tracking/ads {trk}; NSUserTrackingUsageDescription {'presente' if has else 'ausente'}",
+        c.add("PRIV-ATT-001", WARNING if not has else NOT_VERIFIED, "project",
+              f"SDKs de tracking/ads {trk}; NSUserTrackingUsageDescription {'presente (uso real de ATT não verificado)' if has else 'ausente'}",
               confidence=0.5, verification_method="heuristic",
               recommendation="" if has else "Se houver tracking, peça ATT e adicione NSUserTrackingUsageDescription.")
 

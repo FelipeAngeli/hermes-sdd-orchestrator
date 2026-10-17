@@ -6,9 +6,9 @@ values of key.properties / keystores / local.properties (only presence).
 from __future__ import annotations
 
 import re
-import subprocess
 from pathlib import Path
 
+import common
 from common import (BLOCKER, INFO, NOT_VERIFIED, PASS, WARNING, FindingFactory, is_sensitive_file,
                     read_text_limited, redact)
 
@@ -221,25 +221,22 @@ def flutter_sdk_defaults(android_dir: Path) -> dict:
 
 # ---------------------------------------------------------------- git
 def git_status_for(paths: list[Path], cwd: Path) -> dict[str, dict]:
-    """tracked/ignored status via git (read-only commands)."""
+    """tracked/ignored status via git (read-only commands, hardened: see common.run_git).
+
+    The audited repository is untrusted: its .git/config must not be able to run commands."""
     out: dict[str, dict] = {}
-    try:
-        top = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=20)
-    except (OSError, subprocess.TimeoutExpired):
-        return out
-    if top.returncode != 0:
+    top = common.run_git(cwd, "rev-parse", "--show-toplevel")
+    if not top.ok:
         return out
     for p in paths:
         rel = str(p.relative_to(cwd))
-        st = {"in_repo": True}
-        try:
-            t = subprocess.run(["git", "-C", str(cwd), "ls-files", "--error-unmatch", rel], capture_output=True, timeout=20)
-            st["tracked"] = t.returncode == 0
-            i = subprocess.run(["git", "-C", str(cwd), "check-ignore", "-q", rel], capture_output=True, timeout=20)
-            st["ignored"] = i.returncode == 0
-        except (OSError, subprocess.TimeoutExpired):
-            st = {}
-        out[rel] = st
+        # exit codes: 0 = yes, 1 = no, anything else (128 fatal, timeout, not found) = unknown
+        t = common.run_git(cwd, "ls-files", "--error-unmatch", pathspecs=[rel])
+        i = common.run_git(cwd, "check-ignore", "-q", pathspecs=[rel])
+        if t.returncode in (0, 1) and i.returncode in (0, 1):
+            out[rel] = {"in_repo": True, "tracked": t.returncode == 0, "ignored": i.returncode == 0}
+        else:
+            out[rel] = {}
     return out
 
 

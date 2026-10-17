@@ -15,7 +15,9 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import unicodedata
 import zipfile
+import zlib
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -36,13 +38,18 @@ NOT_APPLICABLE = "NOT_APPLICABLE"
 SEVERITIES = [BLOCKER, CRITICAL, WARNING, INFO, PASS, NOT_VERIFIED, NOT_APPLICABLE]
 FAILING = {BLOCKER, CRITICAL}
 METHODS = {"deterministic", "heuristic", "manual"}
+NON_DETERMINISTIC = ("heuristic", "manual")
 
-# Archive limits (untrusted input).
+# Archive limits (untrusted input). Module globals are read at call time so tests can lower them.
 MAX_ENTRIES = 50_000
-MAX_TOTAL_UNCOMPRESSED = 4 * 1024**3  # 4 GiB declared
-MAX_ENTRY_RATIO = 200  # uncompressed/compressed per entry
-RATIO_MIN_SIZE = 10 * 1024 * 1024  # ratio only enforced for entries >10 MiB
+MAX_TOTAL_UNCOMPRESSED = 4 * 1024**3  # 4 GiB declared, summed over ALL entries
+MAX_ENTRY_RATIO = 200  # uncompressed/compressed per entry and for the archive as a whole
+RATIO_MIN_SIZE = 10 * 1024 * 1024  # per-entry ratio only enforced for entries >10 MiB
+TOTAL_RATIO_MIN_SIZE = 64 * 1024 * 1024  # aggregate ratio enforced once declared total >64 MiB
 MAX_EXTRACT_BYTES = 1024**3  # 1 GiB actually written to disk
+MAX_STREAM_BYTES = 5 * 1024**3  # bytes actually decompressed per archive (CRC pass + extraction)
+MAX_COMPONENT_BYTES = 255
+MAX_PATH_BYTES = 1000
 
 
 def today() -> str:
@@ -147,7 +154,20 @@ class Finding:
         if sev not in SEVERITIES:
             raise ValueError(f"bad severity {sev}")
         notes = []
-        # Hard semantic guards.
+        # Hard semantic guards (central: no call site can bypass them).
+        # PASS / NOT_APPLICABLE are verdicts that only a deterministic check may emit. A heuristic or a
+        # user declaration (manual) never proves compliance, and heuristic absence never proves N/A.
+        if method in NON_DETERMINISTIC and sev == PASS:
+            if method == "heuristic" and rule.get("requirement_level") == "mandatory":
+                notes.append("PASS heurístico rebaixado para NOT_VERIFIED (evidência encontrada; requer confirmação humana)")
+                sev = NOT_VERIFIED
+            else:
+                notes.append(f"PASS {'heurístico' if method == 'heuristic' else 'manual (declarado)'} rebaixado para INFO "
+                             "(evidência registrada; não conta como verificação)")
+                sev = INFO
+        if method in NON_DETERMINISTIC and sev == NOT_APPLICABLE:
+            notes.append("NOT_APPLICABLE por ausência de evidência heurística rebaixado para NOT_VERIFIED")
+            sev = NOT_VERIFIED
         if method == "heuristic" and sev in FAILING:
             notes.append(f"severidade rebaixada de {sev} para WARNING (achado heurístico)")
             sev = WARNING
@@ -283,10 +303,53 @@ class HashCache:
     def save(self) -> None:
         if not self.path:
             return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_private_dir(self.path.parent)
         tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.data, ensure_ascii=False), encoding="utf-8")
+        write_private(tmp, json.dumps(self.data, ensure_ascii=False))
         os.replace(tmp, self.path)
+
+
+# --------------------------------------------------------------------------- private output
+def ensure_private_dir(path: Path) -> Path:
+    """Create path (and missing parents) with mode 0700. Existing directories are left untouched."""
+    path = Path(path)
+    missing = []
+    p = path
+    while not p.exists():
+        missing.append(p)
+        if p.parent == p:
+            break
+        p = p.parent
+    for d in reversed(missing):
+        try:
+            d.mkdir(mode=0o700)
+        except FileExistsError:
+            continue
+        os.chmod(d, 0o700)  # mkdir mode is filtered by the umask
+    return path
+
+
+def write_private(path: Path, text: str) -> Path:
+    """Write a UTF-8 text file readable only by the owner (0600), also when it already exists."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fd = -1
+            fh.write(text)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+    return Path(path)
+
+
+def make_private_outdir(name: str) -> Path:
+    """Default report directory: fresh mkdtemp (0700), never a predictable shared /tmp path."""
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", name)[:60] or "audit"
+    d = Path(tempfile.mkdtemp(prefix=f"appstore-review-guardian-{safe}-"))
+    os.chmod(d, 0o700)
+    return d
 
 
 # --------------------------------------------------------------------------- external tools
@@ -318,12 +381,18 @@ def _is_symlink(info: zipfile.ZipInfo) -> bool:
     return stat.S_ISLNK(mode)
 
 
-def validate_zip(zf: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
-    """Reject unsafe archives. Returns the list of entries when safe."""
+def validate_zip(zf: zipfile.ZipFile, total_ratio_min: int | None = None) -> list[zipfile.ZipInfo]:
+    """Reject unsafe archives. Returns the list of entries when safe.
+
+    Budgets are enforced over the whole archive (sum of declared sizes and aggregate compression
+    ratio), not only per entry, so many entries just below the per-entry thresholds are still caught.
+    """
     infos = zf.infolist()
     if len(infos) > MAX_ENTRIES:
         raise UnsafeArchive(f"muitas entradas ({len(infos)} > {MAX_ENTRIES})")
+    total_ratio_min = TOTAL_RATIO_MIN_SIZE if total_ratio_min is None else total_ratio_min
     total = 0
+    total_compressed = 0
     for info in infos:
         name = info.filename
         if name.startswith("/") or name.startswith("\\") or re.match(r"^[A-Za-z]:", name):
@@ -336,14 +405,48 @@ def validate_zip(zf: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
         if _is_symlink(info):
             raise UnsafeArchive(f"entrada simbólica (symlink): {name!r}")
         total += info.file_size
+        total_compressed += info.compress_size
         if total > MAX_TOTAL_UNCOMPRESSED:
-            raise UnsafeArchive(f"tamanho descompactado declarado excede {MAX_TOTAL_UNCOMPRESSED} bytes")
+            raise UnsafeArchive(f"tamanho descompactado declarado (soma das entradas) excede {MAX_TOTAL_UNCOMPRESSED} bytes")
         if info.file_size > RATIO_MIN_SIZE and info.compress_size > 0:
             if info.file_size / info.compress_size > MAX_ENTRY_RATIO:
                 raise UnsafeArchive(f"taxa de compressão suspeita (zip bomb) em {name!r}")
         if info.file_size > RATIO_MIN_SIZE and info.compress_size == 0:
             raise UnsafeArchive(f"entrada com tamanho comprimido zero e grande descompactado: {name!r}")
+    if total > total_ratio_min and total / max(total_compressed, 1) > MAX_ENTRY_RATIO:
+        raise UnsafeArchive(f"taxa de compressão agregada suspeita (zip bomb): {total} bytes declarados para "
+                            f"{total_compressed} comprimidos em {len(infos)} entradas")
     return infos
+
+
+class ReadBudget:
+    """Counts bytes actually decompressed from one archive (all passes) against a hard cap."""
+
+    def __init__(self, limit: int | None = None):
+        self.limit = MAX_STREAM_BYTES if limit is None else limit
+        self.used = 0
+
+    def consume(self, n: int) -> None:
+        self.used += n
+        if self.used > self.limit:
+            raise UnsafeArchive(f"orçamento de bytes descompactados excedido ({self.limit} bytes lidos de fato)")
+
+
+def stream_check(zf: zipfile.ZipFile, infos: Iterable[zipfile.ZipInfo], budget: ReadBudget) -> str | None:
+    """CRC pass (replaces ZipFile.testzip) that counts streamed bytes. Returns the first bad member or None."""
+    for info in infos:
+        if info.is_dir():
+            continue
+        try:
+            with zf.open(info) as fh:
+                while True:
+                    b = fh.read(1 << 20)
+                    if not b:
+                        break
+                    budget.consume(len(b))
+        except (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError):
+            return info.filename
+    return None
 
 
 def read_member(zf: zipfile.ZipFile, name: str, max_bytes: int = 64 * 1024 * 1024) -> bytes:
@@ -369,29 +472,117 @@ def make_private_tempdir(prefix: str = "asrg-") -> Path:
     return d
 
 
-def extract_members(zf: zipfile.ZipFile, names: Iterable[str], dest: Path, max_bytes: int = MAX_EXTRACT_BYTES) -> int:
-    """Extract only selected members into dest, never following links."""
+@dataclass
+class ExtractResult:
+    """Outcome of extract_members: archive name -> temp path, plus members refused with the reason."""
+    root: Path
+    mapping: dict[str, Path] = field(default_factory=dict)
+    skipped: list[tuple[str, str]] = field(default_factory=list)
+    written: int = 0
+
+    def path_for(self, name: str) -> Path | None:
+        return self.mapping.get(name)
+
+
+def _fold(s: str) -> str:
+    # APFS/HFS+ default volumes are case-insensitive and normalization-insensitive.
+    return unicodedata.normalize("NFD", s).casefold()
+
+
+def plan_members(names: Iterable[str]) -> tuple[dict[str, list[str]], list[tuple[str, str]]]:
+    """Decide where each archive member may live under the temp dir WITHOUT touching the filesystem.
+
+    Refuses (per member, never raising) names that cannot be materialized safely on any supported
+    filesystem: components longer than 255 bytes, overlong paths, '.', empty or control-char
+    components, case/normalization-insensitive collisions and file-vs-directory conflicts.
+    Returns (archive name -> path components, [(archive name, reason)]).
+    """
+    plan: dict[str, list[str]] = {}
+    skipped: list[tuple[str, str]] = []
+    files: dict[str, str] = {}  # folded path -> archive name
+    dirs: dict[str, str] = {}   # folded dir prefix -> first archive name that needs it
+    for name in names:
+        parts = name.split("/")
+        reason = None
+        key, prefixes = "", []
+        if len(name.encode("utf-8", "surrogateescape")) > MAX_PATH_BYTES:
+            reason = f"caminho com mais de {MAX_PATH_BYTES} bytes"
+        elif any(p in ("", ".", "..") for p in parts):
+            reason = "componente vazio ou relativo"
+        elif any(len(p.encode("utf-8", "surrogateescape")) > MAX_COMPONENT_BYTES for p in parts):
+            reason = f"componente com mais de {MAX_COMPONENT_BYTES} bytes"
+        elif any(ord(ch) < 32 or ch == "\\" for p in parts for ch in p):
+            reason = "caractere de controle ou '\\' no nome"
+        if reason is None:
+            folded = [_fold(p) for p in parts]
+            key = "/".join(folded)
+            prefixes = ["/".join(folded[:i]) for i in range(1, len(folded))]
+            if key in files:
+                reason = f"colide com {files[key]!r} (maiúsculas/minúsculas ou normalização Unicode)"
+            elif key in dirs:
+                reason = f"arquivo com o mesmo nome do diretório usado por {dirs[key]!r}"
+            else:
+                clash = next((p for p in prefixes if p in files), None)
+                if clash is not None:
+                    reason = f"diretório com o mesmo nome do arquivo {files[clash]!r}"
+        if reason is not None:
+            skipped.append((name, reason))
+            continue
+        files[key] = name
+        for p in prefixes:
+            dirs.setdefault(p, name)
+        plan[name] = parts
+    return plan, skipped
+
+
+def extract_members(zf: zipfile.ZipFile, names: Iterable[str], dest: Path, max_bytes: int | None = None,
+                    budget: ReadBudget | None = None) -> ExtractResult:
+    """Extract only selected members into dest (a private temp dir), never following links.
+
+    Archive names never reach the filesystem unchecked: plan_members() rejects anything that could
+    collide or exceed OS limits, every target is re-checked to stay inside dest, files are created
+    with O_EXCL, and any per-member OSError is recorded in ``skipped`` instead of propagating.
+    Only UnsafeArchive (size/budget limits) aborts the whole extraction.
+    """
+    max_bytes = MAX_EXTRACT_BYTES if max_bytes is None else max_bytes
+    budget = budget or ReadBudget()
     dest = dest.resolve()
-    written = 0
+    res = ExtractResult(root=dest)
+    wanted = []
     for name in names:
         info = zf.getinfo(name)
-        if info.is_dir():
+        if not info.is_dir():
+            wanted.append(info)
+    plan, skipped = plan_members(i.filename for i in wanted)
+    res.skipped.extend(skipped)
+    for info in wanted:
+        parts = plan.get(info.filename)
+        if parts is None:
             continue
-        target = (dest / name).resolve()
-        if dest not in target.parents:
-            raise UnsafeArchive(f"destino fora do diretório temporário: {name!r}")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with zf.open(info) as src, open(target, "xb") as dst:
-            while True:
-                b = src.read(1 << 20)
-                if not b:
-                    break
-                written += len(b)
-                if written > max_bytes:
-                    raise UnsafeArchive("limite de bytes extraídos excedido")
-                dst.write(b)
-        os.chmod(target, 0o600)
-    return written
+        target = dest.joinpath(*parts)
+        try:
+            parent = target.parent
+            parent.mkdir(parents=True, exist_ok=True)
+            if parent.resolve() != parent or (dest not in parent.parents and parent != dest):
+                raise OSError("destino fora do diretório temporário")
+            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            with zf.open(info) as src, os.fdopen(fd, "wb") as dst:
+                while True:
+                    b = src.read(1 << 20)
+                    if not b:
+                        break
+                    budget.consume(len(b))
+                    res.written += len(b)
+                    if res.written > max_bytes:
+                        raise UnsafeArchive("limite de bytes extraídos excedido")
+                    dst.write(b)
+        except UnsafeArchive:
+            raise
+        except (OSError, zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError) as exc:
+            res.skipped.append((info.filename, f"{type(exc).__name__}: {getattr(exc, 'strerror', None) or exc}"))
+            continue
+        res.mapping[info.filename] = target
+    return res
 
 
 def cleanup_dir(path: Path | None) -> None:

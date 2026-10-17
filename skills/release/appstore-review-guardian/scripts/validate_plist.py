@@ -177,7 +177,7 @@ def validate_info_plist(pl: dict, source: str = "bundle", file: str = "Info.plis
                   recommendation=f"Escreva em {key} por que o app usa o recurso e como os dados são usados.")
         elif any(p.search(text.strip()) for p in patterns):
             c.add("PRIV-USAGE-002", WARNING, component, f"{key}={text!r} parece genérico", file=file, confidence=0.7,
-                  recommendation=f"Explique o uso concreto, ex.: 'O Mently usa suas fotos para definir a foto de perfil.' em {key} (e localize em InfoPlist.strings).")
+                  recommendation=f"Explique o uso concreto, ex.: 'O app usa suas fotos para definir a foto de perfil.' em {key} (e localize em InfoPlist.strings).")
         else:
             c.add("PRIV-USAGE-001", PASS, component, f"{key} preenchido ({len(text)} caracteres)", file=file, confidence=0.9)
     facts["usage_descriptions"] = sorted(usage)

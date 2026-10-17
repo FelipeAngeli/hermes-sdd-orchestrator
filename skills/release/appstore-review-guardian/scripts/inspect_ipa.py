@@ -15,8 +15,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import macho  # noqa: E402
 from common import (  # noqa: E402
-    BLOCKER, CRITICAL, INFO, NOT_APPLICABLE, NOT_VERIFIED, PASS, WARNING, Collector, Finding, UnsafeArchive,
-    cleanup_dir, extract_members, have_tool, load_plist, make_private_tempdir, ref, validate_zip,
+    BLOCKER, CRITICAL, INFO, NOT_APPLICABLE, NOT_VERIFIED, PASS, WARNING, Collector, Finding, ReadBudget, UnsafeArchive,
+    cleanup_dir, extract_members, have_tool, load_plist, make_private_tempdir, ref, stream_check, validate_zip,
 )
 from validate_entitlements import validate_entitlements  # noqa: E402
 from validate_plist import validate_file as validate_plist_file  # noqa: E402
@@ -221,9 +221,13 @@ def inspect_app_dir(app: Path, component: str = "app", label: str | None = None,
                   file=label, confidence=0.55,
                   recommendation="Confirme o uso e declare a categoria com o motivo correto no PrivacyInfo.xcprivacy do componente responsável.")
         elif used:
-            c.add("PRIV-RRAPI-002", PASS, component, f"categorias referenciadas {sorted(used)} estão declaradas em algum manifest", file=label, confidence=0.6)
+            c.add("PRIV-RRAPI-002", NOT_VERIFIED, component, f"categorias referenciadas {sorted(used)} aparecem declaradas em algum manifest "
+                  "(heurística por símbolos: confirme que o componente que usa a API declara o motivo correto)", file=label, confidence=0.6,
+                  recommendation="Confira o PrivacyInfo.xcprivacy de cada componente que usa as APIs; a Apple valida por componente no upload.")
         else:
-            c.add("PRIV-RRAPI-002", PASS, component, "nenhum símbolo de Required Reason API encontrado nos binários", file=label, confidence=0.5)
+            c.add("PRIV-RRAPI-002", NOT_VERIFIED, component, "nenhum símbolo de Required Reason API encontrado nos binários "
+                  "(ausência heurística: chamadas dinâmicas não são detectadas)", file=label, confidence=0.4,
+                  recommendation="Confirme no e-mail de processamento do App Store Connect (ITMS-91053) após o upload.")
 
     # ---- SDKs listed by Apple, embedded as frameworks
     for fw in facts["frameworks"]:
@@ -312,7 +316,8 @@ def inspect_ipa(path: Path, full: bool = True) -> tuple[list[Finding], dict]:
                 c.add("IPA-STRUCT-001", BLOCKER, "ipa", f"arquivo rejeitado por segurança: {exc}", file=path.name, confidence=1.0,
                       recommendation="Não processe este arquivo; reexporte a partir do Xcode.")
                 return c.items, facts
-            bad = zf.testzip() if full else None
+            budget = ReadBudget()
+            bad = stream_check(zf, infos, budget) if full else None
             if bad:
                 c.add("IPA-STRUCT-001", BLOCKER, "ipa", f"CRC inválido na entrada {bad!r}", file=path.name, confidence=1.0)
                 return c.items, facts
@@ -334,23 +339,33 @@ def inspect_ipa(path: Path, full: bool = True) -> tuple[list[Finding], dict]:
             facts["has_symbols_dir"] = any(n.startswith("Symbols/") for n in names)
             need_full = full or have_tool("codesign")
             members = _select_members(names, prefix, need_full)
+            skipped: list[tuple[str, str]] = []
             if not need_full:
                 # executables: main + frameworks (needed for arch/signature)
                 tmp_meta = make_private_tempdir()
                 try:
-                    extract_members(zf, [m for m in members if m.endswith("Info.plist")], tmp_meta)
-                    for ip in tmp_meta.rglob("Info.plist"):
+                    meta = extract_members(zf, [m for m in members if m.endswith("Info.plist")], tmp_meta, budget=budget)
+                    skipped += meta.skipped
+                    for arc_name, ip in sorted(meta.mapping.items()):
                         pl, _ = load_plist(ip)
-                        if isinstance(pl, dict) and pl.get("CFBundleExecutable"):
-                            reldir = ip.parent.relative_to(tmp_meta).as_posix()
-                            cand = f"{reldir}/{pl['CFBundleExecutable']}"
+                        if isinstance(pl, dict) and isinstance(pl.get("CFBundleExecutable"), str):
+                            cand = f"{arc_name.rsplit('/', 1)[0]}/{pl['CFBundleExecutable']}"
                             if cand in names:
                                 members.append(cand)
                 finally:
                     cleanup_dir(tmp_meta)
             tmp = make_private_tempdir()
-            extract_members(zf, sorted(set(members)), tmp)
-            facts["extracted_members"] = len(set(members))
+            res = extract_members(zf, sorted(set(members)), tmp, budget=budget)
+            skipped += [s for s in res.skipped if s not in skipped]
+            facts["extracted_members"] = len(res.mapping)
+            if skipped:
+                facts["skipped_members"] = [{"name": n[:200], "reason": r} for n, r in skipped[:20]]
+                c.add("IPA-STRUCT-001", NOT_VERIFIED, "ipa",
+                      f"{len(skipped)} entrada(s) não extraída(s) com segurança e não auditada(s): "
+                      + "; ".join(f"{n[:80]!r}: {r}" for n, r in skipped[:3]),
+                      file=path.name, confidence=0.9,
+                      recommendation="Nomes conflitantes (maiúsculas/minúsculas, arquivo × diretório) ou longos demais; "
+                                     "reexporte o .ipa pelo Xcode e confira o conteúdo do bundle.")
             findings, afacts = inspect_app_dir(tmp / "Payload" / app_name, "app", app_name, full=full)
             c.extend(findings)
             facts.update(afacts)

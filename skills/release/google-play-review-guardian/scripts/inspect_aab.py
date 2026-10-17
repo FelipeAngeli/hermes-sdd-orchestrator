@@ -19,7 +19,7 @@ import zipfile
 from pathlib import Path
 
 from common import (BLOCKER, CRITICAL, INFO, NOT_VERIFIED, PASS, WARNING, FindingFactory, ToolInfo,
-                    read_member, run_tool, scan_zip, tool_cmd, tool_env, SecureTempDir, extract_member_safe)
+                    archive_budget, read_member, run_tool, scan_zip, tool_cmd, tool_env, SecureTempDir, extract_member_safe)
 from validate_manifest import Element, attr_key, extract_info
 
 
@@ -210,8 +210,9 @@ def inspect_aab(path: Path, tools: dict[str, ToolInfo], F: FindingFactory, timeo
         return res
     res["modules"] = module_names(scan.entries)
     with zipfile.ZipFile(path) as zf:
-        raw = read_member(zf, names["base/manifest/AndroidManifest.xml"], 16 * 1024 ** 2)
-        native_pb = read_member(zf, names["base/native.pb"], 1024 ** 2) if "base/native.pb" in names else b""
+        budget = archive_budget(path)
+        raw = read_member(zf, names["base/manifest/AndroidManifest.xml"], 16 * 1024 ** 2, budget=budget)
+        native_pb = read_member(zf, names["base/native.pb"], 1024 ** 2, budget=budget) if "base/native.pb" in names else b""
     try:
         res["manifest"] = extract_info(parse_proto_xml(raw))
         res["verification"]["manifest"] = "deterministic (decodificador protobuf aapt2 XmlNode em Python)"
@@ -270,7 +271,7 @@ def inspect_aab(path: Path, tools: dict[str, ToolInfo], F: FindingFactory, timeo
     res["obfuscation_mapping"] = any(n.startswith("BUNDLE-METADATA/com.android.tools.build.obfuscation/") for n in names)
     with zipfile.ZipFile(path) as zf:
         if "base/root/billing.properties" in names:
-            txt = read_member(zf, names["base/root/billing.properties"], 4096).decode("utf-8", "replace")
+            txt = read_member(zf, names["base/root/billing.properties"], 4096, budget=archive_budget(path)).decode("utf-8", "replace")
             m = re.search(r"(?m)^(?:billing_client|version)=([0-9.]+)", txt)
             res["billing_library_version"] = m.group(1) if m else None
     return res

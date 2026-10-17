@@ -13,8 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import (  # noqa: E402
-    BLOCKER, CRITICAL, INFO, NOT_APPLICABLE, NOT_VERIFIED, PASS, SCHEMA_PATH, SEVERITIES, TOOL_NAME, TOOL_VERSION, WARNING,
-    Finding, now_iso, redact, rules,
+    BLOCKER, CRITICAL, INFO, NON_DETERMINISTIC, NOT_APPLICABLE, NOT_VERIFIED, PASS, SCHEMA_PATH, SEVERITIES, TOOL_NAME,
+    TOOL_VERSION, WARNING, Finding, ensure_private_dir, now_iso, redact, rules, write_private,
 )
 
 DISCLAIMER = ("Este relatório é uma auditoria preventiva automatizada. READY significa apenas que nenhuma falha bloqueante foi "
@@ -80,6 +80,7 @@ def gate_relevant(d: dict) -> bool:
 
 
 def decide(findings: list[dict], mode: str, ipa_audited: bool) -> tuple[str, list[str]]:
+    """Gate decision. READY requires that every passing verdict came from a deterministic check."""
     reasons = []
     blockers = [f for f in findings if f["severity"] == BLOCKER]
     crit_det = [f for f in findings if f["severity"] == CRITICAL and f["verification_method"] == "deterministic"]
@@ -89,12 +90,16 @@ def decide(findings: list[dict], mode: str, ipa_audited: bool) -> tuple[str, lis
     crit = [f for f in findings if f["severity"] == CRITICAL]
     warns = [f for f in findings if f["severity"] == WARNING]
     pend = [f for f in findings if gate_relevant(f)]
+    # Defensive: Finding.to_dict never emits these, but a hand-edited or re-rendered report could.
+    forged = [f for f in findings if f["severity"] in (PASS, NOT_APPLICABLE) and f["verification_method"] in NON_DETERMINISTIC]
     if crit:
         reasons.append(f"{len(crit)} achado(s) CRITICAL a validar")
     if warns:
         reasons.append(f"{len(warns)} WARNING(s) a validar")
     if pend:
         reasons.append(f"{len(pend)} requisito(s) obrigatório(s) NOT_VERIFIED")
+    if forged:
+        reasons.append(f"{len(forged)} veredito(s) PASS/NOT_APPLICABLE vindos de verificação heurística/manual (inválido)")
     if mode == "gate" and not ipa_audited:
         reasons.append("nenhum .ipa assinado auditado: assinatura, perfil e entitlements finais não verificados")
     return ("NEEDS_REVIEW" if reasons else "READY"), reasons
@@ -254,11 +259,11 @@ def render_markdown(r: dict) -> str:
 
 
 def write_reports(report: dict, out_dir: Path) -> tuple[Path, Path]:
-    out_dir.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(out_dir)
     jp = out_dir / "appstore-audit-report.json"
     mp = out_dir / "appstore-audit-report.md"
-    jp.write_text(json.dumps(report, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-    mp.write_text(render_markdown(report), encoding="utf-8")
+    write_private(jp, json.dumps(report, ensure_ascii=False, indent=2, default=str))
+    write_private(mp, render_markdown(report))
     return jp, mp
 
 

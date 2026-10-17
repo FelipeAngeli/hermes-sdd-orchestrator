@@ -481,6 +481,21 @@
    "severity_if_violated": "WARNING",
    "verification_method": "deterministic",
    "requirement_level": "recommended"
+  },
+  {
+   "id": "MODULE-ERROR-001",
+   "name": "Módulo de auditoria executado sem erro",
+   "description": "Um módulo de inspeção falhou com erro inesperado (entrada hostil ou malformada, limite do sistema de arquivos). As verificações dele não foram executadas e ficam pendentes; o gate nunca chega a READY.",
+   "category": "environment",
+   "area": "meta",
+   "guideline": null,
+   "official_url": "https://developer.apple.com/app-store/review/guidelines/",
+   "consulted_at": "2026-10-16",
+   "effective_from": null,
+   "applies_when": "sempre",
+   "severity_if_violated": "NOT_VERIFIED",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory"
   }
  ]
 }

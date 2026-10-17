@@ -45,7 +45,7 @@ python scripts/guardian.py rules --check-sources      # reconsulta URLs oficiais
 python scripts/guardian.py tools                      # ferramentas Android SDK encontradas
 ```
 
-Saídas: `google-play-audit-report.md` e `google-play-audit-report.json` em `--output-dir` (padrão: diretório temporário; nunca dentro do projeto). `--json` imprime só o resumo compacto. Exit codes: `0` READY, `1` NEEDS_REVIEW, `2` BLOCKED, `3` erro de uso.
+Saídas: `google-play-audit-report.md` e `google-play-audit-report.json` em `--output-dir` (padrão: diretório temporário novo `mkdtemp`, modo 0700; nunca dentro do projeto). Um `--output-dir` inexistente é criado com 0700 e relatórios/cache são gravados com 0600. Reutilize o mesmo `--output-dir` para aproveitar o cache incremental. `--json` imprime só o resumo compacto. Exit codes: `0` READY, `1` NEEDS_REVIEW, `2` BLOCKED, `3` erro de uso.
 
 ## Quick Reference
 
@@ -86,11 +86,13 @@ Regras: `rules/technical-rules.json`, `rules/privacy-rules.json`, `rules/policy-
 - Dependência de analytics/push não prova coleta de dados; trate como indício para o formulário Data safety.
 - `flutter.targetSdkVersion` é resolvido lendo o Flutter SDK local (heurístico); o valor autoritativo é o do artefato.
 - `key.properties`, keystores e `local.properties` nunca são lidos (exceto a chave `flutter.sdk`); só presença e status no Git aparecem no relatório.
+- O repositório auditado não é confiável: o status no Git usa só `rev-parse`/`ls-files`/`check-ignore` com `-c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.untrackedCache=false -c protocol.allow=never`, sem config de sistema/global e com `--` antes dos caminhos, para que `.git/config` não execute comandos.
+- `PASS` só sai de verificação determinística. Resultado heurístico ou declarado pelo usuário vira `INFO` "confirmar" (regra recomendada) ou `NOT_VERIFIED` (regra obrigatória); `READY` nunca depende de heurística.
 - A Play Developer API não expõe Data safety, classificação, público-alvo nem app access para leitura; esses itens sempre exigem conferência manual.
 
 ## Verification
 
 - Testes: `python -m unittest discover -s skills/release/google-play-review-guardian/tests -p 'test_*.py'` a partir da raiz do repositório (fixtures geradas em memória, sem rede).
-- Relatórios reais de exemplo: `examples/google-play-audit-report.md` e `examples/google-play-audit-report.json`, gerados executando o gate.
+- Relatórios de exemplo: `examples/google-play-audit-report.md` e `examples/google-play-audit-report.json`, gerados executando o gate sobre fixtures sintéticas (proveniência em `examples/README.md`).
 - Valide um relatório contra `schemas/audit-report.schema.json` (draft 2020-12) e confirme que `summary.exit_code` corresponde ao exit code do processo.
 - Integração com o orquestrador SDD: `references/sdd-integration.md`. Limitações conhecidas: `references/limitations.md`.

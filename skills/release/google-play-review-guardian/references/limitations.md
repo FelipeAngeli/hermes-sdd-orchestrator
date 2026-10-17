@@ -19,10 +19,16 @@
 ## Políticas
 - Conteúdo (UGC, IP, malware, abuso, Families, funcionalidade mínima, metadados enganosos) exige revisão humana.
 - Data safety e demais declarações do Console não são legíveis pela API pública; ficam `NOT_VERIFIED` até o usuário fornecer/confirmar.
-- `READY` = nenhum BLOCKER/CRITICAL/WARNING e nenhuma verificação obrigatória pendente **na cobertura executada**. Não é aprovação do Google.
+- `READY` = nenhum BLOCKER/CRITICAL/WARNING, nenhuma verificação obrigatória pendente e ao menos um `PASS` determinístico **na cobertura executada**. Não é aprovação do Google.
+- `PASS` exige verificação determinística. Inferências por nome/versão/regex (ex.: AGP ≥ 8.5.1, NDK r28+, `flutter.targetSdkVersion` resolvido do SDK local) e dados informados pelo usuário (ex.: testadores do teste fechado) são rebaixados centralmente em `Finding`: `INFO` "confirmar" em regras recomendadas, `NOT_VERIFIED` em regras obrigatórias.
 
 ## Testes funcionais
 - A camada de testes em dispositivo/emulador é apenas orientativa (`TECH-FUNCTIONAL-TESTS`); o auditor não instala nem executa o app.
+
+## Segurança da execução
+- Git: chamadas só via `common.run_git` (argv com `-c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.untrackedCache=false -c protocol.allow=never`, `--` antes de caminhos, ambiente mínimo com `GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`, timeout e saída limitada). `rev-parse`/`ls-files`/`check-ignore` não acionam `diff.external`, `core.sshCommand`, pager nem filtros. Sem `git` no PATH, o status no Git fica `NOT_VERIFIED`.
+- ZIP: além do limite por entrada, há limite de razão agregada, total declarado e um orçamento de bytes realmente descomprimidos por arquivo (compartilhado entre o CRC e todas as leituras/extrações dos módulos). Estourar o orçamento gera `SEC-ARCHIVE-SAFETY` e interrompe a leitura.
+- Saída: diretório padrão novo e privado (0700); arquivos 0600. Diretórios já existentes passados em `--output-dir` não têm as permissões alteradas.
 
 ## Rede
 - A auditoria não usa rede. Só `rules --check-sources` (re-fetch das URLs oficiais) e o modo API opcional fazem requisições.

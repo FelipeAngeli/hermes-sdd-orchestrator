@@ -163,7 +163,7 @@ def validate_testing(account: dict | None, F: FindingFactory, as_of: _dt.date | 
                     evidence=f"account_type=personal created={created}; testadores/dias não informados",
                     recommendation=f"Mantenha ≥ {cond['min_testers']} testadores inscritos continuamente por ≥ {cond['min_consecutive_days']} dias e então 'Apply for production'."))
     elif testers >= cond["min_testers"] and days >= cond["min_consecutive_days"]:
-        fs.append(F(rule_id, PASS, "testing", "Critério de teste fechado atendido (dados informados)",
+        fs.append(F(rule_id, NOT_VERIFIED, "testing", "Critério de teste fechado atendido segundo dados informados — confirmar no Console",
                     component="Play Console", method="manual", confidence="medium",
                     evidence=f"testers={testers} days={days} (informado pelo usuário; não verificado no Console)",
                     recommendation="Solicite acesso à produção no Dashboard; revisão leva em geral até 7 dias."))

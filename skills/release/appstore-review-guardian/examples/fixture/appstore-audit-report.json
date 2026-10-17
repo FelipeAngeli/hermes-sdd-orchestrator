@@ -4,24 +4,24 @@
     "name": "appstore-review-guardian",
     "version": "0.1.0"
   },
-  "generated_at": "2026-10-16T23:14:44Z",
+  "generated_at": "2026-10-17T00:27:24Z",
   "mode": "gate",
   "disclaimer": "Este relatório é uma auditoria preventiva automatizada. READY significa apenas que nenhuma falha bloqueante foi encontrada nas verificações executadas; não é garantia nem probabilidade de aprovação pela Apple. A decisão final é sempre do App Review.",
   "target": {
-    "project": "/private/tmp/asrg-ex/fixture/flutter_app",
-    "ipa": "/private/tmp/asrg-ex/fixture/Example-debug-signed.ipa",
+    "project": "/private/tmp/asrg-examples/flutter_app",
+    "ipa": "/private/tmp/asrg-examples/Example-debug-signed.ipa",
     "app_name": "Example App",
     "bundle_id": "com.example.app",
     "version": "1.2.0",
     "build": "42",
-    "ipa_sha256": "61c1b4e74c4a0467b77a7b9e97dfe122cf6d1596bede5778709c8c4c3063e0cd",
+    "ipa_sha256": "91dc76d55cd9556ae62203e1e6928900dbe72bde895df7b58db75fac544114d7",
     "facts": {
       "project": {
         "project": "flutter_app",
         "flutter": true,
         "ios_dir": "ios",
         "release_settings": {
-          "PRODUCT_BUNDLE_IDENTIFIER": "com.example.demo",
+          "PRODUCT_BUNDLE_IDENTIFIER": "com.example.app",
           "CODE_SIGN_ENTITLEMENTS": "Runner/Runner.entitlements",
           "CODE_SIGN_STYLE": null,
           "CODE_SIGN_IDENTITY": null,
@@ -33,10 +33,10 @@
           "Podfile platform": "15.0"
         },
         "info": {
-          "bundle_id": "com.example.demo",
+          "bundle_id": "com.example.app",
           "CFBundleShortVersionString": "2.0.1",
           "CFBundleVersion": "7",
-          "ITSAppUsesNonExemptEncryption": null,
+          "ITSAppUsesNonExemptEncryption": false,
           "UIBackgroundModes": [
             "remote-notification"
           ],
@@ -47,19 +47,37 @@
         },
         "version": "2.0.1",
         "build": "7",
-        "bundle_id": "com.example.demo",
+        "bundle_id": "com.example.app",
         "name": "demo",
         "entitlements": {
           "keys": [
-            "aps-environment"
+            "aps-environment",
+            "com.apple.developer.applesignin"
           ],
           "aps-environment": "development",
           "get-task-allow": null,
           "associated_domains": [],
-          "sign_in_with_apple": false
+          "sign_in_with_apple": true
         },
         "export_method": "app-store-connect",
-        "app_privacy_manifest": null,
+        "app_privacy_manifest": {
+          "component": "app",
+          "file": "/private/tmp/asrg-examples/flutter_app/ios/Runner/PrivacyInfo.xcprivacy",
+          "valid": true,
+          "tracking": false,
+          "tracking_domains": [],
+          "api_categories": {
+            "NSPrivacyAccessedAPICategoryUserDefaults": [
+              "CA92.1"
+            ],
+            "NSPrivacyAccessedAPICategoryFileTimestamp": [
+              "C617.1"
+            ]
+          },
+          "collected": [
+            "NSPrivacyCollectedDataTypeEmailAddress"
+          ]
+        },
         "dependencies": {
           "flutter_sdk_constraint": ">=3.24.0",
           "dart_sdk_constraint": ">=3.5.0 <4.0.0",
@@ -76,18 +94,21 @@
             "flutter",
             "image_picker",
             "firebase_messaging",
-            "google_sign_in"
+            "google_sign_in",
+            "sign_in_with_apple"
           ]
         },
         "code_signals": {
           "social_login_code": 1,
+          "apple_login_code": 1,
           "account_creation_code": 1,
+          "account_deletion_code": 1,
           "privacy_policy_code": 1
         }
       },
       "bundle": {
         "ipa": "Example-debug-signed.ipa",
-        "size": 4469,
+        "size": 4474,
         "payload_apps": [
           "Runner.app"
         ],
@@ -168,7 +189,7 @@
             "name": "Test development",
             "kind": "development",
             "team": "ABCDE12345",
-            "expires": "2027-05-04T23:14:44+00:00",
+            "expires": "2027-05-05T00:27:24+00:00",
             "decoded_with": "stdlib",
             "application_identifier": "ABCDE12345.com.example.app"
           },
@@ -200,7 +221,7 @@
     }
   },
   "rules": {
-    "count": 71,
+    "count": 72,
     "rules_consulted_at": "2026-10-16",
     "rules_age_days": 0,
     "sources_cache": null
@@ -224,7 +245,7 @@
       "counts": {
         "BLOCKER": 3,
         "CRITICAL": 1,
-        "WARNING": 3,
+        "WARNING": 2,
         "INFO": 1,
         "PASS": 27,
         "NOT_VERIFIED": 1,
@@ -237,24 +258,24 @@
       "counts": {
         "BLOCKER": 0,
         "CRITICAL": 0,
-        "WARNING": 3,
+        "WARNING": 1,
         "INFO": 0,
-        "PASS": 13,
-        "NOT_VERIFIED": 2,
+        "PASS": 16,
+        "NOT_VERIFIED": 4,
         "NOT_APPLICABLE": 1
       }
     },
     "app_review": {
       "label": "CONFORMIDADE APP REVIEW",
-      "status": "WARNING",
+      "status": "PASS_WITH_PENDING",
       "counts": {
         "BLOCKER": 0,
         "CRITICAL": 0,
-        "WARNING": 2,
+        "WARNING": 0,
         "INFO": 0,
         "PASS": 1,
-        "NOT_VERIFIED": 0,
-        "NOT_APPLICABLE": 2
+        "NOT_VERIFIED": 5,
+        "NOT_APPLICABLE": 0
       }
     },
     "submission": {
@@ -263,9 +284,9 @@
       "counts": {
         "BLOCKER": 0,
         "CRITICAL": 0,
-        "WARNING": 2,
+        "WARNING": 1,
         "INFO": 0,
-        "PASS": 0,
+        "PASS": 1,
         "NOT_VERIFIED": 13,
         "NOT_APPLICABLE": 0
       }
@@ -275,23 +296,23 @@
     "note": "Indicadores de prontidão = proporção de verificações executadas que passaram (conformity) e proporção de verificações que puderam ser executadas (coverage). Não são probabilidade de aprovação.",
     "technical": {
       "label": "Conformidade técnica",
-      "conformity_pct": 79,
+      "conformity_pct": 81,
       "coverage_pct": 97,
-      "executed": 33,
+      "executed": 32,
       "not_verified": 1,
       "blocking": 4
     },
     "apple_guidelines": {
       "label": "Conformidade com diretrizes Apple",
-      "conformity_pct": 74,
-      "coverage_pct": 90,
-      "executed": 19,
-      "not_verified": 2,
+      "conformity_pct": 94,
+      "coverage_pct": 67,
+      "executed": 18,
+      "not_verified": 9,
       "blocking": 0
     },
     "submission_preparation": {
       "label": "Preparação da submissão",
-      "conformity_pct": 0,
+      "conformity_pct": 50,
       "coverage_pct": 13,
       "executed": 2,
       "not_verified": 13,
@@ -308,120 +329,169 @@
   "counts": {
     "BLOCKER": 3,
     "CRITICAL": 1,
-    "WARNING": 10,
+    "WARNING": 4,
     "INFO": 1,
-    "PASS": 41,
-    "NOT_VERIFIED": 16,
-    "NOT_APPLICABLE": 3
+    "PASS": 45,
+    "NOT_VERIFIED": 23,
+    "NOT_APPLICABLE": 1
   },
   "pending": [
     {
+      "finding_id": "F055",
+      "rule_id": "REV-ACCTDEL-001",
+      "title": "Exclusão de conta no app",
+      "reason": "criação de conta [\"auth/auth.dart:3: Future<void> signUp() async { await api.post('/auth/register'); }\"]; indício de exclusão [\"auth/auth.dart:6: Future<void> deleteAccount() async { await api.delete(",
+      "gate_relevant": true
+    },
+    {
+      "finding_id": "F056",
+      "rule_id": "REV-IAP-001",
+      "title": "Compras de conteúdo digital via In-App Purchase",
+      "reason": "sem IAP nem pagamento externo detectados (ausência heurística não prova N/A)",
+      "gate_relevant": true
+    },
+    {
       "finding_id": "F057",
+      "rule_id": "REV-LOGIN-001",
+      "title": "Login social e alternativa equivalente",
+      "reason": "login social: deps=['google_sign_in'] código=['auth/auth.dart:4: final g = GoogleSignIn();']; indício de alternativa Sign in with Apple: deps=['sign_in_with_apple'] código=['auth/auth.dart:5: Future<v",
+      "gate_relevant": true
+    },
+    {
+      "finding_id": "F058",
+      "rule_id": "REV-PLACEHOLDER-001",
+      "title": "Placeholders e conteúdo temporário",
+      "reason": "nenhum placeholder óbvio em literais do código (ausência heurística: revise as telas acessíveis ao revisor)",
+      "gate_relevant": true
+    },
+    {
+      "finding_id": "F059",
+      "rule_id": "REV-UGC-001",
+      "title": "Conteúdo gerado por usuários",
+      "reason": "nenhum sinal de conteúdo gerado por usuários (ausência heurística não prova N/A)",
+      "gate_relevant": true
+    },
+    {
+      "finding_id": "F060",
+      "rule_id": "PRIV-POLICY-001",
+      "title": "Política de privacidade no app",
+      "reason": "indício de política de privacidade no código: [\"auth/auth.dart:7: final privacyUrl = 'https://example.com/privacy-policy';\"] (heurística: requer confirmação humana)",
+      "gate_relevant": true
+    },
+    {
+      "finding_id": "F061",
+      "rule_id": "PRIV-RRAPI-002",
+      "title": "Uso de Required Reason API sem declaração",
+      "reason": "nenhum símbolo de Required Reason API encontrado nos binários (ausência heurística: chamadas dinâmicas não são detectadas)",
+      "gate_relevant": true
+    },
+    {
+      "finding_id": "F062",
       "rule_id": "PRIV-SDK-001",
       "title": "SDK listado pela Apple sem privacy manifest",
       "reason": "pod FirebaseMessaging 11.0.0: ios/Pods ausente; rode 'pod install' ou audite o .ipa",
       "gate_relevant": true
     },
     {
-      "finding_id": "F058",
+      "finding_id": "F063",
       "rule_id": "PRIV-SDK-001",
       "title": "SDK listado pela Apple sem privacy manifest",
       "reason": "Flutter.framework: manifest verificado apenas no bundle compilado",
       "gate_relevant": true
     },
     {
-      "finding_id": "F059",
+      "finding_id": "F064",
       "rule_id": "ASC-AGE-001",
       "title": "Age Rating atualizado",
       "reason": "verificação manual pendente no App Store Connect",
       "gate_relevant": true
     },
     {
-      "finding_id": "F060",
+      "finding_id": "F065",
       "rule_id": "ASC-AVAIL-001",
       "title": "Disponibilidade, países e trader status (UE)",
       "reason": "verificação manual pendente no App Store Connect",
       "gate_relevant": true
     },
     {
-      "finding_id": "F061",
+      "finding_id": "F066",
       "rule_id": "ASC-EXPORT-001",
       "title": "Export compliance",
       "reason": "verificação manual pendente no App Store Connect",
       "gate_relevant": true
     },
     {
-      "finding_id": "F062",
+      "finding_id": "F067",
       "rule_id": "ASC-MEDIA-001",
       "title": "Screenshots e previews",
       "reason": "verificação manual pendente no App Store Connect",
       "gate_relevant": true
     },
     {
-      "finding_id": "F063",
+      "finding_id": "F068",
       "rule_id": "ASC-META-001",
       "title": "Nome do app",
       "reason": "metadados do App Store Connect não fornecidos",
       "gate_relevant": true
     },
     {
-      "finding_id": "F064",
+      "finding_id": "F069",
       "rule_id": "ASC-META-002",
       "title": "Subtítulo",
       "reason": "metadados do App Store Connect não fornecidos",
       "gate_relevant": true
     },
     {
-      "finding_id": "F065",
+      "finding_id": "F070",
       "rule_id": "ASC-META-003",
       "title": "Keywords",
       "reason": "metadados do App Store Connect não fornecidos",
       "gate_relevant": true
     },
     {
-      "finding_id": "F066",
+      "finding_id": "F071",
       "rule_id": "ASC-META-004",
       "title": "Descrição e texto promocional",
       "reason": "metadados do App Store Connect não fornecidos",
       "gate_relevant": true
     },
     {
-      "finding_id": "F067",
+      "finding_id": "F072",
       "rule_id": "ASC-META-005",
       "title": "Privacy Policy URL",
       "reason": "metadados do App Store Connect não fornecidos",
       "gate_relevant": true
     },
     {
-      "finding_id": "F068",
+      "finding_id": "F073",
       "rule_id": "ASC-META-006",
       "title": "Support URL",
       "reason": "metadados do App Store Connect não fornecidos",
       "gate_relevant": true
     },
     {
-      "finding_id": "F069",
+      "finding_id": "F074",
       "rule_id": "ASC-PRIV-001",
       "title": "App Privacy Details",
       "reason": "verificação manual pendente no App Store Connect",
       "gate_relevant": true
     },
     {
-      "finding_id": "F070",
+      "finding_id": "F075",
       "rule_id": "ASC-REVIEW-001",
       "title": "Informações para o App Review",
       "reason": "metadados do App Store Connect não fornecidos",
       "gate_relevant": true
     },
     {
-      "finding_id": "F071",
+      "finding_id": "F076",
       "rule_id": "REV-DEMO-001",
       "title": "Conta de demonstração para o revisor",
       "reason": "app tem login (['auth/auth.dart:4: final g = GoogleSignIn();']); credenciais de demo só verificáveis no ASC",
       "gate_relevant": true
     },
     {
-      "finding_id": "F072",
+      "finding_id": "F077",
       "rule_id": "SIGN-003",
       "title": "Certificado de distribuição",
       "reason": "autoridade do certificado não identificada",
@@ -459,7 +529,7 @@
       "guideline": null,
       "component": "app",
       "file": "Runner.app",
-      "evidence": "codesign --verify falhou (rc=1): /var/folders/0w/yy0n_v_13092j55ms2yk21zr0000gn/T/asrg-xh19h4ra/Payload/Runner.app: Unknown format in import. | In architecture: arm64",
+      "evidence": "codesign --verify falhou (rc=1): /var/folders/0w/yy0n_v_13092j55ms2yk21zr0000gn/T/asrg-ihbfn9ed/Payload/Runner.app: Unknown format in import. | In architecture: arm64",
       "explanation": "codesign --verify --deep --strict precisa aceitar o bundle. Requer macOS; sem a ferramenta fica NOT_VERIFIED.",
       "verification_method": "deterministic",
       "requirement_level": "mandatory",
@@ -479,7 +549,7 @@
       "guideline": null,
       "component": "app",
       "file": "Runner.app/embedded.mobileprovision",
-      "evidence": "perfil 'Test development' tipo=development, expira=2027-05-04T23:14:44+00:00, lido via stdlib; perfil do tipo development (App Store não tem ProvisionedDevices/ProvisionsAllDevices)",
+      "evidence": "perfil 'Test development' tipo=development, expira=2027-05-05T00:27:24+00:00, lido via stdlib; perfil do tipo development (App Store não tem ProvisionedDevices/ProvisionsAllDevices)",
       "explanation": "embedded.mobileprovision deve existir, não estar expirado e ser de distribuição App Store (sem ProvisionedDevices nem ProvisionsAllDevices, conforme TN3125).",
       "verification_method": "deterministic",
       "requirement_level": "mandatory",
@@ -511,66 +581,6 @@
     },
     {
       "id": "F005",
-      "rule_id": "REV-ACCTDEL-001",
-      "title": "Exclusão de conta no app",
-      "severity": "WARNING",
-      "category": "account",
-      "area": "app_review",
-      "guideline": "5.1.1(v)",
-      "component": "project",
-      "file": null,
-      "evidence": "criação de conta [\"auth/auth.dart:3: Future<void> signUp() async { await api.post('/auth/register'); }\"]; nenhum fluxo de exclusão encontrado",
-      "explanation": "5.1.1(v): se o app permite criar conta, precisa oferecer exclusão de conta dentro do app (desativar não basta).",
-      "verification_method": "heuristic",
-      "requirement_level": "mandatory",
-      "official_url": "https://developer.apple.com/support/offering-account-deletion-in-your-app/",
-      "consulted_at": "2026-10-16",
-      "confidence": 0.55,
-      "recommendation": "Implemente exclusão de conta no app (Configurações > Excluir conta) chamando o backend.",
-      "auto_fixable": false
-    },
-    {
-      "id": "F006",
-      "rule_id": "REV-LOGIN-001",
-      "title": "Login social e alternativa equivalente",
-      "severity": "WARNING",
-      "category": "authentication",
-      "area": "app_review",
-      "guideline": "4.8",
-      "component": "project",
-      "file": null,
-      "evidence": "login social: deps=['google_sign_in'] código=['auth/auth.dart:4: final g = GoogleSignIn();']; nenhuma alternativa equivalente (ex.: Sign in with Apple) encontrada",
-      "explanation": "4.8: apps que usam login de terceiros/social para a conta principal precisam oferecer outro serviço equivalente que limite dados a nome/e-mail, permita ocultar e-mail e não rastreie sem consentimento (ex.: Sign in with Apple).",
-      "verification_method": "heuristic",
-      "requirement_level": "mandatory",
-      "official_url": "https://developer.apple.com/app-store/review/guidelines/#login-services",
-      "consulted_at": "2026-10-16",
-      "confidence": 0.6,
-      "recommendation": "Adicione Sign in with Apple (pacote sign_in_with_apple + capability) ou outro login que atenda à 4.8.",
-      "auto_fixable": false
-    },
-    {
-      "id": "F007",
-      "rule_id": "PRIV-MANIFEST-001",
-      "title": "Privacy manifest do app",
-      "severity": "WARNING",
-      "category": "privacy_manifest",
-      "area": "privacy",
-      "guideline": "5.1.1",
-      "component": "project",
-      "file": "ios/Runner/PrivacyInfo.xcprivacy",
-      "evidence": "ios/Runner/PrivacyInfo.xcprivacy ausente (manifest do app)",
-      "explanation": "O app registra em PrivacyInfo.xcprivacy os tipos de dados coletados e as Required Reason APIs usadas. Ausência no bundle do app é risco quando o próprio código usa essas APIs.",
-      "verification_method": "deterministic",
-      "requirement_level": "mandatory",
-      "official_url": "https://developer.apple.com/documentation/bundleresources/privacy-manifest-files",
-      "consulted_at": "2026-10-16",
-      "confidence": 0.6,
-      "recommendation": "Crie via Xcode: File > New > File > App Privacy, target Runner; declare NSPrivacyCollectedDataTypes e as Required Reason APIs do seu código (ex.: UserDefaults CA92.1 via shared_preferences).",
-      "auto_fixable": false
-    },
-    {
-      "id": "F008",
       "rule_id": "PRIV-SDK-001",
       "title": "SDK listado pela Apple sem privacy manifest",
       "severity": "WARNING",
@@ -590,47 +600,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F009",
-      "rule_id": "PRIV-USAGE-002",
-      "title": "Purpose strings genéricas",
-      "severity": "WARNING",
-      "category": "permissions",
-      "area": "privacy",
-      "guideline": "5.1.1(ii)",
-      "component": "project",
-      "file": "ios/Runner/Info.plist",
-      "evidence": "NSPhotoLibraryUsageDescription='Allow this app to access your photos' parece genérico",
-      "explanation": "Textos genéricos (ex.: 'Allow this app to access your photos') costumam ser rejeitados por não explicar o uso dos dados (5.1.1(ii)).",
-      "verification_method": "heuristic",
-      "requirement_level": "mandatory",
-      "official_url": "https://developer.apple.com/app-store/review/guidelines/#data-collection-and-storage",
-      "consulted_at": "2026-10-16",
-      "confidence": 0.7,
-      "recommendation": "Explique o uso concreto, ex.: 'O Mently usa suas fotos para definir a foto de perfil.' em NSPhotoLibraryUsageDescription (e localize em InfoPlist.strings).",
-      "auto_fixable": false
-    },
-    {
-      "id": "F010",
-      "rule_id": "PLIST-ENC-001",
-      "title": "Declaração de criptografia (ITSAppUsesNonExemptEncryption)",
-      "severity": "WARNING",
-      "category": "export_compliance",
-      "area": "submission",
-      "guideline": null,
-      "component": "project",
-      "file": "ios/Runner/Info.plist",
-      "evidence": "ITSAppUsesNonExemptEncryption ausente",
-      "explanation": "Sem a chave, o App Store Connect exige o questionário de export compliance a cada upload. Incluir a chave agiliza a submissão; o valor correto depende do uso real de criptografia.",
-      "verification_method": "deterministic",
-      "requirement_level": "recommended",
-      "official_url": "https://developer.apple.com/documentation/bundleresources/information-property-list/itsappusesnonexemptencryption",
-      "consulted_at": "2026-10-16",
-      "confidence": 1.0,
-      "recommendation": "Se o app só usa criptografia isenta (ex.: HTTPS do sistema), adicione <key>ITSAppUsesNonExemptEncryption</key><false/>; caso contrário responda o questionário no ASC.",
-      "auto_fixable": false
-    },
-    {
-      "id": "F011",
+      "id": "F006",
       "rule_id": "PLIST-ENC-001",
       "title": "Declaração de criptografia (ITSAppUsesNonExemptEncryption)",
       "severity": "WARNING",
@@ -650,7 +620,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F012",
+      "id": "F007",
       "rule_id": "ENT-APS-001",
       "title": "aps-environment",
       "severity": "WARNING",
@@ -670,7 +640,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F013",
+      "id": "F008",
       "rule_id": "PLIST-ATS-001",
       "title": "NSAllowsArbitraryLoads",
       "severity": "WARNING",
@@ -690,27 +660,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F014",
-      "rule_id": "PLIST-ID-001",
-      "title": "CFBundleIdentifier definido",
-      "severity": "WARNING",
-      "category": "info_plist",
-      "area": "technical",
-      "guideline": null,
-      "component": "app",
-      "file": null,
-      "evidence": "bundle id do projeto (com.example.demo) ≠ do artefato (com.example.app)",
-      "explanation": "O bundle identifier deve estar definido e resolvido (sem variáveis de build não resolvidas no artefato).",
-      "verification_method": "deterministic",
-      "requirement_level": "mandatory",
-      "official_url": "https://developer.apple.com/documentation/bundleresources/information-property-list",
-      "consulted_at": "2026-10-16",
-      "confidence": 0.9,
-      "recommendation": "Confirme que o .ipa corresponde a este projeto/flavor.",
-      "auto_fixable": false
-    },
-    {
-      "id": "F015",
+      "id": "F009",
       "rule_id": "PROJ-FLUTTER-001",
       "title": "Inventário Flutter/Dart",
       "severity": "INFO",
@@ -730,27 +680,27 @@
       "auto_fixable": false
     },
     {
-      "id": "F016",
-      "rule_id": "REV-PLACEHOLDER-001",
-      "title": "Placeholders e conteúdo temporário",
+      "id": "F010",
+      "rule_id": "REV-LOGIN-002",
+      "title": "Sign in with Apple configurado de ponta a ponta",
       "severity": "PASS",
-      "category": "completeness",
+      "category": "authentication",
       "area": "app_review",
-      "guideline": "2.1",
+      "guideline": "4.8",
       "component": "project",
       "file": null,
-      "evidence": "nenhum placeholder óbvio em literais do código",
-      "explanation": "2.1(a): texto placeholder, sites vazios e conteúdo temporário devem ser removidos antes da submissão.",
-      "verification_method": "heuristic",
+      "evidence": "Sign in with Apple no código (['auth/auth.dart:5: Future<void> apple() => SignInWithApple.getAppleIDCredential(scopes: []);']); entitlement com.apple.developer.applesignin presente no Release",
+      "explanation": "Se o app oferece Sign in with Apple, o entitlement com.apple.developer.applesignin precisa estar presente no Release.",
+      "verification_method": "deterministic",
       "requirement_level": "mandatory",
-      "official_url": "https://developer.apple.com/app-store/review/guidelines/#app-completeness",
+      "official_url": "https://developer.apple.com/app-store/review/guidelines/#login-services",
       "consulted_at": "2026-10-16",
-      "confidence": 0.4,
+      "confidence": 0.85,
       "recommendation": "",
       "auto_fixable": false
     },
     {
-      "id": "F017",
+      "id": "F011",
       "rule_id": "RULES-FRESH-001",
       "title": "Base de regras atualizada",
       "severity": "PASS",
@@ -770,7 +720,27 @@
       "auto_fixable": false
     },
     {
-      "id": "F018",
+      "id": "F012",
+      "rule_id": "PRIV-DATA-001",
+      "title": "NSPrivacyCollectedDataTypes válidos",
+      "severity": "PASS",
+      "category": "privacy_manifest",
+      "area": "privacy",
+      "guideline": "5.1.1",
+      "component": "app",
+      "file": "ios/Runner/PrivacyInfo.xcprivacy",
+      "evidence": "1 tipo(s) de dados declarados",
+      "explanation": "Cada entrada deve usar tipo de dado e finalidades documentados e informar NSPrivacyCollectedDataTypeLinked/Tracking como Boolean.",
+      "verification_method": "deterministic",
+      "requirement_level": "mandatory",
+      "official_url": "https://developer.apple.com/documentation/bundleresources/describing-data-use-in-privacy-manifests",
+      "consulted_at": "2026-10-16",
+      "confidence": 1.0,
+      "recommendation": "",
+      "auto_fixable": false
+    },
+    {
+      "id": "F013",
       "rule_id": "PRIV-DATA-001",
       "title": "NSPrivacyCollectedDataTypes válidos",
       "severity": "PASS",
@@ -790,7 +760,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F019",
+      "id": "F014",
       "rule_id": "PRIV-DATA-001",
       "title": "NSPrivacyCollectedDataTypes válidos",
       "severity": "PASS",
@@ -810,7 +780,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F020",
+      "id": "F015",
       "rule_id": "PRIV-MANIFEST-001",
       "title": "Privacy manifest do app",
       "severity": "PASS",
@@ -830,7 +800,27 @@
       "auto_fixable": false
     },
     {
-      "id": "F021",
+      "id": "F016",
+      "rule_id": "PRIV-MANIFEST-002",
+      "title": "Privacy manifest válido",
+      "severity": "PASS",
+      "category": "privacy_manifest",
+      "area": "privacy",
+      "guideline": "5.1.1",
+      "component": "app",
+      "file": "ios/Runner/PrivacyInfo.xcprivacy",
+      "evidence": "manifest bem formado; chaves e tipos válidos",
+      "explanation": "Desde 12 nov 2024 apps enviados precisam conter privacy manifests válidos: plist bem formada, chaves e tipos corretos (TN3181).",
+      "verification_method": "deterministic",
+      "requirement_level": "mandatory",
+      "official_url": "https://developer.apple.com/documentation/technotes/tn3181-debugging-invalid-privacy-manifest",
+      "consulted_at": "2026-10-16",
+      "confidence": 0.95,
+      "recommendation": "",
+      "auto_fixable": false
+    },
+    {
+      "id": "F017",
       "rule_id": "PRIV-MANIFEST-002",
       "title": "Privacy manifest válido",
       "severity": "PASS",
@@ -846,111 +836,91 @@
       "official_url": "https://developer.apple.com/documentation/technotes/tn3181-debugging-invalid-privacy-manifest",
       "consulted_at": "2026-10-16",
       "confidence": 0.95,
+      "recommendation": "",
+      "auto_fixable": false
+    },
+    {
+      "id": "F018",
+      "rule_id": "PRIV-MANIFEST-002",
+      "title": "Privacy manifest válido",
+      "severity": "PASS",
+      "category": "privacy_manifest",
+      "area": "privacy",
+      "guideline": "5.1.1",
+      "component": "app",
+      "file": "Runner.app/PrivacyInfo.xcprivacy",
+      "evidence": "manifest bem formado; chaves e tipos válidos",
+      "explanation": "Desde 12 nov 2024 apps enviados precisam conter privacy manifests válidos: plist bem formada, chaves e tipos corretos (TN3181).",
+      "verification_method": "deterministic",
+      "requirement_level": "mandatory",
+      "official_url": "https://developer.apple.com/documentation/technotes/tn3181-debugging-invalid-privacy-manifest",
+      "consulted_at": "2026-10-16",
+      "confidence": 0.95,
+      "recommendation": "",
+      "auto_fixable": false
+    },
+    {
+      "id": "F019",
+      "rule_id": "PRIV-RRAPI-001",
+      "title": "Categorias e motivos de Required Reason API",
+      "severity": "PASS",
+      "category": "required_reason_api",
+      "area": "privacy",
+      "guideline": "5.1.1",
+      "component": "app",
+      "file": "ios/Runner/PrivacyInfo.xcprivacy",
+      "evidence": "categorias declaradas: ['NSPrivacyAccessedAPICategoryFileTimestamp', 'NSPrivacyAccessedAPICategoryUserDefaults']",
+      "explanation": "Cada NSPrivacyAccessedAPIType deve ser uma categoria documentada com ao menos um código de motivo aprovado para aquela categoria.",
+      "verification_method": "deterministic",
+      "requirement_level": "mandatory",
+      "official_url": "https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api",
+      "consulted_at": "2026-10-16",
+      "confidence": 1.0,
+      "recommendation": "",
+      "auto_fixable": false
+    },
+    {
+      "id": "F020",
+      "rule_id": "PRIV-RRAPI-001",
+      "title": "Categorias e motivos de Required Reason API",
+      "severity": "PASS",
+      "category": "required_reason_api",
+      "area": "privacy",
+      "guideline": "5.1.1",
+      "component": "Flutter.framework",
+      "file": "Runner.app/Frameworks/Flutter.framework/PrivacyInfo.xcprivacy",
+      "evidence": "categorias declaradas: ['NSPrivacyAccessedAPICategoryFileTimestamp', 'NSPrivacyAccessedAPICategoryUserDefaults']",
+      "explanation": "Cada NSPrivacyAccessedAPIType deve ser uma categoria documentada com ao menos um código de motivo aprovado para aquela categoria.",
+      "verification_method": "deterministic",
+      "requirement_level": "mandatory",
+      "official_url": "https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api",
+      "consulted_at": "2026-10-16",
+      "confidence": 1.0,
+      "recommendation": "",
+      "auto_fixable": false
+    },
+    {
+      "id": "F021",
+      "rule_id": "PRIV-RRAPI-001",
+      "title": "Categorias e motivos de Required Reason API",
+      "severity": "PASS",
+      "category": "required_reason_api",
+      "area": "privacy",
+      "guideline": "5.1.1",
+      "component": "app",
+      "file": "Runner.app/PrivacyInfo.xcprivacy",
+      "evidence": "categorias declaradas: ['NSPrivacyAccessedAPICategoryFileTimestamp', 'NSPrivacyAccessedAPICategoryUserDefaults']",
+      "explanation": "Cada NSPrivacyAccessedAPIType deve ser uma categoria documentada com ao menos um código de motivo aprovado para aquela categoria.",
+      "verification_method": "deterministic",
+      "requirement_level": "mandatory",
+      "official_url": "https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api",
+      "consulted_at": "2026-10-16",
+      "confidence": 1.0,
       "recommendation": "",
       "auto_fixable": false
     },
     {
       "id": "F022",
-      "rule_id": "PRIV-MANIFEST-002",
-      "title": "Privacy manifest válido",
-      "severity": "PASS",
-      "category": "privacy_manifest",
-      "area": "privacy",
-      "guideline": "5.1.1",
-      "component": "app",
-      "file": "Runner.app/PrivacyInfo.xcprivacy",
-      "evidence": "manifest bem formado; chaves e tipos válidos",
-      "explanation": "Desde 12 nov 2024 apps enviados precisam conter privacy manifests válidos: plist bem formada, chaves e tipos corretos (TN3181).",
-      "verification_method": "deterministic",
-      "requirement_level": "mandatory",
-      "official_url": "https://developer.apple.com/documentation/technotes/tn3181-debugging-invalid-privacy-manifest",
-      "consulted_at": "2026-10-16",
-      "confidence": 0.95,
-      "recommendation": "",
-      "auto_fixable": false
-    },
-    {
-      "id": "F023",
-      "rule_id": "PRIV-POLICY-001",
-      "title": "Política de privacidade no app",
-      "severity": "PASS",
-      "category": "privacy_policy",
-      "area": "privacy",
-      "guideline": "5.1.1(i)",
-      "component": "project",
-      "file": null,
-      "evidence": "referência à política de privacidade no código: [\"auth/auth.dart:5: final privacyUrl = 'https://example.com/privacy-policy';\"]",
-      "explanation": "5.1.1(i): link para a política de privacidade no ASC e dentro do app em local de fácil acesso. Busca por candidatos no código; precisa de confirmação.",
-      "verification_method": "heuristic",
-      "requirement_level": "mandatory",
-      "official_url": "https://developer.apple.com/app-store/review/guidelines/#data-collection-and-storage",
-      "consulted_at": "2026-10-16",
-      "confidence": 0.55,
-      "recommendation": "Confirme que o link está acessível no app (ex.: tela de login e Configurações).",
-      "auto_fixable": false
-    },
-    {
-      "id": "F024",
-      "rule_id": "PRIV-RRAPI-001",
-      "title": "Categorias e motivos de Required Reason API",
-      "severity": "PASS",
-      "category": "required_reason_api",
-      "area": "privacy",
-      "guideline": "5.1.1",
-      "component": "Flutter.framework",
-      "file": "Runner.app/Frameworks/Flutter.framework/PrivacyInfo.xcprivacy",
-      "evidence": "categorias declaradas: ['NSPrivacyAccessedAPICategoryFileTimestamp', 'NSPrivacyAccessedAPICategoryUserDefaults']",
-      "explanation": "Cada NSPrivacyAccessedAPIType deve ser uma categoria documentada com ao menos um código de motivo aprovado para aquela categoria.",
-      "verification_method": "deterministic",
-      "requirement_level": "mandatory",
-      "official_url": "https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api",
-      "consulted_at": "2026-10-16",
-      "confidence": 1.0,
-      "recommendation": "",
-      "auto_fixable": false
-    },
-    {
-      "id": "F025",
-      "rule_id": "PRIV-RRAPI-001",
-      "title": "Categorias e motivos de Required Reason API",
-      "severity": "PASS",
-      "category": "required_reason_api",
-      "area": "privacy",
-      "guideline": "5.1.1",
-      "component": "app",
-      "file": "Runner.app/PrivacyInfo.xcprivacy",
-      "evidence": "categorias declaradas: ['NSPrivacyAccessedAPICategoryFileTimestamp', 'NSPrivacyAccessedAPICategoryUserDefaults']",
-      "explanation": "Cada NSPrivacyAccessedAPIType deve ser uma categoria documentada com ao menos um código de motivo aprovado para aquela categoria.",
-      "verification_method": "deterministic",
-      "requirement_level": "mandatory",
-      "official_url": "https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api",
-      "consulted_at": "2026-10-16",
-      "confidence": 1.0,
-      "recommendation": "",
-      "auto_fixable": false
-    },
-    {
-      "id": "F026",
-      "rule_id": "PRIV-RRAPI-002",
-      "title": "Uso de Required Reason API sem declaração",
-      "severity": "PASS",
-      "category": "required_reason_api",
-      "area": "privacy",
-      "guideline": "5.1.1",
-      "component": "app",
-      "file": "Runner.app",
-      "evidence": "nenhum símbolo de Required Reason API encontrado nos binários",
-      "explanation": "Símbolos de APIs de motivo obrigatório encontrados no binário sem categoria declarada em nenhum manifest. Referência não prova uso em runtime.",
-      "verification_method": "heuristic",
-      "requirement_level": "mandatory",
-      "official_url": "https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api",
-      "consulted_at": "2026-10-16",
-      "confidence": 0.5,
-      "recommendation": "",
-      "auto_fixable": false
-    },
-    {
-      "id": "F027",
       "rule_id": "PRIV-SDK-001",
       "title": "SDK listado pela Apple sem privacy manifest",
       "severity": "PASS",
@@ -970,7 +940,27 @@
       "auto_fixable": false
     },
     {
-      "id": "F028",
+      "id": "F023",
+      "rule_id": "PRIV-TRACK-001",
+      "title": "NSPrivacyTracking / NSPrivacyTrackingDomains",
+      "severity": "PASS",
+      "category": "privacy_manifest",
+      "area": "privacy",
+      "guideline": "5.1.2",
+      "component": "app",
+      "file": "ios/Runner/PrivacyInfo.xcprivacy",
+      "evidence": "NSPrivacyTracking=False, domínios=0",
+      "explanation": "NSPrivacyTracking deve ser Boolean; NSPrivacyTrackingDomains array de strings (domínio sem caminho, query ou barra final); tracking=true com lista vazia é inválido (TN3181).",
+      "verification_method": "deterministic",
+      "requirement_level": "mandatory",
+      "official_url": "https://developer.apple.com/documentation/technotes/tn3181-debugging-invalid-privacy-manifest",
+      "consulted_at": "2026-10-16",
+      "confidence": 1.0,
+      "recommendation": "",
+      "auto_fixable": false
+    },
+    {
+      "id": "F024",
       "rule_id": "PRIV-TRACK-001",
       "title": "NSPrivacyTracking / NSPrivacyTrackingDomains",
       "severity": "PASS",
@@ -990,7 +980,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F029",
+      "id": "F025",
       "rule_id": "PRIV-TRACK-001",
       "title": "NSPrivacyTracking / NSPrivacyTrackingDomains",
       "severity": "PASS",
@@ -1010,7 +1000,27 @@
       "auto_fixable": false
     },
     {
-      "id": "F030",
+      "id": "F026",
+      "rule_id": "PRIV-USAGE-001",
+      "title": "Purpose strings vazias",
+      "severity": "PASS",
+      "category": "permissions",
+      "area": "privacy",
+      "guideline": "5.1.1(ii)",
+      "component": "project",
+      "file": "ios/Runner/Info.plist",
+      "evidence": "NSPhotoLibraryUsageDescription preenchido (51 caracteres)",
+      "explanation": "Chaves *UsageDescription presentes precisam ter texto que explique o uso (5.1.1(ii)); string vazia comprova a falha.",
+      "verification_method": "deterministic",
+      "requirement_level": "mandatory",
+      "official_url": "https://developer.apple.com/documentation/bundleresources/protected-resources",
+      "consulted_at": "2026-10-16",
+      "confidence": 0.9,
+      "recommendation": "",
+      "auto_fixable": false
+    },
+    {
+      "id": "F027",
       "rule_id": "PRIV-USAGE-001",
       "title": "Purpose strings vazias",
       "severity": "PASS",
@@ -1030,7 +1040,27 @@
       "auto_fixable": false
     },
     {
-      "id": "F031",
+      "id": "F028",
+      "rule_id": "PLIST-ENC-001",
+      "title": "Declaração de criptografia (ITSAppUsesNonExemptEncryption)",
+      "severity": "PASS",
+      "category": "export_compliance",
+      "area": "submission",
+      "guideline": null,
+      "component": "project",
+      "file": "ios/Runner/Info.plist",
+      "evidence": "ITSAppUsesNonExemptEncryption=False declarado (exatidão não verificável)",
+      "explanation": "Sem a chave, o App Store Connect exige o questionário de export compliance a cada upload. Incluir a chave agiliza a submissão; o valor correto depende do uso real de criptografia.",
+      "verification_method": "deterministic",
+      "requirement_level": "recommended",
+      "official_url": "https://developer.apple.com/documentation/bundleresources/information-property-list/itsappusesnonexemptencryption",
+      "consulted_at": "2026-10-16",
+      "confidence": 0.8,
+      "recommendation": "",
+      "auto_fixable": false
+    },
+    {
+      "id": "F029",
       "rule_id": "BIN-ARCH-001",
       "title": "Arquitetura arm64 no executável principal",
       "severity": "PASS",
@@ -1050,7 +1080,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F032",
+      "id": "F030",
       "rule_id": "BIN-ARCH-002",
       "title": "Fatias de simulador em frameworks incorporados",
       "severity": "PASS",
@@ -1070,7 +1100,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F033",
+      "id": "F031",
       "rule_id": "BIN-DEBUG-001",
       "title": "Símbolos/artefatos de depuração no bundle",
       "severity": "PASS",
@@ -1090,7 +1120,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F034",
+      "id": "F032",
       "rule_id": "BUILD-SDK-001",
       "title": "SDK e Xcode mínimos para upload",
       "severity": "PASS",
@@ -1110,7 +1140,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F035",
+      "id": "F033",
       "rule_id": "ENT-PROFILE-001",
       "title": "Entitlements autorizados pelo perfil",
       "severity": "PASS",
@@ -1130,7 +1160,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F036",
+      "id": "F034",
       "rule_id": "IPA-STRUCT-001",
       "title": "Integridade e segurança do arquivo .ipa",
       "severity": "PASS",
@@ -1150,7 +1180,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F037",
+      "id": "F035",
       "rule_id": "IPA-STRUCT-002",
       "title": "Payload/<App>.app único",
       "severity": "PASS",
@@ -1170,7 +1200,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F038",
+      "id": "F036",
       "rule_id": "PLIST-ATS-001",
       "title": "NSAllowsArbitraryLoads",
       "severity": "PASS",
@@ -1190,7 +1220,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F039",
+      "id": "F037",
       "rule_id": "PLIST-BG-001",
       "title": "Valores válidos em UIBackgroundModes",
       "severity": "PASS",
@@ -1210,7 +1240,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F040",
+      "id": "F038",
       "rule_id": "PLIST-BG-001",
       "title": "Valores válidos em UIBackgroundModes",
       "severity": "PASS",
@@ -1230,7 +1260,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F041",
+      "id": "F039",
       "rule_id": "PLIST-ID-001",
       "title": "CFBundleIdentifier definido",
       "severity": "PASS",
@@ -1239,7 +1269,7 @@
       "guideline": null,
       "component": "project",
       "file": "ios/Runner/Info.plist",
-      "evidence": "CFBundleIdentifier=com.example.demo",
+      "evidence": "CFBundleIdentifier=com.example.app",
       "explanation": "O bundle identifier deve estar definido e resolvido (sem variáveis de build não resolvidas no artefato).",
       "verification_method": "deterministic",
       "requirement_level": "mandatory",
@@ -1250,7 +1280,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F042",
+      "id": "F040",
       "rule_id": "PLIST-ID-001",
       "title": "CFBundleIdentifier definido",
       "severity": "PASS",
@@ -1270,7 +1300,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F043",
+      "id": "F041",
       "rule_id": "PLIST-MINOS-001",
       "title": "Deployment target mínimo aceito no upload",
       "severity": "PASS",
@@ -1290,7 +1320,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F044",
+      "id": "F042",
       "rule_id": "PLIST-PARSE-001",
       "title": "Info.plist presente e legível",
       "severity": "PASS",
@@ -1310,7 +1340,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F045",
+      "id": "F043",
       "rule_id": "PLIST-PARSE-001",
       "title": "Info.plist presente e legível",
       "severity": "PASS",
@@ -1330,7 +1360,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F046",
+      "id": "F044",
       "rule_id": "PLIST-VER-001",
       "title": "Formato de CFBundleShortVersionString",
       "severity": "PASS",
@@ -1350,7 +1380,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F047",
+      "id": "F045",
       "rule_id": "PLIST-VER-001",
       "title": "Formato de CFBundleShortVersionString",
       "severity": "PASS",
@@ -1370,7 +1400,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F048",
+      "id": "F046",
       "rule_id": "PLIST-VER-002",
       "title": "Formato de CFBundleVersion",
       "severity": "PASS",
@@ -1390,7 +1420,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F049",
+      "id": "F047",
       "rule_id": "PLIST-VER-002",
       "title": "Formato de CFBundleVersion",
       "severity": "PASS",
@@ -1410,7 +1440,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F050",
+      "id": "F048",
       "rule_id": "PROJ-DEPLOY-001",
       "title": "Deployment target do projeto",
       "severity": "PASS",
@@ -1430,7 +1460,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F051",
+      "id": "F049",
       "rule_id": "PROJ-ENT-001",
       "title": "Arquivo de entitlements do Release",
       "severity": "PASS",
@@ -1439,7 +1469,7 @@
       "guideline": null,
       "component": "project",
       "file": "ios/Runner/Runner.entitlements",
-      "evidence": "Release usa Runner/Runner.entitlements (1 chaves)",
+      "evidence": "Release usa Runner/Runner.entitlements (2 chaves)",
       "explanation": "CODE_SIGN_ENTITLEMENTS do Release deve apontar para arquivo existente e válido.",
       "verification_method": "deterministic",
       "requirement_level": "mandatory",
@@ -1450,7 +1480,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F052",
+      "id": "F050",
       "rule_id": "PROJ-EXPORT-001",
       "title": "ExportOptions.plist para App Store",
       "severity": "PASS",
@@ -1470,7 +1500,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F053",
+      "id": "F051",
       "rule_id": "REV-PUSH-001",
       "title": "Push notifications configurado",
       "severity": "PASS",
@@ -1490,7 +1520,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F054",
+      "id": "F052",
       "rule_id": "REV-PUSH-001",
       "title": "Push notifications configurado",
       "severity": "PASS",
@@ -1510,7 +1540,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F055",
+      "id": "F053",
       "rule_id": "REV-PUSH-001",
       "title": "Push notifications configurado",
       "severity": "PASS",
@@ -1530,7 +1560,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F056",
+      "id": "F054",
       "rule_id": "SIGN-001",
       "title": "Bundle assinado (_CodeSignature)",
       "severity": "PASS",
@@ -1550,7 +1580,147 @@
       "auto_fixable": false
     },
     {
+      "id": "F055",
+      "rule_id": "REV-ACCTDEL-001",
+      "title": "Exclusão de conta no app",
+      "severity": "NOT_VERIFIED",
+      "category": "account",
+      "area": "app_review",
+      "guideline": "5.1.1(v)",
+      "component": "project",
+      "file": null,
+      "evidence": "criação de conta [\"auth/auth.dart:3: Future<void> signUp() async { await api.post('/auth/register'); }\"]; indício de exclusão [\"auth/auth.dart:6: Future<void> deleteAccount() async { await api.delete('/me'); }\"] (heurística: requer confirmação humana)",
+      "explanation": "5.1.1(v): se o app permite criar conta, precisa oferecer exclusão de conta dentro do app (desativar não basta).",
+      "verification_method": "heuristic",
+      "requirement_level": "mandatory",
+      "official_url": "https://developer.apple.com/support/offering-account-deletion-in-your-app/",
+      "consulted_at": "2026-10-16",
+      "confidence": 0.6,
+      "recommendation": "Confirme que o fluxo apaga a conta (não só desativa) e é acessível sem contato com suporte.",
+      "auto_fixable": false
+    },
+    {
+      "id": "F056",
+      "rule_id": "REV-IAP-001",
+      "title": "Compras de conteúdo digital via In-App Purchase",
+      "severity": "NOT_VERIFIED",
+      "category": "monetization",
+      "area": "app_review",
+      "guideline": "3.1.1",
+      "component": "project",
+      "file": null,
+      "evidence": "sem IAP nem pagamento externo detectados (ausência heurística não prova N/A)",
+      "explanation": "3.1.1: desbloqueio de recursos/conteúdo digital deve usar IAP; mecanismos próprios (chaves, QR, cripto) não são permitidos. Pagamentos externos só nas exceções e regiões previstas (3.1.1(a), 3.1.3).",
+      "verification_method": "heuristic",
+      "requirement_level": "mandatory",
+      "official_url": "https://developer.apple.com/app-store/review/guidelines/#in-app-purchase",
+      "consulted_at": "2026-10-16",
+      "confidence": 0.3,
+      "recommendation": "Confirme que o app não vende conteúdo digital; se vender, use IAP (3.1.1).",
+      "auto_fixable": false
+    },
+    {
       "id": "F057",
+      "rule_id": "REV-LOGIN-001",
+      "title": "Login social e alternativa equivalente",
+      "severity": "NOT_VERIFIED",
+      "category": "authentication",
+      "area": "app_review",
+      "guideline": "4.8",
+      "component": "project",
+      "file": null,
+      "evidence": "login social: deps=['google_sign_in'] código=['auth/auth.dart:4: final g = GoogleSignIn();']; indício de alternativa Sign in with Apple: deps=['sign_in_with_apple'] código=['auth/auth.dart:5: Future<void> apple() => SignInWithApple.getAppleIDCredential(scopes: []);'] entitlement=True (heurística: requer confirmação humana)",
+      "explanation": "4.8: apps que usam login de terceiros/social para a conta principal precisam oferecer outro serviço equivalente que limite dados a nome/e-mail, permita ocultar e-mail e não rastreie sem consentimento (ex.: Sign in with Apple).",
+      "verification_method": "heuristic",
+      "requirement_level": "mandatory",
+      "official_url": "https://developer.apple.com/app-store/review/guidelines/#login-services",
+      "consulted_at": "2026-10-16",
+      "confidence": 0.6,
+      "recommendation": "Confirme na UI que a opção Apple (ou equivalente 4.8) é oferecida com destaque equivalente.",
+      "auto_fixable": false
+    },
+    {
+      "id": "F058",
+      "rule_id": "REV-PLACEHOLDER-001",
+      "title": "Placeholders e conteúdo temporário",
+      "severity": "NOT_VERIFIED",
+      "category": "completeness",
+      "area": "app_review",
+      "guideline": "2.1",
+      "component": "project",
+      "file": null,
+      "evidence": "nenhum placeholder óbvio em literais do código (ausência heurística: revise as telas acessíveis ao revisor)",
+      "explanation": "2.1(a): texto placeholder, sites vazios e conteúdo temporário devem ser removidos antes da submissão.",
+      "verification_method": "heuristic",
+      "requirement_level": "mandatory",
+      "official_url": "https://developer.apple.com/app-store/review/guidelines/#app-completeness",
+      "consulted_at": "2026-10-16",
+      "confidence": 0.3,
+      "recommendation": "Navegue pelo build de release e confirme que não há telas vazias, 'em breve' ou lorem ipsum (2.1).",
+      "auto_fixable": false
+    },
+    {
+      "id": "F059",
+      "rule_id": "REV-UGC-001",
+      "title": "Conteúdo gerado por usuários",
+      "severity": "NOT_VERIFIED",
+      "category": "content",
+      "area": "app_review",
+      "guideline": "1.2",
+      "component": "project",
+      "file": null,
+      "evidence": "nenhum sinal de conteúdo gerado por usuários (ausência heurística não prova N/A)",
+      "explanation": "1.2: apps com UGC precisam de filtro de conteúdo, denúncia com resposta em tempo hábil, bloqueio de usuários abusivos e contato publicado.",
+      "verification_method": "heuristic",
+      "requirement_level": "mandatory",
+      "official_url": "https://developer.apple.com/app-store/review/guidelines/#user-generated-content",
+      "consulted_at": "2026-10-16",
+      "confidence": 0.3,
+      "recommendation": "Confirme que usuários não publicam conteúdo visível a outros; se publicarem, atenda à 1.2.",
+      "auto_fixable": false
+    },
+    {
+      "id": "F060",
+      "rule_id": "PRIV-POLICY-001",
+      "title": "Política de privacidade no app",
+      "severity": "NOT_VERIFIED",
+      "category": "privacy_policy",
+      "area": "privacy",
+      "guideline": "5.1.1(i)",
+      "component": "project",
+      "file": null,
+      "evidence": "indício de política de privacidade no código: [\"auth/auth.dart:7: final privacyUrl = 'https://example.com/privacy-policy';\"] (heurística: requer confirmação humana)",
+      "explanation": "5.1.1(i): link para a política de privacidade no ASC e dentro do app em local de fácil acesso. Busca por candidatos no código; precisa de confirmação.",
+      "verification_method": "heuristic",
+      "requirement_level": "mandatory",
+      "official_url": "https://developer.apple.com/app-store/review/guidelines/#data-collection-and-storage",
+      "consulted_at": "2026-10-16",
+      "confidence": 0.55,
+      "recommendation": "Confirme que o link está acessível no app (ex.: tela de login e Configurações).",
+      "auto_fixable": false
+    },
+    {
+      "id": "F061",
+      "rule_id": "PRIV-RRAPI-002",
+      "title": "Uso de Required Reason API sem declaração",
+      "severity": "NOT_VERIFIED",
+      "category": "required_reason_api",
+      "area": "privacy",
+      "guideline": "5.1.1",
+      "component": "app",
+      "file": "Runner.app",
+      "evidence": "nenhum símbolo de Required Reason API encontrado nos binários (ausência heurística: chamadas dinâmicas não são detectadas)",
+      "explanation": "Símbolos de APIs de motivo obrigatório encontrados no binário sem categoria declarada em nenhum manifest. Referência não prova uso em runtime.",
+      "verification_method": "heuristic",
+      "requirement_level": "mandatory",
+      "official_url": "https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api",
+      "consulted_at": "2026-10-16",
+      "confidence": 0.4,
+      "recommendation": "Confirme no e-mail de processamento do App Store Connect (ITMS-91053) após o upload.",
+      "auto_fixable": false
+    },
+    {
+      "id": "F062",
       "rule_id": "PRIV-SDK-001",
       "title": "SDK listado pela Apple sem privacy manifest",
       "severity": "NOT_VERIFIED",
@@ -1570,7 +1740,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F058",
+      "id": "F063",
       "rule_id": "PRIV-SDK-001",
       "title": "SDK listado pela Apple sem privacy manifest",
       "severity": "NOT_VERIFIED",
@@ -1590,7 +1760,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F059",
+      "id": "F064",
       "rule_id": "ASC-AGE-001",
       "title": "Age Rating atualizado",
       "severity": "NOT_VERIFIED",
@@ -1610,7 +1780,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F060",
+      "id": "F065",
       "rule_id": "ASC-AVAIL-001",
       "title": "Disponibilidade, países e trader status (UE)",
       "severity": "NOT_VERIFIED",
@@ -1630,7 +1800,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F061",
+      "id": "F066",
       "rule_id": "ASC-EXPORT-001",
       "title": "Export compliance",
       "severity": "NOT_VERIFIED",
@@ -1650,7 +1820,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F062",
+      "id": "F067",
       "rule_id": "ASC-MEDIA-001",
       "title": "Screenshots e previews",
       "severity": "NOT_VERIFIED",
@@ -1670,7 +1840,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F063",
+      "id": "F068",
       "rule_id": "ASC-META-001",
       "title": "Nome do app",
       "severity": "NOT_VERIFIED",
@@ -1690,7 +1860,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F064",
+      "id": "F069",
       "rule_id": "ASC-META-002",
       "title": "Subtítulo",
       "severity": "NOT_VERIFIED",
@@ -1710,7 +1880,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F065",
+      "id": "F070",
       "rule_id": "ASC-META-003",
       "title": "Keywords",
       "severity": "NOT_VERIFIED",
@@ -1730,7 +1900,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F066",
+      "id": "F071",
       "rule_id": "ASC-META-004",
       "title": "Descrição e texto promocional",
       "severity": "NOT_VERIFIED",
@@ -1750,7 +1920,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F067",
+      "id": "F072",
       "rule_id": "ASC-META-005",
       "title": "Privacy Policy URL",
       "severity": "NOT_VERIFIED",
@@ -1770,7 +1940,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F068",
+      "id": "F073",
       "rule_id": "ASC-META-006",
       "title": "Support URL",
       "severity": "NOT_VERIFIED",
@@ -1790,7 +1960,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F069",
+      "id": "F074",
       "rule_id": "ASC-PRIV-001",
       "title": "App Privacy Details",
       "severity": "NOT_VERIFIED",
@@ -1810,7 +1980,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F070",
+      "id": "F075",
       "rule_id": "ASC-REVIEW-001",
       "title": "Informações para o App Review",
       "severity": "NOT_VERIFIED",
@@ -1830,7 +2000,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F071",
+      "id": "F076",
       "rule_id": "REV-DEMO-001",
       "title": "Conta de demonstração para o revisor",
       "severity": "NOT_VERIFIED",
@@ -1850,7 +2020,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F072",
+      "id": "F077",
       "rule_id": "SIGN-003",
       "title": "Certificado de distribuição",
       "severity": "NOT_VERIFIED",
@@ -1870,47 +2040,7 @@
       "auto_fixable": false
     },
     {
-      "id": "F073",
-      "rule_id": "REV-IAP-001",
-      "title": "Compras de conteúdo digital via In-App Purchase",
-      "severity": "NOT_APPLICABLE",
-      "category": "monetization",
-      "area": "app_review",
-      "guideline": "3.1.1",
-      "component": "project",
-      "file": null,
-      "evidence": "sem IAP nem pagamento externo detectados",
-      "explanation": "3.1.1: desbloqueio de recursos/conteúdo digital deve usar IAP; mecanismos próprios (chaves, QR, cripto) não são permitidos. Pagamentos externos só nas exceções e regiões previstas (3.1.1(a), 3.1.3).",
-      "verification_method": "heuristic",
-      "requirement_level": "mandatory",
-      "official_url": "https://developer.apple.com/app-store/review/guidelines/#in-app-purchase",
-      "consulted_at": "2026-10-16",
-      "confidence": 0.4,
-      "recommendation": "",
-      "auto_fixable": false
-    },
-    {
-      "id": "F074",
-      "rule_id": "REV-UGC-001",
-      "title": "Conteúdo gerado por usuários",
-      "severity": "NOT_APPLICABLE",
-      "category": "content",
-      "area": "app_review",
-      "guideline": "1.2",
-      "component": "project",
-      "file": null,
-      "evidence": "nenhum sinal de conteúdo gerado por usuários",
-      "explanation": "1.2: apps com UGC precisam de filtro de conteúdo, denúncia com resposta em tempo hábil, bloqueio de usuários abusivos e contato publicado.",
-      "verification_method": "heuristic",
-      "requirement_level": "mandatory",
-      "official_url": "https://developer.apple.com/app-store/review/guidelines/#user-generated-content",
-      "consulted_at": "2026-10-16",
-      "confidence": 0.4,
-      "recommendation": "",
-      "auto_fixable": false
-    },
-    {
-      "id": "F075",
+      "id": "F078",
       "rule_id": "PRIV-ATT-001",
       "title": "App Tracking Transparency",
       "severity": "NOT_APPLICABLE",
@@ -1931,7 +2061,7 @@
     }
   ],
   "cache": {
-    "file": "/private/tmp/asrg-ex/fixture-out/.guardian-cache.json",
+    "file": null,
     "hits": 0,
     "misses": 2,
     "changed_inputs": [
@@ -1941,6 +2071,7 @@
       "ios/Podfile.lock",
       "ios/Runner.xcodeproj/project.pbxproj",
       "ios/Runner/Info.plist",
+      "ios/Runner/PrivacyInfo.xcprivacy",
       "ios/Runner/Runner.entitlements",
       "lib/auth/auth.dart",
       "pubspec.lock",

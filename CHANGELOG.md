@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- Review fixes for the 15.6.0 store review guardians before their first use. Security: `google-play-review-guardian` ran `git` inside the audited project honouring that repository's configuration, so a hostile repository could execute commands through `core.fsmonitor` (proved with a PoC); every `git` call now goes through one hardened helper that ignores project and user Git configuration and puts `--` before paths. `appstore-review-guardian` no longer crashes on hostile `.ipa` member names (case or Unicode-normalisation collisions, file-versus-directory clashes, over-long names are skipped and reported) and isolates module failures as `NOT_VERIFIED`; its `--network` Universal Links fetch accepts only public multi-label DNS names whose resolved addresses are all global, over HTTPS:443 to the validated address without redirects. Both skills count the bytes actually decompressed across the whole archive, create their default output directory with `mkdtemp` and write reports `0600`. Semantics: heuristic and manual checks no longer produce `PASS` (a central guard downgrades them to `NOT_VERIFIED` on mandatory rules or `INFO` on recommended ones) and `READY` needs deterministic evidence, as the documentation already promised. The example reports are now generated from synthetic fixtures instead of a real private app.
+
 ## 15.6.0 - 2026-10-16
 
 ### Added

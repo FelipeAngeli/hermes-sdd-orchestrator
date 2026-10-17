@@ -4,12 +4,12 @@
     "name": "google-play-review-guardian",
     "version": "0.1.0"
   },
-  "generated_at": "2026-10-16T23:37:36+00:00",
+  "generated_at": "2026-10-17T00:20:05+00:00",
   "mode": "gate",
   "target": {
-    "project": "~/Documents/KelTech/mently/application/apps/app",
-    "aab": "~/Documents/KelTech/mently/application/apps/app/build/app/outputs/bundle/release/app-release.aab",
-    "apk": "~/Documents/KelTech/mently/application/apps/app/build/app/outputs/flutter-apk/app-release.apk",
+    "project": "/private/tmp/gprg-example/demo_app",
+    "aab": "/private/tmp/gprg-example/demo_app/build/app/outputs/bundle/release/app-release.aab",
+    "apk": "/private/tmp/gprg-example/demo_app/build/app/outputs/flutter-apk/app-release.apk",
     "aab_sha256": null,
     "apk_sha256": null,
     "project_type": "flutter",
@@ -17,10 +17,10 @@
     "submission": null
   },
   "app": {
-    "package": "br.com.mently.app.mently",
-    "label": "Mently",
-    "version_name": "1.5.3",
-    "version_code": 46,
+    "package": "com.example.app",
+    "label": "Example App",
+    "version_name": "2.1.0",
+    "version_code": 45,
     "min_sdk": 24,
     "target_sdk": 36,
     "compile_sdk": 36,
@@ -32,11 +32,11 @@
   "sections": {
     "android_build": {
       "label": "ANDROID BUILD",
-      "status": "WARNING",
+      "status": "NEEDS_REVIEW",
       "counts": {
-        "WARNING": 1,
-        "INFO": 2,
-        "PASS": 15
+        "INFO": 1,
+        "PASS": 15,
+        "NOT_VERIFIED": 1
       }
     },
     "target_sdk": {
@@ -50,7 +50,8 @@
       "label": "16 KB PAGE COMPATIBILITY",
       "status": "NEEDS_REVIEW",
       "counts": {
-        "PASS": 6,
+        "INFO": 2,
+        "PASS": 3,
         "NOT_VERIFIED": 1
       }
     },
@@ -58,26 +59,25 @@
       "label": "SIGNING",
       "status": "NEEDS_REVIEW",
       "counts": {
-        "PASS": 5,
-        "NOT_VERIFIED": 1
+        "PASS": 3,
+        "NOT_VERIFIED": 3
       }
     },
     "security": {
       "label": "SECURITY",
-      "status": "BLOCKED",
+      "status": "NEEDS_REVIEW",
       "counts": {
-        "CRITICAL": 2,
-        "INFO": 6,
+        "INFO": 2,
         "PASS": 2,
-        "NOT_VERIFIED": 4
+        "NOT_VERIFIED": 2
       }
     },
     "permissions": {
       "label": "PERMISSIONS",
-      "status": "WARNING",
+      "status": "BLOCKED",
       "counts": {
-        "WARNING": 1,
-        "INFO": 1,
+        "BLOCKER": 1,
+        "WARNING": 2,
         "NOT_VERIFIED": 1
       }
     },
@@ -92,10 +92,10 @@
     },
     "billing": {
       "label": "GOOGLE PLAY BILLING",
-      "status": "NEEDS_REVIEW",
+      "status": "BLOCKED",
       "counts": {
+        "BLOCKER": 1,
         "INFO": 1,
-        "PASS": 1,
         "NOT_VERIFIED": 1
       }
     },
@@ -115,66 +115,66 @@
     }
   },
   "counts": {
-    "BLOCKER": 0,
-    "CRITICAL": 2,
+    "BLOCKER": 2,
+    "CRITICAL": 0,
     "WARNING": 4,
-    "INFO": 11,
-    "PASS": 30,
-    "NOT_VERIFIED": 22,
+    "INFO": 7,
+    "PASS": 24,
+    "NOT_VERIFIED": 23,
     "NOT_APPLICABLE": 0
   },
   "coverage": {
     "mode": "gate",
     "artifacts_autodiscovered": [
-      "~/Documents/KelTech/mently/application/apps/app/build/app/outputs/bundle/release/app-release.aab",
-      "~/Documents/KelTech/mently/application/apps/app/build/app/outputs/flutter-apk/app-release.apk"
+      "/private/tmp/gprg-example/demo_app/build/app/outputs/bundle/release/app-release.aab",
+      "/private/tmp/gprg-example/demo_app/build/app/outputs/flutter-apk/app-release.apk"
     ],
     "network": "não utilizada na auditoria (somente rules --check-sources e API opcional)",
     "project_type": "flutter",
     "gradle_file": "android/app/build.gradle",
     "form_factor": "phone/tablet (nenhum uses-feature de outro formato)",
-    "source_files_scanned": 606
+    "source_files_scanned": 5
   },
   "tools": {
     "java": {
-      "available": true,
-      "path": "/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/java",
-      "reason": ""
+      "available": false,
+      "path": null,
+      "reason": "desativado (--no-tools)"
     },
     "aapt2": {
-      "available": true,
-      "path": "~/Library/Android/sdk/build-tools/37.0.0/aapt2",
-      "reason": ""
+      "available": false,
+      "path": null,
+      "reason": "desativado (--no-tools)"
     },
     "zipalign": {
-      "available": true,
-      "path": "~/Library/Android/sdk/build-tools/37.0.0/zipalign",
-      "reason": ""
+      "available": false,
+      "path": null,
+      "reason": "desativado (--no-tools)"
     },
     "apksigner": {
-      "available": true,
-      "path": "~/Library/Android/sdk/build-tools/37.0.0/apksigner",
-      "reason": ""
+      "available": false,
+      "path": null,
+      "reason": "desativado (--no-tools)"
     },
     "apkanalyzer": {
-      "available": true,
-      "path": "~/Library/Android/sdk/cmdline-tools/latest/bin/apkanalyzer",
-      "reason": ""
+      "available": false,
+      "path": null,
+      "reason": "desativado (--no-tools)"
     },
     "bundletool": {
-      "available": true,
-      "path": "~/Library/Android/sdk/bundletool/bundletool-all-1.18.3.jar",
-      "reason": ""
+      "available": false,
+      "path": null,
+      "reason": "desativado (--no-tools)"
     },
     "llvm-readelf": {
-      "available": true,
-      "path": "~/Library/Android/sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-readelf",
-      "reason": ""
+      "available": false,
+      "path": null,
+      "reason": "desativado (--no-tools)"
     },
     "adb": {
-      "available": true,
-      "path": "/opt/homebrew/bin/adb",
-      "reason": ""
+      "available": false,
+      "path": null,
+      "reason": "desativado (--no-tools)"
     }
   },
   "rules": {
@@ -186,24 +186,24 @@
   "inventory": {
     "project": {
       "type": "flutter",
-      "agp": "8.12.2",
-      "kotlin": "2.1.20",
-      "gradle_wrapper": "8.14.3",
-      "flutter_version": "3.41.7",
-      "dart_version": "3.11.5",
-      "flutter_constraint": "sdk: flutter",
-      "dart_constraint": ">=3.3.4 <4.0.0",
+      "agp": "8.7.0",
+      "kotlin": null,
+      "gradle_wrapper": null,
+      "flutter_version": null,
+      "dart_version": null,
+      "flutter_constraint": ">=3.22.0",
+      "dart_constraint": ">=3.3.0 <4.0.0",
       "lock_sdks": {
-        "dart": ">=3.10.3 <4.0.0",
-        "flutter": ">=3.38.4"
+        "dart": ">=3.5.0 <4.0.0",
+        "flutter": ">=3.24.0"
       },
-      "target_sdk_expr": "flutter.targetSdkVersion",
-      "target_sdk_resolved_from": "FlutterExtension.kt do Flutter SDK local",
-      "ndk_version": "flutter.ndkVersion",
+      "target_sdk_expr": "36",
+      "target_sdk_resolved_from": null,
+      "ndk_version": "28.0.13004108",
       "release_minify": true,
       "product_flavors": [],
       "sensitive_files_present": [
-        "android/keystore_mently.jks",
+        "android/upload.jks",
         "android/key.properties"
       ]
     },
@@ -215,164 +215,8 @@
         "declared_in": "manifest mesclado do artefato"
       },
       {
-        "permission": "android.permission.ACCESS_NETWORK_STATE",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "android.permission.USE_BIOMETRIC",
-        "rule_id": null,
-        "origin_hint": "local_auth / androidx.biometric",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "android.permission.WAKE_LOCK",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "android.permission.FOREGROUND_SERVICE",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
-        "rule_id": null,
-        "origin_hint": "audio_service / just_audio",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "android.permission.USE_FINGERPRINT",
-        "rule_id": null,
-        "origin_hint": "local_auth (API legada)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "br.com.mently.app.mently.permission.C2D_MESSAGE",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "android.permission.POST_NOTIFICATIONS",
-        "rule_id": "POL-SENSITIVE-PERMISSIONS",
-        "origin_hint": "push/notificações (ex.: OneSignal, firebase_messaging, flutter_local_notifications)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "com.google.android.c2dm.permission.RECEIVE",
-        "rule_id": null,
-        "origin_hint": "Firebase Cloud Messaging / push SDK (ex.: OneSignal)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "android.permission.VIBRATE",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "android.permission.RECEIVE_BOOT_COMPLETED",
-        "rule_id": null,
-        "origin_hint": "agendamento/push que reagenda após boot",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "com.sec.android.provider.badge.permission.READ",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "com.sec.android.provider.badge.permission.WRITE",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "com.htc.launcher.permission.READ_SETTINGS",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "com.htc.launcher.permission.UPDATE_SHORTCUT",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "com.sonyericsson.home.permission.BROADCAST_BADGE",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "com.sonymobile.home.permission.PROVIDER_INSERT_BADGE",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "com.anddoes.launcher.permission.UPDATE_COUNT",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "com.majeur.launcher.permission.UPDATE_BADGE",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "com.huawei.android.launcher.permission.CHANGE_BADGE",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "com.huawei.android.launcher.permission.READ_SETTINGS",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "com.huawei.android.launcher.permission.WRITE_SETTINGS",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "android.permission.READ_APP_BADGE",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "com.oppo.launcher.permission.READ_SETTINGS",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "com.oppo.launcher.permission.WRITE_SETTINGS",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "me.everything.badger.permission.BADGE_COUNT_READ",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "me.everything.badger.permission.BADGE_COUNT_WRITE",
-        "rule_id": null,
+        "permission": "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "rule_id": "POL-BACKGROUND-LOCATION",
         "origin_hint": "não determinado (verifique o manifest-merger-report)",
         "declared_in": "manifest mesclado do artefato"
       },
@@ -381,71 +225,26 @@
         "rule_id": null,
         "origin_hint": "Play Billing Library (in_app_purchase)",
         "declared_in": "manifest mesclado do artefato"
-      },
-      {
-        "permission": "br.com.mently.app.mently.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
-        "rule_id": null,
-        "origin_hint": "não determinado (verifique o manifest-merger-report)",
-        "declared_in": "manifest mesclado do artefato"
       }
     ],
     "native_libs": [
       {
         "name": "base/lib/arm64-v8a/libapp.so",
         "abi": "arm64-v8a",
-        "size": 12452784,
+        "size": 432,
         "compressed": true,
         "elf_class": 64,
         "machine": "aarch64",
         "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x10000",
+        "elf_detail": "PT_LOAD align 0x4000",
         "relro_16kb": true,
         "relro_detail": "sem GNU_RELRO",
-        "elf_method": "python-elf + llvm-readelf"
-      },
-      {
-        "name": "base/lib/arm64-v8a/libflutter.so",
-        "abi": "arm64-v8a",
-        "size": 11317712,
-        "compressed": true,
-        "elf_class": 64,
-        "machine": "aarch64",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x10000",
-        "relro_16kb": true,
-        "relro_detail": "RELRO ok",
-        "elf_method": "python-elf + llvm-readelf"
-      },
-      {
-        "name": "base/lib/arm64-v8a/libsentry-android.so",
-        "abi": "arm64-v8a",
-        "size": 16072,
-        "compressed": true,
-        "elf_class": 64,
-        "machine": "aarch64",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x4000",
-        "relro_16kb": true,
-        "relro_detail": "RELRO ok",
-        "elf_method": "python-elf + llvm-readelf"
-      },
-      {
-        "name": "base/lib/arm64-v8a/libsentry.so",
-        "abi": "arm64-v8a",
-        "size": 1219960,
-        "compressed": true,
-        "elf_class": 64,
-        "machine": "aarch64",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x4000",
-        "relro_16kb": true,
-        "relro_detail": "RELRO ok",
-        "elf_method": "python-elf + llvm-readelf"
+        "elf_method": "python-elf"
       },
       {
         "name": "base/lib/armeabi-v7a/libapp.so",
         "abi": "armeabi-v7a",
-        "size": 13779548,
+        "size": 372,
         "compressed": true,
         "elf_class": 32,
         "machine": "arm",
@@ -453,163 +252,27 @@
         "elf_detail": "PT_LOAD align 0x4000",
         "relro_16kb": true,
         "relro_detail": "sem GNU_RELRO",
-        "elf_method": "python-elf + llvm-readelf"
-      },
-      {
-        "name": "base/lib/armeabi-v7a/libflutter.so",
-        "abi": "armeabi-v7a",
-        "size": 8276324,
-        "compressed": true,
-        "elf_class": 32,
-        "machine": "arm",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x10000",
-        "relro_16kb": true,
-        "relro_detail": "RELRO ok",
-        "elf_method": "python-elf + llvm-readelf"
-      },
-      {
-        "name": "base/lib/armeabi-v7a/libsentry-android.so",
-        "abi": "armeabi-v7a",
-        "size": 11652,
-        "compressed": true,
-        "elf_class": 32,
-        "machine": "arm",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x4000",
-        "relro_16kb": true,
-        "relro_detail": "RELRO ok",
-        "elf_method": "python-elf + llvm-readelf"
-      },
-      {
-        "name": "base/lib/armeabi-v7a/libsentry.so",
-        "abi": "armeabi-v7a",
-        "size": 711440,
-        "compressed": true,
-        "elf_class": 32,
-        "machine": "arm",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x4000",
-        "relro_16kb": true,
-        "relro_detail": "RELRO ok",
-        "elf_method": "python-elf + llvm-readelf"
-      },
-      {
-        "name": "base/lib/x86_64/libapp.so",
-        "abi": "x86_64",
-        "size": 12714928,
-        "compressed": true,
-        "elf_class": 64,
-        "machine": "x86_64",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x10000",
-        "relro_16kb": true,
-        "relro_detail": "sem GNU_RELRO",
-        "elf_method": "python-elf + llvm-readelf"
-      },
-      {
-        "name": "base/lib/x86_64/libflutter.so",
-        "abi": "x86_64",
-        "size": 12564816,
-        "compressed": true,
-        "elf_class": 64,
-        "machine": "x86_64",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x10000",
-        "relro_16kb": true,
-        "relro_detail": "RELRO ok",
-        "elf_method": "python-elf + llvm-readelf"
-      },
-      {
-        "name": "base/lib/x86_64/libsentry-android.so",
-        "abi": "x86_64",
-        "size": 15976,
-        "compressed": true,
-        "elf_class": 64,
-        "machine": "x86_64",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x4000",
-        "relro_16kb": true,
-        "relro_detail": "RELRO ok",
-        "elf_method": "python-elf + llvm-readelf"
-      },
-      {
-        "name": "base/lib/x86_64/libsentry.so",
-        "abi": "x86_64",
-        "size": 1282040,
-        "compressed": true,
-        "elf_class": 64,
-        "machine": "x86_64",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x4000",
-        "relro_16kb": true,
-        "relro_detail": "RELRO ok",
-        "elf_method": "python-elf + llvm-readelf"
+        "elf_method": "python-elf"
       },
       {
         "name": "lib/arm64-v8a/libapp.so",
         "abi": "arm64-v8a",
-        "size": 12452784,
+        "size": 432,
         "compressed": false,
         "elf_class": 64,
         "machine": "aarch64",
         "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x10000",
+        "elf_detail": "PT_LOAD align 0x4000",
         "relro_16kb": true,
         "relro_detail": "sem GNU_RELRO",
-        "elf_method": "python-elf + llvm-readelf",
-        "zip_offset": 2916352,
-        "zip_16kb": true
-      },
-      {
-        "name": "lib/arm64-v8a/libflutter.so",
-        "abi": "arm64-v8a",
-        "size": 11317712,
-        "compressed": false,
-        "elf_class": 64,
-        "machine": "aarch64",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x10000",
-        "relro_16kb": true,
-        "relro_detail": "RELRO ok",
-        "elf_method": "python-elf + llvm-readelf",
-        "zip_offset": 15384576,
-        "zip_16kb": true
-      },
-      {
-        "name": "lib/arm64-v8a/libsentry-android.so",
-        "abi": "arm64-v8a",
-        "size": 16072,
-        "compressed": false,
-        "elf_class": 64,
-        "machine": "aarch64",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x4000",
-        "relro_16kb": true,
-        "relro_detail": "RELRO ok",
-        "elf_method": "python-elf + llvm-readelf",
-        "zip_offset": 26705920,
-        "zip_16kb": true
-      },
-      {
-        "name": "lib/arm64-v8a/libsentry.so",
-        "abi": "arm64-v8a",
-        "size": 1219960,
-        "compressed": false,
-        "elf_class": 64,
-        "machine": "aarch64",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x4000",
-        "relro_16kb": true,
-        "relro_detail": "RELRO ok",
-        "elf_method": "python-elf + llvm-readelf",
-        "zip_offset": 26722304,
+        "elf_method": "python-elf",
+        "zip_offset": 16384,
         "zip_16kb": true
       },
       {
         "name": "lib/armeabi-v7a/libapp.so",
         "abi": "armeabi-v7a",
-        "size": 13779548,
+        "size": 372,
         "compressed": false,
         "elf_class": 32,
         "machine": "arm",
@@ -617,132 +280,26 @@
         "elf_detail": "PT_LOAD align 0x4000",
         "relro_16kb": true,
         "relro_detail": "sem GNU_RELRO",
-        "elf_method": "python-elf + llvm-readelf",
-        "zip_offset": 27951104,
-        "zip_16kb": true
-      },
-      {
-        "name": "lib/armeabi-v7a/libflutter.so",
-        "abi": "armeabi-v7a",
-        "size": 8276324,
-        "compressed": false,
-        "elf_class": 32,
-        "machine": "arm",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x10000",
-        "relro_16kb": true,
-        "relro_detail": "RELRO ok",
-        "elf_method": "python-elf + llvm-readelf",
-        "zip_offset": 41746432,
-        "zip_16kb": true
-      },
-      {
-        "name": "lib/armeabi-v7a/libsentry-android.so",
-        "abi": "armeabi-v7a",
-        "size": 11652,
-        "compressed": false,
-        "elf_class": 32,
-        "machine": "arm",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x4000",
-        "relro_16kb": true,
-        "relro_detail": "RELRO ok",
-        "elf_method": "python-elf + llvm-readelf",
-        "zip_offset": 50036736,
-        "zip_16kb": true
-      },
-      {
-        "name": "lib/armeabi-v7a/libsentry.so",
-        "abi": "armeabi-v7a",
-        "size": 711440,
-        "compressed": false,
-        "elf_class": 32,
-        "machine": "arm",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x4000",
-        "relro_16kb": true,
-        "relro_detail": "RELRO ok",
-        "elf_method": "python-elf + llvm-readelf",
-        "zip_offset": 50053120,
-        "zip_16kb": true
-      },
-      {
-        "name": "lib/x86_64/libapp.so",
-        "abi": "x86_64",
-        "size": 12714928,
-        "compressed": false,
-        "elf_class": 64,
-        "machine": "x86_64",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x10000",
-        "relro_16kb": true,
-        "relro_detail": "sem GNU_RELRO",
-        "elf_method": "python-elf + llvm-readelf",
-        "zip_offset": 50774016,
-        "zip_16kb": true
-      },
-      {
-        "name": "lib/x86_64/libflutter.so",
-        "abi": "x86_64",
-        "size": 12564816,
-        "compressed": false,
-        "elf_class": 64,
-        "machine": "x86_64",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x10000",
-        "relro_16kb": true,
-        "relro_detail": "RELRO ok",
-        "elf_method": "python-elf + llvm-readelf",
-        "zip_offset": 63504384,
-        "zip_16kb": true
-      },
-      {
-        "name": "lib/x86_64/libsentry-android.so",
-        "abi": "x86_64",
-        "size": 15976,
-        "compressed": false,
-        "elf_class": 64,
-        "machine": "x86_64",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x4000",
-        "relro_16kb": true,
-        "relro_detail": "RELRO ok",
-        "elf_method": "python-elf + llvm-readelf",
-        "zip_offset": 76070912,
-        "zip_16kb": true
-      },
-      {
-        "name": "lib/x86_64/libsentry.so",
-        "abi": "x86_64",
-        "size": 1282040,
-        "compressed": false,
-        "elf_class": 64,
-        "machine": "x86_64",
-        "elf_16kb": true,
-        "elf_detail": "PT_LOAD align 0x4000",
-        "relro_16kb": true,
-        "relro_detail": "RELRO ok",
-        "elf_method": "python-elf + llvm-readelf",
-        "zip_offset": 76087296,
+        "elf_method": "python-elf",
+        "zip_offset": 32768,
         "zip_16kb": true
       }
     ],
     "artifacts": [
       {
         "kind": "aab",
-        "path": "~/Documents/KelTech/mently/application/apps/app/build/app/outputs/bundle/release/app-release.aab",
+        "path": "/private/tmp/gprg-example/demo_app/build/app/outputs/bundle/release/app-release.aab",
         "sha256": null,
         "modules": [
           "base"
         ],
         "abis": [
           "arm64-v8a",
-          "armeabi-v7a",
-          "x86_64"
+          "armeabi-v7a"
         ],
         "verification": {
-          "manifest": "deterministic (decodificador protobuf aapt2 XmlNode em Python); confirmado com aapt2 dump xmltree",
-          "bundletool": "bundletool validate: OK"
+          "manifest": "deterministic (decodificador protobuf aapt2 XmlNode em Python)",
+          "bundletool": "NOT_VERIFIED: desativado (--no-tools)"
         },
         "from_cache": false,
         "signature_schemes": [
@@ -750,50 +307,40 @@
         ],
         "certificates": [
           {
-            "source": "META-INF/MENTLY.RSA",
-            "sha256": "CBECAF8B7C9950AE30697B487F86C9C21461C8D52A0F968DCDAECE619D49CC15",
+            "source": "META-INF/KEY.RSA",
+            "sha256": "C114816159AF1E22D5F1A275B5AFA56B4F45C1283F0ED042B140AAEDCF840DBA",
             "subject": {
-              "C": "BR",
-              "ST": "MA",
-              "L": "Imperatriz",
-              "O": "Mently",
-              "OU": "TI",
-              "CN": "Mently"
+              "CN": "Upload Key"
             },
             "key_algorithm": "RSA",
             "key_bits": 2048
           }
         ],
-        "billing_library_version": "8.0.0"
+        "billing_library_version": "7.1.1"
       },
       {
         "kind": "apk",
-        "path": "~/Documents/KelTech/mently/application/apps/app/build/app/outputs/flutter-apk/app-release.apk",
+        "path": "/private/tmp/gprg-example/demo_app/build/app/outputs/flutter-apk/app-release.apk",
         "sha256": null,
         "modules": null,
         "abis": [
           "arm64-v8a",
-          "armeabi-v7a",
-          "x86_64"
+          "armeabi-v7a"
         ],
         "verification": {
-          "manifest": "deterministic (parser AXML em Python); confirmado com aapt2 dump badging"
+          "manifest": "deterministic (parser AXML em Python)",
+          "aapt2": "desativado (--no-tools)"
         },
         "from_cache": false,
         "signature_schemes": [
-          "v2"
+          "v1/jar"
         ],
         "certificates": [
           {
-            "source": "APK Signing Block v2",
-            "sha256": "CBECAF8B7C9950AE30697B487F86C9C21461C8D52A0F968DCDAECE619D49CC15",
+            "source": "META-INF/CERT.RSA",
+            "sha256": "4A4520E2CE4886124F9672AA61BA81AD9846599BB829A3E9A13350C56DB3F550",
             "subject": {
-              "C": "BR",
-              "ST": "MA",
-              "L": "Imperatriz",
-              "O": "Mently",
-              "OU": "TI",
-              "CN": "Mently"
+              "CN": "Release Key"
             },
             "key_algorithm": "RSA",
             "key_bits": 2048
@@ -806,571 +353,78 @@
       {
         "name": "flutter",
         "source": "pubspec",
-        "version": "0.0.0",
+        "version": null,
         "category": null,
         "review_data_types": []
       },
       {
-        "name": "flutter_localizations",
+        "name": "firebase_analytics",
         "source": "pubspec",
-        "version": "0.0.0",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "intl",
-        "source": "pubspec",
-        "version": "0.19.0",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "get_it",
-        "source": "pubspec",
-        "version": "8.3.0",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "go_router",
-        "source": "pubspec",
-        "version": "14.8.1",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "dio",
-        "source": "pubspec",
-        "version": "5.9.2",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "flutter_svg",
-        "source": "pubspec",
-        "version": "2.2.4",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "riverpod",
-        "source": "pubspec",
-        "version": "2.6.1",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "riverpod_annotation",
-        "source": "pubspec",
-        "version": "2.6.1",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "hooks_riverpod",
-        "source": "pubspec",
-        "version": "2.6.1",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "flutter_riverpod",
-        "source": "pubspec",
-        "version": "2.6.1",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "flutter_hooks",
-        "source": "pubspec",
-        "version": "0.20.5",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "freezed",
-        "source": "pubspec",
-        "version": "2.5.8",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "freezed_annotation",
-        "source": "pubspec",
-        "version": "2.4.4",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "flutter_secure_storage",
-        "source": "pubspec",
-        "version": "9.2.4",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "flutter_native_splash",
-        "source": "pubspec",
-        "version": "2.4.7",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "toastification",
-        "source": "pubspec",
-        "version": "3.0.3",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "email_validator",
-        "source": "pubspec",
-        "version": "3.0.0",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "cached_network_image",
-        "source": "pubspec",
-        "version": "3.4.1",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "visibility_detector",
-        "source": "pubspec",
-        "version": "0.4.0+2",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "carousel_slider",
-        "source": "pubspec",
-        "version": "5.1.2",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "pod_player",
-        "source": "pubspec",
-        "version": "0.2.2",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "flutter_switch",
-        "source": "pubspec",
-        "version": "0.3.2",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "expandable_text",
-        "source": "pubspec",
-        "version": "2.3.0",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "table_calendar",
-        "source": "pubspec",
-        "version": "3.2.0",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "dio_cache_interceptor",
-        "source": "pubspec",
-        "version": "4.0.5",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "http_cache_hive_store",
-        "source": "pubspec",
-        "version": "5.0.2",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "path_provider",
-        "source": "pubspec",
-        "version": "2.1.5",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "shimmer",
-        "source": "pubspec",
-        "version": "3.0.0",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "flutter_appauth",
-        "source": "pubspec",
-        "version": "9.0.1",
-        "category": "auth",
+        "version": "11.3.0",
+        "category": "analytics",
         "review_data_types": [
-          "User IDs"
+          "App activity",
+          "Device or other IDs"
         ]
-      },
-      {
-        "name": "cupertino_icons",
-        "source": "pubspec",
-        "version": "1.0.8",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "collection",
-        "source": "pubspec",
-        "version": "1.19.1",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "fquery",
-        "source": "pubspec",
-        "version": "1.5.0-beta.1",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "sentry_flutter",
-        "source": "pubspec",
-        "version": "8.14.2",
-        "category": "crash",
-        "review_data_types": [
-          "Crash logs",
-          "Diagnostics"
-        ]
-      },
-      {
-        "name": "dart_pusher_channels",
-        "source": "pubspec",
-        "version": "1.2.3",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "image_picker",
-        "source": "pubspec",
-        "version": "1.2.1",
-        "category": "media",
-        "review_data_types": [
-          "Photos",
-          "Videos"
-        ]
-      },
-      {
-        "name": "mime",
-        "source": "pubspec",
-        "version": "2.0.0",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "onesignal_flutter",
-        "source": "pubspec",
-        "version": "5.4.4",
-        "category": "push",
-        "review_data_types": [
-          "Device or other IDs",
-          "App interactions"
-        ]
-      },
-      {
-        "name": "local_auth",
-        "source": "pubspec",
-        "version": "2.3.0",
-        "category": "biometric",
-        "review_data_types": []
-      },
-      {
-        "name": "local_auth_android",
-        "source": "pubspec",
-        "version": "1.0.56",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "local_auth_darwin",
-        "source": "pubspec",
-        "version": "1.6.1",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "open_file",
-        "source": "pubspec",
-        "version": "3.5.11",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "flutter_widget_from_html_core",
-        "source": "pubspec",
-        "version": "0.16.1",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "share_plus",
-        "source": "pubspec",
-        "version": "10.1.4",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "url_launcher",
-        "source": "pubspec",
-        "version": "6.3.2",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "image_cropper",
-        "source": "pubspec",
-        "version": "9.1.0",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "json_annotation",
-        "source": "pubspec",
-        "version": "4.9.0",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "local_auth_platform_interface",
-        "source": "pubspec",
-        "version": "1.1.0",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "qr_flutter",
-        "source": "pubspec",
-        "version": "4.1.0",
-        "category": null,
-        "review_data_types": []
       },
       {
         "name": "in_app_purchase",
         "source": "pubspec",
-        "version": "3.3.1",
+        "version": "3.2.0",
         "category": "billing_play",
         "review_data_types": [
           "Purchase history"
-        ]
-      },
-      {
-        "name": "in_app_purchase_android",
-        "source": "pubspec",
-        "version": "0.5.0",
-        "category": "billing_play",
-        "review_data_types": [
-          "Purchase history"
-        ]
-      },
-      {
-        "name": "in_app_purchase_storekit",
-        "source": "pubspec",
-        "version": "0.4.8+1",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "audio_service",
-        "source": "pubspec",
-        "version": "0.18.18",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "audio_session",
-        "source": "pubspec",
-        "version": "0.2.2",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "just_audio",
-        "source": "pubspec",
-        "version": "0.10.5",
-        "category": null,
-        "review_data_types": []
-      },
-      {
-        "name": "com.android.billingclient:billing:8.0.0",
-        "source": "aab:dependencies.pb",
-        "version": "8.0.0",
-        "category": "billing_play",
-        "review_data_types": [
-          "Purchase history"
-        ]
-      },
-      {
-        "name": "com.onesignal:OneSignal:5.7.2",
-        "source": "aab:dependencies.pb",
-        "version": "5.7.2",
-        "category": "push",
-        "review_data_types": [
-          "Device or other IDs",
-          "App interactions"
-        ]
-      },
-      {
-        "name": "com.onesignal:core:5.7.2",
-        "source": "aab:dependencies.pb",
-        "version": "5.7.2",
-        "category": "push",
-        "review_data_types": [
-          "Device or other IDs",
-          "App interactions"
-        ]
-      },
-      {
-        "name": "com.onesignal:otel:5.7.2",
-        "source": "aab:dependencies.pb",
-        "version": "5.7.2",
-        "category": "push",
-        "review_data_types": [
-          "Device or other IDs",
-          "App interactions"
-        ]
-      },
-      {
-        "name": "com.onesignal:notifications:5.7.2",
-        "source": "aab:dependencies.pb",
-        "version": "5.7.2",
-        "category": "push",
-        "review_data_types": [
-          "Device or other IDs",
-          "App interactions"
-        ]
-      },
-      {
-        "name": "com.onesignal:in-app-messages:5.7.2",
-        "source": "aab:dependencies.pb",
-        "version": "5.7.2",
-        "category": "push",
-        "review_data_types": [
-          "Device or other IDs",
-          "App interactions"
-        ]
-      },
-      {
-        "name": "com.onesignal:location:5.7.2",
-        "source": "aab:dependencies.pb",
-        "version": "5.7.2",
-        "category": "push",
-        "review_data_types": [
-          "Device or other IDs",
-          "App interactions"
-        ]
-      },
-      {
-        "name": "io.sentry:sentry-android:7.22.4",
-        "source": "aab:dependencies.pb",
-        "version": "7.22.4",
-        "category": "crash",
-        "review_data_types": [
-          "Crash logs",
-          "Diagnostics"
-        ]
-      },
-      {
-        "name": "io.sentry:sentry-android-core:7.22.4",
-        "source": "aab:dependencies.pb",
-        "version": "7.22.4",
-        "category": "crash",
-        "review_data_types": [
-          "Crash logs",
-          "Diagnostics"
-        ]
-      },
-      {
-        "name": "io.sentry:sentry:7.22.4",
-        "source": "aab:dependencies.pb",
-        "version": "7.22.4",
-        "category": "crash",
-        "review_data_types": [
-          "Crash logs",
-          "Diagnostics"
-        ]
-      },
-      {
-        "name": "io.sentry:sentry-android-ndk:7.22.4",
-        "source": "aab:dependencies.pb",
-        "version": "7.22.4",
-        "category": "crash",
-        "review_data_types": [
-          "Crash logs",
-          "Diagnostics"
-        ]
-      },
-      {
-        "name": "io.sentry:sentry-android-replay:7.22.4",
-        "source": "aab:dependencies.pb",
-        "version": "7.22.4",
-        "category": "crash",
-        "review_data_types": [
-          "Crash logs",
-          "Diagnostics"
         ]
       }
     ],
-    "maven_library_count": 173
+    "maven_library_count": 0
   },
   "findings": [
     {
-      "rule_id": "SEC-SIGNING-SECRETS-IN-VCS",
-      "severity": "CRITICAL",
-      "section": "security",
-      "title": "Arquivo de assinatura versionado no Git",
-      "component": "android/key.properties",
-      "evidence": "android/key.properties está rastreado pelo Git (conteúdo NÃO lido/impresso)",
+      "rule_id": "POL-FOREGROUND-SERVICE",
+      "severity": "BLOCKER",
+      "section": "permissions",
+      "title": "Tipo de foreground service sem a permissão correspondente",
+      "component": "app-release.aab",
+      "evidence": "com.example.PlayerService:mediaPlayback requer FOREGROUND_SERVICE_MEDIA_PLAYBACK",
       "verification_method": "deterministic",
       "confidence": "high",
-      "recommendation": "Remova do índice com `git rm --cached android/key.properties`, adicione ao .gitignore e avalie rotacionar a chave de upload no Play Console (o histórico Git mantém cópias).",
-      "official_url": "https://developer.android.com/studio/publish/app-signing",
+      "recommendation": "Adicione a permissão FOREGROUND_SERVICE_<TIPO> correspondente no AndroidManifest.xml.",
+      "official_url": "https://support.google.com/googleplay/android-developer/answer/13392821?hl=en",
       "consulted_at": "2026-10-16",
-      "requirement_level": "recommended",
+      "requirement_level": "mandatory",
       "auto_fixable": false,
       "id": "GPRG-001"
     },
     {
-      "rule_id": "SEC-SIGNING-SECRETS-IN-VCS",
-      "severity": "CRITICAL",
-      "section": "security",
-      "title": "Arquivo de assinatura versionado no Git",
-      "component": "android/keystore_mently.jks",
-      "evidence": "android/keystore_mently.jks está rastreado pelo Git (conteúdo NÃO lido/impresso)",
+      "rule_id": "TECH-BILLING-LIBRARY-VERSION",
+      "severity": "BLOCKER",
+      "section": "billing",
+      "title": "Play Billing Library abaixo da versão mínima",
+      "component": "monetização",
+      "evidence": "billing_client=7.1.1; mínimo 8 desde 2026-08-31",
       "verification_method": "deterministic",
       "confidence": "high",
-      "recommendation": "Remova do índice com `git rm --cached android/keystore_mently.jks`, adicione ao .gitignore e avalie rotacionar a chave de upload no Play Console (o histórico Git mantém cópias).",
-      "official_url": "https://developer.android.com/studio/publish/app-signing",
+      "recommendation": "Atualize com.android.billingclient (ou in_app_purchase_android) para a versão suportada; extensão possível conforme a página oficial.",
+      "official_url": "https://developer.android.com/google/play/billing/deprecation-faq",
       "consulted_at": "2026-10-16",
-      "requirement_level": "recommended",
+      "requirement_level": "mandatory",
       "auto_fixable": false,
       "id": "GPRG-002"
     },
     {
-      "rule_id": "TECH-ARTIFACT-FRESHNESS",
+      "rule_id": "POL-BACKGROUND-LOCATION",
       "severity": "WARNING",
-      "section": "android_build",
-      "title": "Artefato não corresponde à versão atual do projeto",
+      "section": "permissions",
+      "title": "Localização em segundo plano: exige justificativa e declaração no Play Console",
       "component": "app-release.aab",
-      "evidence": "pubspec version=1.5.3+47 vs artefato versionCode=46 versionName=1.5.3",
+      "evidence": "declarada(s): android.permission.ACCESS_BACKGROUND_LOCATION; origem provável: não determinado (verifique o manifest-merger-report)",
       "verification_method": "deterministic",
       "confidence": "high",
-      "recommendation": "Gere novamente o build release (`flutter build appbundle --release`) antes do envio e audite o artefato novo.",
-      "official_url": "https://developer.android.com/studio/publish/versioning",
+      "recommendation": "Confirme que é funcionalidade principal; caso contrário remova (ex.: `<uses-permission android:name=\"android.permission.ACCESS_BACKGROUND_LOCATION\" tools:node=\"remove\"/>` no manifest do app). Se necessária, preencha o Permissions Declaration Form e implemente divulgação destacada.",
+      "official_url": "https://support.google.com/googleplay/android-developer/answer/9799150?hl=en",
       "consulted_at": "2026-10-16",
-      "requirement_level": "recommended",
+      "requirement_level": "mandatory",
       "auto_fixable": false,
       "id": "GPRG-003"
     },
@@ -1380,7 +434,7 @@
       "section": "permissions",
       "title": "Tipos de foreground service exigem declaração no Play Console",
       "component": "app-release.aab",
-      "evidence": "tipos: mediaPlayback; serviços: com.ryanheise.audioservice.AudioService",
+      "evidence": "tipos: mediaPlayback; serviços: com.example.PlayerService",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "Em Play Console > App content > Foreground service permissions, descreva cada tipo, o impacto se adiado/interrompido e anexe vídeo.",
@@ -1396,7 +450,7 @@
       "section": "data_safety",
       "title": "Criação de conta detectada: verificar exclusão no app e via web",
       "component": "Data safety",
-      "evidence": "criação: lib/ui/app_routes.dart:8 'signup'; lib/ui/widgets/button/login_with.dart:4 'signup'; lib/ui/features/signup/signup_page.dart:16 'signup'; URL web de exclusão não informada",
+      "evidence": "criação: lib/main.dart:2 'signUp'; nenhum sinal de fluxo de exclusão no código; URL web de exclusão não informada",
       "verification_method": "heuristic",
       "confidence": "medium",
       "recommendation": "Ofereça caminho no app para excluir conta e dados e um link web funcional; informe a URL no Data safety. Desativação temporária não atende.",
@@ -1412,7 +466,7 @@
       "section": "data_safety",
       "title": "SDKs com possível coleta de dados: confirmar declarações do Data safety",
       "component": "Data safety",
-      "evidence": "flutter_appauth (auth: revisar User IDs); sentry_flutter (crash: revisar Crash logs, Diagnostics); image_picker (media: revisar Photos, Videos); onesignal_flutter (push: revisar Device or other IDs, App interactions); com.onesignal:OneSignal:5.7.2 (push: revisar Device or other IDs, App interactions); com.onesignal:core:5.7.2 (push: revisar Device or other IDs, App interactions); com.onesignal:otel:5.7.2 (push: revisar Device or other IDs, App interactions); com.onesignal:notifications:5.7.2 (push: revisar Device or other IDs, App interactions); com.onesignal:in-app-messages:5.7.2 (push: revisar Device or other IDs, App interactions); com.onesignal:location:5.7.2 (push: revisar Device or other IDs, App interactions); io.sentry:sentry-android:7.22.4 (crash: revisar Crash logs, Diagnostics); io.sentry:sentry-android-core:7.22.4 (crash: revisar Crash logs, Diagnostics); io.sentry:sentry:7.22.4 (crash: revisar Crash logs, Diagnostics); io.sentry:sentry-android-ndk:7.22.4 (crash: revisar Crash logs, Diagnostics); io.sentry:sentry-android-replay:7.22.4 (crash: revisar Crash logs, Diagnostics)",
+      "evidence": "firebase_analytics (analytics: revisar App activity, Device or other IDs)",
       "verification_method": "heuristic",
       "confidence": "medium",
       "recommendation": "Confira a documentação de Data safety de cada SDK (SDK Index) e, se necessário, instrumente o tráfego (ex.: proxy em build de teste) antes de preencher o formulário.",
@@ -1439,32 +493,32 @@
       "id": "GPRG-007"
     },
     {
-      "rule_id": "TECH-ARTIFACT-FRESHNESS",
+      "rule_id": "TECH-AGP-16KB",
       "severity": "INFO",
-      "section": "android_build",
-      "title": "AAB e APK auditados têm versionCode diferentes",
-      "component": "artefatos",
-      "evidence": "aab=46 apk=47",
-      "verification_method": "deterministic",
-      "confidence": "high",
-      "recommendation": "Confirme qual artefato será enviado; o Google Play exige o .aab para novos apps.",
-      "official_url": "https://developer.android.com/studio/publish/versioning",
+      "section": "page_size_16kb",
+      "title": "NDK 28.0.13004108 (indício heurístico/manual — confirmar)",
+      "component": "android/app/build.gradle",
+      "evidence": "ndkVersion=28.0.13004108 (r28+ compila 16 KB por padrão; libs pré-compiladas de terceiros não são afetadas)",
+      "verification_method": "heuristic",
+      "confidence": "medium",
+      "recommendation": "-",
+      "official_url": "https://developer.android.com/guide/practices/page-sizes",
       "consulted_at": "2026-10-16",
       "requirement_level": "recommended",
       "auto_fixable": false,
       "id": "GPRG-008"
     },
     {
-      "rule_id": "SEC-ALLOW-BACKUP",
+      "rule_id": "TECH-AGP-16KB",
       "severity": "INFO",
-      "section": "security",
-      "title": "Backup automático habilitado",
-      "component": "app-release.aab:AndroidManifest.xml",
-      "evidence": "android:allowBackup=None (ausente = true)",
-      "verification_method": "deterministic",
+      "section": "page_size_16kb",
+      "title": "AGP 8.7.0 ≥ 8.5.1 (indício heurístico/manual — confirmar)",
+      "component": "android/settings.gradle",
+      "evidence": "com.android.application 8.7.0",
+      "verification_method": "heuristic",
       "confidence": "high",
-      "recommendation": "Avalie dataExtractionRules/fullBackupContent para excluir tokens e dados sensíveis do backup.",
-      "official_url": "https://developer.android.com/privacy-and-security/risks/backup-best-practices",
+      "recommendation": "-",
+      "official_url": "https://developer.android.com/guide/practices/page-sizes",
       "consulted_at": "2026-10-16",
       "requirement_level": "recommended",
       "auto_fixable": false,
@@ -1475,7 +529,7 @@
       "severity": "INFO",
       "section": "security",
       "title": "Backup automático habilitado",
-      "component": "app-release.apk:AndroidManifest.xml",
+      "component": "app-release.aab:AndroidManifest.xml",
       "evidence": "android:allowBackup=None (ausente = true)",
       "verification_method": "deterministic",
       "confidence": "high",
@@ -1487,84 +541,20 @@
       "id": "GPRG-010"
     },
     {
-      "rule_id": "SEC-CUSTOM-SCHEME",
+      "rule_id": "SEC-ALLOW-BACKUP",
       "severity": "INFO",
       "section": "security",
-      "title": "Deep links com esquema customizado",
-      "component": "app-release.aab:AndroidManifest.xml",
-      "evidence": "schemes: br.com.mently.app.mently, mently",
+      "title": "Backup automático habilitado",
+      "component": "app-release.apk:AndroidManifest.xml",
+      "evidence": "android:allowBackup=None (ausente = true)",
       "verification_method": "deterministic",
       "confidence": "high",
-      "recommendation": "Valide parâmetros recebidos por deep links; esquemas customizados podem ser registrados por outros apps.",
-      "official_url": "https://developer.android.com/privacy-and-security/risks/unsafe-use-of-deeplinks",
+      "recommendation": "Avalie dataExtractionRules/fullBackupContent para excluir tokens e dados sensíveis do backup.",
+      "official_url": "https://developer.android.com/privacy-and-security/risks/backup-best-practices",
       "consulted_at": "2026-10-16",
       "requirement_level": "recommended",
       "auto_fixable": false,
       "id": "GPRG-011"
-    },
-    {
-      "rule_id": "SEC-CUSTOM-SCHEME",
-      "severity": "INFO",
-      "section": "security",
-      "title": "Deep links com esquema customizado",
-      "component": "app-release.apk:AndroidManifest.xml",
-      "evidence": "schemes: br.com.mently.app.mently, mently",
-      "verification_method": "deterministic",
-      "confidence": "high",
-      "recommendation": "Valide parâmetros recebidos por deep links; esquemas customizados podem ser registrados por outros apps.",
-      "official_url": "https://developer.android.com/privacy-and-security/risks/unsafe-use-of-deeplinks",
-      "consulted_at": "2026-10-16",
-      "requirement_level": "recommended",
-      "auto_fixable": false,
-      "id": "GPRG-012"
-    },
-    {
-      "rule_id": "SEC-EXPORTED-COMPONENTS",
-      "severity": "INFO",
-      "section": "security",
-      "title": "9 componente(s) exportado(s) sem permissão de proteção",
-      "component": "app-release.aab:AndroidManifest.xml",
-      "evidence": "service:com.ryanheise.audioservice.AudioService; receiver:com.ryanheise.audioservice.MediaButtonReceiver; activity:net.openid.appauth.RedirectUriReceiverActivity; activity:com.onesignal.NotificationOpenedActivityHMS; receiver:com.onesignal.notifications.receivers.NotificationDismissReceiver; receiver:com.onesignal.notifications.receivers.BootUpReceiver; receiver:com.onesignal.notifications.receivers.UpgradeReceiver; activity:com.onesignal.notifications.activities.NotificationOpenedActivity; activity:com.onesignal.notifications.activities.NotificationOpenedActivityAndroid22AndOlder",
-      "verification_method": "heuristic",
-      "confidence": "medium",
-      "recommendation": "Revise se cada componente precisa ser exportado; use android:exported=\"false\" ou android:permission.",
-      "official_url": "https://developer.android.com/privacy-and-security/risks/android-exported",
-      "consulted_at": "2026-10-16",
-      "requirement_level": "recommended",
-      "auto_fixable": false,
-      "id": "GPRG-013"
-    },
-    {
-      "rule_id": "SEC-EXPORTED-COMPONENTS",
-      "severity": "INFO",
-      "section": "security",
-      "title": "9 componente(s) exportado(s) sem permissão de proteção",
-      "component": "app-release.apk:AndroidManifest.xml",
-      "evidence": "service:com.ryanheise.audioservice.AudioService; receiver:com.ryanheise.audioservice.MediaButtonReceiver; activity:net.openid.appauth.RedirectUriReceiverActivity; activity:com.onesignal.NotificationOpenedActivityHMS; receiver:com.onesignal.notifications.receivers.NotificationDismissReceiver; receiver:com.onesignal.notifications.receivers.BootUpReceiver; receiver:com.onesignal.notifications.receivers.UpgradeReceiver; activity:com.onesignal.notifications.activities.NotificationOpenedActivity; activity:com.onesignal.notifications.activities.NotificationOpenedActivityAndroid22AndOlder",
-      "verification_method": "heuristic",
-      "confidence": "medium",
-      "recommendation": "Revise se cada componente precisa ser exportado; use android:exported=\"false\" ou android:permission.",
-      "official_url": "https://developer.android.com/privacy-and-security/risks/android-exported",
-      "consulted_at": "2026-10-16",
-      "requirement_level": "recommended",
-      "auto_fixable": false,
-      "id": "GPRG-014"
-    },
-    {
-      "rule_id": "POL-SENSITIVE-PERMISSIONS",
-      "severity": "INFO",
-      "section": "permissions",
-      "title": "Permissões sensíveis: solicitar em contexto e justificar",
-      "component": "app-release.aab",
-      "evidence": "POST_NOTIFICATIONS",
-      "verification_method": "heuristic",
-      "confidence": "medium",
-      "recommendation": "Garanta que cada permissão sustenta funcionalidade atual descrita no store listing e é pedida em contexto.",
-      "official_url": "https://support.google.com/googleplay/android-developer/answer/13161072?hl=en",
-      "consulted_at": "2026-10-16",
-      "requirement_level": "mandatory",
-      "auto_fixable": false,
-      "id": "GPRG-015"
     },
     {
       "rule_id": "PRIV-ADVERTISING-ID",
@@ -1580,7 +570,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-016"
+      "id": "GPRG-012"
     },
     {
       "rule_id": "TECH-BILLING-LIBRARY-VERSION",
@@ -1588,7 +578,7 @@
       "section": "billing",
       "title": "Billing Library 9+ exigida a partir de 2027-08-31",
       "component": "monetização",
-      "evidence": "billing_client=8.0.0",
+      "evidence": "billing_client=7.1.1",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "Planeje a migração.",
@@ -1596,7 +586,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-017"
+      "id": "GPRG-013"
     },
     {
       "rule_id": "TECH-64BIT",
@@ -1604,7 +594,7 @@
       "section": "android_build",
       "title": "ABIs 64-bit presentes",
       "component": "app-release.aab",
-      "evidence": "ABIs: arm64-v8a, armeabi-v7a, x86_64",
+      "evidence": "ABIs: arm64-v8a, armeabi-v7a",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",
@@ -1612,7 +602,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-018"
+      "id": "GPRG-014"
     },
     {
       "rule_id": "TECH-64BIT",
@@ -1620,7 +610,7 @@
       "section": "android_build",
       "title": "ABIs 64-bit presentes",
       "component": "app-release.apk",
-      "evidence": "ABIs: arm64-v8a, armeabi-v7a, x86_64",
+      "evidence": "ABIs: arm64-v8a, armeabi-v7a",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",
@@ -1628,7 +618,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-019"
+      "id": "GPRG-015"
     },
     {
       "rule_id": "TECH-AAB-REQUIRED",
@@ -1644,7 +634,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-020"
+      "id": "GPRG-016"
     },
     {
       "rule_id": "TECH-ARTIFACT-INTEGRITY",
@@ -1652,7 +642,7 @@
       "section": "android_build",
       "title": "Estrutura do AAB íntegra e manifest legível",
       "component": "app-release.aab",
-      "evidence": "713 entradas; CRC verificado=True; módulos=base; deterministic (decodificador protobuf aapt2 XmlNode em Python); confirmado com aapt2 dump xmltree",
+      "evidence": "9 entradas; CRC verificado=True; módulos=base; deterministic (decodificador protobuf aapt2 XmlNode em Python)",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",
@@ -1660,7 +650,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-021"
+      "id": "GPRG-017"
     },
     {
       "rule_id": "TECH-ARTIFACT-INTEGRITY",
@@ -1668,7 +658,7 @@
       "section": "android_build",
       "title": "Estrutura do APK íntegra e manifest legível",
       "component": "app-release.apk",
-      "evidence": "700 entradas; CRC verificado=True; manifest: deterministic (parser AXML em Python); confirmado com aapt2 dump badging",
+      "evidence": "5 entradas; CRC verificado=True; manifest: deterministic (parser AXML em Python)",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",
@@ -1676,7 +666,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-022"
+      "id": "GPRG-018"
     },
     {
       "rule_id": "TECH-DEBUGGABLE",
@@ -1692,7 +682,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-023"
+      "id": "GPRG-019"
     },
     {
       "rule_id": "TECH-DEBUGGABLE",
@@ -1701,6 +691,70 @@
       "title": "Artefato não é debuggable",
       "component": "app-release.aab:AndroidManifest.xml",
       "evidence": "android:debuggable=None (ausente = false)",
+      "verification_method": "deterministic",
+      "confidence": "high",
+      "recommendation": "-",
+      "official_url": "https://developer.android.com/studio/publish/preparing",
+      "consulted_at": "2026-10-16",
+      "requirement_level": "mandatory",
+      "auto_fixable": false,
+      "id": "GPRG-020"
+    },
+    {
+      "rule_id": "TECH-DEBUGGABLE",
+      "severity": "PASS",
+      "section": "android_build",
+      "title": "Artefato não é debuggable",
+      "component": "app-release.apk:AndroidManifest.xml",
+      "evidence": "android:debuggable=None (ausente = false)",
+      "verification_method": "deterministic",
+      "confidence": "high",
+      "recommendation": "-",
+      "official_url": "https://developer.android.com/studio/publish/preparing",
+      "consulted_at": "2026-10-16",
+      "requirement_level": "mandatory",
+      "auto_fixable": false,
+      "id": "GPRG-021"
+    },
+    {
+      "rule_id": "TECH-EXPORTED-EXPLICIT",
+      "severity": "PASS",
+      "section": "android_build",
+      "title": "Todos os componentes com intent-filter declaram android:exported",
+      "component": "app-release.aab:AndroidManifest.xml",
+      "evidence": "1 componentes com intent-filter",
+      "verification_method": "deterministic",
+      "confidence": "high",
+      "recommendation": "-",
+      "official_url": "https://developer.android.com/about/versions/12/behavior-changes-12",
+      "consulted_at": "2026-10-16",
+      "requirement_level": "mandatory",
+      "auto_fixable": false,
+      "id": "GPRG-022"
+    },
+    {
+      "rule_id": "TECH-EXPORTED-EXPLICIT",
+      "severity": "PASS",
+      "section": "android_build",
+      "title": "Todos os componentes com intent-filter declaram android:exported",
+      "component": "app-release.apk:AndroidManifest.xml",
+      "evidence": "1 componentes com intent-filter",
+      "verification_method": "deterministic",
+      "confidence": "high",
+      "recommendation": "-",
+      "official_url": "https://developer.android.com/about/versions/12/behavior-changes-12",
+      "consulted_at": "2026-10-16",
+      "requirement_level": "mandatory",
+      "auto_fixable": false,
+      "id": "GPRG-023"
+    },
+    {
+      "rule_id": "TECH-PACKAGE-NAME",
+      "severity": "PASS",
+      "section": "android_build",
+      "title": "Application ID válido",
+      "component": "app-release.aab:AndroidManifest.xml",
+      "evidence": "package=com.example.app",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",
@@ -1711,12 +765,12 @@
       "id": "GPRG-024"
     },
     {
-      "rule_id": "TECH-DEBUGGABLE",
+      "rule_id": "TECH-PACKAGE-NAME",
       "severity": "PASS",
       "section": "android_build",
-      "title": "Artefato não é debuggable",
+      "title": "Application ID válido",
       "component": "app-release.apk:AndroidManifest.xml",
-      "evidence": "android:debuggable=None (ausente = false)",
+      "evidence": "package=com.example.app",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",
@@ -1727,76 +781,12 @@
       "id": "GPRG-025"
     },
     {
-      "rule_id": "TECH-EXPORTED-EXPLICIT",
-      "severity": "PASS",
-      "section": "android_build",
-      "title": "Todos os componentes com intent-filter declaram android:exported",
-      "component": "app-release.aab:AndroidManifest.xml",
-      "evidence": "21 componentes com intent-filter",
-      "verification_method": "deterministic",
-      "confidence": "high",
-      "recommendation": "-",
-      "official_url": "https://developer.android.com/about/versions/12/behavior-changes-12",
-      "consulted_at": "2026-10-16",
-      "requirement_level": "mandatory",
-      "auto_fixable": false,
-      "id": "GPRG-026"
-    },
-    {
-      "rule_id": "TECH-EXPORTED-EXPLICIT",
-      "severity": "PASS",
-      "section": "android_build",
-      "title": "Todos os componentes com intent-filter declaram android:exported",
-      "component": "app-release.apk:AndroidManifest.xml",
-      "evidence": "21 componentes com intent-filter",
-      "verification_method": "deterministic",
-      "confidence": "high",
-      "recommendation": "-",
-      "official_url": "https://developer.android.com/about/versions/12/behavior-changes-12",
-      "consulted_at": "2026-10-16",
-      "requirement_level": "mandatory",
-      "auto_fixable": false,
-      "id": "GPRG-027"
-    },
-    {
-      "rule_id": "TECH-PACKAGE-NAME",
-      "severity": "PASS",
-      "section": "android_build",
-      "title": "Application ID válido",
-      "component": "app-release.aab:AndroidManifest.xml",
-      "evidence": "package=br.com.mently.app.mently",
-      "verification_method": "deterministic",
-      "confidence": "high",
-      "recommendation": "-",
-      "official_url": "https://developer.android.com/studio/publish/preparing",
-      "consulted_at": "2026-10-16",
-      "requirement_level": "mandatory",
-      "auto_fixable": false,
-      "id": "GPRG-028"
-    },
-    {
-      "rule_id": "TECH-PACKAGE-NAME",
-      "severity": "PASS",
-      "section": "android_build",
-      "title": "Application ID válido",
-      "component": "app-release.apk:AndroidManifest.xml",
-      "evidence": "package=br.com.mently.app.mently",
-      "verification_method": "deterministic",
-      "confidence": "high",
-      "recommendation": "-",
-      "official_url": "https://developer.android.com/studio/publish/preparing",
-      "consulted_at": "2026-10-16",
-      "requirement_level": "mandatory",
-      "auto_fixable": false,
-      "id": "GPRG-029"
-    },
-    {
       "rule_id": "TECH-R8-MINIFY",
       "severity": "PASS",
       "section": "android_build",
       "title": "R8/minify habilitado no release",
       "component": "android/app/build.gradle",
-      "evidence": "minifyEnabled=True shrinkResources=True",
+      "evidence": "minifyEnabled=True shrinkResources=False",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",
@@ -1804,7 +794,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "recommended",
       "auto_fixable": false,
-      "id": "GPRG-030"
+      "id": "GPRG-026"
     },
     {
       "rule_id": "TECH-VERSION-CODE",
@@ -1812,7 +802,7 @@
       "section": "android_build",
       "title": "versionCode dentro do limite do Google Play",
       "component": "app-release.aab:AndroidManifest.xml",
-      "evidence": "versionCode=46 (limite 2100000000)",
+      "evidence": "versionCode=45 (limite 2100000000)",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",
@@ -1820,7 +810,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-031"
+      "id": "GPRG-027"
     },
     {
       "rule_id": "TECH-VERSION-CODE",
@@ -1828,7 +818,7 @@
       "section": "android_build",
       "title": "versionCode dentro do limite do Google Play",
       "component": "app-release.apk:AndroidManifest.xml",
-      "evidence": "versionCode=47 (limite 2100000000)",
+      "evidence": "versionCode=45 (limite 2100000000)",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",
@@ -1836,7 +826,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-032"
+      "id": "GPRG-028"
     },
     {
       "rule_id": "TECH-TARGET-API-LEVEL",
@@ -1852,15 +842,15 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-033"
+      "id": "GPRG-029"
     },
     {
       "rule_id": "TECH-16KB-PAGE-SIZE",
       "severity": "PASS",
       "section": "page_size_16kb",
-      "title": "Segmentos ELF PT_LOAD alinhados a 16 KB (8 libs 64-bit)",
+      "title": "Segmentos ELF PT_LOAD alinhados a 16 KB (1 libs 64-bit)",
       "component": "app-release.aab",
-      "evidence": "8/8 libs 64-bit com p_align ≥ 0x4000 [python-elf + llvm-readelf]",
+      "evidence": "1/1 libs 64-bit com p_align ≥ 0x4000 [python-elf]",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",
@@ -1868,15 +858,15 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-034"
+      "id": "GPRG-030"
     },
     {
       "rule_id": "TECH-16KB-PAGE-SIZE",
       "severity": "PASS",
       "section": "page_size_16kb",
-      "title": "Segmentos ELF PT_LOAD alinhados a 16 KB (8 libs 64-bit)",
+      "title": "Segmentos ELF PT_LOAD alinhados a 16 KB (1 libs 64-bit)",
       "component": "app-release.apk",
-      "evidence": "8/8 libs 64-bit com p_align ≥ 0x4000 [python-elf + llvm-readelf]",
+      "evidence": "1/1 libs 64-bit com p_align ≥ 0x4000 [python-elf]",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",
@@ -1884,7 +874,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-035"
+      "id": "GPRG-031"
     },
     {
       "rule_id": "TECH-16KB-ZIP-ALIGN",
@@ -1892,7 +882,7 @@
       "section": "page_size_16kb",
       "title": "Offsets ZIP das .so alinhados a 16 KB",
       "component": "app-release.apk",
-      "evidence": "8 .so 64-bit não comprimidas com offset % 16384 == 0 [python-zip]",
+      "evidence": "1 .so 64-bit não comprimidas com offset % 16384 == 0 [python-zip]",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",
@@ -1900,55 +890,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-036"
-    },
-    {
-      "rule_id": "TECH-16KB-ZIP-ALIGN",
-      "severity": "PASS",
-      "section": "page_size_16kb",
-      "title": "zipalign -c -P 16 confirmou o alinhamento",
-      "component": "app-release.apk",
-      "evidence": "zipalign -c -P 16 -v 4: Verification successful",
-      "verification_method": "deterministic",
-      "confidence": "high",
-      "recommendation": "-",
-      "official_url": "https://developer.android.com/guide/practices/page-sizes",
-      "consulted_at": "2026-10-16",
-      "requirement_level": "mandatory",
-      "auto_fixable": false,
-      "id": "GPRG-037"
-    },
-    {
-      "rule_id": "TECH-AGP-16KB",
-      "severity": "PASS",
-      "section": "page_size_16kb",
-      "title": "NDK 28.2.13676358",
-      "component": "android/app/build.gradle",
-      "evidence": "ndkVersion=28.2.13676358 (r28+ compila 16 KB por padrão; libs pré-compiladas de terceiros não são afetadas)",
-      "verification_method": "heuristic",
-      "confidence": "medium",
-      "recommendation": "-",
-      "official_url": "https://developer.android.com/guide/practices/page-sizes",
-      "consulted_at": "2026-10-16",
-      "requirement_level": "recommended",
-      "auto_fixable": false,
-      "id": "GPRG-038"
-    },
-    {
-      "rule_id": "TECH-AGP-16KB",
-      "severity": "PASS",
-      "section": "page_size_16kb",
-      "title": "AGP 8.12.2 ≥ 8.5.1",
-      "component": "android/settings.gradle",
-      "evidence": "com.android.application 8.12.2",
-      "verification_method": "heuristic",
-      "confidence": "high",
-      "recommendation": "-",
-      "official_url": "https://developer.android.com/guide/practices/page-sizes",
-      "consulted_at": "2026-10-16",
-      "requirement_level": "recommended",
-      "auto_fixable": false,
-      "id": "GPRG-039"
+      "id": "GPRG-032"
     },
     {
       "rule_id": "TECH-DEBUG-SIGNATURE",
@@ -1956,7 +898,7 @@
       "section": "signing",
       "title": "Certificado não é de debug",
       "component": "app-release.aab",
-      "evidence": "CN=Mently SHA-256=CB:EC:AF:8B:7C:99:50:AE:30:69:7B:48:7F:86:C9:C2:14:61:C8:D5:2A:0F:96:8D:CD:AE:CE:61:9D:49:CC:15",
+      "evidence": "CN=Upload Key SHA-256=C1:14:81:61:59:AF:1E:22:D5:F1:A2:75:B5:AF:A5:6B:4F:45:C1:28:3F:0E:D0:42:B1:40:AA:ED:CF:84:0D:BA",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",
@@ -1964,7 +906,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-040"
+      "id": "GPRG-033"
     },
     {
       "rule_id": "TECH-DEBUG-SIGNATURE",
@@ -1972,7 +914,7 @@
       "section": "signing",
       "title": "Certificado não é de debug",
       "component": "app-release.apk",
-      "evidence": "CN=Mently SHA-256=CB:EC:AF:8B:7C:99:50:AE:30:69:7B:48:7F:86:C9:C2:14:61:C8:D5:2A:0F:96:8D:CD:AE:CE:61:9D:49:CC:15",
+      "evidence": "CN=Release Key SHA-256=4A:45:20:E2:CE:48:86:12:4F:96:72:AA:61:BA:81:AD:98:46:59:9B:B8:29:A3:E9:A1:33:50:C5:6D:B3:F5:50",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",
@@ -1980,39 +922,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-041"
-    },
-    {
-      "rule_id": "TECH-SIGNATURE-VERIFY",
-      "severity": "PASS",
-      "section": "signing",
-      "title": "jarsigner -verify aprovou digests e assinaturas do bundle",
-      "component": "app-release.aab",
-      "evidence": "jarsigner -verify: jar verified. (avisos esperados em bundles Gradle: certificado de upload autoassinado, META-INF fora do início do ZIP)",
-      "verification_method": "deterministic",
-      "confidence": "high",
-      "recommendation": "-",
-      "official_url": "https://developer.android.com/tools/apksigner",
-      "consulted_at": "2026-10-16",
-      "requirement_level": "mandatory",
-      "auto_fixable": false,
-      "id": "GPRG-042"
-    },
-    {
-      "rule_id": "TECH-SIGNATURE-VERIFY",
-      "severity": "PASS",
-      "section": "signing",
-      "title": "apksigner verify aprovou a assinatura",
-      "component": "app-release.apk",
-      "evidence": "Verified using v1 scheme (JAR signing): false Verified using v2 scheme (APK Signature Scheme v2): true Verified using v3 scheme (APK Signature Scheme v3): false Verified using v3.1 scheme (APK Signature Scheme v3.1): false Verified using v3.2 scheme (APK Signature Scheme v3.2): false Verified using ",
-      "verification_method": "deterministic",
-      "confidence": "high",
-      "recommendation": "-",
-      "official_url": "https://developer.android.com/tools/apksigner",
-      "consulted_at": "2026-10-16",
-      "requirement_level": "mandatory",
-      "auto_fixable": false,
-      "id": "GPRG-043"
+      "id": "GPRG-034"
     },
     {
       "rule_id": "TECH-UPLOAD-KEY",
@@ -2020,7 +930,7 @@
       "section": "signing",
       "title": "Chave de upload RSA ≥ 2048 bits",
       "component": "app-release.aab",
-      "evidence": "RSA 2048 bits; SHA-256=CB:EC:AF:8B:7C:99:50:AE:30:69:7B:48:7F:86:C9:C2:14:61:C8:D5:2A:0F:96:8D:CD:AE:CE:61:9D:49:CC:15",
+      "evidence": "RSA 2048 bits; SHA-256=C1:14:81:61:59:AF:1E:22:D5:F1:A2:75:B5:AF:A5:6B:4F:45:C1:28:3F:0E:D0:42:B1:40:AA:ED:CF:84:0D:BA",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",
@@ -2028,7 +938,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-044"
+      "id": "GPRG-035"
     },
     {
       "rule_id": "SEC-CLEARTEXT",
@@ -2036,7 +946,7 @@
       "section": "security",
       "title": "Cleartext desabilitado no manifest",
       "component": "app-release.aab:AndroidManifest.xml",
-      "evidence": "usesCleartextTraffic=False targetSdk=36 (padrão false desde API 28)",
+      "evidence": "usesCleartextTraffic=None targetSdk=36 (padrão false desde API 28)",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",
@@ -2044,7 +954,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "recommended",
       "auto_fixable": false,
-      "id": "GPRG-045"
+      "id": "GPRG-036"
     },
     {
       "rule_id": "SEC-CLEARTEXT",
@@ -2052,7 +962,7 @@
       "section": "security",
       "title": "Cleartext desabilitado no manifest",
       "component": "app-release.apk:AndroidManifest.xml",
-      "evidence": "usesCleartextTraffic=False targetSdk=36 (padrão false desde API 28)",
+      "evidence": "usesCleartextTraffic=None targetSdk=36 (padrão false desde API 28)",
       "verification_method": "deterministic",
       "confidence": "high",
       "recommendation": "-",
@@ -2060,23 +970,23 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "recommended",
       "auto_fixable": false,
-      "id": "GPRG-046"
+      "id": "GPRG-037"
     },
     {
-      "rule_id": "TECH-BILLING-LIBRARY-VERSION",
-      "severity": "PASS",
-      "section": "billing",
-      "title": "Play Billing Library em versão suportada",
-      "component": "monetização",
-      "evidence": "billing_client=8.0.0; mínimo 8 desde 2026-08-31",
-      "verification_method": "deterministic",
+      "rule_id": "TECH-BUNDLETOOL-VALIDATE",
+      "severity": "NOT_VERIFIED",
+      "section": "android_build",
+      "title": "bundletool validate não executado",
+      "component": "app-release.aab",
+      "evidence": "NOT_VERIFIED: desativado (--no-tools)",
+      "verification_method": "manual",
       "confidence": "high",
-      "recommendation": "-",
-      "official_url": "https://developer.android.com/google/play/billing/deprecation-faq",
+      "recommendation": "Instale um JRE e o bundletool e rode `java -jar bundletool.jar validate --bundle=<app>.aab`.",
+      "official_url": "https://developer.android.com/tools/bundletool",
       "consulted_at": "2026-10-16",
-      "requirement_level": "mandatory",
+      "requirement_level": "recommended",
       "auto_fixable": false,
-      "id": "GPRG-047"
+      "id": "GPRG-038"
     },
     {
       "rule_id": "TECH-16KB-ZIP-ALIGN",
@@ -2092,7 +1002,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-048"
+      "id": "GPRG-039"
     },
     {
       "rule_id": "TECH-PLAY-APP-SIGNING",
@@ -2108,71 +1018,71 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-049"
+      "id": "GPRG-040"
     },
     {
-      "rule_id": "SEC-APP-LINKS",
+      "rule_id": "TECH-SIGNATURE-VERIFY",
       "severity": "NOT_VERIFIED",
-      "section": "security",
-      "title": "App Links com autoVerify exigem assetlinks.json válido",
-      "component": "app-release.aab:AndroidManifest.xml",
-      "evidence": "hosts: app.mently.com.br",
+      "section": "signing",
+      "title": "Assinatura JAR do bundle não verificada criptograficamente",
+      "component": "app-release.aab",
+      "evidence": "jarsigner indisponível (requer JDK, não só JRE); esquemas lidos: v1/jar; certificados extraídos sem validação de assinatura",
       "verification_method": "manual",
       "confidence": "high",
-      "recommendation": "Verifique https://<host>/.well-known/assetlinks.json com o SHA-256 da chave de assinatura do Play (App signing key).",
-      "official_url": "https://developer.android.com/training/app-links/verify-applinks",
+      "recommendation": "Rode `jarsigner -verify -verbose -certs app-release.aab` (requer JDK); o Play Console também valida no upload.",
+      "official_url": "https://developer.android.com/tools/apksigner",
+      "consulted_at": "2026-10-16",
+      "requirement_level": "mandatory",
+      "auto_fixable": false,
+      "id": "GPRG-041"
+    },
+    {
+      "rule_id": "TECH-SIGNATURE-VERIFY",
+      "severity": "NOT_VERIFIED",
+      "section": "signing",
+      "title": "Validade criptográfica da assinatura não verificada",
+      "component": "app-release.apk",
+      "evidence": "apksigner indisponível: desativado (--no-tools); esquemas detectados por parsing: v1/jar",
+      "verification_method": "manual",
+      "confidence": "high",
+      "recommendation": "Instale um JRE e rode `apksigner verify --print-certs --verbose app-release.apk`.",
+      "official_url": "https://developer.android.com/tools/apksigner",
+      "consulted_at": "2026-10-16",
+      "requirement_level": "mandatory",
+      "auto_fixable": false,
+      "id": "GPRG-042"
+    },
+    {
+      "rule_id": "SEC-SIGNING-SECRETS-IN-VCS",
+      "severity": "NOT_VERIFIED",
+      "section": "security",
+      "title": "Status Git do arquivo de assinatura desconhecido",
+      "component": "android/key.properties",
+      "evidence": "projeto fora de um repositório Git ou git indisponível (conteúdo não lido)",
+      "verification_method": "manual",
+      "confidence": "high",
+      "recommendation": "-",
+      "official_url": "https://developer.android.com/studio/publish/app-signing",
       "consulted_at": "2026-10-16",
       "requirement_level": "recommended",
       "auto_fixable": false,
-      "id": "GPRG-050"
+      "id": "GPRG-043"
     },
     {
-      "rule_id": "SEC-APP-LINKS",
+      "rule_id": "SEC-SIGNING-SECRETS-IN-VCS",
       "severity": "NOT_VERIFIED",
       "section": "security",
-      "title": "App Links com autoVerify exigem assetlinks.json válido",
-      "component": "app-release.apk:AndroidManifest.xml",
-      "evidence": "hosts: app.mently.com.br",
+      "title": "Status Git do arquivo de assinatura desconhecido",
+      "component": "android/upload.jks",
+      "evidence": "projeto fora de um repositório Git ou git indisponível (conteúdo não lido)",
       "verification_method": "manual",
       "confidence": "high",
-      "recommendation": "Verifique https://<host>/.well-known/assetlinks.json com o SHA-256 da chave de assinatura do Play (App signing key).",
-      "official_url": "https://developer.android.com/training/app-links/verify-applinks",
+      "recommendation": "-",
+      "official_url": "https://developer.android.com/studio/publish/app-signing",
       "consulted_at": "2026-10-16",
       "requirement_level": "recommended",
       "auto_fixable": false,
-      "id": "GPRG-051"
-    },
-    {
-      "rule_id": "SEC-NETWORK-SECURITY-CONFIG",
-      "severity": "NOT_VERIFIED",
-      "section": "security",
-      "title": "networkSecurityConfig declarado; conteúdo precisa ser revisado",
-      "component": "app-release.aab:AndroidManifest.xml",
-      "evidence": "networkSecurityConfig=@xml/network_security_config",
-      "verification_method": "manual",
-      "confidence": "high",
-      "recommendation": "Revise res/xml do network security config (cleartextTrafficPermitted, trust-anchors de usuário, debug-overrides).",
-      "official_url": "https://developer.android.com/privacy-and-security/security-config",
-      "consulted_at": "2026-10-16",
-      "requirement_level": "recommended",
-      "auto_fixable": false,
-      "id": "GPRG-052"
-    },
-    {
-      "rule_id": "SEC-NETWORK-SECURITY-CONFIG",
-      "severity": "NOT_VERIFIED",
-      "section": "security",
-      "title": "networkSecurityConfig declarado; conteúdo precisa ser revisado",
-      "component": "app-release.apk:AndroidManifest.xml",
-      "evidence": "networkSecurityConfig=@0x7f130005",
-      "verification_method": "manual",
-      "confidence": "high",
-      "recommendation": "Revise res/xml do network security config (cleartextTrafficPermitted, trust-anchors de usuário, debug-overrides).",
-      "official_url": "https://developer.android.com/privacy-and-security/security-config",
-      "consulted_at": "2026-10-16",
-      "requirement_level": "recommended",
-      "auto_fixable": false,
-      "id": "GPRG-053"
+      "id": "GPRG-044"
     },
     {
       "rule_id": "TECH-MERGED-MANIFEST",
@@ -2188,7 +1098,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "recommended",
       "auto_fixable": false,
-      "id": "GPRG-054"
+      "id": "GPRG-045"
     },
     {
       "rule_id": "POL-SDK-INDEX",
@@ -2196,7 +1106,7 @@
       "section": "data_safety",
       "title": "SDKs não cruzados com o Google Play SDK Index",
       "component": "dependências",
-      "evidence": "67 dependências categorizadas; 173 bibliotecas Maven no bundle",
+      "evidence": "3 dependências categorizadas; 0 bibliotecas Maven no bundle",
       "verification_method": "manual",
       "confidence": "high",
       "recommendation": "Consulte https://play.google.com/sdks para cada SDK de terceiros (avisos de política/versões desatualizadas).",
@@ -2204,7 +1114,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "recommended",
       "auto_fixable": false,
-      "id": "GPRG-055"
+      "id": "GPRG-046"
     },
     {
       "rule_id": "PRIV-DATA-SAFETY-FORM",
@@ -2220,7 +1130,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-056"
+      "id": "GPRG-047"
     },
     {
       "rule_id": "PRIV-PRIVACY-POLICY",
@@ -2236,7 +1146,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-057"
+      "id": "GPRG-048"
     },
     {
       "rule_id": "POL-PLAY-BILLING",
@@ -2244,7 +1154,7 @@
       "section": "billing",
       "title": "Produtos digitais: confirmar uso exclusivo do Play Billing",
       "component": "monetização",
-      "evidence": "Play Billing presente: in_app_purchase, in_app_purchase_android, com.android.billingclient:billing:8.0.0, permissão BILLING",
+      "evidence": "Play Billing presente: in_app_purchase, permissão BILLING",
       "verification_method": "manual",
       "confidence": "high",
       "recommendation": "Confirme que bens/serviços digitais são vendidos pelo Play Billing, com preço, renovação automática, testes gratuitos e cancelamento claros.",
@@ -2252,7 +1162,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-058"
+      "id": "GPRG-049"
     },
     {
       "rule_id": "POL-ADS-DECLARATION",
@@ -2268,7 +1178,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-059"
+      "id": "GPRG-050"
     },
     {
       "rule_id": "POL-APP-ACCESS",
@@ -2284,7 +1194,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-060"
+      "id": "GPRG-051"
     },
     {
       "rule_id": "POL-CONTENT-RATING",
@@ -2300,7 +1210,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-061"
+      "id": "GPRG-052"
     },
     {
       "rule_id": "POL-PERMISSIONS-DECLARATION",
@@ -2316,7 +1226,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-062"
+      "id": "GPRG-053"
     },
     {
       "rule_id": "POL-STORE-LISTING",
@@ -2332,7 +1242,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-063"
+      "id": "GPRG-054"
     },
     {
       "rule_id": "POL-TARGET-AUDIENCE",
@@ -2348,7 +1258,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-064"
+      "id": "GPRG-055"
     },
     {
       "rule_id": "PRIV-DATA-SAFETY-FORM",
@@ -2364,7 +1274,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-065"
+      "id": "GPRG-056"
     },
     {
       "rule_id": "TECH-VERSION-CODE-INCREMENT",
@@ -2372,7 +1282,7 @@
       "section": "play_console",
       "title": "versionCode maior que o último publicado não verificável offline",
       "component": "app-release.aab:AndroidManifest.xml",
-      "evidence": "versionCode=46",
+      "evidence": "versionCode=45",
       "verification_method": "manual",
       "confidence": "high",
       "recommendation": "Confira em Play Console > App bundle explorer que o versionCode é maior que o último enviado.",
@@ -2380,7 +1290,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-066"
+      "id": "GPRG-057"
     },
     {
       "rule_id": "TECH-VERSION-CODE-INCREMENT",
@@ -2388,7 +1298,7 @@
       "section": "play_console",
       "title": "versionCode maior que o último publicado não verificável offline",
       "component": "app-release.apk:AndroidManifest.xml",
-      "evidence": "versionCode=47",
+      "evidence": "versionCode=45",
       "verification_method": "manual",
       "confidence": "high",
       "recommendation": "Confira em Play Console > App bundle explorer que o versionCode é maior que o último enviado.",
@@ -2396,7 +1306,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-067"
+      "id": "GPRG-058"
     },
     {
       "rule_id": "POL-CLOSED-TESTING",
@@ -2412,7 +1322,7 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "mandatory",
       "auto_fixable": false,
-      "id": "GPRG-068"
+      "id": "GPRG-059"
     },
     {
       "rule_id": "TECH-FUNCTIONAL-TESTS",
@@ -2420,7 +1330,7 @@
       "section": "testing",
       "title": "Testes funcionais em dispositivo/emulador não executados",
       "component": "-",
-      "evidence": "adb disponível; instalação em dispositivo exige autorização explícita",
+      "evidence": "adb indisponível; instalação em dispositivo exige autorização explícita",
       "verification_method": "manual",
       "confidence": "high",
       "recommendation": "Execute `flutter test integration_test` / Espresso / UI Automator e o pre-launch report do Play Console; nunca classificado como aprovado sem execução.",
@@ -2428,20 +1338,21 @@
       "consulted_at": "2026-10-16",
       "requirement_level": "recommended",
       "auto_fixable": false,
-      "id": "GPRG-069"
+      "id": "GPRG-060"
     }
   ],
   "recommended_actions": [
-    "[CRITICAL] SEC-SIGNING-SECRETS-IN-VCS: Remova do índice com `git rm --cached android/key.properties`, adicione ao .gitignore e avalie rotacionar a chave de upload no Play Console (o histórico Git mantém cópias).",
-    "[CRITICAL] SEC-SIGNING-SECRETS-IN-VCS: Remova do índice com `git rm --cached android/keystore_mently.jks`, adicione ao .gitignore e avalie rotacionar a chave de upload no Play Console (o histórico Git mantém cópias).",
-    "[WARNING] TECH-ARTIFACT-FRESHNESS: Gere novamente o build release (`flutter build appbundle --release`) antes do envio e audite o artefato novo.",
+    "[BLOCKER] POL-FOREGROUND-SERVICE: Adicione a permissão FOREGROUND_SERVICE_<TIPO> correspondente no AndroidManifest.xml.",
+    "[BLOCKER] TECH-BILLING-LIBRARY-VERSION: Atualize com.android.billingclient (ou in_app_purchase_android) para a versão suportada; extensão possível conforme a página oficial.",
+    "[WARNING] POL-BACKGROUND-LOCATION: Confirme que é funcionalidade principal; caso contrário remova (ex.: `<uses-permission android:name=\"android.permission.ACCESS_BACKGROUND_LOCATION\" tools:node=\"remove\"/>` no manifest do app). Se necessária, preencha o Permissions Declaration Form e implemente divulgação destacada.",
     "[WARNING] POL-FOREGROUND-SERVICE: Em Play Console > App content > Foreground service permissions, descreva cada tipo, o impacto se adiado/interrompido e anexe vídeo.",
     "[WARNING] PRIV-ACCOUNT-DELETION: Ofereça caminho no app para excluir conta e dados e um link web funcional; informe a URL no Data safety. Desativação temporária não atende.",
     "[WARNING] PRIV-SDK-DATA-DISCLOSURE: Confira a documentação de Data safety de cada SDK (SDK Index) e, se necessário, instrumente o tráfego (ex.: proxy em build de teste) antes de preencher o formulário.",
+    "[NOT_VERIFIED] TECH-BUNDLETOOL-VALIDATE: Instale um JRE e o bundletool e rode `java -jar bundletool.jar validate --bundle=<app>.aab`.",
     "[NOT_VERIFIED] TECH-16KB-ZIP-ALIGN: Gere APKs com `bundletool build-apks --bundle=app.aab --output=app.apks` e rode `zipalign -c -P 16 -v 4` nos splits; confira o aviso de 16 KB no App bundle explorer.",
     "[NOT_VERIFIED] TECH-PLAY-APP-SIGNING: Confira Play Console > Test and release > App integrity > Play app signing; registre o SHA-256 da app signing key em APIs/App Links.",
-    "[NOT_VERIFIED] SEC-APP-LINKS: Verifique https://<host>/.well-known/assetlinks.json com o SHA-256 da chave de assinatura do Play (App signing key).",
-    "[NOT_VERIFIED] SEC-NETWORK-SECURITY-CONFIG: Revise res/xml do network security config (cleartextTrafficPermitted, trust-anchors de usuário, debug-overrides).",
+    "[NOT_VERIFIED] TECH-SIGNATURE-VERIFY: Rode `jarsigner -verify -verbose -certs app-release.aab` (requer JDK); o Play Console também valida no upload.",
+    "[NOT_VERIFIED] TECH-SIGNATURE-VERIFY: Instale um JRE e rode `apksigner verify --print-certs --verbose app-release.apk`.",
     "[NOT_VERIFIED] TECH-MERGED-MANIFEST: Rode também `guardian.py audit --aab build/app/outputs/bundle/release/app-release.aab` (ou gate --aab) para auditar o manifest mesclado.",
     "[NOT_VERIFIED] POL-SDK-INDEX: Consulte https://play.google.com/sdks para cada SDK de terceiros (avisos de política/versões desatualizadas).",
     "[NOT_VERIFIED] PRIV-DATA-SAFETY-FORM: Exporte/compare o formulário Data safety com o inventário de SDKs deste relatório.",
@@ -2461,6 +1372,7 @@
   ],
   "limitations": [
     "Google Play Developer API não consultada (nenhuma credencial fornecida); metadados do Console exigem verificação manual.",
+    "Ferramentas do Android SDK desativadas (--no-tools): só parsers Python foram usados.",
     "O alinhamento ZIP de 16 KB dos APKs que o Google Play gera a partir do .aab não é observável no bundle; o auditor verifica ELF e APKs locais.",
     "Políticas de conteúdo (UGC, IP, malware, abuso de dispositivo, Families) exigem revisão humana; o auditor não as avalia automaticamente.",
     "Coleta de dados não é inferida de dependências: inventário de SDKs é apenas indício para o Data safety.",
@@ -2475,46 +1387,46 @@
     "status": "BLOCKED",
     "exit_code": 2,
     "mode": "gate",
-    "package": "br.com.mently.app.mently",
-    "version": "1.5.3 (46)",
+    "package": "com.example.app",
+    "version": "2.1.0 (45)",
     "target_sdk": 36,
     "counts": {
-      "CRITICAL": 2,
+      "BLOCKER": 2,
       "WARNING": 4,
-      "INFO": 11,
-      "PASS": 30,
-      "NOT_VERIFIED": 22
+      "INFO": 7,
+      "PASS": 24,
+      "NOT_VERIFIED": 23
     },
     "sections": {
-      "android_build": "WARNING",
+      "android_build": "NEEDS_REVIEW",
       "target_sdk": "PASS",
       "page_size_16kb": "NEEDS_REVIEW",
       "signing": "NEEDS_REVIEW",
-      "security": "BLOCKED",
-      "permissions": "WARNING",
+      "security": "NEEDS_REVIEW",
+      "permissions": "BLOCKED",
       "data_safety": "WARNING",
-      "billing": "NEEDS_REVIEW",
+      "billing": "BLOCKED",
       "play_console": "NOT_VERIFIED",
       "testing": "NOT_VERIFIED"
     },
     "top_findings": [
       {
         "id": "GPRG-001",
-        "severity": "CRITICAL",
-        "rule_id": "SEC-SIGNING-SECRETS-IN-VCS",
-        "title": "Arquivo de assinatura versionado no Git"
+        "severity": "BLOCKER",
+        "rule_id": "POL-FOREGROUND-SERVICE",
+        "title": "Tipo de foreground service sem a permissão correspondente"
       },
       {
         "id": "GPRG-002",
-        "severity": "CRITICAL",
-        "rule_id": "SEC-SIGNING-SECRETS-IN-VCS",
-        "title": "Arquivo de assinatura versionado no Git"
+        "severity": "BLOCKER",
+        "rule_id": "TECH-BILLING-LIBRARY-VERSION",
+        "title": "Play Billing Library abaixo da versão mínima"
       },
       {
         "id": "GPRG-003",
         "severity": "WARNING",
-        "rule_id": "TECH-ARTIFACT-FRESHNESS",
-        "title": "Artefato não corresponde à versão atual do projeto"
+        "rule_id": "POL-BACKGROUND-LOCATION",
+        "title": "Localização em segundo plano: exige justificativa e declaração no Play Console"
       },
       {
         "id": "GPRG-004",
@@ -2535,6 +1447,6 @@
         "title": "SDKs com possível coleta de dados: confirmar declarações do Data safety"
       }
     ],
-    "not_verified_mandatory": 15
+    "not_verified_mandatory": 17
   }
 }

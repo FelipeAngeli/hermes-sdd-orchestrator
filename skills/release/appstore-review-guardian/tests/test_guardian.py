@@ -303,14 +303,15 @@ class TestEntitlements(unittest.TestCase):
         ents = {"com.apple.developer.associated-domains": ["applinks:example.com"]}
         f, _ = validate_entitlements.validate_entitlements(ents, "project", "project", "x")
         self.assertEqual(sevs(f, "ENT-ASSOC-001"), {NOT_VERIFIED})
-        ok = validate_entitlements.check_aasa(["applinks:example.com"], lambda u: (200, b'{"applinks":{"details":[]}}'))
+        public = lambda h, p, **kw: [(2, 1, 6, "", ("93.184.215.14", p))]  # noqa: E731 - no real DNS in tests
+        ok = validate_entitlements.check_aasa(["applinks:example.com"], lambda u, ip: (200, b'{"applinks":{"details":[]}}'), resolver=public)
         self.assertEqual({x.severity for x in ok}, {PASS})
-        missing = validate_entitlements.check_aasa(["applinks:example.com"], lambda u: (404, b""))
+        missing = validate_entitlements.check_aasa(["applinks:example.com"], lambda u, ip: (404, b""), resolver=public)
         self.assertEqual({x.severity for x in missing}, {WARNING})
 
-        def boom(u):
+        def boom(u, ip):
             raise OSError("offline")
-        off = validate_entitlements.check_aasa(["applinks:example.com"], boom)
+        off = validate_entitlements.check_aasa(["applinks:example.com"], boom, resolver=public)
         self.assertEqual({x.severity for x in off}, {NOT_VERIFIED})
 
 
@@ -573,15 +574,17 @@ class TestFlutterProject(TmpCase):
         self.assertEqual(sevs(f, "ENT-APS-001"), {WARNING})
         self.assertEqual(sevs(f, "PROJ-DEPLOY-001"), {PASS})
         self.assertEqual(sevs(f, "PROJ-EXPORT-001"), {PASS})
-        self.assertEqual(sevs(f, "PRIV-POLICY-001"), {PASS})
+        # heuristic evidence found => never PASS on a mandatory rule, only NOT_VERIFIED (needs human confirmation)
+        self.assertEqual(sevs(f, "PRIV-POLICY-001"), {NOT_VERIFIED})
         self.assertIn(NOT_VERIFIED, sevs(f, "REV-DEMO-001"))
 
     def test_apple_login_and_deletion(self):
         proj = fx.flutter_project(self.tmp, social_login=True, apple_login=True, deletion=True, privacy_manifest_file=True)
         f, _ = inspect_project.inspect_project(proj, "full")
-        self.assertEqual(sevs(f, "REV-LOGIN-001"), {PASS})
-        self.assertEqual(sevs(f, "REV-LOGIN-002"), {PASS})
-        self.assertEqual(sevs(f, "REV-ACCTDEL-001"), {PASS})
+        self.assertEqual(sevs(f, "REV-LOGIN-001"), {NOT_VERIFIED})  # heuristic: evidence, not proof
+        self.assertEqual(sevs(f, "REV-LOGIN-002"), {PASS})  # deterministic entitlement check
+        self.assertEqual(sevs(f, "REV-ACCTDEL-001"), {NOT_VERIFIED})
+        self.assertIn("indício de exclusão", by_rule(f, "REV-ACCTDEL-001")[0].evidence)
         self.assertEqual(sevs(f, "PRIV-MANIFEST-001"), set())
         self.assertEqual(sevs(f, "PRIV-MANIFEST-002"), {PASS})
 

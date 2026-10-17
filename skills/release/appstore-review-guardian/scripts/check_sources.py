@@ -22,7 +22,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import RULES_DIR, now_iso, rules  # noqa: E402
+from common import RULES_DIR, ensure_private_dir, now_iso, rules, write_private  # noqa: E402
 
 UA = "Mozilla/5.0 (appstore-review-guardian; read-only source check)"
 CACHE_NAME = "sources-cache.json"
@@ -78,7 +78,7 @@ def load_baseline() -> dict:
 def check_sources(cache_dir: Path, ttl_days: int = 7, force: bool = False, offline: bool = False,
                   fetch=default_fetch, now: dt.datetime | None = None) -> dict:
     now = now or dt.datetime.now(dt.timezone.utc)
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(cache_dir)
     cpath = cache_dir / CACHE_NAME
     cache = {}
     if cpath.is_file():
@@ -130,7 +130,7 @@ def check_sources(cache_dir: Path, ttl_days: int = 7, force: bool = False, offli
         results[url] = entry
     out = {"checked_at": now_iso(), "ttl_days": ttl_days, "rules_consulted_at": rules().oldest_consultation(),
            "summary": summary, "sources": results}
-    cpath.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+    write_private(cpath, json.dumps(out, ensure_ascii=False, indent=1))
     out["cache_file"] = str(cpath)
     return out
 

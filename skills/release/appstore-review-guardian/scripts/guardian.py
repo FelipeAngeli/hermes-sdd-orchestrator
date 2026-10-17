@@ -18,12 +18,12 @@ import argparse
 import hashlib
 import json
 import sys
-import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import (  # noqa: E402
-    NOT_VERIFIED, PASS, TOOL_VERSION, WARNING, Finding, HashCache, have_tool, rules, sha256_file,
+    NOT_VERIFIED, PASS, TOOL_VERSION, WARNING, Finding, HashCache, ensure_private_dir, have_tool, make_private_outdir,
+    redact, rules, sha256_file,
 )
 import check_sources  # noqa: E402
 import generate_report  # noqa: E402
@@ -80,6 +80,39 @@ def rules_digest() -> str:
     return h.hexdigest()[:16]
 
 
+# --------------------------------------------------------------------------- module isolation
+def module_error(component: str, exc: BaseException) -> Finding:
+    detail = redact(f"{type(exc).__name__}: {exc}", 240)
+    return Finding("MODULE-ERROR-001", NOT_VERIFIED, component,
+                   f"módulo '{component}' interrompido por erro inesperado ({detail}); suas verificações não foram executadas",
+                   confidence=1.0, recommendation="Confira se a entrada é legítima (reexporte o .ipa / revise o projeto) e rode de novo; "
+                                                  "se persistir, reporte o erro com o trecho acima.")
+
+
+def isolated(component: str, fn):
+    """Run one inspection module; any unexpected exception becomes a NOT_VERIFIED finding instead of a crash."""
+    def run():
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001 - module isolation is the point
+            raise _ModuleFailed(module_error(component, exc)) from exc
+    return run
+
+
+class _ModuleFailed(Exception):
+    def __init__(self, finding: Finding):
+        super().__init__(finding.evidence)
+        self.finding = finding
+
+
+def run_module(cache: HashCache, key: str, digest: str, component: str, fn) -> tuple[list[Finding], dict]:
+    """Cached + isolated module run. Failures are never cached."""
+    try:
+        return cache.module(key, digest, isolated(component, fn))
+    except _ModuleFailed as exc:
+        return [exc.finding], {"error": exc.finding.evidence}
+
+
 # --------------------------------------------------------------------------- core
 def run_audit(*, mode: str, project: Path | None, ipa: Path | None, app: Path | None, out_dir: Path,
               asc_metadata: Path | None, network: bool, use_cache: bool) -> tuple[dict, list[str] | None, Path, Path]:
@@ -96,7 +129,7 @@ def run_audit(*, mode: str, project: Path | None, ipa: Path | None, app: Path | 
                 raise UsageError("--output-dir não pode ficar dentro do projeto/bundle auditado (a auditoria é somente leitura)")
             except ValueError:
                 pass
-    out_dir.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(out_dir)
     cache = HashCache(out_dir / ".guardian-cache.json" if use_cache else None)
     rd = rules_digest()
     findings: list[Finding] = []
@@ -108,16 +141,20 @@ def run_audit(*, mode: str, project: Path | None, ipa: Path | None, app: Path | 
 
     # ---- project
     if project:
-        digest, files = project_digest(project)
+        try:
+            digest, files = project_digest(project)
+        except (OSError, ValueError) as exc:
+            digest, files = None, {}
+            findings.append(module_error("project", exc))
         prev = (cache.data.get("files") or {}).get(str(project), {})
         changed = sorted(k for k in files if prev.get(k) != files[k]) + sorted(k for k in prev if k not in files)
-        cache.data.setdefault("files", {})[str(project)] = files
-
-        fetch = None
-        if network:
-            fetch = check_sources.default_fetch
+        if digest:
+            cache.data.setdefault("files", {})[str(project)] = files
         key = f"project:{project.resolve()}:{sub_mode}:{rd}:{int(network)}"
-        pf, pfacts = cache.module(key, digest, lambda: inspect_project.inspect_project(project, sub_mode, fetch))
+        if digest:
+            pf, pfacts = run_module(cache, key, digest, "project", lambda: inspect_project.inspect_project(project, sub_mode, network))
+        else:
+            pf, pfacts = [], {}
         findings += pf
         facts["project"] = pfacts
         target.update({"app_name": pfacts.get("name"), "bundle_id": pfacts.get("bundle_id"),
@@ -129,14 +166,21 @@ def run_audit(*, mode: str, project: Path | None, ipa: Path | None, app: Path | 
     if ipa or app:
         artifact = ipa or app
         full = sub_mode != "quick"
-        digest = sha256_file(artifact) if ipa else dir_digest(artifact)
-        key = f"{'ipa' if ipa else 'app'}:{artifact.resolve()}:{int(full)}:{rd}:{','.join(t for t in TOOLS if have_tool(t))}"
+        comp = "ipa" if ipa else "app"
+        try:
+            digest = sha256_file(artifact) if ipa else dir_digest(artifact)
+        except OSError as exc:
+            digest = None
+            bf, bfacts = [module_error(comp, exc)], {"error": str(exc)}
+        key = f"{comp}:{artifact.resolve()}:{int(full)}:{rd}:{','.join(t for t in TOOLS if have_tool(t))}"
+        if digest and ipa:
+            bf, bfacts = run_module(cache, key, digest, comp, lambda: inspect_ipa.inspect_ipa(artifact, full=full))
+        elif digest:
+            bf, bfacts = run_module(cache, key, digest, comp, lambda: inspect_ipa.inspect_app_dir(artifact, "app", artifact.name, full=full))
         if ipa:
-            bf, bfacts = cache.module(key, digest, lambda: inspect_ipa.inspect_ipa(artifact, full=full))
             target["ipa"] = str(ipa)
             target["ipa_sha256"] = digest
         else:
-            bf, bfacts = cache.module(key, digest, lambda: inspect_ipa.inspect_app_dir(artifact, "app", artifact.name, full=full))
             target["ipa"] = f"{app} (bundle .app local)"
         findings += bf
         facts["bundle"] = bfacts
@@ -170,7 +214,10 @@ def run_audit(*, mode: str, project: Path | None, ipa: Path | None, app: Path | 
                 md = json.loads(asc_metadata.read_text(encoding="utf-8"))
             except (OSError, ValueError) as exc:
                 raise UsageError(f"--asc-metadata inválido: {exc}") from exc
-        af, afacts = inspect_asc.check_asc(md)
+        try:
+            af, afacts = inspect_asc.check_asc(md)
+        except Exception as exc:  # noqa: BLE001 - module isolation
+            af, afacts = [module_error("asc", exc)], {"error": str(exc)}
         findings += af
         facts["asc"] = afacts
 
@@ -259,7 +306,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def default_out(name: str) -> Path:
-    return Path(tempfile.gettempdir()) / "appstore-review-guardian" / name
+    """Fresh private (0700) mkdtemp per run; reports carry absolute paths and must not be world-readable."""
+    return make_private_outdir(name)
 
 
 def main(argv=None) -> int:
@@ -273,13 +321,13 @@ def main(argv=None) -> int:
             print(json.dumps(inspect_asc.TEMPLATE, ensure_ascii=False, indent=2))
             return 0
         if args.cmd == "rules":
-            out = args.output_dir or default_out("rules")
             if args.list:
                 print(json.dumps([{k: r[k] for k in ("id", "severity_if_violated", "requirement_level", "verification_method", "guideline")}
                                   for r in rules().rules.values()], ensure_ascii=False))
                 return 0
             if not args.check_sources:
                 raise UsageError("use 'rules --check-sources' ou 'rules --list'")
+            out = ensure_private_dir(args.output_dir) if args.output_dir else default_out("rules")
             res = check_sources.check_sources(out, args.ttl_days, args.force, args.offline)
             stale = [u for u, e in res["sources"].items() if e.get("changed_since_baseline")]
             errs = {u: e.get("error") for u, e in res["sources"].items() if e.get("error")}

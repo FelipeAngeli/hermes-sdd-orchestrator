@@ -195,7 +195,8 @@ class TestClosedTesting(TempDirCase):
         self.assertEqual(sev(fs, "POL-CLOSED-TESTING"), {common.WARNING})
         fs = validate_play_console.validate_testing({"type": "personal", "created": "2024-01-10",
                                                      "closed_test_testers": 12, "closed_test_days": 14}, F)
-        self.assertEqual(sev(fs, "POL-CLOSED-TESTING"), {common.PASS})
+        # user-declared numbers are not a verification: mandatory rule stays pending, never PASS
+        self.assertEqual(sev(fs, "POL-CLOSED-TESTING"), {common.NOT_VERIFIED})
         fs = validate_play_console.validate_testing({"type": "personal", "created": "2024-01-10",
                                                      "closed_test_testers": 11, "closed_test_days": 20}, F)
         self.assertEqual(sev(fs, "POL-CLOSED-TESTING"), {common.WARNING})

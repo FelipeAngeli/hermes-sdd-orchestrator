@@ -76,7 +76,9 @@
       "allOf": [
         {"if": {"properties": {"severity": {"const": "PASS"}}}, "then": {"properties": {"evidence": {"minLength": 1}}}},
         {"if": {"properties": {"verification_method": {"const": "heuristic"}}},
-         "then": {"properties": {"severity": {"not": {"enum": ["BLOCKER", "CRITICAL"]}}}}}
+         "then": {"properties": {"severity": {"not": {"enum": ["BLOCKER", "CRITICAL"]}}}}},
+        {"if": {"properties": {"verification_method": {"enum": ["heuristic", "manual"]}}},
+         "then": {"properties": {"severity": {"not": {"enum": ["PASS", "NOT_APPLICABLE"]}}}}}
       ]
     }
   },

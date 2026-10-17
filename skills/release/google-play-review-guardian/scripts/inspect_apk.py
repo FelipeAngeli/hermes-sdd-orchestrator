@@ -14,7 +14,7 @@ import zipfile
 from pathlib import Path
 
 from common import (BLOCKER, CRITICAL, NOT_VERIFIED, PASS, WARNING, INFO, FindingFactory, ToolInfo,
-                    read_member, run_tool, scan_zip, tool_cmd)
+                    archive_budget, read_member, run_tool, scan_zip, tool_cmd)
 from validate_manifest import Element, attr_key, extract_info
 
 RES_STRING_POOL = 0x0001
@@ -203,7 +203,7 @@ def inspect_apk(path: Path, tools: dict[str, ToolInfo], F: FindingFactory, timeo
                     component=comp, evidence="entrada AndroidManifest.xml ausente"))
         return res
     with zipfile.ZipFile(path) as zf:
-        raw = read_member(zf, names["AndroidManifest.xml"], 16 * 1024 ** 2)
+        raw = read_member(zf, names["AndroidManifest.xml"], 16 * 1024 ** 2, budget=archive_budget(path))
     try:
         info = extract_info(parse_axml(raw))
         res["manifest"] = info
