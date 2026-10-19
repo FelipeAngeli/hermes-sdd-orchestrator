@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/FelipeAngeli/hermes-sdd-guardians/skills/release/google-play-review-guardian/schemas/audit-report.schema.json",
+  "title": "Google Play Review Guardian audit report",
+  "type": "object",
+  "required": ["schema_version", "tool", "generated_at", "mode", "target", "app", "final_status", "exit_code",
+               "status_disclaimer", "sections", "counts", "coverage", "tools", "rules", "findings",
+               "recommended_actions", "limitations", "summary"],
+  "additionalProperties": false,
+  "$defs": {
+    "severity": {"enum": ["BLOCKER", "CRITICAL", "WARNING", "INFO", "PASS", "NOT_VERIFIED", "NOT_APPLICABLE"]},
+    "gate": {"enum": ["READY", "NEEDS_REVIEW", "BLOCKED"]},
+    "sectionStatus": {"enum": ["PASS", "WARNING", "BLOCKED", "NEEDS_REVIEW", "NOT_VERIFIED", "NOT_APPLICABLE"]},
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "rule_id", "severity", "section", "title", "component", "evidence", "verification_method",
+                   "official_url", "consulted_at", "confidence", "recommendation", "auto_fixable", "requirement_level"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^GPRG-[0-9]{3,}$"},
+        "rule_id": {"type": "string", "pattern": "^(TECH|SEC|PRIV|POL)-[A-Z0-9-]+$"},
+        "severity": {"$ref": "#/$defs/severity"},
+        "section": {"enum": ["android_build", "target_sdk", "page_size_16kb", "signing", "security", "permissions",
+                             "data_safety", "billing", "play_console", "testing"]},
+        "title": {"type": "string", "minLength": 1},
+        "component": {"type": "string", "minLength": 1},
+        "evidence": {"type": "string", "minLength": 1},
+        "verification_method": {"enum": ["deterministic", "heuristic", "manual"]},
+        "official_url": {"type": "string", "pattern": "^https://"},
+        "consulted_at": {"type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+        "confidence": {"enum": ["high", "medium", "low"]},
+        "recommendation": {"type": "string", "minLength": 1},
+        "auto_fixable": {"type": "boolean"},
+        "requirement_level": {"enum": ["mandatory", "recommended"]}
+      }
+    }
+  },
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "tool": {"type": "object", "required": ["name", "version"],
+             "properties": {"name": {"const": "google-play-review-guardian"}, "version": {"type": "string"}}},
+    "generated_at": {"type": "string"},
+    "mode": {"enum": ["quick", "full", "policy", "artifact", "gate"]},
+    "target": {"type": "object", "properties": {
+      "project": {"type": ["string", "null"]}, "aab": {"type": ["string", "null"]}, "apk": {"type": ["string", "null"]},
+      "aab_sha256": {"type": ["string", "null"]}, "apk_sha256": {"type": ["string", "null"]},
+      "project_type": {"type": ["string", "null"]}, "form_factor": {"type": "string"}, "submission": {"type": ["string", "null"]}}},
+    "app": {"type": "object", "properties": {
+      "package": {"type": ["string", "null"]}, "label": {"type": ["string", "null"]},
+      "version_name": {"type": ["string", "null"]}, "version_code": {"type": ["integer", "null"]},
+      "min_sdk": {"type": ["integer", "null"]}, "target_sdk": {"type": ["integer", "null"]},
+      "compile_sdk": {"type": ["integer", "null"]}, "source": {"type": "string"}}},
+    "final_status": {"$ref": "#/$defs/gate"},
+    "exit_code": {"enum": [0, 1, 2]},
+    "status_disclaimer": {"type": "string"},
+    "sections": {"type": "object", "additionalProperties": {
+      "type": "object", "required": ["label", "status"],
+      "properties": {"label": {"type": "string"}, "status": {"$ref": "#/$defs/sectionStatus"}, "counts": {"type": "object"}}}},
+    "counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "coverage": {"type": "object"},
+    "tools": {"type": "object", "additionalProperties": {"type": "object", "required": ["available"],
+              "properties": {"available": {"type": "boolean"}, "path": {"type": ["string", "null"]}, "reason": {"type": "string"}}}},
+    "rules": {"type": "object", "required": ["count", "digest", "consulted_at"],
+              "properties": {"count": {"type": "integer"}, "digest": {"type": "string"}, "consulted_at": {"type": "string"}}},
+    "inventory": {"type": "object"},
+    "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "recommended_actions": {"type": "array", "items": {"type": "string"}},
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "cache": {"type": "object"},
+    "summary": {"type": "object", "required": ["status", "exit_code", "counts", "sections", "top_findings"],
+                "properties": {"status": {"$ref": "#/$defs/gate"}, "exit_code": {"enum": [0, 1, 2]}}}
+  }
+}

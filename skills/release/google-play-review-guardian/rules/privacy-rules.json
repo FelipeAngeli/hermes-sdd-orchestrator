@@ -1,0 +1,150 @@
+{
+ "schema_version": "1.0",
+ "source_registry": "references/sources.md",
+ "consulted_at": "2026-10-16",
+ "rules": [
+  {
+   "id": "PRIV-DATA-SAFETY-FORM",
+   "name": "Formulário Data safety preenchido e preciso",
+   "description": "Todos os apps devem declarar no Play Console como coletam e compartilham dados, incluindo dados tratados por SDKs de terceiros.",
+   "category": "data_safety",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/10787469?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2022-07-20",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Todo app publicado no Google Play.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "mandatory",
+   "source_quote": "All developers must declare how they collect and handle user data for the apps they publish on Google Play ... This includes data collected and handled through any third-party libraries or SDKs used in their apps."
+  },
+  {
+   "id": "PRIV-SDK-DATA-DISCLOSURE",
+   "name": "Coleta por SDKs refletida no Data safety",
+   "description": "SDKs de analytics, crash, ads, push e pagamentos podem coletar dados; confirmar pela documentação do SDK/SDK Index e por testes, nunca só pelo nome da dependência.",
+   "category": "data_safety",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/10787469?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2022-07-20",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Dependências de SDKs com possível coleta de dados.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "heuristic",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "PRIV-PRIVACY-POLICY",
+   "name": "Política de privacidade válida",
+   "description": "Política de privacidade válida no store listing e dentro do app.",
+   "category": "user_data",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/10144311?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2021-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Todo app (obrigatória em especial quando acessa dados pessoais/sensíveis).",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "mandatory",
+   "source_quote": "Have a valid privacy policy in both the app's store listing and within the app itself."
+  },
+  {
+   "id": "PRIV-ACCOUNT-DELETION",
+   "name": "Exclusão de conta no app e via web",
+   "description": "Se o app permite criar conta, deve oferecer caminho no app para excluir conta e dados associados e um link web para solicitar a exclusão.",
+   "category": "user_data",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/13327111?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2023-12-07",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "App permite criação de contas (no app ou direcionando para fluxo externo). Isentos: apps permanentemente privados e de gerenciamento de dispositivos empresariais; contas offline.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "mandatory",
+   "source_quote": "If your app enables account creation, you must: provide users with an in-app path to delete their app accounts and associated data; and provide a web link resource where users can request app account deletion and associated data deletion."
+  },
+  {
+   "id": "PRIV-PROMINENT-DISCLOSURE",
+   "name": "Divulgação destacada e consentimento",
+   "description": "Coleta de dados pessoais/sensíveis não esperada pelo usuário exige divulgação destacada no app e consentimento afirmativo.",
+   "category": "user_data",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/10144311?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2021-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Acesso a dados pessoais e sensíveis fora do esperado (ex.: localização em background, acessibilidade, inventário de apps).",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "PRIV-ADVERTISING-ID",
+   "name": "Uso do Advertising ID",
+   "description": "Apps com target ≥ 33 que usam o Advertising ID devem declarar com.google.android.gms.permission.AD_ID; usar o Advertising ID no lugar de outros identificadores para publicidade.",
+   "category": "user_data",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/6048248?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2022-03-15",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Uso de SDKs de anúncios/analytics que leem o Advertising ID.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "heuristic",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "PRIV-DATA-ENCRYPTION-TRANSIT",
+   "name": "Criptografia em trânsito declarada",
+   "description": "Declaração de 'dados criptografados em trânsito' no Data safety deve refletir o comportamento real (TLS).",
+   "category": "data_safety",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/10787469?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2022-07-20",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "App transmite dados pela rede.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "heuristic",
+   "requirement_level": "mandatory"
+  }
+ ]
+}

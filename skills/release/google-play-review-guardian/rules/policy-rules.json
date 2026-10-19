@@ -1,0 +1,610 @@
+{
+ "schema_version": "1.0",
+ "source_registry": "references/sources.md",
+ "consulted_at": "2026-10-16",
+ "rules": [
+  {
+   "id": "POL-SMS-CALL-LOG",
+   "name": "Permissões de SMS e Call Log",
+   "description": "Grupos SMS/Call Log só para funcionalidade principal permitida, com Permissions Declaration Form aprovado.",
+   "category": "permissions",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/10208820?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2019-01-09",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Manifest declara permissões dos grupos SMS ou Call Log.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory",
+   "permissions": [
+    "android.permission.READ_SMS",
+    "android.permission.SEND_SMS",
+    "android.permission.RECEIVE_SMS",
+    "android.permission.RECEIVE_MMS",
+    "android.permission.RECEIVE_WAP_PUSH",
+    "android.permission.WRITE_SMS",
+    "android.permission.READ_CALL_LOG",
+    "android.permission.WRITE_CALL_LOG",
+    "android.permission.PROCESS_OUTGOING_CALLS"
+   ],
+   "upcoming_change": "Our SMS and Call Log Permissions policy will no longer permit account verification via phone call as a use case for the READ_CALL_LOG permission. (effective January 27, 2027)"
+  },
+  {
+   "id": "POL-BACKGROUND-LOCATION",
+   "name": "Localização em segundo plano",
+   "description": "ACCESS_BACKGROUND_LOCATION requer funcionalidade principal, declaração no Play Console, vídeo, divulgação destacada e política de privacidade.",
+   "category": "permissions",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/9799150?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2020-09-30",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Manifest declara ACCESS_BACKGROUND_LOCATION.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory",
+   "permissions": [
+    "android.permission.ACCESS_BACKGROUND_LOCATION"
+   ]
+  },
+  {
+   "id": "POL-LOCATION",
+   "name": "Localização em primeiro plano",
+   "description": "Localização só para funcionalidade atual; a política será atualizada (botão de localização como escopo mínimo recomendado para precisa, efetivo 2027-01-27).",
+   "category": "permissions",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/13161072?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2020-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Manifest declara ACCESS_FINE_LOCATION/ACCESS_COARSE_LOCATION.",
+   "severity_if_violated": "INFO",
+   "verification_method": "deterministic",
+   "requirement_level": "recommended",
+   "permissions": [
+    "android.permission.ACCESS_FINE_LOCATION",
+    "android.permission.ACCESS_COARSE_LOCATION"
+   ]
+  },
+  {
+   "id": "POL-ALL-FILES-ACCESS",
+   "name": "All files access (MANAGE_EXTERNAL_STORAGE)",
+   "description": "Somente para usos permitidos (gerenciadores de arquivos, backup, antivírus, gestão de documentos) com declaração aprovada.",
+   "category": "permissions",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/10467955?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2021-05-05",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Manifest declara MANAGE_EXTERNAL_STORAGE e targetSdk ≥ 30.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory",
+   "permissions": [
+    "android.permission.MANAGE_EXTERNAL_STORAGE"
+   ]
+  },
+  {
+   "id": "POL-QUERY-ALL-PACKAGES",
+   "name": "Visibilidade ampla de pacotes (QUERY_ALL_PACKAGES)",
+   "description": "Somente quando a funcionalidade principal exige ver todos os apps instalados; requer declaração.",
+   "category": "permissions",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/10158779?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2022-07-12",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Manifest declara QUERY_ALL_PACKAGES e targetSdk ≥ 30.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory",
+   "permissions": [
+    "android.permission.QUERY_ALL_PACKAGES"
+   ]
+  },
+  {
+   "id": "POL-PHOTO-VIDEO",
+   "name": "Permissões de fotos e vídeos",
+   "description": "Apps com target ≥ 33 só podem pedir READ_MEDIA_IMAGES/READ_MEDIA_VIDEO se pickers do sistema não bastarem; exige declaração no Play Console.",
+   "category": "permissions",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/13161072?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2024-08-31",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Manifest declara READ_MEDIA_IMAGES ou READ_MEDIA_VIDEO.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory",
+   "permissions": [
+    "android.permission.READ_MEDIA_IMAGES",
+    "android.permission.READ_MEDIA_VIDEO"
+   ],
+   "source_quote": "Apps that target Android 13 or higher (API level 33+) may only request the READ_MEDIA_IMAGES and READ_MEDIA_VIDEO permissions if system pickers (like the Android Photo Picker ) are not sufficient for your app to provide core functionality."
+  },
+  {
+   "id": "POL-EXACT-ALARM",
+   "name": "Alarmes exatos (USE_EXACT_ALARM)",
+   "description": "USE_EXACT_ALARM é restrita a apps de alarme/timer/calendário; caso contrário use SCHEDULE_EXACT_ALARM.",
+   "category": "permissions",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/13161072?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2023-07-31",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Manifest declara USE_EXACT_ALARM (ou SCHEDULE_EXACT_ALARM, informativo).",
+   "severity_if_violated": "WARNING",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory",
+   "permissions": [
+    "android.permission.USE_EXACT_ALARM",
+    "android.permission.SCHEDULE_EXACT_ALARM"
+   ]
+  },
+  {
+   "id": "POL-FOREGROUND-SERVICE",
+   "name": "Tipos de foreground service declarados",
+   "description": "Para target ≥ 34, declarar tipos de FGS no manifest, solicitar a permissão FOREGROUND_SERVICE_<TIPO> correspondente e declarar cada tipo no Play Console (descrição, impacto, vídeo).",
+   "category": "permissions",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/13392821?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2024-08-31",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Manifest declara <service> com foregroundServiceType ou FOREGROUND_SERVICE*.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "POL-REQUEST-INSTALL-PACKAGES",
+   "name": "REQUEST_INSTALL_PACKAGES",
+   "description": "Somente quando a funcionalidade principal envolve instalar pacotes por ação do usuário; não para autoatualização.",
+   "category": "permissions",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/13161072?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2022-09-30",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Manifest declara REQUEST_INSTALL_PACKAGES.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory",
+   "permissions": [
+    "android.permission.REQUEST_INSTALL_PACKAGES"
+   ]
+  },
+  {
+   "id": "POL-ACCESSIBILITY-API",
+   "name": "AccessibilityService API",
+   "description": "Uso exige declaração; apenas ferramentas para pessoas com deficiência podem declarar isAccessibilityTool; demais exigem divulgação destacada e consentimento.",
+   "category": "permissions",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/10964491?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2021-11-03",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Manifest declara serviço com BIND_ACCESSIBILITY_SERVICE.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "POL-SENSITIVE-PERMISSIONS",
+   "name": "Permissões sensíveis justificadas",
+   "description": "Câmera, microfone, contatos, calendário, sensores corporais etc. só para funcionalidades atuais promovidas no store listing, solicitadas em contexto.",
+   "category": "permissions",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/13161072?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2020-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Manifest declara permissões runtime sensíveis.",
+   "severity_if_violated": "INFO",
+   "verification_method": "heuristic",
+   "requirement_level": "mandatory",
+   "permissions": [
+    "android.permission.CAMERA",
+    "android.permission.RECORD_AUDIO",
+    "android.permission.READ_CONTACTS",
+    "android.permission.WRITE_CONTACTS",
+    "android.permission.GET_ACCOUNTS",
+    "android.permission.READ_CALENDAR",
+    "android.permission.WRITE_CALENDAR",
+    "android.permission.BODY_SENSORS",
+    "android.permission.ACTIVITY_RECOGNITION",
+    "android.permission.READ_PHONE_STATE",
+    "android.permission.READ_PHONE_NUMBERS",
+    "android.permission.READ_EXTERNAL_STORAGE",
+    "android.permission.WRITE_EXTERNAL_STORAGE",
+    "android.permission.BLUETOOTH_SCAN",
+    "android.permission.NEARBY_WIFI_DEVICES",
+    "android.permission.POST_NOTIFICATIONS",
+    "android.permission.SYSTEM_ALERT_WINDOW",
+    "android.permission.READ_MEDIA_AUDIO",
+    "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+   ],
+   "upcoming_change": "Contacts Permissions policy (new, effective January 27, 2027): apps that don't need broad access must use the Android Contact Picker."
+  },
+  {
+   "id": "POL-VPN-SERVICE",
+   "name": "VpnService",
+   "description": "Uso de VpnService permitido apenas para apps com funcionalidade principal de VPN ou casos listados; requer declaração.",
+   "category": "permissions",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/13161072?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2022-11-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Manifest declara serviço com BIND_VPN_SERVICE.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "deterministic",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "POL-PLAY-BILLING",
+   "name": "Google Play Billing para bens/serviços digitais",
+   "description": "Compras de funcionalidades, conteúdo digital, assinaturas e serviços em nuvem devem usar o Google Play Billing, salvo exceções (bens físicos, serviços presenciais, P2P, doações isentas, programas de faturamento alternativo).",
+   "category": "billing",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/9858738?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2020-09-28",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "App vende funcionalidades ou conteúdo digital.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "heuristic",
+   "requirement_level": "mandatory",
+   "exemptions": [
+    "physical goods",
+    "physical services",
+    "credit card / utility bill remittance",
+    "peer-to-peer payments",
+    "online auctions",
+    "tax exempt donations",
+    "real-money gambling (per policy)",
+    "alternative billing / external offers programs in eligible regions (enrollment required)"
+   ]
+  },
+  {
+   "id": "POL-CLOSED-TESTING",
+   "name": "Teste fechado para novas contas pessoais",
+   "description": "Contas pessoais criadas após 2023-11-13 precisam de teste fechado com ≥ 12 testadores inscritos continuamente por ≥ 14 dias antes de solicitar acesso à produção.",
+   "category": "testing",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/14151465?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2023-11-13",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Conta de desenvolvedor PESSOAL criada após 2023-11-13 que ainda não obteve acesso à produção. Não se aplica a contas organizacionais.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "mandatory",
+   "conditions": {
+    "account_type": "personal",
+    "account_created_after": "2023-11-13",
+    "min_testers": 12,
+    "min_consecutive_days": 14,
+    "requires_production_access_application": true
+   },
+   "source_quote": "Developers with personal accounts created after November 13, 2023, must run a closed test for their app with a minimum of 12 testers who have been opted in continuously for at least 14 days."
+  },
+  {
+   "id": "POL-PERMISSIONS-DECLARATION",
+   "name": "Permissions Declaration Form",
+   "description": "Permissões de alto risco exigem o formulário de declaração aprovado; sem ele não é possível publicar alterações.",
+   "category": "permissions",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/9214102?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2019-01-09",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Artefato solicita permissão restrita.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "POL-STORE-LISTING",
+   "name": "Metadados do store listing",
+   "description": "Título (30), descrição curta (80), descrição completa (4000), ícone, screenshots, feature graphic; sem emojis/caps abusivos no título.",
+   "category": "metadata",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/9898842?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2021-09-29",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Store listing do app.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "mandatory",
+   "limits": {
+    "title": 30,
+    "short_description": 80,
+    "full_description": 4000
+   },
+   "limits_source": "https://support.google.com/googleplay/android-developer/answer/9859152?hl=en"
+  },
+  {
+   "id": "POL-TARGET-AUDIENCE",
+   "name": "Público-alvo e Families",
+   "description": "Declarar público-alvo; apps para crianças seguem a política Families.",
+   "category": "families",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/9893335?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2020-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Todo app.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "POL-CONTENT-RATING",
+   "name": "Classificação de conteúdo",
+   "description": "Questionário de classificação IARC concluído no Play Console.",
+   "category": "metadata",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/9898843?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2018-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Todo app.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "POL-ADS-DECLARATION",
+   "name": "Declaração de anúncios e política de Ads",
+   "description": "Declarar se o app contém anúncios e cumprir a política de Ads.",
+   "category": "ads",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/9857753?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2020-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Todo app.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "POL-APP-ACCESS",
+   "name": "Acesso ao app para revisão",
+   "description": "Fornecer credenciais/instruções para áreas restritas por login.",
+   "category": "metadata",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/15748846?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2020-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "App com login ou conteúdo restrito.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "POL-UGC",
+   "name": "Conteúdo gerado por usuários",
+   "description": "Apps com UGC precisam de termos, moderação, denúncia e bloqueio.",
+   "category": "content",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/9876937?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2021-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "App permite conteúdo gerado por usuários.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "POL-MINIMUM-FUNCTIONALITY",
+   "name": "Funcionalidade mínima",
+   "description": "App deve oferecer experiência estável e funcional.",
+   "category": "content",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/9898783?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2020-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Todo app.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "POL-DEVICE-NETWORK-ABUSE",
+   "name": "Abuso de dispositivo e rede",
+   "description": "Sem autoatualização fora do Play, download de código executável, interferência em outros apps.",
+   "category": "content",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/9888379?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2020-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Todo app.",
+   "severity_if_violated": "CRITICAL",
+   "verification_method": "manual",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "POL-MALWARE",
+   "name": "Malware e MUwS",
+   "description": "Nenhum comportamento malicioso ou software indesejado.",
+   "category": "content",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/9888380?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2020-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Todo app.",
+   "severity_if_violated": "CRITICAL",
+   "verification_method": "manual",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "POL-INTELLECTUAL-PROPERTY",
+   "name": "Propriedade intelectual",
+   "description": "Sem uso não autorizado de marcas/conteúdo de terceiros.",
+   "category": "content",
+   "official_url": "https://support.google.com/googleplay/android-developer/answer/9888072?hl=en",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2020-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "Todo app.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "mandatory"
+  },
+  {
+   "id": "POL-SDK-INDEX",
+   "name": "Google Play SDK Index",
+   "description": "Consultar SDKs no SDK Index para versões com problemas de política/segurança e orientação de Data safety.",
+   "category": "sdk",
+   "official_url": "https://play.google.com/sdks",
+   "consulted_at": "2026-10-16",
+   "effective_from": "2022-01-01",
+   "platforms_affected": [
+    "phone/tablet",
+    "wear",
+    "tv",
+    "automotive",
+    "xr"
+   ],
+   "applies_when": "App usa SDKs de terceiros.",
+   "severity_if_violated": "WARNING",
+   "verification_method": "manual",
+   "requirement_level": "recommended"
+  }
+ ]
+}
