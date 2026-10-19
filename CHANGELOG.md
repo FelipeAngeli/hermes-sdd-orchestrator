@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.7.4 - 2026-10-19
+
 ### Fixed
 - Preserve a baseline allowance when an unchanged oversized legacy source file is renamed one-to-one.
 
