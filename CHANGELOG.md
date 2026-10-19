@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.7.1 - 2026-10-19
+
 ### Fixed
 - Avoid duplicate discovery of shared token-limit test cases in the baseline suite.
 
