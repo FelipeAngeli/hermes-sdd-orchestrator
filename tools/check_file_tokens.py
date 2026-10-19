@@ -34,6 +34,11 @@ def policy_integrity(repo,config_path,c,b):
     try: old=json.loads(previous)["files"]
     except Exception as e: raise Error(f"invalid previous token baseline: {e}")
     if any(path not in old or size>old[path] for path,size in b.items()): raise Error("token baseline may only shrink or remove entries")
+    all_=entries(repo); limit=c["limit_tokens"]*c["bytes_per_token"]
+    for path in set(old)-set(b):
+        if path not in all_: continue
+        mode,oid=all_[path]
+        if mode not in ("120000","160000") and source(repo,path,oid,c) and int(run(repo,"cat-file","-s",oid))>limit: raise Error("token baseline entry may only be removed with a deleted or reduced file")
 def entries(repo):
     out=run(repo,"ls-files","-s","-z"); ans={}
     for x in out.split(b"\0"):

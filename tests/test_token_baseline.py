@@ -32,6 +32,10 @@ class Baseline(unittest.TestCase):
   config=json.loads((self.r/"tools/token_limit.json").read_text()); config["limit_tokens"]=9999
   (self.r/"tools/token_limit.json").write_text(json.dumps(config)); self.git("add","tools/token_limit.json")
   self.assertEqual(self.cli("--staged").returncode,2)
+ def test_removing_baseline_requires_deleting_or_reducing_source(self):
+  self.baseline({"src/old.py":20001}); self.put("src/old.py",20001); self.git("commit","-m","old")
+  (self.r/"tools/token_baseline.json").write_text('{"schema_version":1,"files":{}}'); self.git("add","tools/token_baseline.json")
+  self.assertEqual(self.cli("--staged").returncode,2)
  def test_malformed_baseline_and_unmerged_index_fail_closed(self):
   (self.r/"tools/token_baseline.json").write_text('{"schema_version":1,"files":{"/bad.py":1}}'); self.git("add","tools/token_baseline.json")
   self.assertEqual(self.cli("--staged").returncode,2)

@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- Prevent removing a baseline allowance while its oversized source file remains unchanged.
+
 ## 15.7.2 - 2026-10-19
 
 ### Fixed

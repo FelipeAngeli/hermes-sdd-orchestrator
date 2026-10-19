@@ -45,7 +45,7 @@ The limit is 5,000 estimated tokens: `ceil(bytes / 4)`, so 20,000 bytes passes a
 
 Source means an extension in `source_extensions`, or an extensionless blob beginning `#!`. Markdown, JSON, YAML, TOML, text and binary assets are not source and are therefore not measured. `exclude` groups are `lockfiles`, `generated`, `build`, `vendor` and `migrations_snapshots`. Patterns use `fnmatch.fnmatchcase` on the full POSIX path and every `/` suffix; a leading `/` anchors a pattern at the repository root.
 
-`tools/token_baseline.json` records exact byte allowances for legacy source files. Baseline files may shrink but cannot grow; the checker prints a tightening hint for a smaller staged blob. `--update-baseline` lowers/removes entries only. `--admit` is limited to seeding the baseline before its first commit. After that commit, the hook rejects a changed configuration and rejects a baseline addition or increase; invalid index configuration, baseline or Git state fails closed.
+`tools/token_baseline.json` records exact byte allowances for legacy source files. Baseline files may shrink but cannot grow; the checker prints a tightening hint for a smaller staged blob. `--update-baseline` lowers entries and removes one only when its source is deleted, no longer source or within the limit. `--admit` is limited to seeding the baseline before its first commit. After that commit, the hook rejects a changed configuration, a baseline addition/increase, or removal that leaves an oversized source; invalid index configuration, baseline or Git state fails closed.
 
 ## `tools/check_docs_sync.py`
 
