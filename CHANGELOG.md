@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.8.1 - 2026-10-19
+
 ### Fixed
 
 - A plain install on a container still in `.hermes/` is `BLOCKED` (`OBSIDIAN_LEGACY_LAYOUT`, `next_command` the `--upgrade` dry run) instead of installing a second controller under `Hermes/` that blocked every later upgrade.
