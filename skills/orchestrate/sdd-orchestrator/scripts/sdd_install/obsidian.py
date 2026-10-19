@@ -12,16 +12,13 @@ import urllib.parse
 from pathlib import Path, PurePosixPath
 
 from .constants import (
-    CONFIG_ROOT,
-    OBSIDIAN_BINDING_PATH,
-    OBSIDIAN_RUNTIME_SUBPATH,
-    HIDDEN_CONTROLLER_NOTE,
     INSTALL_MANIFEST_PATH,
     OWNER_FILES,
     TEMPLATE,
     TYPESAFE_ANSWER_DISABLED,
     TYPESAFE_ANSWER_ENABLED,
     TYPESAFE_LOCK_PATH_OBSIDIAN,
+    VISIBLE_CONTROLLER_NOTE,
     WORKTREE_RUNTIME_FILES,
 )
 from .errors import InstallError
@@ -97,7 +94,7 @@ def obsidian_binding_content(vault: Path, project: str) -> bytes:
         "schema_version": 1,
         "vault_path": str(vault),
         "project_container": project,
-        "runtime_subpath": OBSIDIAN_RUNTIME_SUBPATH,
+        "runtime_subpath": MODE.runtime_subpath,
     }
     return (json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
@@ -176,17 +173,19 @@ def _plan_obsidian_files(
     """
     expected: dict[str, bytes] = {}
     for source in template_files():
-        expected[f"{project}/{source.relative_to(TEMPLATE).as_posix()}"] = source.read_bytes()
-    expected[f"{project}/{OBSIDIAN_BINDING_PATH}"] = obsidian_binding_content(vault, project)
+        relative = MODE.destination(source.relative_to(TEMPLATE).as_posix())
+        expected[f"{project}/{relative}"] = source.read_bytes()
+    expected[f"{project}/{MODE.binding_path}"] = obsidian_binding_content(vault, project)
     planned: dict[str, bytes] = {}
     previously_installed = all(
         _read_project_file_nofollow(vault, f"{project}/{relative}") is not None
-        for relative in (OBSIDIAN_BINDING_PATH, f"{CONFIG_ROOT}/PROJECT_SETUP.md")
+        for relative in (MODE.binding_path, f"{MODE.config_root}/PROJECT_SETUP.md")
     )
     # Owner-edited files are trusted only in a container this installer already
     # set up; a fresh container never adopts gate commands it did not write.
     user_configured = (
-        {f"{project}/{relative}" for relative in OWNER_FILES} if previously_installed else set()
+        {f"{project}/{MODE.destination(relative)}" for relative in OWNER_FILES}
+        if previously_installed else set()
     )
     customized: list[str] = []
     for relative, content in expected.items():
@@ -198,7 +197,7 @@ def _plan_obsidian_files(
                 raise InstallError(f"CONFIG_CONFLICT: {relative}")
             customized.append(f"{relative}:sha256:{hashlib.sha256(existing).hexdigest()}")
 
-    setup = f"{project}/{CONFIG_ROOT}/PROJECT_SETUP.md"
+    setup = f"{project}/{MODE.config_root}/PROJECT_SETUP.md"
     if _read_project_file_nofollow(vault, setup) is None:
         planned[setup] = obsidian_project_setup(vault, project).encode("utf-8")
 
@@ -208,7 +207,7 @@ def _plan_obsidian_files(
         if _wiki_path_state(vault / project, relative) != "present":
             planned[f"{project}/{relative}"] = content
 
-    runtime = f"{project}/{OBSIDIAN_RUNTIME_SUBPATH}/{_worktree_slug(target)}"
+    runtime = f"{project}/{MODE.runtime_subpath}/{_worktree_slug(target)}"
     present = [
         name for name in WORKTREE_RUNTIME_FILES
         if _read_project_file_nofollow(vault, f"{runtime}/{name}") is not None
@@ -220,7 +219,7 @@ def _plan_obsidian_files(
         planned[f"{runtime}/INCIDENTS.md"] = b"# SDD Orchestration Incidents\n\nNo incidents recorded.\n"
         planned[f"{runtime}/ACTION_JOURNAL.json"] = empty_journal(target, workspace).encode("utf-8")
     # Written only by a fresh install, never implicitly for an older container.
-    manifest = f"{project}/{INSTALL_MANIFEST_PATH}"
+    manifest = f"{project}/{MODE.destination(INSTALL_MANIFEST_PATH)}"
     if not previously_installed and _read_project_file_nofollow(vault, manifest) is None:
         planned[manifest] = install_manifest("OBSIDIAN")
     return planned, runtime, customized
@@ -348,6 +347,11 @@ def _run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict
     vault, project = resolve_obsidian_storage(args.obsidian_vault, args.obsidian_project)
     _reject_storage_overlap(vault, project, target, workspace)
     container = vault / project
+    from .layout_migration import LEGACY, layout
+    if layout(container, "OBSIDIAN") == LEGACY:
+        from .upgrade import _upgrade_command
+        raise InstallError(f"OBSIDIAN_LEGACY_LAYOUT: {container} uses .hermes; --upgrade moves it to Hermes",
+                           next_command=_upgrade_command(args, target))
     legacy_lock = container / "skills-lock.json"
     if os.path.lexists(legacy_lock):
         raise InstallError(
@@ -361,7 +365,7 @@ def _run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict
         if _target_snapshot(target) != target_before:
             raise InstallError("TARGET_WORKTREE_CHANGED")
     planned, runtime, customized = _plan_obsidian_files(vault, project, target, workspace)
-    setup_present = f"{project}/{CONFIG_ROOT}/PROJECT_SETUP.md" not in planned
+    setup_present = f"{project}/{MODE.config_root}/PROJECT_SETUP.md" not in planned
     if args.typesafe_ai and setup_present:
         _require_typesafe_record_target(container)
     onboarding = onboarding_questions(
@@ -398,9 +402,9 @@ def _run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict
         "target_writes": [],
         "preserved_owner_files": customized,
         "exclude_update_planned": False,
-        "controller_location": str(container / CONFIG_ROOT),
+        "controller_location": str(container / MODE.config_root),
         "obsidian_url": obsidian_url(vault, project),
-        "hidden_controller_note": HIDDEN_CONTROLLER_NOTE,
+        "hidden_controller_note": VISIBLE_CONTROLLER_NOTE,
         "warnings": container_path_warnings(container),
         "applied": False,
         "stack": detect_stack(target),
@@ -418,7 +422,7 @@ def _run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict
                 container, onboarding_after, before_commit=require_target_unchanged
             )
             return
-        relative = f"{CONFIG_ROOT}/PROJECT_SETUP.md"
+        relative = f"{MODE.config_root}/PROJECT_SETUP.md"
         snapshot = _read_project_regular_snapshot(container, relative)
         if snapshot is None:
             raise InstallError("ONBOARDING_RECORD_MISSING")

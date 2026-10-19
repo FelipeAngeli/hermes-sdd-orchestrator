@@ -11,8 +11,9 @@ Design constraints:
   can have many live worktrees and each one owns its own STATE/journal. Sharing
   one runtime path would break the "one executor at a time per worktree"
   guarantee.
-* The runtime subpath starts with a dot so Obsidian never indexes it. Runtime is
-  never a note.
+* New bindings name the visible ``Hermes Runtime`` directory; a binding that
+  omits ``runtime_subpath`` predates it and keeps ``.hermes-runtime``. Either
+  way it is a plain relative path inside the project container.
 """
 
 from __future__ import annotations
@@ -27,13 +28,23 @@ from typing import Any, Dict
 
 SCHEMA_VERSION = 1
 BINDING_RELATIVE_PATH = ".hermes/obsidian.json"
+VISIBLE_BINDING_RELATIVE_PATH = "Hermes/obsidian.json"
+#: Container-root folders that hold controller state, never notes: visible, then legacy.
+CONTROLLER_DIRECTORIES = ("Hermes", "Hermes Runtime", ".hermes", ".hermes-runtime")
 VAULT_ENV = "HERMES_OBSIDIAN_VAULT"
 
 #: Sentinel used by tests/builders to omit an optional key entirely.
 OMIT = object()
 
 _REQUIRED_FIELDS = ("schema_version", "vault_path", "project_container")
-_DEFAULT_RUNTIME_SUBPATH = ".hermes-runtime"
+#: Written by every new binding; a binding that omits the key predates it.
+_DEFAULT_RUNTIME_SUBPATH = "Hermes Runtime"
+_OMITTED_RUNTIME_SUBPATH = ".hermes-runtime"
+# A runtime may not live in a controller folder or a wiki layer that other modules scan.
+_RESERVED_RUNTIME_ROOTS = frozenset({
+    ".hermes", "hermes", ".obsidian", ".trash", ".git",
+    "raw", "entities", "concepts", "comparisons", "queries", "_archive", "_meta",
+})
 _SLUG_HASH_LENGTH = 8
 _SLUG_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -89,8 +100,9 @@ def binding_path(repo_root: Path) -> Path:
 
     A legacy repository-local binding wins when present. Otherwise, when this
     runtime is installed inside an Obsidian project container (the default
-    storage), the container's own ``.hermes/obsidian.json`` is authoritative so
-    the user's repository never has to carry any Hermes file.
+    storage), the container's own binding is authoritative so the user's
+    repository never has to carry any Hermes file (the binding in the folder this
+    controller is installed in: ``Hermes/`` or legacy ``.hermes/``).
 
     This precedence serves operator-invoked CLIs with an explicit ``--repo``.
     Hooks act on repository content that may be untrusted, so with a
@@ -104,9 +116,35 @@ def binding_path(repo_root: Path) -> Path:
 
 
 def _installed_container_binding() -> Path | None:
-    # runtime/ -> orchestration/ -> .hermes/ -> <project container>
-    container = Path(__file__).resolve().parents[3]
-    candidate = container / BINDING_RELATIVE_PATH
+    # runtime/ -> orchestration/ -> Hermes/ or .hermes/ -> <project container>
+    return controller_binding_file(Path(__file__).resolve().parents[3])
+
+
+def container_runtime_subpath(container: Path) -> str:
+    """The runtime folder a container already uses; ``Hermes Runtime`` for a new one."""
+    legacy, visible = _OMITTED_RUNTIME_SUBPATH, _DEFAULT_RUNTIME_SUBPATH
+    if (container / ".hermes").is_dir() and not (container / "Hermes").is_dir():
+        return legacy
+    return legacy if (container / legacy).is_dir() and not (container / visible).is_dir() else visible
+
+
+# The folder this controller is installed in decides which binding it trusts,
+# never whichever file exists: a planted ``Hermes/`` in a repository is ignored.
+_OWN_FOLDER = Path(__file__).resolve().parents[2].name
+CONTROLLER_FOLDER = _OWN_FOLDER if _OWN_FOLDER in {".hermes", "Hermes"} else ".hermes"
+
+
+def controller_path(root: Path, logical: str, folder: str | None = None) -> Path:
+    """On-disk path of a logical ``.hermes/...`` path in this controller's own folder."""
+    parts = Path(logical).parts
+    if parts[:1] == (".hermes",):
+        return root.joinpath(folder or CONTROLLER_FOLDER, *parts[1:])
+    return root.joinpath(*parts)
+
+
+def controller_binding_file(root: Path, folder: str | None = None) -> Path | None:
+    """The binding inside this controller's own folder under ``root``, if any."""
+    candidate = root / (folder or CONTROLLER_FOLDER) / "obsidian.json"
     return candidate if candidate.is_file() and not candidate.is_symlink() else None
 
 
@@ -170,7 +208,7 @@ def load_path(path: Path) -> Binding:
     vault_path = _resolve_vault_path(raw)
     project_container = _validate_container(raw["project_container"])
     runtime_subpath = _validate_runtime_subpath(
-        raw.get("runtime_subpath", _DEFAULT_RUNTIME_SUBPATH)
+        raw.get("runtime_subpath", _OMITTED_RUNTIME_SUBPATH)
     )
 
     return Binding(
@@ -242,25 +280,26 @@ def _validate_runtime_subpath(value: Any) -> str:
         raise BindingError(
             "BINDING_INVALID",
             "runtime_subpath must be a non-empty string.",
-            expected="hidden directory name",
+            expected="relative directory path",
             actual=repr(value),
         )
-    cleaned = value.strip("/")
-    if Path(cleaned).is_absolute() or ".." in Path(cleaned).parts:
+    value = value.rstrip("/")
+    parts = value.split("/")
+    unsafe = (
+        value.startswith("/")
+        or "\x00" in value
+        or "\\" in value
+        or any(part in ("", ".", "..") for part in parts)
+        or parts[0].casefold() in _RESERVED_RUNTIME_ROOTS
+    )
+    if unsafe:
         raise BindingError(
             "BINDING_INVALID",
             "runtime_subpath must stay inside the project container.",
-            expected="relative path without '..'",
-            actual=value,
+            expected="relative path without '.', '..', NUL, '\\', empty segments or a controller/wiki root",
+            actual=repr(value),
         )
-    if not cleaned.startswith("."):
-        raise BindingError(
-            "BINDING_INVALID",
-            "runtime_subpath must start with '.' so Obsidian never indexes it.",
-            expected="a dot-prefixed directory",
-            actual=value,
-        )
-    return cleaned
+    return value
 
 
 def worktree_slug(worktree_root: Path) -> str:

@@ -13,7 +13,7 @@
 | Field | Obsidian storage (default) | `--local-storage` |
 | --- | --- | --- |
 | `storage` | `OBSIDIAN` | `LOCAL` |
-| `runtime_dir` | `<vault>/<project>/.hermes-runtime/<worktree-slug>/` ([runtime location](obsidian-vault.md#runtime-location)) | `.hermes/orchestration/` |
+| `runtime_dir` | `<vault>/<project>/Hermes Runtime/<worktree-slug>/` (`.hermes-runtime/` in a legacy container; [runtime location](obsidian-vault.md#runtime-location)) | `.hermes/orchestration/` |
 | `journal` | `<runtime_dir>/ACTION_JOURNAL.json` | same |
 | `history_dir` | `<runtime_dir>/action-journal-history` | same |
 | `state` / `incidents` | `<runtime_dir>/STATE.md` / `INCIDENTS.md` | same |

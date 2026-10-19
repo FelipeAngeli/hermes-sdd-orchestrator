@@ -230,10 +230,9 @@ def load_notes(repo_root: Path, subpath: str | None) -> list[tuple[str, str]]:
 # --------------------------------------------------------------------------- graph
 
 
-#: Note roots that are never graph notes: the installed controller and its
-#: project-local skills (whose SKILL.md frontmatter nests `metadata: hermes:`),
-#: the Obsidian app folder and the per-worktree runtime.
-SKIPPED_NOTE_ROOTS = (".hermes", ".obsidian", ".trash", ".hermes-runtime")
+#: Never graph notes: the Obsidian app folders and the controller with its skills
+#: (SKILL.md nests `metadata: hermes:`) and runtime, visible or legacy.
+SKIPPED_NOTE_ROOTS = (".obsidian", ".trash", "Hermes", "Hermes Runtime", ".hermes", ".hermes-runtime")
 _GRAPH_KEY_LINE = re.compile(r"^graph_node\s*:", re.M)
 
 

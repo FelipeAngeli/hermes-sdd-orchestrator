@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .constants import CONFIG_ROOT, TYPESAFE_ENV_PATH, TYPESAFE_OFFICIAL_COMMAND, TYPESAFE_SKILL_PATH
+from .constants import TYPESAFE_OFFICIAL_COMMAND
 from .errors import InstallError, _load_unique_json
 from .fsops import _overwrite_project_file_nofollow, _read_project_regular_snapshot, reject_symlinks
 from .mode import MODE
@@ -76,7 +76,7 @@ def _unresolved_answer(question_id: str, value: str) -> bool:
 
 
 def _read_onboarding_record(target: Path, question_ids: set[str]) -> tuple[dict[str, str], bool, str | None, list[str]]:
-    path = target / CONFIG_ROOT / "PROJECT_SETUP.md"
+    path = target / MODE.config_root / "PROJECT_SETUP.md"
     if not path.is_file():
         return {}, False, None, ["RECORD_MISSING"]
     try:
@@ -200,12 +200,12 @@ def onboarding_questions(
         ]
     typesafe = typesafe_skill_status(target) if target else {
         "status": "NOT_CHECKED",
-        "skill_path": TYPESAFE_SKILL_PATH,
+        "skill_path": MODE.typesafe_skill_path,
         "lock_path": MODE.typesafe_lock_path,
         "lock_entry": "UNKNOWN",
         "issue": None,
         "official_command": list(TYPESAFE_OFFICIAL_COMMAND),
-        "env_path": TYPESAFE_ENV_PATH,
+        "env_path": MODE.env_path,
         "env_status": "NOT_CHECKED",
         "env_issue": None,
     }
@@ -313,8 +313,8 @@ def _render_onboarding_answer(
     value: str,
     source: bytes | None = None,
 ) -> bytes:
-    path = target / CONFIG_ROOT / "PROJECT_SETUP.md"
-    reject_symlinks(target, f"{CONFIG_ROOT}/PROJECT_SETUP.md")
+    path = target / MODE.config_root / "PROJECT_SETUP.md"
+    reject_symlinks(target, f"{MODE.config_root}/PROJECT_SETUP.md")
     raw = path.read_bytes() if source is None else source
     lines = raw.decode("utf-8").splitlines()
     prefix = f"  {question_id}:"
@@ -349,7 +349,7 @@ def _render_onboarding_answer(
 
 
 def _write_onboarding_answer(target: Path, question_id: str, value: str) -> None:
-    relative = f"{CONFIG_ROOT}/PROJECT_SETUP.md"
+    relative = f"{MODE.config_root}/PROJECT_SETUP.md"
     snapshot = _read_project_regular_snapshot(target, relative)
     if snapshot is None:
         raise InstallError("ONBOARDING_RECORD_MISSING")

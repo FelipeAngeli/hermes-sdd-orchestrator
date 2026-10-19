@@ -279,7 +279,6 @@ class Ctx:
         self.journal_path = Path(self.paths["journal"])
         self.history_dir = Path(self.paths["history_dir"])
         self.runtime_dir = Path(self.paths["runtime_dir"])
-        self.asset_root = CONTROLLER_ROOT if self.storage == "OBSIDIAN" else self.repo
         os.chdir(self.repo)
         self.reload()
 
@@ -493,7 +492,7 @@ def stop(code: str, *, next_command: str | None = None, **extra: Any) -> dict[st
 # ----------------------------------------------------------------------------- manifest
 
 def playbook_entry(ctx: Ctx, name: str, reason: str) -> dict[str, Any] | None:
-    path = ctx.asset_root / ".hermes" / "skills" / name / "SKILL.md"
+    path = ORCHESTRATION.parent / "skills" / name / "SKILL.md"
     digest = sha256_file(path)
     version = frontmatter_version(path) if digest else None
     if not digest or not version:
@@ -667,7 +666,7 @@ def build_prompt(ctx: Ctx, plan: dict[str, Any], manifest: dict[str, Any]) -> st
         limit //= 2
     brief_path = ORCHESTRATION / ("sub-agents/project-context-guardian.md" if role == GUARDIAN_ROLE else f"agents/{stage.lower()}.md")
     envelope = "review_result" if stage == "REVIEW" else "executor_result"
-    playbooks = [str(ctx.asset_root / item["path"]) for item in manifest["playbooks"]]
+    playbooks = [str(ORCHESTRATION.parent / item["path"].split("/", 1)[1]) for item in manifest["playbooks"]]
 
     def render(with_excerpts: bool, brief: bool) -> str:
         parts = [
@@ -847,7 +846,7 @@ def move_out_commands(ctx: Ctx) -> list[str]:
         for leftover in (ORCHESTRATION.parent / "obsidian.json", CONTROLLER_ROOT / ".hermes.md"):
             if leftover.is_file():
                 commands.append(shlex.join(["mv", str(leftover), f"{backup}/{leftover.name}"]))
-    new_sdd = f"{container}/.hermes/orchestration/runtime/sdd.py"
+    new_sdd = f"{container}/Hermes/orchestration/runtime/sdd.py"
     # The new container holds the template GATES.md/EXECUTORS.md (the in-repository copies were
     # writable by workers, so they are not carried over). A runtime the binding already kept in
     # the vault still pins the old digests, and `start` refuses a policy that differs from its
@@ -891,7 +890,7 @@ def controller_isolation_error(storage: str, stage: str, ctx: Ctx | None = None)
         commands = move_out_commands(ctx)
     else:
         commands = [installer_command(CONTROLLER_ROOT, "--obsidian-vault", "<vault>", "--obsidian-project", "<project>", "--apply"),
-                    restart_command("<vault>/<project>/.hermes/orchestration/runtime/sdd.py")]
+                    restart_command("<vault>/<project>/Hermes/orchestration/runtime/sdd.py")]
     return SddError("CONTROLLER_WRITABLE_BY_WORKER",
                     f"{stage} runs a writing worker ({settings['executor']}) and the controller lives inside the repository it can write "
                     f"({ORCHESTRATION}): it could rewrite policies/GATES.md (whose commands run on the host), policies/EXECUTORS.md, the "

@@ -189,7 +189,7 @@ class ControllerEndToEndTests(unittest.TestCase):
                          "--obsidian-project", "Projects/Demo", "--apply", "--json"], cwd=self.repo, env=self.env)
         self.assertEqual("APPLIED", json.loads(installed.stdout)["status"], installed.stdout + installed.stderr)
         self.container = self.vault / "Projects" / "Demo"
-        orchestration = self.container / ".hermes" / "orchestration"
+        orchestration = self.container / "Hermes" / "orchestration"
         self.sdd = [sys.executable, str(orchestration / "runtime" / "sdd.py")]
         # Project-owned configuration a human sets up once (GATES.md, EXECUTORS.md): legitimate, not STATE.
         python = shlex.quote(sys.executable)

@@ -31,9 +31,8 @@ _GOVERNANCE_ISOLATION: list = []
 def setUpModule() -> None:
     """Isolate the suite from the installed controller's own setup and container.
 
-    Without this, a project installed with automatic Jev consent would see every
-    PLAN/IMPLEMENT fixture here refused, and a source checkout (which has no
-    PROJECT_SETUP.md) would fail closed. Tests that exercise the gate patch over it.
+    Otherwise automatic Jev consent would refuse every PLAN/IMPLEMENT fixture and a
+    source checkout (no PROJECT_SETUP.md) would fail closed; gate tests patch over it.
     """
     temp = tempfile.TemporaryDirectory(prefix="sdd-jev-isolation-")
     root = Path(temp.name).resolve()
@@ -189,14 +188,12 @@ class VaultResidentControllerTests(unittest.TestCase):
         self.repo.mkdir()
         self.container = base / "vault" / "Projects" / "App"
         (self.container / ".hermes").mkdir(parents=True)
-        (self.container / ".hermes" / "obsidian.json").write_text(json.dumps({
-            "schema_version": 1,
-            "vault_path": str(base / "vault"),
-            "project_container": "Projects/App",
-        }), encoding="utf-8")
-        patcher = patch.object(hook_runtime, "INSTALLED_CONTAINER", self.container)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        (self.container / ".hermes" / "obsidian.json").write_text(json.dumps(
+            {"schema_version": 1, "vault_path": str(base / "vault"), "project_container": "Projects/App"}))
+        for patcher in (patch.object(hook_runtime.obsidian_binding, "CONTROLLER_FOLDER", ".hermes"),
+                        patch.object(hook_runtime, "INSTALLED_CONTAINER", self.container)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def install_runtime(self, repo: Path) -> None:
         state = hook_runtime.runtime_locations(repo).state
@@ -213,9 +210,8 @@ class VaultResidentControllerTests(unittest.TestCase):
         (evil / ".hermes" / "orchestration").mkdir(parents=True)
         elsewhere = self.repo.parent / "elsewhere"
         elsewhere.mkdir()
-        (evil / ".hermes" / "obsidian.json").write_text(json.dumps({
-            "schema_version": 1, "vault_path": str(elsewhere), "project_container": "X",
-        }), encoding="utf-8")
+        (evil / ".hermes" / "obsidian.json").write_text(json.dumps(
+            {"schema_version": 1, "vault_path": str(elsewhere), "project_container": "X"}))
         with self.assertRaisesRegex(hook_runtime.HookInputError, "not a worktree installed"):
             hook_runtime._root({"cwd": str(evil)})
         state = hook_runtime.runtime_locations(evil).state
@@ -224,9 +220,8 @@ class VaultResidentControllerTests(unittest.TestCase):
 
     def plant_repository_binding(self, elsewhere: Path) -> None:
         (self.repo / ".hermes" / "orchestration").mkdir(parents=True)
-        (self.repo / ".hermes" / "obsidian.json").write_text(json.dumps({
-            "schema_version": 1, "vault_path": str(elsewhere), "project_container": "Proj",
-        }), encoding="utf-8")
+        (self.repo / ".hermes" / "obsidian.json").write_text(json.dumps(
+            {"schema_version": 1, "vault_path": str(elsewhere), "project_container": "Proj"}))
 
     def test_a_planted_repository_binding_cannot_widen_vault_writes(self) -> None:
         self.install_runtime(self.repo)

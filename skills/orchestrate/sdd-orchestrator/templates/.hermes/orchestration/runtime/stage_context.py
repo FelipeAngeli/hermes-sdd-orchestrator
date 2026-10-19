@@ -6,14 +6,13 @@ documents or transcripts), the project-context-guardian outcome, recorded
 code/documentation divergences and, for IMPLEMENT/TEST/REVIEW, the slice
 contract — editable paths, project-local playbooks, the authoritative acceptance
 mapping and the observable verifiers each check needs. It reads only the
-controller-owned JSON and the exact project-local playbook files named there;
-it never reads other repository files, the vault or STATE and never mutates state
-(the optional Jev gate below reads the governor cache under its existing lock).
+controller-owned JSON and the exact playbook files named there; it never reads
+other repository files, the vault or STATE and never mutates state (the optional
+Jev gate below reads the governor cache under its existing lock).
 
-When the project recorded explicit automatic Jev consent, PLAN and IMPLEMENT
-also need the `semantic_governance` record: the fingerprint of a live
-`semantic_governor.py decide` report for this ticket, read back and
-structurally validated from the governor cache. A `REVIEW` outcome must carry
+With explicit automatic Jev consent, PLAN and IMPLEMENT also need the
+`semantic_governance` record: the fingerprint of a live `semantic_governor.py
+decide` report for this ticket, read back and validated from the governor cache. A `REVIEW` outcome must carry
 the human resolution. Only an explicit non-consent answer disables the gate;
 a missing or unreadable setup fails closed.
 """
@@ -32,6 +31,7 @@ from typing import Any
 
 import jsonschema
 
+import obsidian_binding
 from validate_protocol import READ_ONLY_ROLES, editable_pattern_is_safe
 
 SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schemas" / "STAGE_CONTEXT_SCHEMA.json"
@@ -194,11 +194,9 @@ def _check_project_context(value: dict[str, Any]) -> list[dict[str, str]]:
 def _check_context_graph(value: dict[str, Any]) -> list[dict[str, str]]:
     """Check the optional context-graph record attached to this dispatch.
 
-    The graph is never a condition for a dispatch: a project without one omits
-    the key or declares `NOT_CONFIGURED`. But a graph that *is* declared must be
-    structurally sound, must say which work it was queried for, and must carry
-    the reason behind every prior decision it brings into scope. A graph with
-    findings is worse than no graph, because it looks like evidence.
+    Never a condition for a dispatch (omit it or declare `NOT_CONFIGURED`), but a
+    declared graph must be sound, say which work it was queried for and carry the
+    reason behind every prior decision it brings in: a flawed graph looks like evidence.
     """
     graph = value.get("context_graph")
     if graph is None:
@@ -306,6 +304,10 @@ def _verified_file(root: Path, relative: str, expected_hash: str, base: Path) ->
     return content if hashlib.sha256(content).hexdigest() == expected_hash else None
 
 
+def _on_disk(root: Path, logical: str, folder: str) -> str:
+    return logical if folder == ".hermes" else f"{folder}/{logical.split('/', 1)[1]}"
+
+
 def _live_project_root() -> Path | None:
     try:
         result = subprocess.run(
@@ -323,17 +325,11 @@ def _live_project_root() -> Path | None:
 
 
 def _installed_playbook_root() -> Path | None:
-    """Obsidian project container holding this controller, when vault-resident.
-
-    runtime/ -> orchestration/ -> .hermes/ -> <container>. The container is
-    authoritative only when it carries the Obsidian binding written by the
-    installer; a repository-local installation returns ``None``.
-    """
+    """The vault container holding this controller (with the installer's binding), else ``None``."""
     container = Path(__file__).resolve().parents[3]
-    binding = container / ".hermes" / "obsidian.json"
-    if binding.is_file() and not binding.is_symlink() and (container / ".hermes" / "skills").is_dir():
-        return container
-    return None
+    binding = obsidian_binding.controller_binding_file(container)
+    skills = obsidian_binding.controller_path(container, ".hermes/skills")
+    return container if binding is not None and skills.is_dir() else None
 
 
 def _check_playbooks(value: dict[str, Any]) -> list[dict[str, str]]:
@@ -353,13 +349,12 @@ def _check_playbooks(value: dict[str, Any]) -> list[dict[str, str]]:
             "PLAYBOOK_ROOT_INVALID",
             "project_root must be the canonical non-symlinked live Git workspace when playbooks are loaded",
         ))
-    # Playbook bytes come from wherever the controller is installed: the
-    # repository (legacy) or the Obsidian project container (default).
-    asset_root = root
+    # Playbook bytes: the repository's .hermes/ (a planted Hermes/ is never read) or the controller's container.
+    asset_root, folder = root, ".hermes"
     if root_valid and not (root / ".hermes" / "skills").is_dir():
         installed = _installed_playbook_root()
         if installed is not None:
-            asset_root = installed
+            asset_root, folder = installed, obsidian_binding.CONTROLLER_FOLDER
 
     for item in value["playbooks"]:
         name = item["name"]
@@ -395,16 +390,16 @@ def _check_playbooks(value: dict[str, Any]) -> list[dict[str, str]]:
                 ))
                 continue
             if root_valid:
-                base = asset_root / ".hermes" / "skills" / name / "references"
-                if _verified_file(asset_root, relative, reference["sha256"], base) is None:
+                base = obsidian_binding.controller_path(asset_root, f".hermes/skills/{name}/references", folder)
+                if _verified_file(asset_root, _on_disk(asset_root, relative, folder), reference["sha256"], base) is None:
                     errors.append(_finding(
                         "PLAYBOOK_CONTENT_MISMATCH",
                         f"{name} reference content does not match its project-local descriptor",
                     ))
 
         if root_valid and path_valid:
-            base = asset_root / ".hermes" / "skills" / name
-            content = _verified_file(asset_root, item["path"], item["sha256"], base)
+            base = obsidian_binding.controller_path(asset_root, f".hermes/skills/{name}", folder)
+            content = _verified_file(asset_root, _on_disk(asset_root, item["path"], folder), item["sha256"], base)
             identity = _frontmatter_identity(content) if content is not None else None
             if identity != (name, item["version"]):
                 errors.append(_finding(

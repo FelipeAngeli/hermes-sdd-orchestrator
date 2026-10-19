@@ -4,6 +4,21 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.8.1 - 2026-10-19
+
+### Fixed
+
+- A plain install on a container still in `.hermes/` is `BLOCKED` (`OBSIDIAN_LEGACY_LAYOUT`, `next_command` the `--upgrade` dry run) instead of installing a second controller under `Hermes/` that blocked every later upgrade.
+- `runtime_subpath` accepts a trailing `/` again (bindings written that way stay valid) and refuses `.` segments and a runtime inside a controller folder, `.obsidian`, `.trash`, `.git` or a wiki root.
+- `bootstrap_worktree.py` keeps the runtime folder the container already uses instead of creating `Hermes Runtime/` in a legacy container; `wiki_layout migrate` moves a root `skills-lock.json` into `Hermes/` rather than recreating a hidden `.hermes/`; `controller_path` prefers `Hermes/` over a stray `.hermes/`.
+- A controller trusts only the binding and playbooks in the folder it is installed in (`obsidian_binding.CONTROLLER_FOLDER`): a `Hermes/obsidian.json` planted in a repository whose controller is `.hermes/` no longer redirects hooks or the wiki journal to another container (security review).
+- The controller card and `hooks.example.yaml` say that a container's folder is `Hermes/`, and the upgrade report's `layout_migration.hooks` reminds to re-point profile hook commands after the move.
+
+## 15.8.0 - 2026-10-19
+
+### Changed
+- Obsidian storage no longer creates hidden folders: a fresh install puts the controller, binding, playbooks and TypeSafe lock in a visible `Hermes/` folder and the per-worktree runtime in `Hermes Runtime/`, and the binding records `runtime_subpath: "Hermes Runtime"`. `--upgrade --apply` moves an existing container from `.hermes/` and `.hermes-runtime/` in the same transaction (binding rewrite, then runtime and controller renames, before the manifest commit point), reports the plan as `layout_migration`, undoes the renames on failure and finishes a run killed between them; two controller or runtime roots block with `UPGRADE_OBSIDIAN_LAYOUT_CONFLICT`. Every runtime module reads both layouts: bindings are found in `Hermes/` first, a binding without `runtime_subpath` keeps `.hermes-runtime`, `runtime_subpath` may be any relative path inside the container (absolute paths, `..`, NUL, backslashes and empty segments are refused), and the wiki layout, context graph, connector and wiki journal treat `Hermes/` and `Hermes Runtime/` as controller state. Hooks and the playbook check find a container binding and skills under `Hermes/` (`obsidian_binding.controller_binding_file` / `controller_path`), `sdd.py` points worker prompts at the controller's own skills folder, and the `CONTROLLER_WRITABLE_BY_WORKER` exit restarts with `<vault>/<project>/Hermes/orchestration/runtime/sdd.py`. `--local-storage` is unchanged. The upgrade's file primitives moved to `sdd_install/upgrade_files.py`, the wiki skeleton templates to `runtime/wiki_skeleton.py` and the v13 upgrade tests to `tests/test_upgrade_v13.py`, keeping those files within the token baseline. Docs that described the controller as hidden now describe the visible layout.
+
 ## 15.7.4 - 2026-10-19
 
 ### Fixed
