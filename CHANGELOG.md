@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.7.2 - 2026-10-19
+
 ### Fixed
 - Reject staged token-limit configuration changes and baseline additions or increases after the initial policy commit, preventing a commit from loosening the guard.
 
