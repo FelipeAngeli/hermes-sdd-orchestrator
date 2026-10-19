@@ -11,12 +11,8 @@ from pathlib import Path
 from typing import Callable
 
 from .constants import (
-    CONFIG_ROOT,
     TYPESAFE_ENV_CONTENT,
-    TYPESAFE_ENV_PATH,
     TYPESAFE_OFFICIAL_COMMAND,
-    TYPESAFE_SKILL_PATH,
-    TYPESAFE_SKILL_ROOT,
     TYPESAFE_SOURCE_REF,
     TYPESAFE_TRUSTED_DIGEST,
     TYPESAFE_UPSTREAM_HASH,
@@ -74,9 +70,9 @@ def _valid_typesafe_lock_entry(entry: object) -> bool:
 
 
 def _open_typesafe_env_descriptor(target: Path, flags: int, mode: int = 0o600) -> int:
-    path = Path(TYPESAFE_ENV_PATH)
+    path = Path(MODE.env_path)
     if os.name != "posix":
-        reject_symlinks(target, TYPESAFE_ENV_PATH)
+        reject_symlinks(target, MODE.env_path)
         return os.open(target / path, flags, mode)
     parent = _open_project_directory_nofollow(target, path.parent)
     descriptor: int | None = None
@@ -117,7 +113,7 @@ def _typesafe_env_ready(status: dict[str, object]) -> bool:
 def typesafe_env_status(target: Path) -> dict[str, object]:
     issue: str | None = None
     status = "CONFLICT"
-    if issue is None and is_tracked(target, TYPESAFE_ENV_PATH):
+    if issue is None and is_tracked(target, MODE.env_path):
         issue = "TRACKED_DESTINATION_PATH"
     if issue is not None:
         status = "CONFLICT"
@@ -153,19 +149,19 @@ def typesafe_env_status(target: Path) -> dict[str, object]:
                     status = "PRESENT"
             finally:
                 _close_descriptor(descriptor)
-    return {"env_path": TYPESAFE_ENV_PATH, "env_status": status, "env_issue": issue}
+    return {"env_path": MODE.env_path, "env_status": status, "env_issue": issue}
 
 
 def typesafe_skill_status(target: Path) -> dict[str, object]:
     """Detect and verify a project-local TypeSafe skill without mutation."""
-    skill_root = target / TYPESAFE_SKILL_ROOT
-    skill_path = target / TYPESAFE_SKILL_PATH
+    skill_root = target / MODE.typesafe_skill_root
+    skill_path = target / MODE.typesafe_skill_path
     lock_path = target / MODE.typesafe_lock_path
     lock_entry: object | None = None
     issue: str | None = None
 
     try:
-        reject_symlinks(target, TYPESAFE_SKILL_PATH)
+        reject_symlinks(target, MODE.typesafe_skill_path)
         reject_symlinks(target, MODE.typesafe_lock_path)
     except InstallError:
         issue = "SYMLINK_REJECTED"
@@ -220,14 +216,14 @@ def typesafe_skill_status(target: Path) -> dict[str, object]:
         status = "NOT_INSTALLED"
 
     if status == "INSTALLED" and (
-        tracked_under(target, TYPESAFE_SKILL_ROOT) or is_tracked(target, MODE.typesafe_lock_path)
+        tracked_under(target, MODE.typesafe_skill_root) or is_tracked(target, MODE.typesafe_lock_path)
     ):
         status = "CONFLICT"
         issue = "TRACKED_DESTINATION_PATH"
 
     return {
         "status": status,
-        "skill_path": TYPESAFE_SKILL_PATH,
+        "skill_path": MODE.typesafe_skill_path,
         "lock_path": MODE.typesafe_lock_path,
         "lock_entry": "PRESENT" if lock_entry is not None else "ABSENT",
         "issue": issue,
@@ -246,11 +242,11 @@ def _restore_typesafe_install(
     lock_identity: tuple[int, int] | None,
     setup_identity: tuple[int, int],
 ) -> None:
-    skill_root = target / TYPESAFE_SKILL_ROOT
+    skill_root = target / MODE.typesafe_skill_root
     lock_path = target / MODE.typesafe_lock_path
     errors: list[BaseException] = []
     try:
-        reject_symlinks(target, ".hermes/skills")
+        reject_symlinks(target, MODE.skills_root)
         _remove_owned_directory_path(
             skill_root,
             skill_identity,
@@ -288,7 +284,7 @@ def _restore_typesafe_install(
     except (InstallError, OSError) as error:
         errors.append(error)
     try:
-        setup_relative = f"{CONFIG_ROOT}/PROJECT_SETUP.md"
+        setup_relative = f"{MODE.config_root}/PROJECT_SETUP.md"
         setup_snapshot = _read_project_regular_snapshot(target, setup_relative)
         if setup_snapshot is None or setup_snapshot[1] != setup_identity:
             raise InstallError("ONBOARDING_ROLLBACK_OWNERSHIP_LOST")
@@ -321,11 +317,11 @@ def _preflight_typesafe_install(target: Path) -> dict[str, object]:
         return current
     if current["status"] != "NOT_INSTALLED" or current["issue"] is not None:
         raise InstallError(f"TYPESAFE_SKILL_CONFLICT: {current['issue'] or current['status']}")
-    if tracked_under(target, TYPESAFE_SKILL_ROOT):
-        raise InstallError(f"TRACKED_DESTINATION_PATH: {TYPESAFE_SKILL_ROOT}")
+    if tracked_under(target, MODE.typesafe_skill_root):
+        raise InstallError(f"TRACKED_DESTINATION_PATH: {MODE.typesafe_skill_root}")
     if is_tracked(target, MODE.typesafe_lock_path):
         raise InstallError(f"TRACKED_DESTINATION_PATH: {MODE.typesafe_lock_path}")
-    reject_symlinks(target, TYPESAFE_SKILL_PATH)
+    reject_symlinks(target, MODE.typesafe_skill_path)
     reject_symlinks(target, MODE.typesafe_lock_path)
     try:
         if _typesafe_trusted_digest(TYPESAFE_VENDOR) != TYPESAFE_TRUSTED_DIGEST:
@@ -358,7 +354,7 @@ def _ensure_typesafe_env(target: Path) -> tuple[bool, tuple[int, int] | None]:
         return False, None
     if environment["env_status"] == "CONFLICT":
         raise InstallError(f"TYPESAFE_ENV_CONFLICT: {environment['env_issue']}")
-    path = Path(TYPESAFE_ENV_PATH)
+    path = Path(MODE.env_path)
     temporary_name = f".{path.name}.{os.getpid()}.{secrets.token_hex(8)}.tmp"
     parent: int | None = None
     descriptor: int | None = None
@@ -416,14 +412,14 @@ def _ensure_typesafe_env(target: Path) -> tuple[bool, tuple[int, int] | None]:
 def _rollback_typesafe_env(target: Path, identity: tuple[int, int] | None) -> None:
     if identity is None:
         return
-    snapshot = _read_project_regular_snapshot(target, TYPESAFE_ENV_PATH)
+    snapshot = _read_project_regular_snapshot(target, MODE.env_path)
     if snapshot is None:
         return
     content, current_identity = snapshot
     if current_identity != identity or content != TYPESAFE_ENV_CONTENT:
         raise InstallError("TYPESAFE_ENV_ROLLBACK_STATE_CHANGED")
     _unlink_owned_path(
-        target / TYPESAFE_ENV_PATH,
+        target / MODE.env_path,
         identity,
         "TYPESAFE_ENV_ROLLBACK_OWNERSHIP_LOST",
     )
@@ -441,7 +437,7 @@ def install_typesafe_skill(
     """
     current = _preflight_typesafe_install(target)
     if current["status"] == "INSTALLED":
-        setup_relative = f"{CONFIG_ROOT}/PROJECT_SETUP.md"
+        setup_relative = f"{MODE.config_root}/PROJECT_SETUP.md"
         setup_snapshot = _read_project_regular_snapshot(target, setup_relative)
         if setup_snapshot is None:
             raise InstallError("ONBOARDING_RECORD_MISSING")
@@ -490,7 +486,7 @@ def install_typesafe_skill(
     lock_snapshot = _read_project_regular_snapshot(target, MODE.typesafe_lock_path)
     lock_before = lock_snapshot[0] if lock_snapshot is not None else None
     lock_identity_before = lock_snapshot[1] if lock_snapshot is not None else None
-    setup_snapshot = _read_project_regular_snapshot(target, f"{CONFIG_ROOT}/PROJECT_SETUP.md")
+    setup_snapshot = _read_project_regular_snapshot(target, f"{MODE.config_root}/PROJECT_SETUP.md")
     if setup_snapshot is None:
         raise InstallError("ONBOARDING_RECORD_MISSING")
     setup_before, setup_identity = setup_snapshot
@@ -503,14 +499,14 @@ def install_typesafe_skill(
     }
     merged_lock = _merged_typesafe_lock(lock_before, entry)
 
-    reject_symlinks(target, ".hermes/skills")
+    reject_symlinks(target, MODE.skills_root)
     try:
         skill_descriptor, skill_identity = _create_project_directory_owned(
             target,
-            TYPESAFE_SKILL_ROOT,
+            MODE.typesafe_skill_root,
         )
     except FileExistsError as error:
-        raise InstallError(f"TYPESAFE_SKILL_CONFLICT: {TYPESAFE_SKILL_ROOT}") from error
+        raise InstallError(f"TYPESAFE_SKILL_CONFLICT: {MODE.typesafe_skill_root}") from error
     lock_identity: tuple[int, int] | None = None
     env_identity: tuple[int, int] | None = None
 
@@ -534,7 +530,7 @@ def install_typesafe_skill(
             else:
                 _create_project_regular_owned(
                     target,
-                    f"{TYPESAFE_SKILL_ROOT}/{source.name}",
+                    f"{MODE.typesafe_skill_root}/{source.name}",
                     content,
                 )
         if skill_descriptor is not None:
@@ -542,7 +538,7 @@ def install_typesafe_skill(
                 raise InstallError("TYPESAFE_SKILL_OWNERSHIP_LOST")
             _close_descriptor(skill_descriptor)
             skill_descriptor = None
-        if _path_identity(target / TYPESAFE_SKILL_ROOT) != skill_identity:
+        if _path_identity(target / MODE.typesafe_skill_root) != skill_identity:
             raise InstallError("TYPESAFE_SKILL_OWNERSHIP_LOST")
         if lock_before is None:
             lock_identity = _create_project_regular_owned(target, MODE.typesafe_lock_path, merged_lock)
@@ -575,7 +571,7 @@ def install_typesafe_skill(
                 raise InstallError("TYPESAFE_LOCK_PRESERVATION_FAILED")
         _overwrite_project_file_nofollow(
             target,
-            f"{CONFIG_ROOT}/PROJECT_SETUP.md",
+            f"{MODE.config_root}/PROJECT_SETUP.md",
             setup_identity,
             onboarding_after,
             expected=setup_before,
@@ -584,11 +580,11 @@ def install_typesafe_skill(
         verified = typesafe_skill_status(target)
         if verified["status"] != "INSTALLED":
             raise InstallError(f"TYPESAFE_INSTALL_FAILED: target verification: {verified['issue']}")
-        if _path_identity(target / TYPESAFE_SKILL_ROOT) != skill_identity:
+        if _path_identity(target / MODE.typesafe_skill_root) != skill_identity:
             raise InstallError("TYPESAFE_SKILL_OWNERSHIP_LOST")
         if _path_identity(lock_path) != lock_identity:
             raise InstallError("TYPESAFE_LOCK_CHANGED_DURING_APPLY")
-        if _path_identity(target / CONFIG_ROOT / "PROJECT_SETUP.md") != setup_identity:
+        if _path_identity(target / MODE.config_root / "PROJECT_SETUP.md") != setup_identity:
             raise InstallError("ONBOARDING_RECORD_CHANGED_DURING_APPLY")
         if before_commit is not None:
             before_commit()

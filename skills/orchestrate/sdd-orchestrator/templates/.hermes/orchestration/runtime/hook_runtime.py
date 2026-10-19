@@ -78,8 +78,7 @@ def runtime_locations(root: Path) -> RuntimeLocations:
 
 
 def _container_binding_path() -> Path | None:
-    candidate = INSTALLED_CONTAINER / ".hermes" / "obsidian.json"
-    return candidate if candidate.is_file() and not candidate.is_symlink() else None
+    return obsidian_binding.controller_binding_file(INSTALLED_CONTAINER)
 
 
 def _load_binding(root: Path) -> obsidian_binding.Binding:

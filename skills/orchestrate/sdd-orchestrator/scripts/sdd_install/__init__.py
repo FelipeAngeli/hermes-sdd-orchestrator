@@ -20,6 +20,8 @@ from . import (  # noqa: F401  (import order is the dependency order)
     local_install,
     obsidian,
     manifest,
+    layout_migration,
+    upgrade_files,
     upgrade,
     report,
     cli,
@@ -27,7 +29,7 @@ from . import (  # noqa: F401  (import order is the dependency order)
 
 _SUBMODULES = (
     constants, errors, mode, gitops, fsops, templates, onboarding, typesafe,
-    exclude, local_install, obsidian, manifest, upgrade, report, cli,
+    exclude, local_install, obsidian, manifest, layout_migration, upgrade_files, upgrade, report, cli,
 )
 for _module in _SUBMODULES:
     for _name, _value in vars(_module).items():

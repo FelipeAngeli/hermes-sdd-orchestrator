@@ -5,13 +5,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT.parent / "templates"
+LOCAL_CONTROLLER_ROOT = ".hermes"
 CONFIG_ROOT = ".hermes/orchestration"
+TYPESAFE_SKILLS_ROOT = ".hermes/skills"
 TYPESAFE_SKILL_ROOT = ".hermes/skills/typesafe-ai"
 TYPESAFE_SKILL_PATH = f"{TYPESAFE_SKILL_ROOT}/SKILL.md"
 #: Repository-local lock path; the active one is `mode.MODE.typesafe_lock_path`.
 TYPESAFE_LOCK_PATH_LOCAL = "skills-lock.json"
-#: In an Obsidian container the lock stays hidden so the wiki root holds only notes.
-TYPESAFE_LOCK_PATH_OBSIDIAN = ".hermes/skills-lock.json"
+#: In an Obsidian container the lock lives with the visible controller.
+TYPESAFE_LOCK_PATH_OBSIDIAN = "Hermes/skills-lock.json"
 TYPESAFE_ENV_PATH = ".hermes/.env"
 TYPESAFE_ENV_CONTENT = b"TYPESAFE_API_KEY=\nJEV_AI_API_KEY=\n"
 JEV_CACHE_PATH = f"{CONFIG_ROOT}/JEV_CACHE.json"
@@ -34,6 +36,17 @@ STATE_PATHS = (
     f"{CONFIG_ROOT}/ACTION_JOURNAL.json",
 )
 
+#: Visible layout written by fresh Obsidian installations. The template keeps
+#: its historical `.hermes` source paths; only the destination is translated.
+OBSIDIAN_CONTROLLER_ROOT = "Hermes"
+OBSIDIAN_CONFIG_ROOT = f"{OBSIDIAN_CONTROLLER_ROOT}/orchestration"
+OBSIDIAN_SKILL_ROOT = f"{OBSIDIAN_CONTROLLER_ROOT}/skills"
+OBSIDIAN_TYPESAFE_SKILL_ROOT = f"{OBSIDIAN_SKILL_ROOT}/typesafe-ai"
+OBSIDIAN_TYPESAFE_SKILL_PATH = f"{OBSIDIAN_TYPESAFE_SKILL_ROOT}/SKILL.md"
+OBSIDIAN_ENV_PATH = f"{OBSIDIAN_CONTROLLER_ROOT}/.env"
+OBSIDIAN_VISIBLE_BINDING_PATH = f"{OBSIDIAN_CONTROLLER_ROOT}/obsidian.json"
+OBSIDIAN_VISIBLE_RUNTIME_SUBPATH = "Hermes Runtime"
+#: Legacy container paths still read and upgraded by existing installations.
 OBSIDIAN_RUNTIME_SUBPATH = ".hermes-runtime"
 OBSIDIAN_BINDING_PATH = ".hermes/obsidian.json"
 WORKTREE_RUNTIME_FILES = ("STATE.md", "INCIDENTS.md", "ACTION_JOURNAL.json")
@@ -83,8 +96,13 @@ RETIRED_TEMPLATE_PATHS = tuple(
 )
 SKILL_MANIFEST = ROOT.parent / "SKILL.md"
 
-#: Shown in every install report: Finder and Obsidian hide dot-directories.
+#: Shown in every local install report: Finder and Obsidian hide dot-directories.
 HIDDEN_CONTROLLER_NOTE = (
     "The controller lives in the hidden .hermes directory (dot-prefixed folders are hidden by Finder and "
     "Obsidian); open controller_location directly, or press Cmd+Shift+. in Finder to show it."
+)
+#: Shown in every Obsidian install report: the controller is visible on purpose.
+VISIBLE_CONTROLLER_NOTE = (
+    "The controller lives in the visible Hermes directory inside the project container; Finder and Obsidian "
+    "show it next to the wiki, while Hermes Runtime holds each worktree's state."
 )

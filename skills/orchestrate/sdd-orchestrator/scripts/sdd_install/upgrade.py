@@ -35,7 +35,6 @@ import datetime
 import hashlib
 import json
 import os
-import secrets
 import shlex
 import stat
 import sys
@@ -45,7 +44,6 @@ from .constants import (
     CONFIG_ROOT,
     INSTALL_MANIFEST_PATH,
     OBSIDIAN_BINDING_PATH,
-    OBSIDIAN_RUNTIME_SUBPATH,
     OWNER_FILES,
     PROJECT_SETUP_PATH,
     RETIRED_TEMPLATE_PATHS,
@@ -53,25 +51,22 @@ from .constants import (
     UPGRADE_LOCK_PATH,
 )
 from .errors import InstallError, _load_unique_json
+from . import layout_migration as lm
 from .fsops import (
     _acquire_lock,
     _close_descriptor,
     _create_project_file_nofollow,
     _create_project_regular_owned,
-    _identity,
-    _identity_at,
     _open_project_parent_nofollow,
-    _read_all,
     _read_project_file_nofollow,
-    _read_project_regular_snapshot,
     _rollback_created_paths,
     _unlink_owned_at,
-    _write_all,
 )
 from .gitops import _target_snapshot, git
 from .manifest import manifest_body, manifest_bytes, parse_manifest, sha256, skill_version, template_payload, version_key
 from .mode import storage_mode
 from .templates import _load_template_module
+from .upgrade_files import _remove_file, _replace_file
 
 BUSY_FREE_STATUSES = frozenset({"IDLE", "RELEASED"})
 
@@ -106,11 +101,11 @@ def _install_command(args, target: Path) -> str:
     return command.replace(" --upgrade --apply", " --apply")
 
 
-def _require_installed(root: Path, storage: str, args, target: Path) -> None:
+def _require_installed(root: Path, storage: str, args, target: Path, current: str) -> None:
     required = [PROJECT_SETUP_PATH, ".hermes.md"]
     if storage == "OBSIDIAN":
         required.append(OBSIDIAN_BINDING_PATH)
-    missing = [relative for relative in required if _read_project_file_nofollow(root, relative) is None]
+    missing = [path for path in required if _read_project_file_nofollow(root, lm.physical(current, path)) is None]
     if missing:
         raise InstallError(
             "UPGRADE_NOT_INSTALLED",
@@ -122,10 +117,9 @@ def _require_installed(root: Path, storage: str, args, target: Path) -> None:
         )
 
 
-def _runtime_directories(root: Path, storage: str) -> list[Path]:
-    directories = [root / CONFIG_ROOT]
-    if storage == "OBSIDIAN":
-        runtime = root / OBSIDIAN_RUNTIME_SUBPATH
+def _runtime_directories(root: Path, storage: str, current: str) -> list[Path]:
+    directories = [root / lm.physical(current, CONFIG_ROOT)]
+    for runtime in lm.runtime_roots(root, current) if storage == "OBSIDIAN" else []:
         if runtime.is_dir() and not runtime.is_symlink():
             directories += sorted(
                 child for child in runtime.iterdir() if child.is_dir() and not child.is_symlink()
@@ -161,10 +155,10 @@ def _state_busy_reasons(text: str) -> list[str]:
     return reasons
 
 
-def _require_idle(root: Path, storage: str, args=None, target: Path | None = None) -> None:
+def _require_idle(root: Path, storage: str, args=None, target: Path | None = None, current: str = lm.LOCAL) -> None:
     """Every action journal idle or released, no bounded loop running and no stage RUNNING."""
     busy: list[str] = []
-    for directory in _runtime_directories(root, storage):
+    for directory in _runtime_directories(root, storage, current):
         journal = directory / "ACTION_JOURNAL.json"
         if journal.is_file() and not journal.is_symlink():
             try:
@@ -198,14 +192,17 @@ def _require_idle(root: Path, storage: str, args=None, target: Path | None = Non
         )
 
 
-def _plan(root: Path, storage: str, accept_baseline: bool, accept_command: str = "") -> dict[str, object]:
+def _plan(
+    root: Path, storage: str, accept_baseline: bool, accept_command: str = "", layout: str = lm.LOCAL,
+) -> dict[str, object]:
     """Classify every path; reads only, never writes.
 
     ``accept_command`` is the exact rerun with ``--accept-current-as-baseline``
     named by each OBSOLETE_UNVERIFIED warning.
     """
     payload = template_payload()
-    manifest_raw = _read_project_file_nofollow(root, INSTALL_MANIFEST_PATH)
+    on_disk = lambda relative: _read_project_file_nofollow(root, lm.physical(layout, relative))  # noqa: E731
+    manifest_raw = on_disk(INSTALL_MANIFEST_PATH)
     manifest = parse_manifest(manifest_raw) if manifest_raw is not None else None
     recorded: dict[str, dict[str, object]] = dict(manifest["files"]) if manifest else {}  # type: ignore[arg-type]
     recorded_owner: dict[str, dict[str, object]] = dict(manifest["owner_files"]) if manifest else {}  # type: ignore[arg-type]
@@ -219,7 +216,7 @@ def _plan(root: Path, storage: str, accept_baseline: bool, accept_command: str =
     owner_add: dict[str, bytes] = {}
     unchanged = 0
     for relative, content in sorted(payload.items()):
-        current = _read_project_file_nofollow(root, relative)
+        current = on_disk(relative)
         if relative in OWNER_FILES:
             template_sha = sha256(content)
             known = recorded_owner.get(relative, {}).get("template_sha256") if manifest else None
@@ -253,7 +250,7 @@ def _plan(root: Path, storage: str, accept_baseline: bool, accept_command: str =
     for relative, entry in sorted(recorded.items()):
         if relative in payload or relative in OWNER_FILES:
             continue
-        current = _read_project_file_nofollow(root, relative)
+        current = on_disk(relative)
         if current is None:
             continue
         if sha256(current) == entry.get("sha256"):
@@ -265,7 +262,7 @@ def _plan(root: Path, storage: str, accept_baseline: bool, accept_command: str =
     for relative in RETIRED_TEMPLATE_PATHS:
         if relative in payload or relative in recorded:
             continue
-        current = _read_project_file_nofollow(root, relative)
+        current = on_disk(relative)
         if current is None:
             continue
         if accept_baseline:
@@ -278,11 +275,13 @@ def _plan(root: Path, storage: str, accept_baseline: bool, accept_command: str =
     owner_files.append({
         "path": PROJECT_SETUP_PATH, "action": "KEEP", "template_changed": False,
         "template_sha256": None,
-        "current_sha256": sha256(_read_project_file_nofollow(root, PROJECT_SETUP_PATH) or b""),
+        "current_sha256": sha256(on_disk(PROJECT_SETUP_PATH) or b""),
     })
     body = manifest_body(storage, payload)
     current_body = {key: value for key, value in (manifest or {}).items() if key != "written_at"}
+    migration = lm.plan(root, layout)
     plan: dict[str, object] = {
+        "layout": layout, "migration": migration,
         "from_version": manifest["skill_version"] if manifest else None,
         "to_version": body["skill_version"],
         "manifest": "PRESENT" if manifest else "ABSENT",
@@ -307,21 +306,28 @@ def _plan_digest(plan: dict[str, object]) -> str:
         "replace": {k: [sha256(a), sha256(b)] for k, (a, b) in plan["replace"].items()},  # type: ignore[union-attr]
         "remove": {k: sha256(v) for k, v in plan["remove"].items()},  # type: ignore[union-attr]
         "owner_add": {k: sha256(v) for k, v in plan["owner_add"].items()},  # type: ignore[union-attr]
-        "conflicts": plan["conflicts"],
+        "conflicts": plan["conflicts"], "layout": plan["layout"],
+        "migration": lm.describe(plan["migration"]),  # type: ignore[arg-type]
+        "binding": sha256(plan["migration"]["binding_before"]) if plan["migration"] else None,  # type: ignore[index]
     }
     encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
 
 def _has_changes(plan: dict[str, object]) -> bool:
-    return any(plan[key] for key in ("add", "restore", "replace", "remove", "owner_add"))
+    return any(plan[key] for key in ("migration", "add", "restore", "replace", "remove", "owner_add"))
+
+
+def _final_layout(plan: dict[str, object]) -> str:
+    return lm.VISIBLE if plan["migration"] else str(plan["layout"])
 
 
 def _report(plan: dict[str, object], root: Path, storage: str) -> dict[str, object]:
     return {
         "status": "UPGRADE_READY",
         "storage": storage,
-        "controller_location": str(root / CONFIG_ROOT),
+        "controller_location": str(root / lm.physical(_final_layout(plan), CONFIG_ROOT)),
+        "layout_migration": lm.describe(plan["migration"]),  # type: ignore[arg-type]
         "from_version": plan["from_version"],
         "to_version": plan["to_version"],
         "manifest": plan["manifest"],
@@ -343,102 +349,21 @@ def _report(plan: dict[str, object], root: Path, storage: str) -> dict[str, obje
     }
 
 
-# --- atomic file operations -------------------------------------------------------
-
-
-def _replace_file(
-    root: Path,
-    relative: str,
-    expected: bytes,
-    content: bytes,
-    expected_identity: tuple[int, int] | None = None,
-) -> tuple[tuple[int, int], int]:
-    """Replace `relative` through a temporary sibling and rename, keeping its mode.
-
-    Returns the new identity and the preserved mode. The current bytes (and
-    identity, when given) must still be the planned ones.
-    """
-    name = Path(relative).name
-    temporary = f".{name}.sdd-upgrade-{os.getpid()}-{secrets.token_hex(8)}"
-    if os.name != "posix":
-        path = root / relative
-        metadata = path.lstat()
-        if not stat.S_ISREG(metadata.st_mode) or path.read_bytes() != expected:
-            raise InstallError(f"UPGRADE_STATE_CHANGED: {relative}")
-        mode = stat.S_IMODE(metadata.st_mode)
-        staging = path.with_name(temporary)
-        staging.write_bytes(content)
-        staging.chmod(mode)
-        os.replace(staging, path)
-        return _identity(path.lstat()), mode
-    parent = _open_project_parent_nofollow(root, relative, create=False)
-    created = False
-    try:
-        descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
-        try:
-            metadata = os.fstat(descriptor)
-            if not stat.S_ISREG(metadata.st_mode) or _read_all(descriptor) != expected:
-                raise InstallError(f"UPGRADE_STATE_CHANGED: {relative}")
-        finally:
-            _close_descriptor(descriptor)
-        before = _identity(metadata)
-        if expected_identity is not None and before != expected_identity:
-            raise InstallError(f"UPGRADE_STATE_CHANGED: {relative}")
-        mode = stat.S_IMODE(metadata.st_mode)
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=parent)
-        created = True
-        try:
-            os.fchmod(descriptor, mode)
-            _write_all(descriptor, content)
-            os.fsync(descriptor)
-        finally:
-            _close_descriptor(descriptor)
-        if _identity_at(parent, name) != before:
-            raise InstallError(f"UPGRADE_STATE_CHANGED: {relative}")
-        os.rename(temporary, name, src_dir_fd=parent, dst_dir_fd=parent)
-        created = False
-        os.fsync(parent)
-        after = _identity_at(parent, name)
-        if after is None:
-            raise InstallError(f"UPGRADE_STATE_CHANGED: {relative}")
-        return after, mode
-    finally:
-        if created:
-            try:
-                os.unlink(temporary, dir_fd=parent)
-            except OSError:
-                pass
-        _close_descriptor(parent)
-
-
-def _remove_file(root: Path, relative: str, expected: bytes) -> tuple[tuple[int, int], int]:
-    snapshot = _read_project_regular_snapshot(root, relative)
-    if snapshot is None or snapshot[0] != expected:
-        raise InstallError(f"UPGRADE_STATE_CHANGED: {relative}")
-    owned = snapshot[1]
-    mode = stat.S_IMODE((root / relative).lstat().st_mode)
-    if os.name != "posix":
-        (root / relative).unlink()
-        return owned, mode
-    parent = _open_project_parent_nofollow(root, relative, create=False)
-    try:
-        _unlink_owned_at(parent, Path(relative).name, owned, f"UPGRADE_STATE_CHANGED: {relative}")
-    finally:
-        _close_descriptor(parent)
-    return owned, mode
-
-
-def _commit_manifest(root: Path, before: bytes | None, content: bytes, created_files, created_directories) -> None:
+def _commit_manifest(
+    root: Path, before: bytes | None, content: bytes, created_files, created_directories, current: str = lm.LOCAL,
+) -> None:
     """The commit point: once the new manifest is in place the upgrade is done."""
+    path = lm.physical(current, INSTALL_MANIFEST_PATH)
     if before is None:
-        _create_project_file_nofollow(root, INSTALL_MANIFEST_PATH, content, created_files, created_directories)
+        _create_project_file_nofollow(root, path, content, created_files, created_directories)
     else:
-        _replace_file(root, INSTALL_MANIFEST_PATH, before, content)
+        _replace_file(root, path, before, content)
 
 
 def _backup_directory(root: Path, plan: dict[str, object]) -> str:
+    """Backup location for this run, physical in the layout before the migration."""
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    base = f"{UPGRADE_BACKUPS_PATH}/{stamp}-{plan['from_version'] or 'unknown'}-to-{plan['to_version']}"
+    base = f"{lm.physical(str(plan['layout']), UPGRADE_BACKUPS_PATH)}/{stamp}-{plan['from_version'] or 'unknown'}-to-{plan['to_version']}"
     candidate, counter = base, 1
     while os.path.lexists(root / candidate):
         counter += 1
@@ -451,9 +376,23 @@ def _rollback(
     journal: list[tuple[str, str, bytes, bytes, tuple[int, int], int]],
     created_files,
     created_directories,
+    renames: list[tuple[str, str, tuple[int, int]]] | None = None,
 ) -> None:
-    """Undo replaced and removed files in reverse, then every created path."""
+    """Undo directory renames, then replaced and removed files in reverse, then every created path."""
     errors: list[str] = []
+    moved = {destination for _, destination, _ in renames or []}
+    # A manifest created under a renamed root must go before that root moves back.
+    after = [entry for entry in created_files if entry[0].split("/", 1)[0] in moved]
+    created_files[:] = [entry for entry in created_files if entry not in after]
+    try:
+        _rollback_created_paths(root, after, [])
+    except InstallError as error:
+        errors.append(str(error))
+    for source, destination, identity in reversed(renames or []):
+        try:
+            lm.undo_rename(root, source, destination, identity)
+        except (InstallError, OSError) as error:
+            errors.append(f"{destination}: {error}")
     for action, relative, old, new, identity, mode in reversed(journal):
         try:
             if action == "REPLACE":
@@ -483,14 +422,17 @@ def _apply(root: Path, plan: dict[str, object], check_target) -> str:
     created_files: list[tuple[str, tuple[int, int], bytes]] = []
     created_directories: list[tuple[str, tuple[int, int]]] = []
     journal: list[tuple[str, str, bytes, bytes, tuple[int, int], int]] = []
+    renames: list[tuple[str, str, tuple[int, int]]] = []
     backup = _backup_directory(root, plan)
+    on_disk = lambda relative: lm.physical(str(plan["layout"]), relative)  # noqa: E731
+    migration: dict[str, object] | None = plan["migration"]  # type: ignore[assignment]
     try:
         originals: dict[str, dict[str, object]] = {}
         for action, items in (("REPLACE", plan["replace"]), ("REMOVE", plan["remove"])):
             for relative in sorted(items):  # type: ignore[arg-type]
                 value = items[relative]  # type: ignore[index]
                 old = value[0] if action == "REPLACE" else value
-                mode = stat.S_IMODE((root / relative).lstat().st_mode)
+                mode = stat.S_IMODE((root / on_disk(relative)).lstat().st_mode)
                 _create_project_file_nofollow(
                     root, f"{backup}/files/{relative}", old, created_files, created_directories
                 )
@@ -508,22 +450,28 @@ def _apply(root: Path, plan: dict[str, object], check_target) -> str:
         )
         for items in (plan["add"], plan["restore"], plan["owner_add"]):
             for relative, content in sorted(items.items()):  # type: ignore[union-attr]
-                _create_project_file_nofollow(root, relative, content, created_files, created_directories)
+                _create_project_file_nofollow(root, on_disk(relative), content, created_files, created_directories)
         for relative, (old, new) in sorted(plan["replace"].items()):  # type: ignore[union-attr]
-            identity, mode = _replace_file(root, relative, old, new)
-            journal.append(("REPLACE", relative, old, new, identity, mode))
+            identity, mode = _replace_file(root, on_disk(relative), old, new)
+            journal.append(("REPLACE", on_disk(relative), old, new, identity, mode))
         for relative, old in sorted(plan["remove"].items()):  # type: ignore[union-attr]
-            identity, mode = _remove_file(root, relative, old)
-            journal.append(("REMOVE", relative, old, b"", identity, mode))
+            identity, mode = _remove_file(root, on_disk(relative), old)
+            journal.append(("REMOVE", on_disk(relative), old, b"", identity, mode))
+        if migration is not None and migration["binding_after"] is not None:
+            old, new = migration["binding_before"], migration["binding_after"]
+            identity, mode = _replace_file(root, OBSIDIAN_BINDING_PATH, old, new)  # type: ignore[arg-type]
+            journal.append(("REPLACE", OBSIDIAN_BINDING_PATH, old, new, identity, mode))  # type: ignore[arg-type]
         check_target()
+        for source, destination in migration["moves"] if migration is not None else []:  # type: ignore[union-attr]
+            renames.append((source, destination, lm.rename_directory(root, source, destination)))
         _commit_manifest(
             root, plan["manifest_before"], manifest_bytes(plan["manifest_body"]),  # type: ignore[arg-type]
-            created_files, created_directories,
+            created_files, created_directories, _final_layout(plan),
         )
     except BaseException:
-        _rollback(root, journal, created_files, created_directories)
+        _rollback(root, journal, created_files, created_directories, renames)
         raise
-    return backup
+    return lm.physical(_final_layout(plan), backup) if migration is not None else backup
 
 
 # --- entry point ---------------------------------------------------------------------
@@ -536,9 +484,10 @@ def run_upgrade(args, target: Path, workspace: dict[str, str]) -> dict[str, obje
 
 def _run_upgrade(args, target: Path, workspace: dict[str, str]) -> dict[str, object]:
     root, storage, _ = _controller_root(args, target, workspace)
-    _require_installed(root, storage, args, target)
+    current = lm.layout(root, storage)
+    _require_installed(root, storage, args, target, current)
     to_version = skill_version()
-    manifest_raw = _read_project_file_nofollow(root, INSTALL_MANIFEST_PATH)
+    manifest_raw = _read_project_file_nofollow(root, lm.physical(current, INSTALL_MANIFEST_PATH))
     if manifest_raw is not None:
         from_version = str(parse_manifest(manifest_raw)["skill_version"])
         if version_key(from_version) > version_key(to_version):
@@ -546,7 +495,7 @@ def _run_upgrade(args, target: Path, workspace: dict[str, str]) -> dict[str, obj
                 f"UPGRADE_DOWNGRADE_REFUSED: installed {from_version}, this skill is {to_version}",
                 next_step="Run --upgrade from a skill at least as new as the installed controller.",
             )
-    _require_idle(root, storage, args, target)
+    _require_idle(root, storage, args, target, current)
     accept = bool(args.accept_current_as_baseline)
 
     def snapshot():
@@ -566,7 +515,7 @@ def _run_upgrade(args, target: Path, workspace: dict[str, str]) -> dict[str, obj
             )
 
     accept_command = _upgrade_command(args, target, "--accept-current-as-baseline")
-    plan = _plan(root, storage, accept, accept_command)
+    plan = _plan(root, storage, accept, accept_command, current)
     report = _report(plan, root, storage)
     exclude_planned = False
     if storage == "LOCAL":
@@ -601,19 +550,21 @@ def _run_upgrade(args, target: Path, workspace: dict[str, str]) -> dict[str, obj
         return report
     result: dict[str, str] = {}
 
+    lock_path = lm.physical(current, UPGRADE_LOCK_PATH)
+
     def locked_apply() -> None:
-        parent = _open_project_parent_nofollow(root, UPGRADE_LOCK_PATH, create=False)
+        parent = _open_project_parent_nofollow(root, lock_path, create=False)
         try:
             lock, owned = _acquire_lock(parent, Path(UPGRADE_LOCK_PATH).name, "UPGRADE_LOCKED")
         except InstallError as error:
             _close_descriptor(parent)
             raise InstallError(
                 str(error),
-                next_step=f"Another upgrade holds {root / UPGRADE_LOCK_PATH}; wait for it, or delete the file "
+                next_step=f"Another upgrade holds {root / lock_path}; wait for it, or delete the file "
                 "if no installer is running, then rerun.",
             ) from error
         try:
-            replanned = _plan(root, storage, accept, accept_command)
+            replanned = _plan(root, storage, accept, accept_command, current)
             if replanned["plan_sha256"] != plan["plan_sha256"]:
                 raise InstallError(
                     "UPGRADE_STATE_CHANGED",
@@ -621,7 +572,7 @@ def _run_upgrade(args, target: Path, workspace: dict[str, str]) -> dict[str, obj
                     next_command=_upgrade_command(args, target),
                 )
             require_target_unchanged()
-            _require_idle(root, storage, args, target)
+            _require_idle(root, storage, args, target, current)
             result["backup"] = _apply(root, replanned, require_target_unchanged)
         finally:
             _close_descriptor(lock)

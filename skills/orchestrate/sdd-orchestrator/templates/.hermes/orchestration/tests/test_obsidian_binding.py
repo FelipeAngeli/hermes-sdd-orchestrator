@@ -1,7 +1,7 @@
 """Tests for obsidian_binding: repo-local Obsidian binding resolver.
 
-Covers loading/validation of `.hermes/obsidian.json` and per-worktree runtime
-path derivation. No network, no vault access, no repository mutation.
+Covers loading/validation of the visible `Hermes/obsidian.json` and legacy
+`.hermes/obsidian.json` bindings and per-worktree runtime path derivation. No network, no vault access, no repository mutation.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ sys.path.insert(0, str(RUNTIME))
 import obsidian_binding  # noqa: E402
 
 
-def write_binding(repo: Path, **overrides) -> Path:
+def write_binding(repo: Path, relative: str = ".hermes/obsidian.json", **overrides) -> Path:
     payload = {
         "schema_version": 1,
         "vault_path": "/tmp/demo-vault",
@@ -32,7 +32,7 @@ def write_binding(repo: Path, **overrides) -> Path:
     payload.update(overrides)
     for key in [k for k, v in payload.items() if v is obsidian_binding.OMIT]:
         del payload[key]
-    path = repo / ".hermes" / "obsidian.json"
+    path = repo / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
@@ -76,25 +76,56 @@ class LoadTests(unittest.TestCase):
             obsidian_binding.load(self.repo)
         self.assertEqual(ctx.exception.code, "BINDING_MISSING")
 
-    def test_runtime_installed_in_vault_uses_container_binding_when_repo_has_none(self) -> None:
+    def _install_in_vault(self, controller_dir: str):
+        """Copy the module into a vault container and load that copy."""
         import importlib.util
         import shutil
 
         container = Path(self._tmp.name) / "vault" / "Projects" / "App"
-        runtime = container / ".hermes" / "orchestration" / "runtime"
+        runtime = container / controller_dir / "orchestration" / "runtime"
         runtime.mkdir(parents=True)
         shutil.copy2(RUNTIME / "obsidian_binding.py", runtime / "obsidian_binding.py")
-        write_binding(container, vault_path=str(Path(self._tmp.name) / "vault"), project_container="Projects/App")
         spec = importlib.util.spec_from_file_location("vault_obsidian_binding", runtime / "obsidian_binding.py")
         module = importlib.util.module_from_spec(spec)
         sys.modules["vault_obsidian_binding"] = module
         self.addCleanup(sys.modules.pop, "vault_obsidian_binding", None)
         spec.loader.exec_module(module)
+        return container, module
+
+    def _container_binding(self, container: Path, relative: str, project: str = "Projects/App") -> Path:
+        vault = str(Path(self._tmp.name) / "vault")
+        return write_binding(container, relative, vault_path=vault, project_container=project)
+
+    def test_runtime_installed_in_vault_uses_container_binding_when_repo_has_none(self) -> None:
+        container, module = self._install_in_vault(".hermes")
+        self._container_binding(container, ".hermes/obsidian.json")
 
         binding = module.load(self.repo)
 
         self.assertEqual("Projects/App", binding.project_container)
         self.assertFalse((self.repo / ".hermes").exists())
+        self.assertEqual((container / ".hermes" / "obsidian.json").resolve(), module.binding_path(self.repo))
+
+    def test_runtime_installed_in_visible_layout_uses_visible_binding(self) -> None:
+        container, module = self._install_in_vault("Hermes")
+        self._container_binding(container, "Hermes/obsidian.json")
+
+        binding = module.load(self.repo)
+
+        self.assertEqual("Projects/App", binding.project_container)
+        self.assertEqual((container / "Hermes" / "obsidian.json").resolve(), module.binding_path(self.repo))
+
+    def test_installed_binding_prefers_visible_over_legacy(self) -> None:
+        container, module = self._install_in_vault("Hermes")
+        self._container_binding(container, "Hermes/obsidian.json", project="Projects/App")
+        self._container_binding(container, ".hermes/obsidian.json", project="Projects/Legacy")
+
+        self.assertEqual("Projects/App", module.load(self.repo).project_container)
+
+    def test_installed_binding_falls_back_to_legacy_from_visible_layout(self) -> None:
+        container, module = self._install_in_vault("Hermes")
+        self._container_binding(container, ".hermes/obsidian.json")
+
         self.assertEqual((container / ".hermes" / "obsidian.json").resolve(), module.binding_path(self.repo))
 
     def test_unknown_schema_version_is_refused(self) -> None:
@@ -129,6 +160,29 @@ class LoadTests(unittest.TestCase):
         with self.assertRaises(obsidian_binding.BindingError) as ctx:
             obsidian_binding.load(self.repo)
         self.assertEqual(ctx.exception.code, "BINDING_INVALID")
+
+    def test_binding_without_runtime_subpath_keeps_the_legacy_runtime(self) -> None:
+        write_binding(self.repo, runtime_subpath=obsidian_binding.OMIT)
+        self.assertEqual(".hermes-runtime", obsidian_binding.load(self.repo).runtime_subpath)
+
+    def test_visible_relative_runtime_subpaths_are_accepted(self) -> None:
+        for value in ("Hermes Runtime", "Hermes/Runtime", ".hermes-runtime"):
+            with self.subTest(value=value):
+                write_binding(self.repo, runtime_subpath=value)
+                self.assertEqual(value, obsidian_binding.load(self.repo).runtime_subpath)
+
+    def test_unsafe_runtime_subpaths_are_refused(self) -> None:
+        unsafe = (
+            "/abs/Hermes Runtime", "..", "../Hermes Runtime", "Hermes/../../x",
+            "Hermes\x00Runtime", "Hermes\\Runtime", "Hermes//Runtime", "Hermes Runtime/",
+            "/", "", "   ",
+        )
+        for value in unsafe:
+            with self.subTest(value=value):
+                write_binding(self.repo, runtime_subpath=value)
+                with self.assertRaises(obsidian_binding.BindingError) as ctx:
+                    obsidian_binding.load(self.repo)
+                self.assertEqual(ctx.exception.code, "BINDING_INVALID")
 
     def test_project_container_escaping_the_vault_is_refused(self) -> None:
         write_binding(self.repo, project_container="../../etc")

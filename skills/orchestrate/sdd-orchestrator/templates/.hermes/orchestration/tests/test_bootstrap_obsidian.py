@@ -144,15 +144,12 @@ class BootstrapObsidianTests(unittest.TestCase):
             self.target.resolve(), Path(payload["workspace"]["path"]).resolve()
         )
 
-    def test_runtime_directory_is_hidden_from_obsidian(self) -> None:
+    def test_runtime_directory_is_visible_in_obsidian(self) -> None:
         self.invoke("--apply")
         binding = obsidian_binding.load(self.target)
         runtime = obsidian_binding.runtime_dir(binding, self.target)
         relative = runtime.relative_to(self.container)
-        self.assertTrue(
-            relative.parts[0].startswith("."),
-            f"runtime must be dot-hidden, got {relative.parts[0]}",
-        )
+        self.assertEqual("Hermes Runtime", relative.parts[0])
 
     def test_runtime_stays_inside_the_bound_container(self) -> None:
         self.invoke("--apply")

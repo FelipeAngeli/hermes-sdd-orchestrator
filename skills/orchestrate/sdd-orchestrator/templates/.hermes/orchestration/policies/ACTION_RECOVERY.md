@@ -2,7 +2,7 @@
 
 `ACTION_JOURNAL.json` is the write-ahead journal of **one** executor action; `STATE.md` stays the demand's source of truth. Never hand-edit the journal or write STATE outside the commit sequence below: every state has a command.
 
-Below, `J` is `python3 <controller>/runtime/action_journal.py --journal <journal> --json`. Get `<journal>`, `<history-dir>` and `<state>` from `python3 <controller>/runtime/action_journal.py --json paths` (run with the repository as working directory). Obsidian storage puts them in `<vault>/<project>/.hermes-runtime/<worktree-slug>/`; legacy `--local-storage` puts them in `.hermes/orchestration/`. Never guess `--history-dir`.
+Below, `J` is `python3 <controller>/runtime/action_journal.py --journal <journal> --json`. Get `<journal>`, `<history-dir>` and `<state>` from `python3 <controller>/runtime/action_journal.py --json paths` (run with the repository as working directory). Obsidian storage puts them in `<vault>/<project>/Hermes Runtime/<worktree-slug>/` (`.hermes-runtime/` in a container not yet upgraded); legacy `--local-storage` puts them in `.hermes/orchestration/`. Never guess `--history-dir`.
 
 ## Before every dispatch
 

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Record everything the orchestrator runs into the project's Obsidian LLM Wiki.
 
-The project container is read **and written**: SDD actions, stage artifacts,
-gate results, incidents, decisions and Hermes conversation turns that run for a
-bound worktree land in the wiki, so the vault is the project's memory.
+SDD actions, stage artifacts, gate results, incidents, decisions and Hermes
+turns of a bound worktree land in the wiki: the vault is the project's memory.
 
 Where each record goes (relative to the project container):
 
@@ -139,27 +138,27 @@ def _frontmatter(fields: Mapping[str, Any]) -> str:
 
 
 def _controller_root() -> Path:
-    """The folder that holds this controller: runtime/ -> orchestration/ -> .hermes/ -> root."""
+    """runtime/ -> orchestration/ -> Hermes/ (or .hermes/) -> the controller root."""
     return Path(__file__).resolve().parents[3]
 
 
-def _controller_binding() -> tuple[str, Path, Path]:
-    """Return ``(mode, controller_root, container)`` for the controller this module runs from.
+def _controller_binding() -> tuple[str, Path, Path, str]:
+    """``(mode, controller_root, container, runtime_subpath)`` of this controller.
 
     ``vault`` when the controller lives in the container its binding names,
     ``local`` when it lives in a repository whose binding names a container.
     """
     root = _controller_root()
-    binding_file = root / obsidian_binding.BINDING_RELATIVE_PATH
-    if binding_file.is_symlink() or not binding_file.is_file():
-        raise WikiJournalError("WIKI_BINDING_MISSING", f"no Obsidian binding at {binding_file}")
+    binding_file = obsidian_binding.controller_binding_file(root)
+    if binding_file is None:
+        raise WikiJournalError("WIKI_BINDING_MISSING", f"no Obsidian binding in {root}")
     try:
         binding = obsidian_binding.load_path(binding_file)
     except obsidian_binding.BindingError as error:
         raise WikiJournalError("WIKI_BINDING_MISSING", str(error)) from error
     container = Path(os.path.realpath(binding.container_path))
     mode = "vault" if container == Path(os.path.realpath(root)) else "local"
-    return mode, Path(os.path.realpath(root)), container
+    return mode, Path(os.path.realpath(root)), container, binding.runtime_subpath
 
 
 def _safe_workspace(path: Path) -> bool:
@@ -172,9 +171,9 @@ def _safe_workspace(path: Path) -> bool:
     return os.path.lexists(path / ".git")
 
 
-def registered_workspaces(container: Path) -> list[Path]:
+def registered_workspaces(container: Path, runtime_subpath: str = ".hermes-runtime") -> list[Path]:
     """Workspaces the installer set up for this container, read from each runtime STATE."""
-    runtime = container / ".hermes-runtime"
+    runtime = container / runtime_subpath
     found: list[Path] = []
     if runtime.is_symlink() or not runtime.is_dir():
         return found
@@ -210,9 +209,9 @@ def _json_state_workspace(text: str) -> str | None:
 
 def _served_workspaces() -> tuple[Path, list[Path]]:
     """``(container, workspaces)`` this controller may record for."""
-    mode, root, container = _controller_binding()
+    mode, root, container, runtime_subpath = _controller_binding()
     if mode == "vault":
-        return container, registered_workspaces(container)
+        return container, registered_workspaces(container, runtime_subpath)
     return container, [root]
 
 

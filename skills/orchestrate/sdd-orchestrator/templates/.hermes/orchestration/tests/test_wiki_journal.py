@@ -1,7 +1,7 @@
 """Behavior of the wiki journal: everything the orchestrator runs lands in the project wiki.
 
-Every test runs the module from a real controller copy (vault-resident or
-repository-local) so the trust decision is exercised exactly as installed.
+Every test runs a real controller copy (vault or repository) so the trust
+decision is exercised exactly as installed.
 """
 from __future__ import annotations
 
@@ -32,9 +32,9 @@ WHEN = dt.datetime(2026, 10, 7, 12, 30, 5, tzinfo=dt.timezone.utc)
 CONTROLLER_MODULES = ("obsidian_binding", "wiki_layout", "redaction", "wiki_journal", "action_journal")
 
 
-def load_controller(root: Path) -> dict:
-    """Copy the controller under ``root`` and import its modules from there."""
-    orchestration = root / ".hermes" / "orchestration"
+def load_controller(root: Path, folder: str = ".hermes") -> dict:
+    """Copy the controller under ``root/folder`` and import its modules from there."""
+    orchestration = root / folder / "orchestration"
     ignore = shutil.ignore_patterns("__pycache__")
     shutil.copytree(RUNTIME, orchestration / "runtime", ignore=ignore, dirs_exist_ok=True)
     shutil.copytree(ORCHESTRATION / "hooks", orchestration / "hooks", ignore=ignore, dirs_exist_ok=True)
@@ -58,7 +58,7 @@ def load_controller(root: Path) -> dict:
 
 
 def fake(prefix: str, body: str) -> str:
-    """Build a credential-shaped test value without a literal secret in the source."""
+    """A credential-shaped test value without a literal secret in the source."""
     return prefix + body
 
 

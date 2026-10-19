@@ -195,7 +195,7 @@ class DispatchQuestionTests(unittest.TestCase):
 class ContextGraphInstalledSkillsTests(unittest.TestCase):
     def test_template_skills_with_nested_frontmatter_never_become_findings(self) -> None:
         notes = [(str(path.relative_to(TEMPLATES)), path.read_text(encoding="utf-8"))
-                 for path in sorted((TEMPLATES / ".hermes" / "skills").rglob("SKILL.md"))]
+                 for path in sorted((ORCHESTRATION.parent / "skills").rglob("SKILL.md"))]
         self.assertTrue(notes)
         graph = context_graph.build(notes)
         self.assertEqual([], graph["findings"])
@@ -209,6 +209,8 @@ class ContextGraphInstalledSkillsTests(unittest.TestCase):
     def test_vault_scan_skips_the_controller_tree(self) -> None:
         self.assertIn(".hermes", context_graph.SKIPPED_NOTE_ROOTS)
         self.assertTrue(context_graph.skipped_note(".hermes/skills/sdd-tdd/SKILL.md"))
+        self.assertTrue(context_graph.skipped_note("Hermes/skills/sdd-tdd/SKILL.md"))
+        self.assertTrue(context_graph.skipped_note("Hermes Runtime/worktree/STATE.md"))
         self.assertFalse(context_graph.skipped_note("concepts/auth.md"))
 
 

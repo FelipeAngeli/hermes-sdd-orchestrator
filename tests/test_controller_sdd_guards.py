@@ -119,7 +119,7 @@ class SddGuardTests(e2e.ControllerEndToEndTests):
         confirms the file. These tests change the row deliberately, standing in for the
         owner, so they re-pin it the same way the controller would ask the user to.
         """
-        policy = self.container / ".hermes" / "orchestration" / "policies" / "GATES.md"
+        policy = self.container / "Hermes" / "orchestration" / "policies" / "GATES.md"
         lines = []
         for line in policy.read_text(encoding="utf-8").splitlines():
             cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
@@ -138,7 +138,7 @@ class SddGuardTests(e2e.ControllerEndToEndTests):
         self.assertEqual(0, completed.returncode, completed.stdout)
 
     def enable_shadow_governance(self) -> None:
-        setup = self.container / ".hermes" / "orchestration" / "PROJECT_SETUP.md"
+        setup = self.container / "Hermes" / "orchestration" / "PROJECT_SETUP.md"
         setup.write_text(
             setup.read_text(encoding="utf-8").replace(
                 "typesafe_ai: UNRESOLVED",
@@ -146,7 +146,7 @@ class SddGuardTests(e2e.ControllerEndToEndTests):
             ),
             encoding="utf-8",
         )
-        connector = self.container / ".hermes" / "orchestration" / "runtime" / "typesafe_connector.py"
+        connector = self.container / "Hermes" / "orchestration" / "runtime" / "typesafe_connector.py"
         connector.write_text(
             """#!/usr/bin/env python3
 import json, sys
@@ -214,7 +214,7 @@ else:
 
     def test_next_prints_a_shadow_governance_command_instead_of_a_jev_dead_end(self) -> None:
         self.craft(stage="PLAN")
-        setup = self.container / ".hermes" / "orchestration" / "PROJECT_SETUP.md"
+        setup = self.container / "Hermes" / "orchestration" / "PROJECT_SETUP.md"
         text = setup.read_text(encoding="utf-8")
         setup.write_text(
             text.replace(
@@ -235,7 +235,7 @@ else:
 
     def test_implement_requires_a_fresh_stage_bound_shadow_decision(self) -> None:
         self.craft(stage="IMPLEMENT")
-        setup = self.container / ".hermes" / "orchestration" / "PROJECT_SETUP.md"
+        setup = self.container / "Hermes" / "orchestration" / "PROJECT_SETUP.md"
         setup.write_text(
             setup.read_text(encoding="utf-8").replace(
                 "typesafe_ai: UNRESOLVED",
@@ -258,7 +258,7 @@ else:
 
     def test_govern_records_a_shadow_receipt_and_unblocks_dispatch(self) -> None:
         self.craft(stage="PLAN")
-        setup = self.container / ".hermes" / "orchestration" / "PROJECT_SETUP.md"
+        setup = self.container / "Hermes" / "orchestration" / "PROJECT_SETUP.md"
         setup.write_text(
             setup.read_text(encoding="utf-8").replace(
                 "typesafe_ai: UNRESOLVED",
@@ -267,7 +267,7 @@ else:
             encoding="utf-8",
         )
         self.edit_state(lambda data: data["delivery"]["accepted"].pop("plan", None))
-        connector = self.container / ".hermes" / "orchestration" / "runtime" / "typesafe_connector.py"
+        connector = self.container / "Hermes" / "orchestration" / "runtime" / "typesafe_connector.py"
         connector.write_text(
             """#!/usr/bin/env python3
 import json, sys
@@ -424,7 +424,7 @@ else:
         self.assertEqual("EXECUTOR_UNAVAILABLE", stopped.get("stop_reason"), stopped)
         self.assertTrue(stopped["end_turn"])
         self.assertIn("EXECUTORS.md", stopped["next_step"])
-        executors = self.container / ".hermes" / "orchestration" / "policies" / "EXECUTORS.md"
+        executors = self.container / "Hermes" / "orchestration" / "policies" / "EXECUTORS.md"
         executors.write_text(re.sub(r'("SPECIFY":\s*\{"executor": )"claude"', r'\1"codex"', executors.read_text(encoding="utf-8")), encoding="utf-8")
         step = self.call("next")[1]
         self.assertEqual("REPREPARE", step.get("step"), step)
@@ -440,7 +440,7 @@ else:
     def test_ci_enabled_after_approval_runs_the_ci_gate(self) -> None:
         self.craft(stage="REVIEW", review="APPROVED")
         self.edit_state(lambda data: data["gates"].update(ci={"status": "DISABLED_BY_PROJECT_POLICY"}))
-        policy = self.container / ".hermes" / "orchestration" / "policies" / "GATES.md"
+        policy = self.container / "Hermes" / "orchestration" / "policies" / "GATES.md"
         policy.write_text(policy.read_text(encoding="utf-8").replace("enabled: false", "enabled: true"), encoding="utf-8")
         self.set_gate_row("CI", f"{shlex.quote(sys.executable)} -c pass", 60)
         # Enabling CI edits GATES.md during the demand, so the host-run gate commands need the
@@ -455,7 +455,7 @@ else:
         self.assertEqual("TRANSITION", self.call("next")[1].get("step"))
 
     def test_ci_policy_changes_never_loop_on_done_gates(self) -> None:
-        policy = self.container / ".hermes" / "orchestration" / "policies" / "GATES.md"
+        policy = self.container / "Hermes" / "orchestration" / "policies" / "GATES.md"
         # Enabled at approval (ci PENDING), then disabled: DONE records DISABLED_BY_PROJECT_POLICY.
         self.craft(stage="REVIEW", review="APPROVED")
         progress = self.call("next")[1]
@@ -682,7 +682,7 @@ else:
         self.craft(stage="TEST")
         self.set_gate_row("Focused tests", f"{shlex.quote(sys.executable)} -c pass", 60)
         self.edit_state(lambda data: data["gates"].update(focused_tests={"status": "PENDING"}))
-        policy = self.container / ".hermes" / "orchestration" / "policies" / "GATES.md"
+        policy = self.container / "Hermes" / "orchestration" / "policies" / "GATES.md"
         policy.unlink()
         code, refused = self.call("gate", "--name", "focused_tests")
         self.assertNotEqual(0, code)
@@ -719,7 +719,7 @@ else:
     def test_an_unreadable_policy_with_a_changed_skill_template_falls_back_to_a_working_reinstall(self) -> None:
         """restore-policy never adopts a template the install did not record; its fallback sequence works when executed."""
         self.craft(stage="TEST")
-        policy = self.container / ".hermes" / "orchestration" / "policies" / "GATES.md"
+        policy = self.container / "Hermes" / "orchestration" / "policies" / "GATES.md"
         policy.unlink()
         stopped = self.call("next")[1]
         self.assertEqual("CONTROLLER_POLICY_UNREADABLE", stopped["stop_reason"], stopped)
@@ -743,7 +743,7 @@ else:
         self.craft(stage="TEST")
         self.set_gate_row("Focused tests", f"{shlex.quote(sys.executable)} -c pass", 60)
         self.edit_state(lambda data: data["gates"].update(focused_tests={"status": "PENDING"}))
-        policy = self.container / ".hermes" / "orchestration" / "policies" / "GATES.md"
+        policy = self.container / "Hermes" / "orchestration" / "policies" / "GATES.md"
         policy.write_text(policy.read_text(encoding="utf-8") + "\n<!-- edited mid-demand -->\n", encoding="utf-8")
         stopped = self.call("next")[1]
         self.assertTrue(stopped["end_turn"], stopped)
@@ -767,7 +767,7 @@ else:
                                       data["gates"].update(ci={"status": "DISABLED_BY_PROJECT_POLICY"})))
         code, closed = self.call("close")
         self.assertEqual(0, code, closed)
-        policy = self.container / ".hermes" / "orchestration" / "policies" / "GATES.md"
+        policy = self.container / "Hermes" / "orchestration" / "policies" / "GATES.md"
         policy.write_text(policy.read_text(encoding="utf-8") + "\n<!-- edited while IDLE -->\n", encoding="utf-8")
         code, refused = self.call("start", "--ticket", "c-4", "--title", "t", "--objective", "o")
         self.assertNotEqual(0, code, refused)
@@ -905,7 +905,7 @@ class LocalControllerExitTests(unittest.TestCase):
         self.assertFalse(self.orchestration.exists(), "no controller is left inside the repository")
         container = self.vault / "Projects" / "Demo"
         self.assertTrue((container / ".hermes-local-controller-backup" / "orchestration" / "runtime" / "sdd.py").is_file())
-        new = [sys.executable, str(container / ".hermes" / "orchestration" / "runtime" / "sdd.py")]
+        new = [sys.executable, str(container / "Hermes" / "orchestration" / "runtime" / "sdd.py")]
         code, progress = self.call("next", sdd=new)
         self.assertEqual(0, code, progress)
         self.assertEqual("PREPARE", progress.get("step"), progress)

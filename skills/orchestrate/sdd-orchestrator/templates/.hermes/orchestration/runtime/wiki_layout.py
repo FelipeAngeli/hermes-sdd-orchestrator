@@ -7,7 +7,7 @@ Each project container becomes the wiki root::
     raw/{articles,papers,transcripts,assets}/   Layer 1: immutable sources
     entities/ concepts/ comparisons/ queries/   Layer 2: agent-owned pages
 
-The orchestrator stays hidden under ``.hermes/`` and ``.hermes-runtime/``.
+The orchestrator lives in ``Hermes/`` and ``Hermes Runtime/`` (legacy: ``.hermes*/``).
 
 ``init`` creates the missing skeleton and never overwrites a file. ``plan``
 maps legacy project folders onto the layout without touching the disk.
@@ -27,11 +27,15 @@ import os
 import re
 import secrets
 import stat
+import sys
 import unicodedata
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-LAYOUT_VERSION = 1
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from wiki_skeleton import LAYOUT_VERSION, PAGE_SECTIONS, skeleton_files  # noqa: E402,F401  (public API)
+
 DIRECTORIES = (
     "raw/articles",
     "raw/papers",
@@ -70,8 +74,9 @@ FOLDER_INDEX_NAMES = frozenset({"readme.md", "_index.md", "index.md"})
 #: Finder metadata: the only file migrate deletes without moving, and only to empty a folder it emptied.
 FINDER_METADATA = ".DS_Store"
 #: A container opted into the wiki carries one of these; migrate --apply requires it.
-CONTAINER_MARKERS = ("SCHEMA.md", ".hermes/obsidian.json")
-PAGE_SECTIONS = (("entities", "Entities"), ("concepts", "Concepts"), ("comparisons", "Comparisons"), ("queries", "Queries"))
+CONTAINER_MARKERS = ("SCHEMA.md", "Hermes/obsidian.json", ".hermes/obsidian.json")
+#: Visible controller folders (folded) reserved at the container root.
+CONTROLLER_ROOTS = frozenset({"hermes", "hermes runtime"})
 
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _DIRECTORY = getattr(os, "O_DIRECTORY", 0)
@@ -86,105 +91,6 @@ class WikiError(Exception):
         self.detail = detail
 
 
-# --------------------------------------------------------------------------- skeleton
-
-
-def _schema(project: str, today: str) -> str:
-    return f"""---
-layout_version: {LAYOUT_VERSION}
-created: {today}
----
-
-# Wiki Schema — {project}
-
-## Domain
-Engineering knowledge for the {project} project: product decisions, architecture,
-modules, integrations and the SDD demands that changed them.
-
-## Layout
-- `raw/` — Layer 1, immutable sources. Read, never edit; corrections go into wiki pages.
-  - `raw/articles/` — demand artifacts (PRD, techspec, tasks, reviews), discovery notes, references.
-  - `raw/papers/` — PDFs and papers.
-  - `raw/transcripts/` — session logs, meetings, interviews.
-  - `raw/assets/` — images and diagrams referenced by sources.
-- `entities/` — one page per module, service, integration, person or organization.
-- `concepts/` — one page per concept, rule or decision (decisions use `type: decision`).
-- `comparisons/` — side-by-side analyses.
-- `queries/` — filed answers worth keeping, plus Obsidian Bases under `queries/boards/`.
-- `.hermes/` and `.hermes-runtime/` — SDD orchestrator state. Hidden; not wiki content.
-
-## Conventions
-- File names: lowercase, hyphens, no spaces for new pages (`payments-module.md`).
-- Every wiki page starts with YAML frontmatter (below) and links at least two pages with `[[wikilinks]]`.
-- Every new page is added to `index.md`; every action is appended to `log.md`.
-- Bump `updated` on every edit. On pages synthesizing 3+ sources, end claims with `^[raw/...]`.
-
-## Frontmatter
-```yaml
----
-title: Page Title
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
-type: entity | concept | decision | comparison | query | summary
-tags: [from taxonomy below]
-sources: [raw/articles/source-name.md]
-confidence: high | medium | low   # optional
----
-```
-
-Raw sources carry `source_url`, `ingested` and `sha256` (of the body) when ingested.
-
-## Tag Taxonomy
-- Product: feature, flow, ux, accessibility
-- Engineering: architecture, module, api, data, testing, security, performance
-- Delivery: demand, decision, incident, release
-- Meta: comparison, timeline, open-question
-
-Add a tag here before using it.
-
-## Page Thresholds
-- Create a page when an entity or concept appears in 2+ sources or is central to one.
-- Split a page over ~200 lines; archive superseded pages under `_archive/` and drop them from the index.
-
-## Update Policy
-Newer sources supersede older ones. Genuine contradictions keep both claims with dates and
-sources, set `contradictions: [page]` and are flagged for review.
-"""
-
-
-def _index(project: str, today: str) -> str:
-    sections = "\n\n".join(f"## {title}" for _, title in PAGE_SECTIONS)
-    return f"""# Wiki Index — {project}
-
-> Content catalog. Every wiki page listed under its type with a one-line summary.
-> Last updated: {today} | Total pages: 0
-
-{sections}
-"""
-
-
-def _log(today: str) -> str:
-    return f"""# Wiki Log
-
-> Chronological record of all wiki actions. Append-only.
-> Format: `## [YYYY-MM-DD] action | subject`
-> Actions: ingest, update, query, lint, create, archive, delete, migrate
-> When this file exceeds 500 entries, rotate: rename to log-YYYY.md, start fresh.
-
-## [{today}] create | Wiki initialized
-- Layout version {LAYOUT_VERSION}: SCHEMA.md, index.md, log.md, raw/, entities/, concepts/, comparisons/, queries/
-"""
-
-
-def skeleton_files(*, project: str, today: str) -> dict[str, bytes]:
-    """Return the skeleton files, relative to the container, as bytes."""
-    return {
-        "SCHEMA.md": _schema(project, today).encode("utf-8"),
-        "index.md": _index(project, today).encode("utf-8"),
-        "log.md": _log(today).encode("utf-8"),
-    }
-
-
 # --------------------------------------------------------------------------- container
 
 
@@ -197,6 +103,10 @@ def _is_hidden(name: str) -> bool:
     return name.startswith(HIDDEN_PREFIX)
 
 
+def _skipped(name: str) -> bool:
+    return _is_hidden(name) or _key(name) in CONTROLLER_ROOTS
+
+
 def _has_marker(directory: Path) -> bool:
     schema = directory / "SCHEMA.md"
     if schema.is_file() and not schema.is_symlink():
@@ -206,11 +116,11 @@ def _has_marker(directory: Path) -> bool:
                     return True
         except OSError:
             pass
-    return os.path.lexists(directory / ".hermes" / "obsidian.json")
+    return any(os.path.lexists(directory / marker) for marker in CONTAINER_MARKERS[1:])
 
 
 #: Controller state that marks a folder as a project of its own.
-CONTROLLER_SIGNS = frozenset({"skills-lock.json", ".hermes", ".hermes-runtime", ".hermes.md"})
+CONTROLLER_SIGNS = frozenset({"skills-lock.json", ".hermes", ".hermes-runtime", ".hermes.md"}) | CONTROLLER_ROOTS
 
 
 def _subdirectories(directory: Path) -> list[Path]:
@@ -220,7 +130,7 @@ def _subdirectories(directory: Path) -> list[Path]:
         return []
     return [
         directory / name for name in names
-        if not _is_hidden(name) and (directory / name).is_dir() and not (directory / name).is_symlink()
+        if not _skipped(name) and (directory / name).is_dir() and not (directory / name).is_symlink()
     ]
 
 
@@ -250,13 +160,13 @@ def _nested_containers(container: Path, *, guess_unmarked: bool) -> list[str]:
         children = []
     for name in children:
         child = container / name
-        if _is_hidden(name) or _key(name) in LEGACY_FOLDERS or _key(name) in WIKI_ROOTS:
+        if _skipped(name) or _key(name) in LEGACY_FOLDERS or _key(name) in WIKI_ROOTS:
             continue
         if child.is_dir() and not child.is_symlink() and _looks_like_project(child):
             nested.append(name)
     for current, dirnames, _ in os.walk(container, followlinks=False):
         here = Path(current)
-        dirnames[:] = [name for name in sorted(dirnames) if not _is_hidden(name) and not (here / name).is_symlink()]
+        dirnames[:] = [name for name in sorted(dirnames) if not _skipped(name) and not (here / name).is_symlink()]
         if here != container and _has_marker(here):
             nested.append(here.relative_to(container).as_posix())
             dirnames[:] = []
@@ -363,7 +273,7 @@ def classify(relative: str) -> str | None:
     """Return the wiki destination of a container-relative file, or None to keep it."""
     path = PurePosixPath(relative)
     parts = path.parts
-    if not parts or any(_is_hidden(part) for part in parts):
+    if not parts or any(_is_hidden(part) for part in parts) or _key(parts[0]) in CONTROLLER_ROOTS:
         return None
     top = parts[0]
     folded = _key(top)
@@ -416,7 +326,7 @@ def _walk(container: Path) -> tuple[list[str], list[str], list[str], list[str]]:
         keep = []
         for name in sorted(dirnames):
             relative = (relative_dir / name).as_posix()
-            if _is_hidden(name):
+            if _is_hidden(name) or (not nested and _key(name) in CONTROLLER_ROOTS):
                 if nested:
                     hidden.append(f"{relative}/")
             elif (here / name).is_symlink():

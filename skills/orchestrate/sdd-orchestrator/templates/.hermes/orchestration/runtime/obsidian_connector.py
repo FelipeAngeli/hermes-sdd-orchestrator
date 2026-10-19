@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Guarded read-only connectivity for an Obsidian second brain.
 
-The versioned repository binding remains the source of truth. The official
-Obsidian CLI is an optional read-side accelerator; runtime state and every
-write continue to use the filesystem and ``vault_guard``.
+The binding is the source of truth. The official Obsidian CLI is an optional
+read accelerator; runtime state and writes use the filesystem and ``vault_guard``.
 """
 from __future__ import annotations
 
@@ -21,7 +20,7 @@ from typing import Any
 import obsidian_binding
 
 DEFAULT_TIMEOUT_SECONDS = 5.0
-_EXCLUDED_DIRECTORIES = {".hermes-runtime", ".obsidian", ".trash", ".git"}
+_EXCLUDED_DIRECTORIES = {".hermes-runtime", ".obsidian", ".trash", ".git", "Hermes", "Hermes Runtime"}
 
 
 class ConnectorError(RuntimeError):

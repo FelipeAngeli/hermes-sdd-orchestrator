@@ -25,7 +25,7 @@ BINDING_TEMPLATE = {
     "decisions_subpath": "decisions",
     "new_project_script": "2 - 🗂 Workflow/AI/scripts/new_project.py",
     "protocol_path": "2 - 🗂 Workflow/AI/Hermes/HERMES_OBSIDIAN_PROTOCOL.md",
-    "runtime_subpath": ".hermes-runtime",
+    "runtime_subpath": "Hermes Runtime",
     "schema_version": 1,
     "sessions_subpath": "sessions",
     "write_policy": {
