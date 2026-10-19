@@ -48,7 +48,7 @@ class Baseline(unittest.TestCase):
   self.git("mv","src/old.py","src/new.py")
   p=self.cli("--update-baseline"); self.assertEqual(p.returncode,0,p.stdout+p.stderr)
   files=json.loads((self.r/"tools/token_baseline.json").read_text())["files"]; self.assertEqual(files,{"src/new.py":20001})
-  self.git("commit","-m","rename")
+  self.git("add","tools/token_baseline.json"); self.git("commit","-m","rename")
  def test_update_lowers_drops_and_refuses_raise_without_admit(self):
   self.baseline({"src/old.py":30000,"src/gone.py":30000,"src/small.py":30000})
   self.put("src/old.py",25000); self.put("src/small.py",10)

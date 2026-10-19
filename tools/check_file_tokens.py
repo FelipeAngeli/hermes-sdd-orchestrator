@@ -33,9 +33,20 @@ def policy_integrity(repo,config_path,c,b):
     if previous is None: raise Error("previous token baseline is missing")
     try: old=json.loads(previous)["files"]
     except Exception as e: raise Error(f"invalid previous token baseline: {e}")
-    if any(path not in old or size>old[path] for path,size in b.items()): raise Error("token baseline may only shrink or remove entries")
-    all_=entries(repo); limit=c["limit_tokens"]*c["bytes_per_token"]
-    for path in set(old)-set(b):
+    all_=entries(repo); limit=c["limit_tokens"]*c["bytes_per_token"]; removed=set(old)-set(b); rekeyed=set()
+    for path,size in b.items():
+        if path in old:
+            if size>old[path]: raise Error("token baseline may only shrink or remove entries")
+            continue
+        if path not in all_: raise Error("token baseline may only shrink or remove entries")
+        _,oid=all_[path]; candidates=[]
+        for prior_path in removed:
+            try: prior_oid=run(repo,"rev-parse","HEAD:"+prior_path).strip().decode()
+            except Error: continue
+            if old[prior_path]==size and prior_oid==oid: candidates.append(prior_path)
+        if len(candidates)!=1: raise Error("token baseline may only shrink or remove entries")
+        rekeyed.add(candidates[0])
+    for path in removed-rekeyed:
         if path not in all_: continue
         mode,oid=all_[path]
         if mode not in ("120000","160000") and source(repo,path,oid,c) and int(run(repo,"cat-file","-s",oid))>limit: raise Error("token baseline entry may only be removed with a deleted or reduced file")
