@@ -4,11 +4,13 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- Reject staged token-limit configuration changes and baseline additions or increases after the initial policy commit, preventing a commit from loosening the guard.
+
 ## 15.7.1 - 2026-10-19
 
 ### Fixed
 - Avoid duplicate discovery of shared token-limit test cases in the baseline suite.
-- Reject staged token-limit configuration changes and baseline additions or increases after the initial policy commit, preventing a commit from loosening the guard.
 
 ## 15.7.0 - 2026-10-19
 
