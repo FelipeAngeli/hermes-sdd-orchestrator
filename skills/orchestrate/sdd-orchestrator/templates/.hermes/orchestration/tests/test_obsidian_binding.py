@@ -122,11 +122,11 @@ class LoadTests(unittest.TestCase):
 
         self.assertEqual("Projects/App", module.load(self.repo).project_container)
 
-    def test_installed_binding_falls_back_to_legacy_from_visible_layout(self) -> None:
+    def test_installed_binding_never_falls_back_to_the_other_folder(self) -> None:
         container, module = self._install_in_vault("Hermes")
         self._container_binding(container, ".hermes/obsidian.json")
 
-        self.assertEqual((container / ".hermes" / "obsidian.json").resolve(), module.binding_path(self.repo))
+        self.assertEqual(self.repo / ".hermes" / "obsidian.json", module.binding_path(self.repo))
 
     def test_unknown_schema_version_is_refused(self) -> None:
         write_binding(self.repo, schema_version=999)
@@ -166,7 +166,7 @@ class LoadTests(unittest.TestCase):
         self.assertEqual(".hermes-runtime", obsidian_binding.load(self.repo).runtime_subpath)
 
     def test_visible_relative_runtime_subpaths_are_accepted(self) -> None:
-        for value in ("Hermes Runtime", "Hermes/Runtime", ".hermes-runtime"):
+        for value in ("Hermes Runtime", "Runtime/Hermes", ".hermes-runtime"):
             with self.subTest(value=value):
                 write_binding(self.repo, runtime_subpath=value)
                 self.assertEqual(value, obsidian_binding.load(self.repo).runtime_subpath)
@@ -174,8 +174,8 @@ class LoadTests(unittest.TestCase):
     def test_unsafe_runtime_subpaths_are_refused(self) -> None:
         unsafe = (
             "/abs/Hermes Runtime", "..", "../Hermes Runtime", "Hermes/../../x",
-            "Hermes\x00Runtime", "Hermes\\Runtime", "Hermes//Runtime", "Hermes Runtime/",
-            "/", "", "   ",
+            "Hermes\x00Runtime", "Hermes\\Runtime", "Hermes//Runtime", "Hermes/Runtime",
+            "/", "", "   ", ".", "./x", "raw/articles",
         )
         for value in unsafe:
             with self.subTest(value=value):

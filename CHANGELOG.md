@@ -4,6 +4,14 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+
+- A plain install on a container still in `.hermes/` is `BLOCKED` (`OBSIDIAN_LEGACY_LAYOUT`, `next_command` the `--upgrade` dry run) instead of installing a second controller under `Hermes/` that blocked every later upgrade.
+- `runtime_subpath` accepts a trailing `/` again (bindings written that way stay valid) and refuses `.` segments and a runtime inside a controller folder, `.obsidian`, `.trash`, `.git` or a wiki root.
+- `bootstrap_worktree.py` keeps the runtime folder the container already uses instead of creating `Hermes Runtime/` in a legacy container; `wiki_layout migrate` moves a root `skills-lock.json` into `Hermes/` rather than recreating a hidden `.hermes/`; `controller_path` prefers `Hermes/` over a stray `.hermes/`.
+- A controller trusts only the binding and playbooks in the folder it is installed in (`obsidian_binding.CONTROLLER_FOLDER`): a `Hermes/obsidian.json` planted in a repository whose controller is `.hermes/` no longer redirects hooks or the wiki journal to another container (security review).
+- The controller card and `hooks.example.yaml` say that a container's folder is `Hermes/`, and the upgrade report's `layout_migration.hooks` reminds to re-point profile hook commands after the move.
+
 ## 15.8.0 - 2026-10-19
 
 ### Changed

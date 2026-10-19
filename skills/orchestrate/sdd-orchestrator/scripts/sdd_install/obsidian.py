@@ -347,6 +347,11 @@ def _run_obsidian_install(args, target: Path, workspace: dict[str, str]) -> dict
     vault, project = resolve_obsidian_storage(args.obsidian_vault, args.obsidian_project)
     _reject_storage_overlap(vault, project, target, workspace)
     container = vault / project
+    from .layout_migration import LEGACY, layout
+    if layout(container, "OBSIDIAN") == LEGACY:
+        from .upgrade import _upgrade_command
+        raise InstallError(f"OBSIDIAN_LEGACY_LAYOUT: {container} uses .hermes; --upgrade moves it to Hermes",
+                           next_command=_upgrade_command(args, target))
     legacy_lock = container / "skills-lock.json"
     if os.path.lexists(legacy_lock):
         raise InstallError(

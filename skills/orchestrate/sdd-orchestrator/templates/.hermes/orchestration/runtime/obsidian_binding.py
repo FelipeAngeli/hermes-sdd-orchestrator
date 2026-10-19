@@ -40,6 +40,11 @@ _REQUIRED_FIELDS = ("schema_version", "vault_path", "project_container")
 #: Written by every new binding; a binding that omits the key predates it.
 _DEFAULT_RUNTIME_SUBPATH = "Hermes Runtime"
 _OMITTED_RUNTIME_SUBPATH = ".hermes-runtime"
+# A runtime may not live in a controller folder or a wiki layer that other modules scan.
+_RESERVED_RUNTIME_ROOTS = frozenset({
+    ".hermes", "hermes", ".obsidian", ".trash", ".git",
+    "raw", "entities", "concepts", "comparisons", "queries", "_archive", "_meta",
+})
 _SLUG_HASH_LENGTH = 8
 _SLUG_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -96,8 +101,8 @@ def binding_path(repo_root: Path) -> Path:
     A legacy repository-local binding wins when present. Otherwise, when this
     runtime is installed inside an Obsidian project container (the default
     storage), the container's own binding is authoritative so the user's
-    repository never has to carry any Hermes file: the visible
-    ``Hermes/obsidian.json`` first, else the legacy ``.hermes/obsidian.json``.
+    repository never has to carry any Hermes file (the binding in the folder this
+    controller is installed in: ``Hermes/`` or legacy ``.hermes/``).
 
     This precedence serves operator-invoked CLIs with an explicit ``--repo``.
     Hooks act on repository content that may be untrusted, so with a
@@ -115,21 +120,32 @@ def _installed_container_binding() -> Path | None:
     return controller_binding_file(Path(__file__).resolve().parents[3])
 
 
-def controller_path(root: Path, logical: str) -> Path:
-    """On-disk path of a logical ``.hermes/...`` path: under ``Hermes/`` when that is the installed folder."""
+def container_runtime_subpath(container: Path) -> str:
+    """The runtime folder a container already uses; ``Hermes Runtime`` for a new one."""
+    legacy, visible = _OMITTED_RUNTIME_SUBPATH, _DEFAULT_RUNTIME_SUBPATH
+    if (container / ".hermes").is_dir() and not (container / "Hermes").is_dir():
+        return legacy
+    return legacy if (container / legacy).is_dir() and not (container / visible).is_dir() else visible
+
+
+# The folder this controller is installed in decides which binding it trusts,
+# never whichever file exists: a planted ``Hermes/`` in a repository is ignored.
+_OWN_FOLDER = Path(__file__).resolve().parents[2].name
+CONTROLLER_FOLDER = _OWN_FOLDER if _OWN_FOLDER in {".hermes", "Hermes"} else ".hermes"
+
+
+def controller_path(root: Path, logical: str, folder: str | None = None) -> Path:
+    """On-disk path of a logical ``.hermes/...`` path in this controller's own folder."""
     parts = Path(logical).parts
-    if parts[:1] == (".hermes",) and not (root / ".hermes").is_dir() and (root / "Hermes").is_dir():
-        return root.joinpath("Hermes", *parts[1:])
+    if parts[:1] == (".hermes",):
+        return root.joinpath(folder or CONTROLLER_FOLDER, *parts[1:])
     return root.joinpath(*parts)
 
 
-def controller_binding_file(root: Path) -> Path | None:
-    """The binding in a controller root: visible ``Hermes/`` first, else legacy ``.hermes/``."""
-    for relative in (VISIBLE_BINDING_RELATIVE_PATH, BINDING_RELATIVE_PATH):
-        candidate = root / relative
-        if candidate.is_file() and not candidate.is_symlink():
-            return candidate
-    return None
+def controller_binding_file(root: Path, folder: str | None = None) -> Path | None:
+    """The binding inside this controller's own folder under ``root``, if any."""
+    candidate = root / (folder or CONTROLLER_FOLDER) / "obsidian.json"
+    return candidate if candidate.is_file() and not candidate.is_symlink() else None
 
 
 def load(repo_root: Path) -> Binding:
@@ -267,17 +283,20 @@ def _validate_runtime_subpath(value: Any) -> str:
             expected="relative directory path",
             actual=repr(value),
         )
+    value = value.rstrip("/")
+    parts = value.split("/")
     unsafe = (
         value.startswith("/")
         or "\x00" in value
         or "\\" in value
-        or any(part in ("", "..") for part in value.split("/"))
+        or any(part in ("", ".", "..") for part in parts)
+        or parts[0].casefold() in _RESERVED_RUNTIME_ROOTS
     )
     if unsafe:
         raise BindingError(
             "BINDING_INVALID",
             "runtime_subpath must stay inside the project container.",
-            expected="relative '/'-separated path without '..', NUL, '\\' or empty segments",
+            expected="relative path without '.', '..', NUL, '\\', empty segments or a controller/wiki root",
             actual=repr(value),
         )
     return value

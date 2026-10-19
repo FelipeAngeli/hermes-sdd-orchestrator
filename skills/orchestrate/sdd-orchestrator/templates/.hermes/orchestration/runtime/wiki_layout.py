@@ -9,13 +9,11 @@ Each project container becomes the wiki root::
 
 The orchestrator lives in ``Hermes/`` and ``Hermes Runtime/`` (legacy: ``.hermes*/``).
 
-``init`` creates the missing skeleton and never overwrites a file. ``plan``
-maps legacy project folders onto the layout without touching the disk.
-``migrate`` applies that plan: every conflict is refused before the first
-move, and each file is copied through no-follow descriptors, its SHA-256 and
-identity re-verified, and only then is the source removed. ``check`` reports
-what does not follow the layout. Stdlib only; nothing here contacts the
-network.
+``init`` creates the missing skeleton, never overwriting. ``plan`` maps legacy
+folders onto the layout without writing. ``migrate`` applies it: conflicts are
+refused before the first move; each file is copied through no-follow
+descriptors, its SHA-256 and identity re-verified, then the source removed.
+``check`` reports what does not follow the layout. Stdlib only, no network.
 """
 from __future__ import annotations
 
@@ -34,19 +32,10 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from wiki_skeleton import LAYOUT_VERSION, PAGE_SECTIONS, skeleton_files  # noqa: E402,F401  (public API)
-
-DIRECTORIES = (
-    "raw/articles",
-    "raw/papers",
-    "raw/transcripts",
-    "raw/assets",
-    "entities",
-    "concepts",
-    "comparisons",
-    "queries",
+from wiki_skeleton import (  # noqa: E402,F401  (public API)
+    DIRECTORIES, LAYOUT_VERSION, PAGE_SECTIONS, SKELETON_FILES, skeleton_files,
 )
-SKELETON_FILES = ("SCHEMA.md", "index.md", "log.md")
+
 #: Top-level entries that already belong to the wiki. Compared case-insensitively.
 WIKI_ROOTS = frozenset({"raw", "entities", "concepts", "comparisons", "queries", "_archive", "_meta"})
 HIDDEN_PREFIX = "."
@@ -411,6 +400,8 @@ def _inspect_destination(container: Path, destination: str) -> tuple[str, Any]:
 def _plan(container: Path) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     files, links, hidden, unreadable = _walk(container)
     entries = [(source, destination) for source in files if (destination := classify(source)) not in (None, source)]
+    if (container / "Hermes").is_dir() or not (container / ".hermes").is_dir():  # the lock joins its controller
+        entries = [(s, "Hermes/" + d.split("/", 1)[1] if s in CONTROLLER_FILES else d) for s, d in entries]
     conflicts: list[dict[str, str]] = [
         {"source": item, "destination": "", "reason": "directory could not be read"} for item in unreadable
     ]

@@ -43,6 +43,11 @@ LOCAL = "LOCAL"
 LEGACY = "LEGACY"
 VISIBLE = "VISIBLE"
 CONFLICT = "UPGRADE_OBSIDIAN_LAYOUT_CONFLICT"
+#: Mirrors obsidian_binding._RESERVED_RUNTIME_ROOTS: a runtime never aliases the controller or the wiki.
+_RESERVED_RUNTIME_ROOTS = frozenset({
+    ".hermes", "hermes", ".obsidian", ".trash", ".git",
+    "raw", "entities", "concepts", "comparisons", "queries", "_archive", "_meta",
+})
 
 
 def _kind(path: Path) -> str:
@@ -93,8 +98,9 @@ def runtime_subpath(root: Path, current: str) -> str:
     if not isinstance(subpath, str) or not subpath:
         return OBSIDIAN_RUNTIME_SUBPATH
     parts = subpath.split("/")
-    if subpath.startswith("/") or "\x00" in subpath or "\\" in subpath or any(p in {"", ".", ".."} for p in parts):
-        raise InstallError(f"{CONFLICT}: runtime_subpath {subpath!r} leaves the project container")
+    if subpath.startswith("/") or "\x00" in subpath or "\\" in subpath or any(p in {"", ".", ".."} for p in parts) \
+            or parts[0].casefold() in _RESERVED_RUNTIME_ROOTS:
+        raise InstallError(f"{CONFLICT}: runtime_subpath {subpath!r} is not a runtime folder inside the container")
     return subpath
 
 
@@ -149,6 +155,8 @@ def describe(migration: dict[str, object] | None) -> dict[str, object] | None:
     return {
         "renames": [{"from": source, "to": destination} for source, destination in migration["moves"]],  # type: ignore[union-attr]
         "binding_rewrite": migration["binding_after"] is not None,
+        "hooks": "Profile hook commands naming <container>/.hermes/orchestration must be re-pointed to "
+                 "<container>/Hermes/orchestration after the upgrade (Hermes then asks for consent again).",
     }
 
 

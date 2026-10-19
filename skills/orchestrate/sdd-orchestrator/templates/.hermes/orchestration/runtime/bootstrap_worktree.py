@@ -255,13 +255,8 @@ def resolve_obsidian_target(
             actual=project_arg,
         )
 
-    runtime = (
-        vault
-        / container_relative
-        / obsidian_binding._DEFAULT_RUNTIME_SUBPATH
-        / obsidian_binding.worktree_slug(target.root)
-    )
-    return ObsidianTarget(vault, container_relative, runtime)
+    runtime = vault / container_relative / obsidian_binding.container_runtime_subpath(vault / container_relative)
+    return ObsidianTarget(vault, container_relative, runtime / obsidian_binding.worktree_slug(target.root))
 
 
 def render_binding(obsidian: ObsidianTarget) -> str:
@@ -269,7 +264,7 @@ def render_binding(obsidian: ObsidianTarget) -> str:
         "schema_version": obsidian_binding.SCHEMA_VERSION,
         "vault_path": str(obsidian.vault_path),
         "project_container": obsidian.project_container,
-        "runtime_subpath": obsidian_binding._DEFAULT_RUNTIME_SUBPATH,
+        "runtime_subpath": obsidian.runtime_dir.parent.name,
         "protocol_path": "2 - 🗂 Workflow/AI/Hermes/HERMES_OBSIDIAN_PROTOCOL.md",
         "new_project_script": "2 - 🗂 Workflow/AI/scripts/new_project.py",
         "sessions_subpath": "sessions",

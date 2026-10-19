@@ -8,6 +8,7 @@ it), then upgrades it.
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -87,6 +88,20 @@ class LegacyLayoutUpgradeTests(unittest.TestCase):
         binding.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         return target, storage, root
 
+    def test_a_plain_install_rerun_on_a_legacy_container_blocks_and_names_the_upgrade(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sdd-upgrade-layout-") as temp:
+            target, storage, root = self.legacy_container(Path(temp))
+            before = self.controller_snapshot(root)
+            for extra in ([], ["--apply"]):
+                result = self.execute(sys.executable, str(INSTALLER), "--target", str(target), *storage, *extra, "--json", check=False)
+                report = json.loads(result.stdout or result.stderr)
+                self.assertEqual("BLOCKED", report["status"], report)
+                self.assertTrue(report["reason"].startswith("OBSIDIAN_LEGACY_LAYOUT"), report)
+                self.assertIn("--upgrade", report["next_command"])
+            self.assertEqual(before, self.controller_snapshot(root))
+            self.assertFalse((root / "Hermes").exists())
+            self.assertFalse((root / "Hermes Runtime").exists())
+
     def test_upgrade_moves_a_legacy_container_to_the_visible_layout(self) -> None:
         with tempfile.TemporaryDirectory(prefix="sdd-upgrade-layout-") as temp:
             target, storage, root = self.legacy_container(Path(temp))
@@ -105,6 +120,7 @@ class LegacyLayoutUpgradeTests(unittest.TestCase):
                 plan["layout_migration"]["renames"],
             )
             self.assertTrue(plan["layout_migration"]["binding_rewrite"])
+            self.assertIn("Hermes/orchestration", plan["layout_migration"]["hooks"])
             self.assertEqual(str(root / "Hermes/orchestration"), plan["controller_location"])
             self.assertEqual(before, self.controller_snapshot(root))
 

@@ -194,11 +194,9 @@ def _check_project_context(value: dict[str, Any]) -> list[dict[str, str]]:
 def _check_context_graph(value: dict[str, Any]) -> list[dict[str, str]]:
     """Check the optional context-graph record attached to this dispatch.
 
-    The graph is never a condition for a dispatch: a project without one omits
-    the key or declares `NOT_CONFIGURED`. But a graph that *is* declared must be
-    structurally sound, must say which work it was queried for, and must carry
-    the reason behind every prior decision it brings into scope. A graph with
-    findings is worse than no graph, because it looks like evidence.
+    Never a condition for a dispatch (omit it or declare `NOT_CONFIGURED`), but a
+    declared graph must be sound, say which work it was queried for and carry the
+    reason behind every prior decision it brings in: a flawed graph looks like evidence.
     """
     graph = value.get("context_graph")
     if graph is None:
@@ -306,8 +304,8 @@ def _verified_file(root: Path, relative: str, expected_hash: str, base: Path) ->
     return content if hashlib.sha256(content).hexdigest() == expected_hash else None
 
 
-def _on_disk(root: Path, logical: str) -> str:
-    return obsidian_binding.controller_path(root, logical).relative_to(root).as_posix()
+def _on_disk(root: Path, logical: str, folder: str) -> str:
+    return logical if folder == ".hermes" else f"{folder}/{logical.split('/', 1)[1]}"
 
 
 def _live_project_root() -> Path | None:
@@ -351,12 +349,12 @@ def _check_playbooks(value: dict[str, Any]) -> list[dict[str, str]]:
             "PLAYBOOK_ROOT_INVALID",
             "project_root must be the canonical non-symlinked live Git workspace when playbooks are loaded",
         ))
-    # Playbook bytes come from where the controller is installed (repository or container).
-    asset_root = root
+    # Playbook bytes: the repository's .hermes/ (a planted Hermes/ is never read) or the controller's container.
+    asset_root, folder = root, ".hermes"
     if root_valid and not (root / ".hermes" / "skills").is_dir():
         installed = _installed_playbook_root()
         if installed is not None:
-            asset_root = installed
+            asset_root, folder = installed, obsidian_binding.CONTROLLER_FOLDER
 
     for item in value["playbooks"]:
         name = item["name"]
@@ -392,16 +390,16 @@ def _check_playbooks(value: dict[str, Any]) -> list[dict[str, str]]:
                 ))
                 continue
             if root_valid:
-                base = obsidian_binding.controller_path(asset_root, f".hermes/skills/{name}/references")
-                if _verified_file(asset_root, _on_disk(asset_root, relative), reference["sha256"], base) is None:
+                base = obsidian_binding.controller_path(asset_root, f".hermes/skills/{name}/references", folder)
+                if _verified_file(asset_root, _on_disk(asset_root, relative, folder), reference["sha256"], base) is None:
                     errors.append(_finding(
                         "PLAYBOOK_CONTENT_MISMATCH",
                         f"{name} reference content does not match its project-local descriptor",
                     ))
 
         if root_valid and path_valid:
-            base = obsidian_binding.controller_path(asset_root, f".hermes/skills/{name}")
-            content = _verified_file(asset_root, _on_disk(asset_root, item["path"]), item["sha256"], base)
+            base = obsidian_binding.controller_path(asset_root, f".hermes/skills/{name}", folder)
+            content = _verified_file(asset_root, _on_disk(asset_root, item["path"], folder), item["sha256"], base)
             identity = _frontmatter_identity(content) if content is not None else None
             if identity != (name, item["version"]):
                 errors.append(_finding(

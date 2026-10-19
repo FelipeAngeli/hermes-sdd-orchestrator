@@ -6,6 +6,17 @@ separately; ``wiki_layout.skeleton_files`` re-exports ``skeleton_files``.
 from __future__ import annotations
 
 LAYOUT_VERSION = 1
+DIRECTORIES = (  # Layer 1 (raw/) and Layer 2 folders, in creation order
+    "raw/articles",
+    "raw/papers",
+    "raw/transcripts",
+    "raw/assets",
+    "entities",
+    "concepts",
+    "comparisons",
+    "queries",
+)
+SKELETON_FILES = ("SCHEMA.md", "index.md", "log.md")
 PAGE_SECTIONS = (("entities", "Entities"), ("concepts", "Concepts"), ("comparisons", "Comparisons"), ("queries", "Queries"))
 
 
