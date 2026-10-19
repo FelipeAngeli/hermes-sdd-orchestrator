@@ -37,7 +37,7 @@ python3 tools/check_file_tokens.py --update-baseline [--admit PATTERN]
 | `--staged` | Check added, copied, modified, renamed and type-changed stage-0 blobs; this is the pre-commit mode. |
 | `--all` | Audit every stage-0 index entry. |
 | `--update-baseline` | Write a tightened baseline from the index only. |
-| `--admit` | Repeatable owner-authorized pattern allowed only with `--update-baseline`; it can add or raise a legacy entry. |
+| `--admit` | Repeatable owner-authorized pattern allowed only with `--update-baseline`; it can seed an initial legacy baseline before the policy's first commit. |
 | `--config` | Config path in the repository (default `tools/token_limit.json`). |
 | `--repo` | Repository root (default `.`). |
 
@@ -45,7 +45,7 @@ The limit is 5,000 estimated tokens: `ceil(bytes / 4)`, so 20,000 bytes passes a
 
 Source means an extension in `source_extensions`, or an extensionless blob beginning `#!`. Markdown, JSON, YAML, TOML, text and binary assets are not source and are therefore not measured. `exclude` groups are `lockfiles`, `generated`, `build`, `vendor` and `migrations_snapshots`. Patterns use `fnmatch.fnmatchcase` on the full POSIX path and every `/` suffix; a leading `/` anchors a pattern at the repository root.
 
-`tools/token_baseline.json` records exact byte allowances for legacy source files. Baseline files may shrink but cannot grow; the checker prints a tightening hint for a smaller staged blob. `--update-baseline` lowers/removes entries only. Adding or raising one requires explicit owner authorization through `--admit`; it writes only the baseline worktree file, which must then be staged. Invalid index configuration, baseline or Git state fails closed.
+`tools/token_baseline.json` records exact byte allowances for legacy source files. Baseline files may shrink but cannot grow; the checker prints a tightening hint for a smaller staged blob. `--update-baseline` lowers/removes entries only. `--admit` is limited to seeding the baseline before its first commit. After that commit, the hook rejects a changed configuration and rejects a baseline addition or increase; invalid index configuration, baseline or Git state fails closed.
 
 ## `tools/check_docs_sync.py`
 

@@ -44,9 +44,7 @@ class TokenRepo(unittest.TestCase):
   self.put("src/part.py",100000); (self.r/"src/part.py").write_bytes(b"x"*10)
   self.assertEqual(self.git("commit","-m","large index",ok=False).returncode,1)
  def test_all_checks_unchanged_index_entry_and_check_modes_do_not_mutate(self):
-  self.put("src/legacy.py",20001)
-  (self.r/"tools/token_baseline.json").write_text(json.dumps({"schema_version":1,"files":{"src/legacy.py":20001}}))
-  self.git("add","tools/token_baseline.json"); self.git("commit","-m","legacy")
+  self.put("src/legacy.py",10); self.git("commit","-m","legacy")
   self.put("src/change.py",10); before=(self.git("diff","--cached","--binary").stdout,self.git("status","--porcelain").stdout,(self.r/"src/change.py").read_bytes())
   for mode in ("--staged","--all"):
    p=self.cli(mode); self.assertEqual(p.returncode,0,p.stdout+p.stderr)

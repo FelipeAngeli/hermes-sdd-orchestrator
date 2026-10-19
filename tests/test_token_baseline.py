@@ -9,7 +9,8 @@ class Baseline(unittest.TestCase):
  put=helpers.TokenRepo.put
  cli=helpers.TokenRepo.cli
  def baseline(self,files):
-  (self.r/"tools/token_baseline.json").write_text(json.dumps({"schema_version":1,"files":files})+"\n"); self.git("add","tools/token_baseline.json"); self.git("commit","-m","base")
+  (self.r/"tools/token_baseline.json").write_text(json.dumps({"schema_version":1,"files":files})+"\n"); self.git("add","tools/token_baseline.json")
+  self.git("config","core.hooksPath","/dev/null"); self.git("commit","-m","base"); self.git("config","core.hooksPath",".githooks")
  def test_baseline_allows_equal_blocks_growth_and_hints_shrink(self):
   self.baseline({"src/old.py":20001})
   self.put("src/old.py",20001); self.git("commit","-m","equal")
@@ -22,6 +23,15 @@ class Baseline(unittest.TestCase):
  def test_bad_config_fails_closed(self):
   (self.r/"tools/token_limit.json").write_text("{}") ; self.git("add","tools/token_limit.json")
   p=self.cli("--staged"); self.assertEqual(p.returncode,2); self.assertIn("ERROR",p.stdout)
+ def test_direct_policy_relaxation_is_rejected(self):
+  self.put("src/oversized.py",20001)
+  baseline=json.loads((self.r/"tools/token_baseline.json").read_text()); baseline["files"]["src/oversized.py"]=20001
+  (self.r/"tools/token_baseline.json").write_text(json.dumps(baseline)); self.git("add","tools/token_baseline.json")
+  self.assertEqual(self.cli("--staged").returncode,2)
+  self.git("reset","--hard"); self.put("src/oversized.py",20001)
+  config=json.loads((self.r/"tools/token_limit.json").read_text()); config["limit_tokens"]=9999
+  (self.r/"tools/token_limit.json").write_text(json.dumps(config)); self.git("add","tools/token_limit.json")
+  self.assertEqual(self.cli("--staged").returncode,2)
  def test_malformed_baseline_and_unmerged_index_fail_closed(self):
   (self.r/"tools/token_baseline.json").write_text('{"schema_version":1,"files":{"/bad.py":1}}'); self.git("add","tools/token_baseline.json")
   self.assertEqual(self.cli("--staged").returncode,2)

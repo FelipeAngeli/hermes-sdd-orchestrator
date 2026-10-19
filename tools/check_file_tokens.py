@@ -10,6 +10,9 @@ def run(repo, *args, input=None):
     if p.returncode: raise Error((p.stderr or p.stdout).decode(errors="replace").strip() or "git failed")
     return p.stdout
 def blob(repo,path): return run(repo,"cat-file","blob",":"+path)
+def head_blob(repo,path):
+    p=subprocess.run(["git","-C",str(repo),"cat-file","blob","HEAD:"+path],capture_output=True,timeout=30)
+    return p.stdout if not p.returncode else None
 def load(repo,path):
     try: return json.loads(blob(repo,path))
     except Exception as e: raise Error(f"invalid {path}: {e}")
@@ -22,6 +25,15 @@ def baseline(repo,path):
     b=load(repo,path)
     if set(b)!={"schema_version","files"} or b["schema_version"]!=1 or not isinstance(b["files"],dict) or not all(valid_path(k) and isinstance(v,int) and not isinstance(v,bool) and v>=0 for k,v in b["files"].items()): raise Error("invalid token baseline")
     return b["files"]
+def policy_integrity(repo,config_path,c,b):
+    old_config=head_blob(repo,config_path)
+    if old_config is None: return
+    if old_config!=blob(repo,config_path): raise Error("token-limit configuration may not change after initial commit")
+    previous=head_blob(repo,c["baseline"])
+    if previous is None: raise Error("previous token baseline is missing")
+    try: old=json.loads(previous)["files"]
+    except Exception as e: raise Error(f"invalid previous token baseline: {e}")
+    if any(path not in old or size>old[path] for path,size in b.items()): raise Error("token baseline may only shrink or remove entries")
 def entries(repo):
     out=run(repo,"ls-files","-s","-z"); ans={}
     for x in out.split(b"\0"):
@@ -109,7 +121,7 @@ def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__); p.add_argument("--repo",default="."); p.add_argument("--config",default="tools/token_limit.json"); g=p.add_mutually_exclusive_group(required=True); g.add_argument("--staged",action="store_true"); g.add_argument("--all",action="store_true"); g.add_argument("--update-baseline",action="store_true"); p.add_argument("--admit",action="append",default=[]); a=p.parse_args(argv)
     if a.admit and not a.update_baseline: p.error("--admit requires --update-baseline")
     try:
-        repo=Path(a.repo).resolve(); c=config(repo,a.config); b=baseline(repo,c["baseline"])
+        repo=Path(a.repo).resolve(); c=config(repo,a.config); b=baseline(repo,c["baseline"]); policy_integrity(repo,a.config,c,b)
         if a.update_baseline: return update(repo,c,b,a.admit)
         mode="all" if a.all else "staged"; rows,hints,count=check(repo,mode,c,b); return report(c,rows,hints,count)
     except (Error,OSError,subprocess.TimeoutExpired) as e: print(f"token-limit: ERROR {e}. The commit is blocked (fail closed). Fix the configuration or Git state and retry."); return 2
