@@ -1,8 +1,13 @@
 """Baseline ratchet and fail-closed behavior in temporary repositories."""
-from tests.test_check_file_tokens import TokenRepo
-import json, subprocess
+from tests import test_check_file_tokens as helpers
+import json, subprocess, unittest
 
-class Baseline(TokenRepo):
+class Baseline(unittest.TestCase):
+ setUp=helpers.TokenRepo.setUp
+ tearDown=helpers.TokenRepo.tearDown
+ git=helpers.TokenRepo.git
+ put=helpers.TokenRepo.put
+ cli=helpers.TokenRepo.cli
  def baseline(self,files):
   (self.r/"tools/token_baseline.json").write_text(json.dumps({"schema_version":1,"files":files})+"\n"); self.git("add","tools/token_baseline.json"); self.git("commit","-m","base")
  def test_baseline_allows_equal_blocks_growth_and_hints_shrink(self):
