@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "limit_tokens": 5000,
+  "bytes_per_token": 4,
+  "baseline": "tools/token_baseline.json",
+  "source_extensions": [".py", ".pyi", ".sh", ".bash", ".zsh", ".js", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".tsx", ".jsx", ".vue", ".svelte", ".go", ".rs", ".java", ".kt", ".kts", ".scala", ".swift", ".m", ".mm", ".dart", ".rb", ".php", ".pl", ".lua", ".r", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".cs", ".fs", ".ex", ".exs", ".erl", ".clj", ".sql", ".ps1"],
+  "extensionless_shebang": true,
+  "exclude": {
+    "lockfiles": ["*.lock", "*-lock.*", "*.lockb", "go.sum", "npm-shrinkwrap.json"],
+    "generated": ["*_pb2.py", "*_pb2_grpc.py", "*.pb.go", "*.pb.*", "*.g.dart", "*.freezed.dart", "*.generated.*", "*.gen.*", "*.min.js", "*.min.mjs", "*.bundle.js", "*.d.ts.map"],
+    "build": ["build/*", "dist/*", "out/*", "target/*", ".dart_tool/*", "node_modules/*", "__pycache__/*", ".next/*", "coverage/*"],
+    "vendor": ["vendor/*", "third_party/*", "third-party/*", "external/*", "Pods/*"],
+    "migrations_snapshots": ["migrations/[0-9]*", "__snapshots__/*", "*.snap"]
+  }
+}

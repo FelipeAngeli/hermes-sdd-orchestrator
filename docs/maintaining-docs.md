@@ -11,7 +11,8 @@
 | Ownership map | Every orchestration file has exactly one owning page. | `docs/doc-map.json` |
 | Content tests | Pages name their files. Links and anchors resolve. The page graph is connected. CLI flags, subcommands, statuses, decisions, actions, ecosystems and agent tables match the code. | `tests/test_docs.py` |
 | Change check | A changed source file requires its owning page **and** `CHANGELOG.md` to change in the same diff. | `tools/check_docs_sync.py` |
-| Local hook | Runs the change check on every commit. | `.githooks/commit-msg` |
+| Local hook | `commit-msg` runs the change check; `pre-commit` runs the size limit. | `.githooks/commit-msg`, `.githooks/pre-commit` |
+| Size limit | Checks staged source blobs against the configured token limit and legacy baseline. | `tools/check_file_tokens.py`, `tools/token_limit.json`, `tools/token_baseline.json` |
 | CI | Checks out the real PR `head.sha` (not GitHub's synthetic merge commit), runs both suites, scans and tests the two [store review guardians](components/store-review-guardians.md) (`--skill skills/release/<skill>`), and checks docs against the base branch. | `.github/workflows/ci.yml` |
 | Skill security | `tools/check_skill_security.py` verifies the pinned hermes-agent commit and scanner version, scans the complete distributable skill as a community source, and fails unless the verdict is `SAFE`. CI checks out the pinned scanner before running it. | `tools/check_skill_security.py`, `.github/workflows/ci.yml` |
 
@@ -20,6 +21,31 @@ Enable the hook once per clone:
 ```bash
 git config core.hooksPath .githooks
 ```
+
+This enables both hooks; while it is set, Git does not use `.git/hooks/*`.
+
+## `tools/check_file_tokens.py`
+
+```text
+python3 tools/check_file_tokens.py --staged
+python3 tools/check_file_tokens.py --all
+python3 tools/check_file_tokens.py --update-baseline [--admit PATTERN]
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--staged` | Check added, copied, modified, renamed and type-changed stage-0 blobs; this is the pre-commit mode. |
+| `--all` | Audit every stage-0 index entry. |
+| `--update-baseline` | Write a tightened baseline from the index only. |
+| `--admit` | Repeatable owner-authorized pattern allowed only with `--update-baseline`; it can add or raise a legacy entry. |
+| `--config` | Config path in the repository (default `tools/token_limit.json`). |
+| `--repo` | Repository root (default `.`). |
+
+The limit is 5,000 estimated tokens: `ceil(bytes / 4)`, so 20,000 bytes passes and 20,001 does not. The tool reads configuration, baseline and candidate blobs from the Git index, never the worktree; deleted paths, symlinks and gitlinks are skipped. Exit `0` means allowed, `1` means violations (or an admission is needed), and `2` is a usage, configuration, baseline or Git failure and blocks the commit.
+
+Source means an extension in `source_extensions`, or an extensionless blob beginning `#!`. Markdown, JSON, YAML, TOML, text and binary assets are not source and are therefore not measured. `exclude` groups are `lockfiles`, `generated`, `build`, `vendor` and `migrations_snapshots`. Patterns use `fnmatch.fnmatchcase` on the full POSIX path and every `/` suffix; a leading `/` anchors a pattern at the repository root.
+
+`tools/token_baseline.json` records exact byte allowances for legacy source files. Baseline files may shrink but cannot grow; the checker prints a tightening hint for a smaller staged blob. `--update-baseline` lowers/removes entries only. Adding or raising one requires explicit owner authorization through `--admit`; it writes only the baseline worktree file, which must then be staged. Invalid index configuration, baseline or Git state fails closed.
 
 ## `tools/check_docs_sync.py`
 

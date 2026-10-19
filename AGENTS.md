@@ -23,6 +23,16 @@ Every semantic classification an agent makes while changing this repository goes
 4. Use only answers at confidence `0.70` or higher. Anything returned as `REVIEW` goes to the user; never substitute your own classification.
 5. Announce every use in the reply with a **JEV USADO** block: script, number of files evaluated, decided versus review, and the fingerprint artifact.
 
+## Source files stay under 5,000 tokens
+
+Every source-code file in this repository is limited to 5,000 estimated tokens (`ceil(bytes / 4)`, that is 20,000 bytes). `.githooks/pre-commit` enforces it on the staged content; enable it with `git config core.hooksPath .githooks`. What counts as source, the exclusions and the legacy baseline live only in `tools/token_limit.json` and `tools/token_baseline.json`; see [docs/maintaining-docs.md](docs/maintaining-docs.md#toolscheck_file_tokenspy).
+
+1. Plan the split before writing a file that may approach the limit: one cohesive responsibility per module.
+2. Before committing, run `python3 tools/check_file_tokens.py --staged`.
+3. Fix every violation before you finish: extract cohesive units into existing modules, keep public contracts unchanged, avoid artificial abstractions, then rerun the tests and restage.
+4. Files in the baseline may shrink but never grow. Never add or raise a baseline entry (`--admit`) without the owner's explicit approval.
+5. Never bypass or disable the hook: no `--no-verify`, no `core.hooksPath` change, no edits to the hook, config or baseline to make a commit pass.
+
 ## Pull request review
 
 Every pull request in this repository is reviewed with the `pr-reviewer` sub-agent, and so is every review a pull request has already received. There are no exceptions for small or documentation-only changes.

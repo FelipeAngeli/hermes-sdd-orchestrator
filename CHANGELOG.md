@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+- Repository pre-commit hook `.githooks/pre-commit` and `tools/check_file_tokens.py` block staged source files above 5,000 estimated tokens (`ceil(bytes/4)`), with configurable exclusions (`tools/token_limit.json`) and a ratcheting legacy baseline (`tools/token_baseline.json`). Repository-only; not installed into target projects.
+
 ## 15.6.4 - 2026-10-19
 
 ### Fixed

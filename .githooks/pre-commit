@@ -1,0 +1,3 @@
+#!/bin/sh
+# Enable repository hooks once per clone: git config core.hooksPath .githooks
+exec python3 tools/check_file_tokens.py --staged

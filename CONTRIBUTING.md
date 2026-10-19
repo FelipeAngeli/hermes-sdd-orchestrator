@@ -25,6 +25,7 @@ Issues labeled [`good first issue`](https://github.com/FelipeAngeli/hermes-sdd-o
 ## Development
 
 Requirements: Git and Python 3.10+ (`jsonschema` for the bounded-run tools).
+Enable the repository hooks with `git config core.hooksPath .githooks`; source files are limited to 5,000 estimated tokens as described in [AGENTS.md](AGENTS.md#source-files-stay-under-5000-tokens).
 
 ```bash
 python3 -m unittest discover -s tests -p 'test_*.py'
