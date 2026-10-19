@@ -355,9 +355,13 @@ class TestNoPrivateData(unittest.TestCase):
             # every build path inside the committed report must be the one the README documents
             self.assertTrue(path.startswith("/private/tmp/gprg-example/"), path)
             self.assertIn("/private/tmp/gprg-example/", readme)
-        libs = {lib["abi"]: lib for lib in json.loads(blob)["inventory"]["native_libs"]}
+        report = json.loads(blob)
+        libs = {lib["abi"]: lib for lib in report["inventory"]["native_libs"]}
         self.assertEqual((64, "aarch64"), (libs["arm64-v8a"]["elf_class"], libs["arm64-v8a"]["machine"]))
         self.assertEqual((32, "arm"), (libs["armeabi-v7a"]["elf_class"], libs["armeabi-v7a"]["machine"]))
+        # the README credits both ABIs to the AAB *and* the APK: check each artifact, not the union
+        for art in report["inventory"]["artifacts"]:
+            self.assertEqual(["arm64-v8a", "armeabi-v7a"], sorted(art["abis"]), art["kind"])
         self.assertTrue((SKILL_DIR / "tests/make_examples.py").is_file())
 
 

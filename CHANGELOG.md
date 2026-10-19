@@ -4,6 +4,9 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+- Fourth review round of the store review guardians: `appstore-review-guardian` could return `READY` from a report with no deterministic `PASS` at all (an empty report, or one holding only `INFO` and `NOT_APPLICABLE`), so the gate rule the documentation states for both skills now holds in the iOS one too. The Google Play example also ships the armv7 library inside the APK, as its README describes, and the provenance test checks the ABIs of each artifact instead of their union.
+
 ## 15.6.3 - 2026-10-16
 
 ### Fixed

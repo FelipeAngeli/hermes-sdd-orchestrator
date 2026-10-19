@@ -9,7 +9,7 @@ Package: com.example.app
 Version: 2.1.0
 Version Code: 45
 Min/Target/Compile SDK: 24 / 36 / 36
-Mode: gate   Generated: 2026-10-17T01:12:15+00:00
+Mode: gate   Generated: 2026-10-17T01:42:19+00:00
 
 ANDROID BUILD
 Status: NEEDS_REVIEW
@@ -185,10 +185,10 @@ RECOMMENDED ACTIONS:
 | GPRG-012 | INFO | PRIV-ADVERTISING-ID (mandatory) | app-release.aab | AD_ID ausente: o Advertising ID retornará zeros em target ≥ 33 | deterministic | high | Declare 'não usa Advertising ID' no Play Console se for o caso. | [support.google.com/googleplay/android-developer/](https://support.google.com/googleplay/android-developer/answer/6048248?hl=en) (2026-10-16) |
 | GPRG-013 | INFO | TECH-BILLING-LIBRARY-VERSION (mandatory) | monetização | billing_client=7.1.1 | deterministic | high | Planeje a migração. | [developer.android.com/google/play/billing/deprec](https://developer.android.com/google/play/billing/deprecation-faq) (2026-10-16) |
 | GPRG-014 | PASS | TECH-64BIT (mandatory) | app-release.aab | ABIs: arm64-v8a, armeabi-v7a | deterministic | high | - | [developer.android.com/google/play/requirements/6](https://developer.android.com/google/play/requirements/64-bit) (2026-10-16) |
-| GPRG-015 | PASS | TECH-64BIT (mandatory) | app-release.apk | ABIs: arm64-v8a | deterministic | high | - | [developer.android.com/google/play/requirements/6](https://developer.android.com/google/play/requirements/64-bit) (2026-10-16) |
+| GPRG-015 | PASS | TECH-64BIT (mandatory) | app-release.apk | ABIs: arm64-v8a, armeabi-v7a | deterministic | high | - | [developer.android.com/google/play/requirements/6](https://developer.android.com/google/play/requirements/64-bit) (2026-10-16) |
 | GPRG-016 | PASS | TECH-AAB-REQUIRED (mandatory) | app-release.aab | BundleConfig.pb + base/manifest presentes | deterministic | high | - | [developer.android.com/guide/app-bundle](https://developer.android.com/guide/app-bundle) (2026-10-16) |
 | GPRG-017 | PASS | TECH-ARTIFACT-INTEGRITY (mandatory) | app-release.aab | 9 entradas; CRC verificado=True; módulos=base; deterministic (decodificador protobuf aapt2 XmlNode em Python) | deterministic | high | - | [developer.android.com/guide/app-bundle](https://developer.android.com/guide/app-bundle) (2026-10-16) |
-| GPRG-018 | PASS | TECH-ARTIFACT-INTEGRITY (mandatory) | app-release.apk | 4 entradas; CRC verificado=True; manifest: deterministic (parser AXML em Python) | deterministic | high | - | [developer.android.com/guide/app-bundle](https://developer.android.com/guide/app-bundle) (2026-10-16) |
+| GPRG-018 | PASS | TECH-ARTIFACT-INTEGRITY (mandatory) | app-release.apk | 5 entradas; CRC verificado=True; manifest: deterministic (parser AXML em Python) | deterministic | high | - | [developer.android.com/guide/app-bundle](https://developer.android.com/guide/app-bundle) (2026-10-16) |
 | GPRG-019 | PASS | TECH-DEBUGGABLE (mandatory) | android/app/build.gradle | debuggable ausente/false em release | deterministic | high | - | [developer.android.com/studio/publish/preparing](https://developer.android.com/studio/publish/preparing) (2026-10-16) |
 | GPRG-020 | PASS | TECH-DEBUGGABLE (mandatory) | app-release.aab:AndroidManifest.xml | android:debuggable=None (ausente = false) | deterministic | high | - | [developer.android.com/studio/publish/preparing](https://developer.android.com/studio/publish/preparing) (2026-10-16) |
 | GPRG-021 | PASS | TECH-DEBUGGABLE (mandatory) | app-release.apk:AndroidManifest.xml | android:debuggable=None (ausente = false) | deterministic | high | - | [developer.android.com/studio/publish/preparing](https://developer.android.com/studio/publish/preparing) (2026-10-16) |
@@ -247,6 +247,7 @@ RECOMMENDED ACTIONS:
 | base/lib/arm64-v8a/libapp.so | arm64-v8a | True | PT_LOAD align 0x4000 [python-elf] | n/a |
 | base/lib/armeabi-v7a/libapp.so | armeabi-v7a | True | PT_LOAD align 0x4000 [python-elf] | n/a |
 | lib/arm64-v8a/libapp.so | arm64-v8a | True | PT_LOAD align 0x4000 [python-elf] | True |
+| lib/armeabi-v7a/libapp.so | armeabi-v7a | True | PT_LOAD align 0x4000 [python-elf] | True |
 
 ## SDKs relevantes para privacidade/cobrança (indícios, não prova de coleta)
 

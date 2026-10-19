@@ -46,7 +46,7 @@ def build() -> Path:
                 libs={"arm64-v8a/libapp.so": arm64, "armeabi-v7a/libapp.so": arm32}, billing="7.1.1")
     fx.make_apk(out / "flutter-apk/app-release.apk",
                 fx.manifest_tree(permissions=["android.permission.INTERNET"]),
-                libs={"arm64-v8a/libapp.so": arm64}, signer_cn="Release Key")
+                libs={"arm64-v8a/libapp.so": arm64, "armeabi-v7a/libapp.so": arm32}, signer_cn="Release Key")
     return proj
 
 

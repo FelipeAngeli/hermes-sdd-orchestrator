@@ -100,6 +100,15 @@ class TestCentralPassGuard(unittest.TestCase):
         kept = Finding("PLIST-ID-001", common.BLOCKER, "app", "x").to_dict(1)
         self.assertEqual(kept["severity"], common.BLOCKER)
 
+    def test_ready_always_rests_on_a_deterministic_pass(self):
+        inferred = Finding("REV-ACCTDEL-001", PASS, "project", "deleteAccount() encontrado").to_dict(1)
+        self.assertNotEqual(inferred["severity"], PASS)  # guard already downgraded it
+        status, reasons = generate_report.decide([inferred], "full", True)
+        self.assertEqual(status, "NEEDS_REVIEW")
+        self.assertTrue(any("determinística" in r for r in reasons))
+        real = Finding("PLIST-ID-001", PASS, "app", "CFBundleIdentifier=com.x").to_dict(1)
+        self.assertEqual(generate_report.decide([real], "full", True)[0], "READY")
+
     def test_deterministic_pass_kept(self):
         d = Finding("PLIST-ID-001", PASS, "app", "CFBundleIdentifier=com.x").to_dict(1)
         self.assertEqual(d["severity"], PASS)

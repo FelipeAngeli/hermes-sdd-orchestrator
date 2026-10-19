@@ -80,7 +80,7 @@ def gate_relevant(d: dict) -> bool:
 
 
 def decide(findings: list[dict], mode: str, ipa_audited: bool) -> tuple[str, list[str]]:
-    """Gate decision. READY requires that every passing verdict came from a deterministic check."""
+    """Gate decision. READY requires at least one deterministic PASS and no pending or inferred verdict."""
     reasons = []
     blockers = [f for f in findings if f["severity"] == BLOCKER]
     crit_det = [f for f in findings if f["severity"] == CRITICAL and f["verification_method"] == "deterministic"]
@@ -100,6 +100,10 @@ def decide(findings: list[dict], mode: str, ipa_audited: bool) -> tuple[str, lis
         reasons.append(f"{len(pend)} requisito(s) obrigatório(s) NOT_VERIFIED")
     if forged:
         reasons.append(f"{len(forged)} veredito(s) PASS/NOT_APPLICABLE vindos de verificação heurística/manual (inválido)")
+    # READY must rest on something actually verified: an empty report, or one with only INFO and
+    # NOT_APPLICABLE, proves nothing and is never a green light.
+    if not any(f["severity"] == PASS and f["verification_method"] == "deterministic" for f in findings):
+        reasons.append("nenhuma verificação determinística com PASS: não há evidência suficiente para liberar")
     if mode == "gate" and not ipa_audited:
         reasons.append("nenhum .ipa assinado auditado: assinatura, perfil e entitlements finais não verificados")
     return ("NEEDS_REVIEW" if reasons else "READY"), reasons

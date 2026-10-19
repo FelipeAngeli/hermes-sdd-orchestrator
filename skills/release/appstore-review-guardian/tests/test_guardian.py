@@ -160,7 +160,10 @@ class TestSeverityClassification(unittest.TestCase):
         self.assertEqual(generate_report.decide([mk(WARNING)], "full", True)[0], "NEEDS_REVIEW")
         self.assertEqual(generate_report.decide([mk(NOT_VERIFIED)], "full", True)[0], "NEEDS_REVIEW")
         self.assertEqual(generate_report.decide([mk(PASS)], "gate", False)[0], "NEEDS_REVIEW")
-        self.assertEqual(generate_report.decide([mk(INFO), mk(NOT_APPLICABLE)], "full", True)[0], "READY")
+        # no deterministic PASS at all: nothing was actually verified, so never READY
+        self.assertEqual(generate_report.decide([mk(INFO), mk(NOT_APPLICABLE)], "full", True)[0], "NEEDS_REVIEW")
+        self.assertEqual(generate_report.decide([], "full", True)[0], "NEEDS_REVIEW")
+        self.assertEqual(generate_report.decide([mk(PASS), mk(INFO), mk(NOT_APPLICABLE)], "full", True)[0], "READY")
         # heuristic CRITICAL (e.g. 4.8) never blocks by itself
         crit_h = Finding("REV-LOGIN-001", CRITICAL, "project", "ev", verification_method="deterministic").to_dict(1)
         crit_h["verification_method"] = "heuristic"

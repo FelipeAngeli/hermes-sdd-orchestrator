@@ -8,7 +8,7 @@ Tudo é refeito por `python tests/make_examples.py`, que constrói as fixtures, 
 
 1. Fixtures criadas em `/private/tmp/gprg-example/` com os helpers de `tests/fixtures.py`:
    - `make_flutter_project(root, target_sdk="36", minify=True)` → projeto Flutter descartável `demo_app` (pacote `com.example.app`, `versionCode 45`, AGP 8.7.0), com `ndkVersion '28.0.13004108'` acrescentado ao `android/app/build.gradle` para exercitar a heurística de NDK. O `key.properties`/`upload.jks` gerados são falsos e o diretório não é um repositório Git.
-   - `make_aab(...)` e `make_apk(...)` → `build/app/outputs/bundle/release/app-release.aab` e `build/app/outputs/flutter-apk/app-release.apk` com manifest declarando `INTERNET`, `ACCESS_BACKGROUND_LOCATION`, `com.android.vending.BILLING` e um serviço `com.example.Player` com `foregroundServiceType="mediaPlayback"` sem a permissão correspondente; `.so` sintéticas arm64 (ELF 64-bit aarch64) e armv7 (ELF 32-bit arm), ambas alinhadas a 16 KB; Billing Library `7.1.1` no AAB; certificado DER sintético (`CN=Upload Key` / `CN=Release Key`).
+   - `make_aab(...)` e `make_apk(...)` → `build/app/outputs/bundle/release/app-release.aab` e `build/app/outputs/flutter-apk/app-release.apk` com manifest declarando `INTERNET`, `ACCESS_BACKGROUND_LOCATION`, `com.android.vending.BILLING` e um serviço `com.example.Player` com `foregroundServiceType="mediaPlayback"` sem a permissão correspondente; as mesmas duas `.so` sintéticas em cada artefato — arm64 (ELF 64-bit aarch64) e armv7 (ELF 32-bit arm), ambas alinhadas a 16 KB; Billing Library `7.1.1` no AAB; certificado DER sintético (`CN=Upload Key` / `CN=Release Key`).
 2. Execução:
 
 ```bash
