@@ -4,6 +4,31 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.7.4 - 2026-10-19
+
+### Fixed
+- Preserve a baseline allowance when an unchanged oversized legacy source file is renamed one-to-one.
+
+## 15.7.3 - 2026-10-19
+
+### Fixed
+- Prevent removing a baseline allowance while its oversized source file remains unchanged.
+
+## 15.7.2 - 2026-10-19
+
+### Fixed
+- Reject staged token-limit configuration changes and baseline additions or increases after the initial policy commit, preventing a commit from loosening the guard.
+
+## 15.7.1 - 2026-10-19
+
+### Fixed
+- Avoid duplicate discovery of shared token-limit test cases in the baseline suite.
+
+## 15.7.0 - 2026-10-19
+
+### Added
+- Repository pre-commit hook `.githooks/pre-commit` and `tools/check_file_tokens.py` block staged source files above 5,000 estimated tokens (`ceil(bytes/4)`), with configurable exclusions (`tools/token_limit.json`) and a ratcheting legacy baseline (`tools/token_baseline.json`). Repository-only; not installed into target projects.
+
 ## 15.6.4 - 2026-10-19
 
 ### Fixed
