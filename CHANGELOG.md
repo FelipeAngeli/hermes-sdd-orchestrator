@@ -4,14 +4,21 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+
+- Review of the 15.9.0 executor launcher changes: `preflight --stage --probe` now runs the model probe with that stage's worker environment (`codex_home`, `env_from`); `codex_home` is applied after `env_from`, and `env_from` refuses names the base allowlist already passes (`WORKER_ENV_NAMES` members or `LC_`/`OPENAI_`/`CODEX_`/`ANTHROPIC_`/`CLAUDE_` prefixes, so an OpenCode `CODEX_*` key needs no `env_from`) and loader-affecting names (`LD_*`, `DYLD_*`, `NODE_OPTIONS`, `PYTHONPATH`, `PYTHONSTARTUP`, `BASH_ENV`, `ENV`) with `POLICY_INVALID`.
+- `EXECUTOR_ENV_MISSING` is a listed launch status and preflight reason: `preflight` returns `BLOCKED` instead of raising, and `run` refuses before any journal write.
+- `preflight --probe-sandbox` requires `--stage`, marks every probe `UNSUPPORTED` when `codex sandbox --help` lacks `--config`, and runs an unsandboxed `docker info` baseline first so a missing daemon is `SKIPPED` rather than a false `SANDBOX_NETWORK_REQUIRED`.
+- A stale `<final>.raw-message.txt` sidecar is removed before a new Codex dispatch, and the docs state that `stderr_tail` is the worker's own unfiltered stderr (the launcher never writes `env_from` values).
+
 ## 15.9.0 - 2026-10-19
 
 ### Added
 
-- Executor launcher item 13: a strict-but-tolerant Codex final-message transport accepts one fenced ` ```json `/` ``` ` block whose content is a JSON object, or exactly one top-level JSON object with nothing else that parses as JSON, normalizes it into `--final` and keeps the raw message as `<final>.raw-message.txt`; two blocks, two objects, a non-object block or prose without a block stay `OUTPUT_INVALID`, and a stale `<final>.raw-message.txt` sidecar is removed before a new dispatch.
+- Executor launcher item 13: a strict-but-tolerant Codex final-message transport accepts one fenced ` ```json `/` ``` ` block whose content is a JSON object, or exactly one top-level JSON object with nothing else that parses as JSON, normalizes it into `--final` and keeps the raw message as `<final>.raw-message.txt`; two blocks, two objects, a non-object block or prose without a block stay `OUTPUT_INVALID`.
 - Executor launcher item 15: optional per-stage `sandbox_network` (Codex `workspace-write` only) adds `--config sandbox_workspace_write.network_access=true`, and `preflight` reports `SANDBOX_NETWORK_ENABLED`.
-- Executor launcher item 7: optional per-stage `codex_home` and `env_from` (Codex only) set `CODEX_HOME` (applied after `env_from`, so `env_from` cannot override it) and allowlist up to 4 controller environment variables for that worker; `env_from` refuses names the base allowlist already passes (`WORKER_ENV_NAMES` members or `LC_`/`OPENAI_`/`CODEX_`/`ANTHROPIC_`/`CLAUDE_` prefixes, so an OpenCode `CODEX_*` key needs no `env_from`) and loader-affecting names (`LD_*`, `DYLD_*`, `NODE_OPTIONS`, `PYTHONPATH`, `PYTHONSTARTUP`, `BASH_ENV`, `ENV`) with `POLICY_INVALID`; a missing variable is `EXECUTOR_ENV_MISSING` before any journal write and `BLOCKED` in `preflight`, and `preflight --stage --probe` runs the model probe with that stage's worker environment.
-- Executor launcher item 6: `preflight --probe-sandbox` requires `--stage` and probes the Codex `workspace-write` sandbox (TCP listen, Unix-socket listen, `docker info`) without a model call; before probing it verifies `codex sandbox --help` lists `-c`/`--config` (otherwise every probe is `UNSUPPORTED` and no warning), and the Docker probe first runs an unsandboxed `docker info` baseline so a missing daemon is `SKIPPED`; each probe is `OK`, `BLOCKED`, `SKIPPED`, `ERROR` or `UNSUPPORTED`, warning `SANDBOX_NETWORK_REQUIRED` with a `next_step` when a probe is blocked and the stage does not set `sandbox_network`.
+- Executor launcher item 7: optional per-stage `codex_home` and `env_from` (Codex only) set `CODEX_HOME` and allowlist up to 4 controller environment variables for that worker; a missing `env_from` variable is `EXECUTOR_ENV_MISSING` before any journal write.
+- Executor launcher item 6: `preflight --stage --probe-sandbox` probes the Codex `workspace-write` sandbox (TCP listen, Unix-socket listen, `docker info`) without a model call and warns `SANDBOX_NETWORK_REQUIRED` with a `next_step` when a probe is blocked and the stage does not set `sandbox_network`.
 
 ## 15.8.1 - 2026-10-19
 
