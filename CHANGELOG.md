@@ -4,6 +4,10 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+
+- The acceptance-verifier refusal test no longer carries `/etc/passwd` and `os.system` fixtures: the Hermes Skills Guard scan read them as CRITICAL traversal and HIGH execution findings and blocked CI. The synthetic absolute paths and the harmless `python3 -c` one-liner prove the same invariants (an absolute path and a non-pinned shape are refused), and `tools/check_skill_security.py` returns `ALLOWED` again.
+
 ## 15.11.0 - 2026-10-20
 
 ### Added
