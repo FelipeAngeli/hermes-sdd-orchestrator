@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.11.1 - 2026-10-20
+
 ### Fixed
 
 - Per-AC verifiers no longer have built-in `python3 -c`, `ruby -ryaml -e` or `node -e` one-liner shapes (introduced by the untagged 15.11.0): the controller binds only `rg`/`grep`/`test` plus commands that exactly match a configured `GATES.md` gate, so ecosystem knowledge stays in `detect_stack.py`/`GATES.md` (the language-neutral payload invariant). Such a check is recorded in `delivery.check_commands_refused` unless the same command is a gate; `tests/test_sdd_orchestrator_skill.py` now refuses a language one-liner in any runtime module other than `detect_stack.py`.
