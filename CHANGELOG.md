@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.13.0 - 2026-10-20
+
 ### Added
 
 - Opt-in agent-manager PR 1: a deterministic read-only agent/playbook registry, strict disabled-by-default delegation configuration, and additive v1 delegation-contract validation with explicit session ids, permission-widening rejection and unmeasured token estimates. See `docs/components/agent-manager.md`.
