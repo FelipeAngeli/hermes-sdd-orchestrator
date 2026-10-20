@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.9.0 - 2026-10-19
+
 ### Added
 
 - Executor launcher item 13: a strict-but-tolerant Codex final-message transport accepts one fenced ` ```json `/` ``` ` block whose content is a JSON object, or exactly one top-level JSON object with nothing else that parses as JSON, normalizes it into `--final` and keeps the raw message as `<final>.raw-message.txt`; two blocks, two objects, a non-object block or prose without a block stay `OUTPUT_INVALID`.
