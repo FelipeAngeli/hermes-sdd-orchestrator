@@ -24,6 +24,22 @@ import json
 import re
 from typing import Any, Dict, List, Tuple
 
+
+def _load_scalars():
+    """Load the sibling ``state_scalars`` even when this file is imported by path (installer upgrade)."""
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location("sdd_state_scalars", Path(__file__).with_name("state_scalars.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_scalars = _load_scalars()
+_parse_scalar, _read_flow_token, _skip_space, _unquote = (
+    _scalars._parse_scalar, _scalars._read_flow_token, _scalars._skip_space, _scalars._unquote)
+
 FENCE_RE = re.compile(r"^(?P<before>.*?)```yaml\s*\n(?P<body>.*?)```(?P<after>.*)$", re.S)
 
 #: A state payload must have these to be recognisable as orchestration state.
@@ -40,7 +56,7 @@ PROFILES = {
 #: Backward transitions allowed with a recorded human reason (a reopened stage).
 #: A stage never transitions to itself: a failure inside IMPLEMENT (the DECISION_DOC
 #: gate stage) reopens in place with ``sdd.py reopen`` (a FIX slice), not a transition.
-REOPEN_TARGETS = {"TEST": ("IMPLEMENT",), "REVIEW": ("IMPLEMENT",)}
+REOPEN_TARGETS = {"TEST": ("IMPLEMENT",), "REVIEW": ("IMPLEMENT",), "IMPLEMENT": ("TASKS",)}
 
 
 class StateFormatError(Exception):
@@ -189,7 +205,7 @@ def apply_transition(
     moved.setdefault("completed", [])
     moved.setdefault("skipped", [])
     if FSM_ORDER.index(target) < FSM_ORDER.index(current):
-        if target not in REOPEN_TARGETS.get(current, ()) or not (reopen_reason or "").strip():
+        if target not in path or target not in REOPEN_TARGETS.get(current, ()) or not (reopen_reason or "").strip():
             raise StateFormatError("STATE_TRANSITION_INVALID", f"{current} -> {target} is not a permitted reopen (needs a recorded reason).")
         reopened = FSM_ORDER[FSM_ORDER.index(target):FSM_ORDER.index(current) + 1]
         moved["completed"] = [item for item in moved["completed"] if item not in reopened]
@@ -445,60 +461,3 @@ def _read_flow_value(text: str, index: int) -> Tuple[Any, int]:
         return _parse_flow(text, index)
     token, index = _read_flow_token(text, index, stop=",]}")
     return _parse_scalar(token.strip()), index
-
-
-def _read_flow_token(text: str, index: int, stop: str) -> Tuple[str, int]:
-    start = index
-    in_single = in_double = False
-    while index < len(text):
-        char = text[index]
-        if char == '"' and not in_single:
-            in_double = not in_double
-        elif char == "'" and not in_double:
-            in_single = not in_single
-        elif char in stop and not in_single and not in_double:
-            break
-        index += 1
-    return text[start:index], index
-
-
-def _skip_space(text: str, index: int) -> int:
-    while index < len(text) and text[index] in " \t":
-        index += 1
-    return index
-
-
-def _parse_scalar(token: str) -> Any:
-    token = token.strip()
-    if not token:
-        return None
-    if (token.startswith('"') and token.endswith('"') and len(token) >= 2) or (
-        token.startswith("'") and token.endswith("'") and len(token) >= 2
-    ):
-        return _unquote(token)
-    lowered = token.lower()
-    if lowered in {"null", "~"}:
-        return None
-    if lowered == "true":
-        return True
-    if lowered == "false":
-        return False
-    try:
-        return int(token)
-    except ValueError:
-        pass
-    try:
-        return float(token)
-    except ValueError:
-        pass
-    return token
-
-
-def _unquote(token: str) -> str:
-    token = token.strip()
-    if len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'":
-        inner = token[1:-1]
-        if token[0] == '"':
-            return inner.replace('\\"', '"').replace("\\\\", "\\")
-        return inner.replace("''", "'")
-    return token

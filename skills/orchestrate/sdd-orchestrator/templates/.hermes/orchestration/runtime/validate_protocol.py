@@ -143,6 +143,7 @@ def validate_payload(
     check_verifiers: dict[str, list[str]] | None = None,
     role: str | None = None,
     recorded_waivers: dict[str, dict[str, Any]] | None = None,
+    validate_impact_files: bool = False,
 ) -> list[dict[str, str]]:
     """Return structural and semantic errors; an empty list means acceptance."""
     try:
@@ -180,6 +181,7 @@ def validate_payload(
             check_verifiers,
             role,
             recorded_waivers,
+            validate_impact_files,
         ))
     else:
         errors.extend(_validate_review_semantics(result, expected_acceptance, recorded_waivers))
@@ -198,6 +200,7 @@ def validate_json_text(
     check_verifiers: dict[str, list[str]] | None = None,
     role: str | None = None,
     recorded_waivers: dict[str, dict[str, Any]] | None = None,
+    validate_impact_files: bool = False,
 ) -> list[dict[str, str]]:
     """Accept JSON text only; YAML, transcripts, and Markdown are rejected."""
     try:
@@ -216,6 +219,7 @@ def validate_json_text(
         check_verifiers,
         role,
         recorded_waivers,
+        validate_impact_files,
     )
 
 
@@ -450,24 +454,12 @@ def _validate_read_only_result(
     result: dict[str, Any], completed_slice_ids: set[str] | None,
 ) -> list[dict[str, str]]:
     """A read-only role verifies nothing: it reports context, never TDD work or new PASS evidence."""
-    errors: list[dict[str, str]] = []
-    if result["tdd_slices"]:
-        errors.append(_error("$.executor_result.tdd_slices", "a read-only role cannot report TDD slices"))
-    completed = completed_slice_ids or set()
-    for index, check in enumerate(result["acceptance_checks"]):
-        prefix = f"$.executor_result.acceptance_checks[{index}]"
-        if check["slice_id"] in completed:
-            if check["status"] not in SATISFIED_STATUSES or not _has_text(check["evidence"]):
-                errors.append(_error(
-                    f"{prefix}.status",
-                    "a read-only role must carry completed-slice checks forward unchanged as PASS or WAIVED with evidence",
-                ))
-            continue
-        if check["status"] != "PLANNED":
-            errors.append(_error(f"{prefix}.status", "a read-only role keeps unverified checks PLANNED"))
-        if check["evidence"] is not None:
-            errors.append(_error(f"{prefix}.evidence", "a read-only role cannot add acceptance evidence"))
-    return errors
+    import protocol_read_only
+
+    return protocol_read_only.validate(
+        result, completed_slice_ids, satisfied=SATISFIED_STATUSES,
+        has_text=_has_text, error=_error,
+    )
 
 
 def _validate_executor_semantics(
@@ -480,6 +472,7 @@ def _validate_executor_semantics(
     check_verifiers: dict[str, list[str]] | None = None,
     role: str | None = None,
     recorded_waivers: dict[str, dict[str, Any]] | None = None,
+    validate_impact_files: bool = False,
 ) -> list[dict[str, str]]:
     read_only = role in READ_ONLY_ROLES
     errors: list[dict[str, str]] = _validate_write_scope(result, editable_paths, read_only)
@@ -536,6 +529,15 @@ def _validate_executor_semantics(
                 errors.append(_error(f"{prefix}.status", f"{stage['value']} acceptance checks must remain PLANNED"))
             if check["evidence"] is not None:
                 errors.append(_error(f"{prefix}.evidence", f"{stage['value']} cannot claim executed acceptance evidence"))
+    if stage["value"] == "TASKS" or validate_impact_files:
+        import plan_checks
+
+        errors.extend(_error(
+            f"$.executor_result.stage_payload.impact_files[{index}]",
+            f"impact_files[{entry!r}] is not a safe editable path pattern",
+        ) for index, entry in plan_checks.impact_file_errors(
+            result["stage_payload"]["impact_files"], editable_pattern_is_safe,
+        ))
     if stage["value"] == "TASKS" and stage["status"] == "SUCCESS":
         if not checks:
             errors.append(_error(
@@ -750,6 +752,7 @@ _CONTEXT_TYPES = {
     "recorded_waivers": lambda value: isinstance(value, dict) and all(
         isinstance(key, str) and isinstance(item, dict) for key, item in value.items()
     ),
+    "validate_impact_files": lambda value: isinstance(value, bool),
 }
 
 
@@ -787,6 +790,7 @@ def main(argv: list[str] | None = None) -> int:
             check_verifiers=context.get("check_verifiers"),
             role=context.get("role"),
             recorded_waivers=context.get("recorded_waivers"),
+            validate_impact_files=bool(context.get("validate_impact_files")),
         )
     except (OSError, ValueError) as exc:
         errors = [_error("$", str(exc))]
