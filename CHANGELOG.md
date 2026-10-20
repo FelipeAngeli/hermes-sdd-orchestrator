@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.12.0 - 2026-10-20
+
 ### Added
 
 - Experimental Jev context engine (`runtime/context_engine.py` and its `context_*` modules, `policies/CONTEXT_ENGINE.md`), inspired by compozy/yoshi: it asks Jev, through the existing TypeSafe connector, which completed tool results in a large Anthropic Messages, OpenAI Responses or SDD-prompt request can become an explicit omission marker. It is off and never called by the controller: the shipped policy is disabled and dry-run, a real rewrite needs `dry_run: false`, `apply_enabled: true` and `--apply`, and a real evaluator needs the exact automatic Jev consent record plus a READY preflight. Deterministic rules protect user instructions, acceptance criteria, requirements, decisions, security constraints, errors, validation evidence, blockers, opaque blocks and recent turns; any evaluator failure, integrity failure or lost requirement marker returns the original request. Originals are recoverable byte for byte from a private audit store outside the repository. CLI: `optimize`, `recover`, `compare`, `config`, `purge`. See `docs/components/context-engine.md` and `docs/reports/jev-context-engine-baseline.md`.
