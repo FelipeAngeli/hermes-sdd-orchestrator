@@ -41,14 +41,15 @@ def budget_below_plan(data: dict, profile: str) -> dict[str, int] | None:
     applies to CODE and DECISION_DOC.
     """
     slices = (data.get("delivery") or {}).get("slices") or {}
-    planned = len(slices.get("planned") or [])
-    if not planned:
+    planned = set(slices.get("planned") or [])
+    pending = planned - set(slices.get("completed") or [])
+    if not pending:
         return None
     budgets = ((data.get("loop") or {}).get("budgets") or {})
     tdd = budgets.get("tdd_slices") or {}
     executor = budgets.get("executor_calls") or {}
-    tdd_deficit = max(0, planned - (int(tdd.get("max", 0)) - int(tdd.get("used", 0))))
-    executor_deficit = max(0, planned + 2 - (int(executor.get("max", 0)) - int(executor.get("used", 0))))
+    tdd_deficit = max(0, len(pending) - (int(tdd.get("max", 0)) - int(tdd.get("used", 0))))
+    executor_deficit = max(0, len(pending) + 2 - (int(executor.get("max", 0)) - int(executor.get("used", 0))))
     if tdd_deficit or executor_deficit:
         return {"tdd_slices": tdd_deficit, "executor_calls": executor_deficit}
     return None
@@ -69,10 +70,27 @@ def budget_below_plan_stop(deficit: dict[str, int], command) -> tuple[str, dict]
     return commands[0], {"deficit": deficit, "next_commands": commands}
 
 
+def raise_forward_budget_deficit(data: dict, profile: str, current: str, target: str, command, error) -> None:
+    """Raise ``error("BUDGET_BELOW_PLAN")`` on a forward TASKS/PLAN -> IMPLEMENT move whose pending slices exceed the budget.
+
+    Reopens never reach this check: a FIX slice after TEST/REVIEW spends budget the
+    plan already accounted for.
+    """
+    if target != "IMPLEMENT" or current not in {"TASKS", "PLAN"}:
+        return
+    deficit = budget_below_plan(data, profile)
+    if deficit:
+        next_command, extra = budget_below_plan_stop(deficit, command)
+        raise error("BUDGET_BELOW_PLAN", "The plan needs more TDD slices or executor calls than the budget allows.",
+                    next_command=next_command, **extra)
+
+
 def reopen_to_tasks_refusal(ctx, data: dict, *, build_manifest, check_manifest, sdd_command) -> dict | None:
     """Return the refusal descriptor blocking ``reopen --to TASKS``, or None when allowed."""
     if ctx.stage != "IMPLEMENT":
         return {"code": "STEP_MISMATCH", "message": "reopen --to TASKS applies only at IMPLEMENT.", "next_command": sdd_command("next")}
+    if getattr(ctx, "profile", "CODE") == "DECISION_DOC":
+        return {"code": "STEP_MISMATCH", "message": "TASKS is not part of the DECISION_DOC profile.", "next_command": sdd_command("next")}
     slices = (data.get("delivery") or {}).get("slices") or {}
     if slices.get("completed"):
         return {"code": "STEP_MISMATCH", "message": "IMPLEMENT accepted a slice; reopen --to TASKS needs none completed.", "next_command": sdd_command("next")}

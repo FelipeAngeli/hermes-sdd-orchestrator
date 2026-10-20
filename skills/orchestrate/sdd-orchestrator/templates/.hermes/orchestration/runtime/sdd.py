@@ -599,7 +599,7 @@ def build_manifest(ctx: Ctx, data: dict[str, Any], stage: str, *, role: str | No
     return manifest
 
 
-def check_manifest(manifest: dict[str, Any], role: str | None) -> dict[str, Any] | None:
+def check_manifest(manifest: dict[str, Any], role: str | None, profile: str = "CODE") -> dict[str, Any] | None:
     """Run stage_context.check in-process; return a stop payload or None."""
     import stage_context
 
@@ -616,7 +616,7 @@ def check_manifest(manifest: dict[str, Any], role: str | None) -> dict[str, Any]
     else:
         code = "MANIFEST_INVALID"
     payload = stop(code, findings=errors[:5])
-    if code == "MANIFEST_INVALID" and manifest.get("stage") == "IMPLEMENT" and role is None and any(item.get("code", "").startswith("SLICE_") for item in errors):
+    if code == "MANIFEST_INVALID" and profile != "DECISION_DOC" and manifest.get("stage") == "IMPLEMENT" and role is None and any(item.get("code", "").startswith("SLICE_") for item in errors):
         payload["next_command"] = sdd("reopen", "--to", "TASKS", "--reason", "<failure>", "--quote", "<user words>")
     return payload
 
@@ -1104,7 +1104,7 @@ def decide_next(ctx: Ctx) -> dict[str, Any]:
         manifest = build_manifest(ctx, ctx.state, plan["stage"], role=plan["role"], slice_id=plan["slice_id"], head=plan["head"])
     except SddError as exc:
         return stopped(ctx, stop(exc.code, next_command=exc.next_command))
-    refused = check_manifest(manifest, plan["role"])
+    refused = check_manifest(manifest, plan["role"], ctx.profile)
     if refused:
         return stopped(ctx, refused)
     try:
@@ -1422,7 +1422,7 @@ def cmd_prepare(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     if manifest != expected:
         raise SddError("MANIFEST_INVALID", "The manifest file differs from the one STATE produces; regenerate it, never edit it.",
                        next_command=sdd("manifest", "--stage", plan["stage"], "--output", plan["manifest"], *(["--role", plan["role"]] if plan["role"] else [])))
-    refused = check_manifest(manifest, plan["role"])
+    refused = check_manifest(manifest, plan["role"], ctx.profile)
     if refused:
         raise SddError(refused["stop_reason"], refused["next_step"], next_command=refused.get("next_command"), findings=refused.get("findings"))
     prompt = build_prompt(ctx, plan, manifest)
@@ -1685,6 +1685,10 @@ def cmd_transition(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
                        next_command=reopen_command() if current in sf.REOPEN_TARGETS or current == "IMPLEMENT" else sdd("next"))
     data = copy.deepcopy(ctx.state)
     reopen = sf.FSM_ORDER.index(args.to) < sf.FSM_ORDER.index(current) if args.to in sf.FSM_ORDER and current in sf.FSM_ORDER else False
+    if reopen and args.to == "TASKS":
+        refusal = reopen_to_tasks_refusal(ctx, data)
+        if refusal is not None:
+            raise refusal
     provenance = None
     if not reopen:
         if not stage_complete(ctx):
@@ -1718,14 +1722,10 @@ def cmd_transition(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     if reopen and args.to == "TASKS":
         reset_for_tasks_replan(data)
     fix = None if (reopen and args.to == "TASKS") else (reopen_slices(data) if reopen else None)
-    if args.to == "IMPLEMENT":
+    if not reopen:
         import plan_checks
 
-        deficit = plan_checks.budget_below_plan(data, ctx.profile)
-        if deficit:
-            next_command, extra = plan_checks.budget_below_plan_stop(deficit, sdd)
-            raise SddError("BUDGET_BELOW_PLAN", "The plan needs more TDD slices or executor calls than the budget allows.",
-                           next_command=next_command, **extra)
+        plan_checks.raise_forward_budget_deficit(data, ctx.profile, current, args.to, sdd, SddError)
     data.setdefault("resume", {})["next_action"] = args.to
     ctx.write_state(data, f"{current} -> {args.to}" + (f" (reopened: {args.reason}; slice {fix})" if reopen else "") + (f" (CLARIFY skipped: {args.skip_reason})" if args.skip_reason else ""))
     if args.to == "DONE":

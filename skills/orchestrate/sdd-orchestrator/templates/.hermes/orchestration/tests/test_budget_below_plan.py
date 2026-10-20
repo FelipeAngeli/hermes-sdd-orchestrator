@@ -33,6 +33,10 @@ def budget_state(planned: int, *, tdd_max: int = 6, tdd_used: int = 0, exec_max:
 
 
 class BudgetBelowPlanTests(unittest.TestCase):
+    def test_completed_slices_do_not_consume_remaining_plan_budget(self) -> None:
+        data = budget_state(4, tdd_used=3)
+        data["delivery"]["slices"]["completed"] = ["S1", "S2", "S3"]
+        self.assertIsNone(plan_checks.budget_below_plan(data, "CODE"))
     def test_nine_slices_with_six_tdd_slices_stops_with_deficit_three(self) -> None:
         deficit = plan_checks.budget_below_plan(budget_state(9), "CODE")
         self.assertEqual({"tdd_slices": 3, "executor_calls": 0}, deficit)
@@ -66,31 +70,6 @@ class FakeTransitionCtx:
     def write_state(self, data: dict, log: str) -> None:
         self.written = data
         self.log = log
-
-
-class FakeNextCtx:
-    def __init__(self, state: dict) -> None:
-        self.state = state
-        self.stage = state["stage"]["current"]
-        self.profile = state["delivery"]["profile"]
-        self.delivery = state["delivery"]
-
-
-class BudgetNextStopTests(unittest.TestCase):
-    def test_next_stops_before_printing_tasks_to_implement_transition(self) -> None:
-        ctx = FakeNextCtx(budget_state(9))
-        result = sdd.transition_step(ctx)
-        self.assertEqual("STOP", result["status"])
-        self.assertEqual("BUDGET_BELOW_PLAN", result["stop_reason"])
-        self.assertEqual({"tdd_slices": 3, "executor_calls": 0}, result["deficit"])
-        self.assertIn("budget --raise tdd_slices --by 3", result["next_command"])
-
-    def test_after_a_raise_next_prints_the_transition(self) -> None:
-        data = budget_state(9)
-        data["loop"]["budgets"]["tdd_slices"]["max"] = 9
-        result = sdd.transition_step(FakeNextCtx(data))
-        self.assertEqual("TRANSITION", result["step"])
-        self.assertIn("transition --to IMPLEMENT", result["commands"][0])
 
 
 class BudgetTransitionGuardTests(unittest.TestCase):

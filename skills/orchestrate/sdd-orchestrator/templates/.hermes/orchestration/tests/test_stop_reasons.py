@@ -70,7 +70,8 @@ def emitted_literals(path: Path) -> set[str]:
 
 
 def runtime_sources() -> list[Path]:
-    return sorted(path for path in RUNTIME.glob("*.py") if path.name != "stop_reasons.py")
+    # The registry and its additions module only register codes; neither counts as an emitter.
+    return sorted(path for path in RUNTIME.glob("*.py") if path.name not in {"stop_reasons.py", "stop_reason_additions.py"})
 
 
 def policy_codes() -> set[str]:

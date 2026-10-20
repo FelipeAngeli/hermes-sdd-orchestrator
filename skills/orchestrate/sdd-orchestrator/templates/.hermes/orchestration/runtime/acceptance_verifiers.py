@@ -29,14 +29,12 @@ DANGEROUS_CHARACTERS = set(';&|<>$`\\\n')
 #: Characters refused inside the free text of ``rg``/``grep`` patterns and path arguments.
 ARGUMENT_FORBIDDEN_CHARACTERS = set('(){}*?')
 
-#: ``npm``/``pnpm``/``yarn`` scripts must match this and end in a read-only task.
-SCRIPT_RE = re.compile(r"^[a-z][a-z0-9:_-]{0,40}$")
-READ_ONLY_TAILS = ("format:check", "lint", "typecheck", "test", "test:coverage")
-
 #: Strict shapes for the three language one-liners; the path is extracted and checked.
-PYTHON_RE = re.compile(r"^import yaml,sys; yaml\.safe_load\(open\('([^']+)'\)\)$")
-RUBY_RE = re.compile(r"^YAML\.load_file\('([^']+)'\)$")
-NODE_RE = re.compile(r"^JSON\.parse\(require\('fs'\)\.readFileSync\('([^']+)','utf8'\)\)$")
+_SAFE_PATH = r"[A-Za-z0-9._/@+-]+"
+PYTHON_RE = re.compile(rf"import yaml,sys; yaml\.safe_load\(open\('({_SAFE_PATH})'\)\)\Z")
+RUBY_RE = re.compile(rf"YAML\.load_file\('({_SAFE_PATH})'\)\Z")
+NODE_RE = re.compile(rf"JSON\.parse\(require\('fs'\)\.readFileSync\('({_SAFE_PATH})','utf8'\)\)\Z")
+_PINNED_DANGEROUS_CHARACTERS = set('$`\\"\n')
 
 _CITED_COMMAND = re.compile(r"`([^`]+)`")
 
@@ -78,7 +76,8 @@ def allowed_check_command(
     program, arguments = tokens[0], tokens[1:]
 
     # Pinned one-liner shapes first: their quoted argument may contain `;`, `(` and
-    # `)` that are not shell syntax; the strict regex pins the only accepted value.
+    # `)` that are not shell syntax; the strict regex and path character check pin
+    # the only accepted value.
     if program == "python3":
         return len(arguments) == 2 and arguments[0] == "-c" and _strict_path(arguments[1], PYTHON_RE, repo_paths_ok)
     if program == "ruby":
@@ -103,11 +102,6 @@ def allowed_check_command(
         return all(repo_paths_ok(item) and clean_argument(item) for item in rest[1:])
     if program == "test":
         return len(arguments) == 2 and arguments[0] in {"-f", "-s", "-d"} and repo_paths_ok(arguments[1]) and clean_argument(arguments[1])
-    if program in {"npm", "pnpm", "yarn"}:
-        script = arguments[-1] if (program == "yarn" and len(arguments) == 1) else (
-            arguments[1] if program in {"npm", "pnpm"} and len(arguments) == 2 and arguments[0] == "run" else None
-        )
-        return bool(script) and SCRIPT_RE.match(script) is not None and any(script.endswith(tail) or script == tail for tail in READ_ONLY_TAILS)
     return False
 
 
@@ -162,7 +156,7 @@ def fold_plan_tasks(
 
 def _strict_path(argument: str, shape: re.Pattern[str], repo_paths_ok: Callable[[str], bool]) -> bool:
     match = shape.match(argument)
-    return bool(match) and repo_paths_ok(match.group(1))
+    return bool(match) and not any(character in argument for character in _PINNED_DANGEROUS_CHARACTERS) and repo_paths_ok(match.group(1))
 
 
 def is_doc_path(pattern: str) -> bool:

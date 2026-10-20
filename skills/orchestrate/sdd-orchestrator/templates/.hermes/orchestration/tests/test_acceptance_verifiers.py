@@ -73,23 +73,29 @@ class AllowlistTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertTrue(av.allowed_check_command(command))
 
-    def test_accepts_read_only_package_scripts(self) -> None:
+    def test_project_runner_scripts_need_an_exact_gate_command(self) -> None:
+        """The controller is toolchain-neutral: a project runner is admitted only as a configured gate."""
         import acceptance_verifiers as av
 
-        for command in (
-            "npm run test",
-            "npm run test:coverage",
-            "pnpm run lint",
-            "pnpm run format:check",
-            "yarn typecheck",
-        ):
+        for command in ("make check", "make lint", "task test"):
             with self.subTest(command=command):
-                self.assertTrue(av.allowed_check_command(command))
+                self.assertFalse(av.allowed_check_command(command))
+                self.assertTrue(av.allowed_check_command(command, gate_commands={command}))
 
-    def test_accepts_an_exact_configured_gate_command(self) -> None:
+    def test_package_runners_are_not_built_in(self) -> None:
+        """No hard-coded package-runner shape: only an exact gate command admits one."""
         import acceptance_verifiers as av
 
-        self.assertTrue(av.allowed_check_command("npm run test:coverage", gate_commands={"npm run test:coverage"}))
+        for command in ("bun run test", "deno task test", "just test"):
+            with self.subTest(command=command):
+                self.assertFalse(av.allowed_check_command(command))
+                self.assertTrue(av.allowed_check_command(command, gate_commands={command}))
+
+    def test_a_gate_command_is_matched_exactly(self) -> None:
+        import acceptance_verifiers as av
+
+        self.assertFalse(av.allowed_check_command("make check extra", gate_commands={"make check"}))
+        self.assertFalse(av.allowed_check_command("make check; x", gate_commands={"make check"}))
 
     def test_refuses_worker_chosen_commands(self) -> None:
         import acceptance_verifiers as av
@@ -102,7 +108,7 @@ class AllowlistTests(unittest.TestCase):
             "rg -n \"x\" ../outside.md",
             "sh -c \"rg -n x docs/a.md\"",
             "cat /etc/passwd",
-            "npm run build",
+            "make build",
             "python3 -c \"import os; os.system('id')\"",
             "rg --regexp \"x\" docs/a.md",
             "rg -n \"x\" docs/*.md",
@@ -111,12 +117,27 @@ class AllowlistTests(unittest.TestCase):
             "rg --pre sh",
             "grep -f /etc/passwd",
             "rg -e x --files",
-            "npm run test -- --watch",
-            "yarn test; x",
+            "make test -- --watch",
+            "make test; x",
             "rg --pre=sh x a.md",
         ):
             with self.subTest(command=command):
                 self.assertFalse(av.allowed_check_command(command))
+
+    def test_refuses_shell_characters_and_parent_paths_in_pinned_shapes(self) -> None:
+        import acceptance_verifiers as av
+
+        shapes = (
+            ("python3 -c \"import yaml,sys; yaml.safe_load(open('{}'))\"", "docs/a.yaml"),
+            ("ruby -ryaml -e \"YAML.load_file('{}')\"", "docs/a.yml"),
+            ("node -e \"JSON.parse(require('fs').readFileSync('{}','utf8'))\"", "docs/a.json"),
+        )
+        for template, good_path in shapes:
+            for unsafe_path in ("$(touch /tmp/pwned)", "`id`", 'bad"path', "bad\npath", "../outside.yml"):
+                with self.subTest(template=template, unsafe_path=unsafe_path):
+                    self.assertFalse(av.allowed_check_command(template.format(unsafe_path)))
+            with self.subTest(template=template, good_path=good_path):
+                self.assertTrue(av.allowed_check_command(template.format(good_path)))
 
 
 class ExtractCommandTests(unittest.TestCase):
@@ -154,7 +175,7 @@ class SliceBlockBindingTests(unittest.TestCase):
             "slices": {"planned": ["S1"], "completed": [], "editable_paths": ["src/*"]},
             "check_commands": {"AC-01": "rg -n 'x' docs/a.md"},
         }}
-        with mock.patch.object(sdd, "gate_table", return_value={"focused_tests": {"command": "npm run test"}}):
+        with mock.patch.object(sdd, "gate_table", return_value={"focused_tests": {"command": "make test"}}):
             block = sdd.slice_block(None, data, "IMPLEMENT", "S1")
         per_ac = [item for item in block["required_verification"] if item["id"] == "check-ac-01"]
         self.assertEqual(1, len(per_ac))
@@ -206,7 +227,7 @@ class DocRedTests(unittest.TestCase):
         self.assertEqual("git show HEAD:docs/a.md | grep -n Decision",
                          av.doc_red_command('grep -n "Decision" docs/a.md'))
         self.assertIsNone(av.doc_red_command("test -f docs/a.md"))
-        self.assertIsNone(av.doc_red_command("npm run test"))
+        self.assertIsNone(av.doc_red_command("make test"))
         self.assertIsNone(av.doc_red_command('rg -n "Decision"'))
 
     def test_doc_red_commands_only_for_doc_slices_or_decision_doc(self) -> None:

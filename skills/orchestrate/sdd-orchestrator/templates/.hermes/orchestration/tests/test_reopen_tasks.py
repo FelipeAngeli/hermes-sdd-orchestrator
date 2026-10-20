@@ -31,6 +31,12 @@ class ReopenTargetsTests(unittest.TestCase):
         with self.assertRaises(state_format.StateFormatError):
             state_format.apply_transition(state, "TASKS", profile="CODE")
 
+    def test_implement_cannot_reopen_to_tasks_outside_its_profile(self) -> None:
+        state = {"schema_version": 2, "stage": {"current": "IMPLEMENT", "status": "RUNNING",
+                                                 "completed": ["SPECIFY", "CLARIFY", "PLAN"], "skipped": []}}
+        with self.assertRaises(state_format.StateFormatError):
+            state_format.apply_transition(state, "TASKS", profile="DECISION_DOC", reopen_reason="slice paths unsafe")
+
 
 def slice_state(completed: list[str]) -> dict:
     return {"delivery": {"slices": {"planned": ["S1"], "completed": completed, "editable_paths": ["tasks/x/**"]}}}
@@ -115,6 +121,16 @@ class ManifestStopTests(unittest.TestCase):
             "errors": [{"code": "SLICE_EDITABLE_PATH_UNSAFE", "detail": "x"}],
         }):
             payload = sdd.check_manifest({"stage": "PLAN"}, None)
+        self.assertEqual("MANIFEST_INVALID", payload["stop_reason"])
+        self.assertNotIn("reopen --to TASKS", payload["next_command"])
+
+    def test_decision_doc_manifest_stop_does_not_suggest_tasks_reopen(self) -> None:
+        import stage_context
+
+        with mock.patch.object(stage_context, "check", return_value={
+            "errors": [{"code": "SLICE_EDITABLE_PATH_UNSAFE", "detail": "x"}],
+        }):
+            payload = sdd.check_manifest({"stage": "IMPLEMENT"}, None, "DECISION_DOC")
         self.assertEqual("MANIFEST_INVALID", payload["stop_reason"])
         self.assertNotIn("reopen --to TASKS", payload["next_command"])
 

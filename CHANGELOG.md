@@ -6,11 +6,16 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ### Added
 
-- Per-AC verifiers: a PLAN/TASKS acceptance check's `verification_method` may carry exactly one backtick command; the fold binds it only when `runtime/acceptance_verifiers.py` allowlists it, stores `delivery.check_commands`/`check_commands_refused`, and `slice_block` adds one `required_verification` item per bound AC (the project gate stays unchanged).
+- Per-AC verifiers: a PLAN/TASKS acceptance check's `verification_method` may carry exactly one backtick command; the fold binds it only when `runtime/acceptance_verifiers.py` allowlists it (`rg`/`grep`/`test`, strict `python3 -c`/`ruby -ryaml -e`/`node -e` parse one-liners with plain repository-relative paths, or an exact `GATES.md` command; no built-in package-runner shapes, so the controller stays toolchain-neutral), stores `delivery.check_commands`/`check_commands_refused`, and `slice_block` adds one `required_verification` item per bound AC (the project gate stays unchanged).
 - Doc-slice RED: for a document slice the controller builds a HEAD-based RED command per AC (`git show HEAD:<path> | <verifier>`), rendered in the prompt's Acceptance rules block. `kind: DOC_CHECK` is not added because the schema has no `kind` and the HEAD-based RED satisfies the existing RED/`EXPECTED_FUNCTIONAL` rule.
 - Safe editable paths: TASKS normalizes only trailing-directory-slash `impact_files` entries (`tasks/x/` → `tasks/x/**`; files and existing globs are unchanged), records `delivery.editable_path_normalizations`, and `validate_protocol.py` refuses unsafe TASKS entries plus DECISION_DOC PLAN entries through its controller-owned `validate_impact_files` context before either can be folded.
-- Reopen to TASKS: `sdd.py reopen --to TASKS --reason R --quote Q` reopens IMPLEMENT only with no completed slice and a `MANIFEST_INVALID` refusal caused by a `SLICE_*` finding; it clears slice state so TASKS re-plans, and the IMPLEMENT stop prints the reopen as its `next_command`.
-- Budget below plan: `sdd.py transition --to IMPLEMENT` stops with `BUDGET_BELOW_PLAN` when planned slices exceed the remaining TDD-slice budget or the executor-call budget (planned + TEST + REVIEW), carrying the deficit and the exact `sdd.py budget --raise <name> --by <n> --quote '<user words>'` command(s).
+- Reopen to TASKS: `sdd.py reopen --to TASKS --reason R --quote Q` reopens CODE IMPLEMENT only with no completed slice and a `MANIFEST_INVALID` refusal caused by a `SLICE_*` finding; its equivalent `transition --to TASKS` path has the same guard. It clears slice state so TASKS re-plans, and only a TASKS-capable profile's IMPLEMENT stop prints the reopen as its `next_command`.
+- Budget below plan: only the forward TASKS→IMPLEMENT (or DECISION_DOC PLAN→IMPLEMENT) transition stops with `BUDGET_BELOW_PLAN` when pending slices exceed the remaining TDD-slice budget or the executor-call budget (pending + TEST + REVIEW), carrying the deficit and the exact `sdd.py budget --raise <name> --by <n> --quote '<user words>'` command(s).
+
+### Fixed
+
+- Pinned Python, Ruby and Node acceptance-verifier commands now use a strict repository-relative path allowlist and reject shell-dangerous characters, traversal and newlines.
+- `state_format.py` keeps its original typing and layout: its non-raising lexical helpers moved to `runtime/state_scalars.py` (loaded by sibling path, names re-exported), and the forward budget check moved to `plan_checks.raise_forward_budget_deficit`, so both baseline files stay within their limits by extraction instead of reformatting. The five controller-policy/isolation stop rows moved unchanged to `runtime/stop_reason_additions.py` for the same reason, and `tests/test_stop_reasons.py` no longer counts that module as an emitter, so every registered code still needs a real runtime emitter.
 
 ## 15.10.1 - 2026-10-20
 
