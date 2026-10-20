@@ -4,6 +4,10 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+
+- Experimental, opt-in loop engine (`runtime/loop_engine.py` and its `loop_*` modules, `schemas/LOOP_DEFINITION_SCHEMA.json`, `schemas/LOOP_EXECUTION_SCHEMA.json`), inspired by the CompozyOS Goal/Verification/Stop/Outcome contracts. LoopDefinition, LoopExecution, LoopNode, LoopCheckpoint and LoopOutcome; node kinds `run-agent`, `run-tool`, `gate` and `wait` (`run-loop`, `fan-out`, `collect`, `branch` refused as planned); nine states mapped to journal and STATE statuses and to registered stop reasons. Dependency-ordered execution with cycle detection, transient versus functional failure, bounded retries with exponential backoff, no automatic re-run of a non-idempotent node whose effect is unknown, write-ahead checkpoints before every transition, crash recovery without repeating completed work, reconcilers, run/token/time budgets, cooperative cancellation, human-only decisions with literal quotes and never-automatic security approval. The SDD adapter turns a profile into a chain whose TEST/REVIEW failure re-runs only IMPLEMENT and its downstream through `correction_loop` (3 correction cycles, 2 transient retries). Nothing in the controller calls it; the CLI (`validate`, `sdd-definition`, `status`, `cancel`, `resolve`) never runs a node. See `docs/components/loop-engine.md`.
+
 ## 15.13.0 - 2026-10-20
 
 ### Added

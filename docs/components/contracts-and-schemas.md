@@ -6,7 +6,7 @@
 
 Every worker ends with **one JSON document**, written to a unique final-message file. Markdown, YAML, transcripts and JSONL events are never accepted as a substitute. Both envelopes use `schema_version: 3` and reject unknown properties. Each [stage agent](stage-agents.md) and [sub-agent](sub-agents.md) declares which schema applies in its `result_schema` frontmatter.
 
-The additive agent-manager schemas are version 1: `AGENT_REGISTRY_SCHEMA.json` closes the deterministic read-only registry, and `DELEGATION_CONTRACT_SCHEMA.json` closes a proposed delegation request. Their current behavior is documented in [Agent manager](agent-manager.md); neither changes the existing executor or review envelopes.
+The additive agent-manager schemas are version 1: `AGENT_REGISTRY_SCHEMA.json` closes the deterministic read-only registry, and `DELEGATION_CONTRACT_SCHEMA.json` closes a proposed delegation request. Their current behavior is documented in [Agent manager](agent-manager.md); neither changes the existing executor or review envelopes. The experimental loop engine adds `LOOP_DEFINITION_SCHEMA.json` and `LOOP_EXECUTION_SCHEMA.json` (v1), documented in [Loop engine](loop-engine.md).
 
 ## Typed Jev decisions
 

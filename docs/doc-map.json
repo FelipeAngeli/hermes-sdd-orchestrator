@@ -114,6 +114,19 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/AGENT_REGISTRY_SCHEMA.json",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/DELEGATION_CONTRACT_SCHEMA.json"
     ],
+    "docs/components/loop-engine.md": [
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/loop_model.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/loop_policy.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/loop_store.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/loop_state.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/loop_correction.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/loop_engine.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/loop_control.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/loop_sdd.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/loop_cli.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/LOOP_DEFINITION_SCHEMA.json",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/LOOP_EXECUTION_SCHEMA.json"
+    ],
     "docs/components/testing.md": [
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/tests/*",
       "tests/*"

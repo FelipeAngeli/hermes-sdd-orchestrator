@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Loop execution v1",
+  "description": "LoopExecution persisted by runtime/loop_store.py: status, per-node records and attempt history, usage, the pending human decision, the halt, the LoopOutcome and the LoopCheckpoint. Written only by the loop runtime; never by hand.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "execution_id", "loop_id", "definition_sha256", "status", "created_at", "updated_at", "limits", "usage", "nodes", "corrections", "pending", "halt", "outcome", "decisions", "checkpoint"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "execution_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "loop_id": {"type": "string"},
+    "definition_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "status": {"$ref": "#/$defs/state"},
+    "created_at": {"type": "number"},
+    "updated_at": {"type": "number"},
+    "limits": {"type": "object"},
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_runs", "tokens", "tokens_method", "active_seconds", "correction_cycles"],
+      "properties": {
+        "node_runs": {"type": "integer", "minimum": 0},
+        "tokens": {"type": "integer", "minimum": 0},
+        "tokens_method": {"enum": ["UNMEASURED", "MEASURED", "ESTIMATED"]},
+        "active_seconds": {"type": "number", "minimum": 0},
+        "correction_cycles": {"type": "integer", "minimum": 0}
+      }
+    },
+    "nodes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["status", "generation", "attempts", "transient_retries", "timeout_retries", "output", "partial", "correction", "human_input", "approval", "retry_authorized"],
+        "properties": {
+          "status": {"$ref": "#/$defs/state"},
+          "generation": {"type": "integer", "minimum": 1},
+          "attempts": {"type": "array", "items": {"type": "object", "required": ["attempt", "generation", "idempotency_key", "result"]}},
+          "transient_retries": {"type": "integer", "minimum": 0},
+          "timeout_retries": {"type": "integer", "minimum": 0},
+          "retry_authorized": {"type": "boolean"}
+        }
+      }
+    },
+    "corrections": {"type": "object"},
+    "pending": {"type": ["object", "null"]},
+    "halt": {"type": ["object", "null"]},
+    "outcome": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["status", "reason", "hermes_stop_reason", "outputs", "at"],
+          "properties": {"status": {"enum": ["COMPLETED", "FAILED", "CANCELLED"]}}
+        }
+      ]
+    },
+    "decisions": {"type": "array"},
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seq", "at", "event"],
+      "properties": {
+        "seq": {"type": "integer", "minimum": 0},
+        "at": {"type": "number"},
+        "event": {"type": "string"}
+      }
+    }
+  },
+  "$defs": {
+    "state": {"enum": ["PENDING", "RUNNING", "WAITING_INPUT", "WAITING_APPROVAL", "RETRYING", "BLOCKED", "COMPLETED", "FAILED", "CANCELLED"]}
+  }
+}
