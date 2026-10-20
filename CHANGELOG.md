@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.11.0 - 2026-10-20
+
 ### Added
 
 - Per-AC verifiers: a PLAN/TASKS acceptance check's `verification_method` may carry exactly one backtick command; the fold binds it only when `runtime/acceptance_verifiers.py` allowlists it (`rg`/`grep`/`test`, strict `python3 -c`/`ruby -ryaml -e`/`node -e` parse one-liners with plain repository-relative paths, or an exact `GATES.md` command; no built-in package-runner shapes, so the controller stays toolchain-neutral), stores `delivery.check_commands`/`check_commands_refused`, and `slice_block` adds one `required_verification` item per bound AC (the project gate stays unchanged).
