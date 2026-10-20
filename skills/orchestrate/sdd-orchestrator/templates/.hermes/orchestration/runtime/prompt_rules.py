@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Deterministic worker-prompt rendering: acceptance rules, retry recipes, self-check, compact profile.
+"""Deterministic worker-prompt rendering: acceptance rules, self-check, compact profile.
 
 Prompt code moved out of ``sdd.py`` and imported back; ``sdd`` is imported lazily to avoid a cycle.
+Retry recipes live in ``retry_recipes.py`` and compact windowing in ``prompt_compact.py``.
 """
 from __future__ import annotations
 
 import json
-import re
 import sys
 from pathlib import Path
 from typing import Any
+
+import prompt_compact
+import retry_recipes
 
 RUNTIME = Path(__file__).resolve().parent
 ORCHESTRATION = RUNTIME.parent
@@ -19,11 +22,9 @@ SELFCHECK_HEADING = "## Self-check before you answer"
 REJECTION_HEADING = "## Most common rejections (re-check now)"
 FIX_HEADING = "## Fix these first (previous attempt {parent_action_id} was rejected)"
 
-_CITE_RE = re.compile(r"^AGENT PASS evidence for (.+) must cite")
-_REQUIRED_RE = re.compile(r"^required verification `([^`]+)` was not recorded as passing$")
-_OUTSIDE_RE = re.compile(r"^(.+) is outside the slice editable_paths$")
-_SCHEMA_MESSAGE = re.compile(r"is not one of|is a required property|is not of type|must equal requested action|expected version")
-_ONLY_JSON = "Your final message must be only the JSON object, no prose, no code fence."
+compact_match_tokens = prompt_compact.compact_match_tokens
+compact_source_excerpts = prompt_compact.compact_source_excerpts
+retry_recipe = retry_recipes.retry_recipe
 
 
 def _excerpt(repo: Path, source: dict[str, Any]) -> str:
@@ -44,70 +45,53 @@ def prompt_profile(stage: str) -> str:
     return settings.get("prompt_profile") or "standard"
 
 
-def compact_match_tokens(context: dict[str, Any], ticket: str) -> list[str]:
-    tokens: set[str] = set()
-    if ticket:
-        tokens.add(ticket)
-    for path in context.get("editable_paths") or []:
-        tokens.add(Path(path).name)
-    for check_id in context.get("expected_acceptance") or {}:
-        tokens.add(check_id)
-    tokens.discard("")
-    return sorted(token for token in tokens if token)
-
-
-def _merge_windows(windows: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    if not windows:
-        return []
-    merged = [list(sorted(windows)[0])]
-    for low, high in sorted(windows)[1:]:
-        if low <= merged[-1][1]:
-            merged[-1][1] = max(merged[-1][1], high)
-        else:
-            merged.append([low, high])
-    return [(low, high) for low, high in merged]
-
-
-def compact_source_excerpts(repo: Path, sources: list[dict[str, Any]], tokens: list[str]) -> list[str]:
-    """Compact sources: ±15 lines around any line mentioning a token, else the first 40 lines."""
-    parts: list[str] = []
-    for source in sources:
-        try:
-            lines = (repo / source["path"]).read_text(encoding="utf-8").splitlines()
-        except OSError:
-            continue
-        start = max(0, source["lines"][0] - 1)
-        end = min(len(lines), source["lines"][1])
-        matches = [index for index in range(start, end) if any(token and token in lines[index] for token in tokens)]
-        if not matches:
-            windows = [(0, min(40, len(lines)))]
-        else:
-            windows = _merge_windows([(max(0, index - 15), min(len(lines), index + 16)) for index in matches])
-        for low, high in windows:
-            body = "\n".join(f"{low + 1 + offset}: {line}" for offset, line in enumerate(lines[low:high]))
-            parts.append(f"### {source['path']} lines {low + 1}-{high}\n{body}")
-    return parts
+def _check_example(check_id: str, check: dict[str, Any], *, status: str, evidence: str | None, waiver: Any = None) -> str:
+    return json.dumps({
+        "id": check_id,
+        "criterion": check.get("criterion") or "<criterion>",
+        "verification_method": check.get("verification_method") or "<verification method>",
+        "verifier": check.get("verifier") or "HUMAN",
+        "slice_id": check.get("slice_id"),
+        "status": status,
+        "evidence": evidence,
+        "waiver": waiver,
+    }, ensure_ascii=False)
 
 
 def acceptance_example(acceptance: dict[str, Any], required_ids: set[str], check_verifiers: dict[str, Any]) -> str:
-    for check_id in sorted(required_ids):
-        check = acceptance.get(check_id)
-        if not check or check.get("verifier") != "AGENT":
-            continue
-        commands = check_verifiers.get(check_id) or []
-        evidence = f"`{commands[0]}` passed" if commands else "`<bound command>` passed"
-        return json.dumps({"id": check_id, "criterion": check.get("criterion"), "verification_method": check.get("verification_method"),
-                           "verifier": check.get("verifier"), "slice_id": check.get("slice_id"), "status": "PASS",
-                           "evidence": evidence, "waiver": None}, ensure_ascii=False)
-    return "{}"
+    if required_ids:
+        for check_id in sorted(required_ids):
+            check = acceptance.get(check_id)
+            if not check or check.get("verifier") != "AGENT":
+                continue
+            commands = check_verifiers.get(check_id) or []
+            evidence = f"`{commands[0]}` passed" if commands else "`<bound command>` passed"
+            return _check_example(check_id, check, status="PASS", evidence=evidence)
+        for check_id in sorted(required_ids):
+            check = acceptance.get(check_id)
+            if not check or check.get("verifier") != "HUMAN":
+                continue
+            return _check_example(check_id, check, status="PASS",
+                                  evidence=f"`<recorded human decision for {check_id}>`")
+    check_id = next(iter(sorted(acceptance)), "<check id>")
+    return _check_example(check_id, acceptance.get(check_id) or {}, status="PLANNED", evidence=None)
 
 
 def tdd_example(current_slice_ids: list[str]) -> str:
     slice_id = (current_slice_ids or ["S1"])[0]
-    return json.dumps({"id": slice_id, "red_command": "<red command>", "red_exit_code": 1,
-                       "expected_failure": "<expected functional failure>", "red_failure_kind": "EXPECTED_FUNCTIONAL",
-                       "green_command": "<green command>", "green_exit_code": 0, "green_result": "<green result>"},
-                      ensure_ascii=False)
+    return json.dumps({
+        "id": slice_id,
+        "objective": "<objective>",
+        "test_file": "<test file>",
+        "red_command": "<red command>",
+        "red_exit_code": 1,
+        "expected_failure": "<expected functional failure>",
+        "red_failure_kind": "EXPECTED_FUNCTIONAL",
+        "minimal_implementation": "<minimal implementation>",
+        "green_command": "<green command>",
+        "green_exit_code": 0,
+        "green_result": "<green result>",
+    }, ensure_ascii=False)
 
 
 def acceptance_rules_block(context: dict[str, Any], stage: str) -> str:
@@ -128,12 +112,15 @@ def acceptance_rules_block(context: dict[str, Any], stage: str) -> str:
     lines = [ACCEPTANCE_RULES_HEADING, ""]
     for check_id in sorted(required_ids):
         check = acceptance[check_id]
-        if check.get("verifier") != "AGENT":
-            continue
-        commands = check_verifiers.get(check_id) or []
-        joined = ", ".join(f"`{command}`" for command in commands)
-        lines.append(f"- {check_id} → evidence must contain, in backticks, one of: {joined}; that command must appear in "
-                     f"`commands[]` with `exit_code: 0` and `result: \"PASS\"`.")
+        verifier = check.get("verifier")
+        if verifier == "HUMAN":
+            lines.append(f"- {check_id} is HUMAN-verified: report PASS with the recorded human decision as evidence, "
+                         "or WAIVED with its recorded waiver object; never leave it PLANNED.")
+        elif verifier == "AGENT":
+            commands = check_verifiers.get(check_id) or []
+            joined = ", ".join(f"`{command}`" for command in commands)
+            lines.append(f"- {check_id} → evidence must contain, in backticks, one of: {joined}; that command must appear in "
+                         f"`commands[]` with `exit_code: 0` and `result: \"PASS\"`.")
     for check_id in sorted(future_ids):
         lines.append(f"- {check_id} stays PLANNED with evidence null.")
     if stage == "IMPLEMENT":
@@ -142,13 +129,16 @@ def acceptance_rules_block(context: dict[str, Any], stage: str) -> str:
                      f"`green_command`, `green_exit_code: 0`.")
     if required_commands:
         lines.append(f"- Every `required_commands` entry must be recorded in `commands[]` as exit 0 / PASS: "
-                     + ", ".join(f"`{command}`" for command in required_commands) + ".")
+                     + ", ".join(f"`{command}`" for command in required_commands)
+                     + "; unless every check bound to it is WAIVED.")
     if stage == "IMPLEMENT" and editable:
         lines.append(f"- Write only paths matching editable_paths: {json.dumps(editable, ensure_ascii=False)}.")
     lines.append("- If `stage.status` is SUCCESS, `blockers` must be [].")
+    waiver_eligible = set(acceptance) if stage == "TEST" else required_ids
     for check_id in sorted(waivers):
-        lines.append(f"- {check_id} is WAIVED with exactly this waiver object "
-                     f"{json.dumps(waivers[check_id], ensure_ascii=False, sort_keys=True)}.")
+        if check_id in waiver_eligible:
+            lines.append(f"- {check_id} is WAIVED with exactly this waiver object "
+                         f"{json.dumps(waivers[check_id], ensure_ascii=False, sort_keys=True)}.")
     lines.extend(["", "Minimal valid example:",
                   f"- `acceptance_checks[0]`: {acceptance_example(acceptance, required_ids, check_verifiers)}",
                   f"- `tdd_slices[0]`: {tdd_example(current)}"])
@@ -166,55 +156,6 @@ def rejection_checklist(context: dict[str, Any], stage: str) -> str:
     lines += ["- If `stage.status` is SUCCESS, `blockers` must be [].",
               "- The final message is only the JSON object."]
     return "\n".join(lines)
-
-
-def _recipe_for(error: dict[str, str], context: dict[str, Any]) -> str:
-    reason = error.get("reason") or ""
-    path = error.get("path") or "$"
-    if path == "$" or reason == "OUTPUT_INVALID" or _SCHEMA_MESSAGE.search(reason):
-        return _ONLY_JSON
-    match = _CITE_RE.search(reason)
-    if match:
-        commands = (context.get("check_verifiers") or {}).get(match.group(1)) or []
-        joined = "`" + "`, `".join(commands) + "`" if commands else "`<bound command>`"
-        return (f"Rewrite {match.group(1)} evidence citing literally, in backticks, {joined}, and record that command "
-                "in commands[] with exit_code 0 and result PASS.")
-    match = _REQUIRED_RE.search(reason)
-    if match:
-        return (f"Run `{match.group(1)}` and record it in commands[] with exit 0/PASS; if it cannot pass in your "
-                "sandbox, return BLOCKED with a blocker instead of SUCCESS.")
-    if reason == "SUCCESS cannot include blockers":
-        return "Either fix and empty blockers, or set stage.status to BLOCKED."
-    if reason in {"IMPLEMENT SUCCESS requires at least one TDD slice", "reported TDD slice ids must exactly match current_slice_ids"}:
-        ids = context.get("current_slice_ids") or ["<slice id>"]
-        return (f"tdd_slices must be exactly [{', '.join(ids)}]; each needs red_exit_code != 0, red_failure_kind "
-                "EXPECTED_FUNCTIONAL, non-empty expected_failure, green_command and green_exit_code 0.")
-    if reason in {"accepted RED requires a non-zero exit code", "accepted RED requires an expected functional failure",
-                  "infrastructure failure is not valid RED evidence"}:
-        verifier = (context.get("required_commands") or [None])[0]
-        return (f"Use as RED the slice's verifier against the pre-change content, e.g. `git stash`-free: "
-                f"`git show HEAD:<path> | {verifier or '<verifier>'}` or the focused test before your change; it must "
-                "exit ≠ 0 for the functional reason; set red_failure_kind EXPECTED_FUNCTIONAL.")
-    if reason == "accepted GREEN requires exit code 0":
-        return "Run the GREEN command and record it in commands[] with exit_code 0 and a non-empty green_result."
-    match = _OUTSIDE_RE.search(reason)
-    if match:
-        allowed = ", ".join(context.get("editable_paths") or []) or "the declared editable_paths"
-        return f"Remove changes to {match.group(1)}; allowed: {allowed}."
-    if reason in {"future slice checks must remain PLANNED", "future slice checks cannot carry evidence"}:
-        return "Keep future slice checks at status PLANNED with evidence null."
-    if reason in {"current and completed slice checks require PASS or WAIVED", "current and completed slice checks require evidence"}:
-        return "Set each current and completed slice check to PASS or WAIVED with evidence, or return BLOCKED with a blocker."
-    return f"Fix: {reason} at {path}."
-
-
-def retry_recipe(errors: list[dict[str, str]], context: dict[str, Any]) -> list[str]:
-    recipe: list[str] = []
-    for error in errors:
-        instruction = _recipe_for(error, context)
-        if instruction and instruction not in recipe:
-            recipe.append(instruction)
-    return recipe
 
 
 def controller_data(ctx: Any, plan: dict[str, Any], manifest: dict[str, Any], *, brief: bool) -> dict[str, Any]:
@@ -291,7 +232,8 @@ def selfcheck_section(ctx: Any, plan: dict[str, Any]) -> str:
     command = f"{sys.executable} {RUNTIME / 'validate_protocol.py'} --action {plan['stage']} --result {result_file} --context {context_path} --json"
     return (SELFCHECK_HEADING + "\n\n"
             f"Write your final JSON to `{result_file}` (outside the repository), run `{command}` and fix until it prints "
-            "`\"valid\": true`; then answer with exactly that JSON. The controller re-validates everything.")
+            "`\"valid\": true`; then answer with exactly that JSON. The controller re-validates everything. "
+            f"If `$TMPDIR` is unset or not writable, use `/tmp/sdd-selfcheck-{action_id}.json` instead.")
 
 
 def _fix_section(parent_action_id: str, recipe: list[str]) -> str:
@@ -341,7 +283,7 @@ def build_prompt(ctx: Any, plan: dict[str, Any], manifest: dict[str, Any]) -> st
         parts.append("```json\n" + json.dumps(data, ensure_ascii=False, indent=None if compact else 1) + "\n```")
         parts.append("## Sources")
         if compact:
-            parts.extend(compact_source_excerpts(ctx.repo, manifest["sources"], tokens))
+            parts.extend(compact_source_excerpts(ctx.repo, manifest["sources"], tokens, with_excerpts=with_excerpts))
         else:
             for source in manifest["sources"]:
                 parts.append(f"### {source['path']} lines {source['lines'][0]}-{source['lines'][1]}")

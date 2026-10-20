@@ -73,13 +73,37 @@ class RetryRecipeTests(unittest.TestCase):
             recipe = prompt_rules.retry_recipe([{"path": "$.executor_result.acceptance_checks[0].status", "reason": reason}], self.context())
             self.assertIn("PASS or WAIVED", recipe[0])
 
-    def test_json_and_schema_recipes_map_to_only_json(self) -> None:
-        for error in ({"path": "$", "reason": "final message must be a JSON object"},
+    def test_only_json_recipe_is_limited_to_parse_and_transport_errors(self) -> None:
+        expected = ["Your final message must be only the JSON object, no prose, no code fence."]
+        for error in ({"path": "$", "reason": "OUTPUT_INVALID"},
                       {"path": "$", "reason": "invalid JSON final message: Expecting value"},
-                      {"path": "$.executor_result.stage.value", "reason": "'IMPLEMENT' is not one of ['SPECIFY', 'CLARIFY', 'PLAN', 'TASKS', 'IMPLEMENT', 'TEST']"},
-                      {"path": "$", "reason": "OUTPUT_INVALID"}):
+                      {"path": "$", "reason": "Search output is not valid JSON."},
+                      {"path": "$", "reason": "expected executor_result envelope for IMPLEMENT"},
+                      {"path": "$", "reason": "final message must be a JSON object"}):
             recipe = prompt_rules.retry_recipe([error], self.context())
-            self.assertEqual(["Your final message must be only the JSON object, no prose, no code fence."], recipe)
+            self.assertEqual(expected, recipe)
+
+    def test_expected_version_recipe_is_concrete(self) -> None:
+        recipe = prompt_rules.retry_recipe([{"path": "$.executor_result.schema_version", "reason": "expected version 3"}], self.context())
+        self.assertEqual(["Set executor_result.schema_version to 3."], recipe)
+
+    def test_stage_value_recipe_is_concrete(self) -> None:
+        recipe = prompt_rules.retry_recipe([{"path": "$.executor_result.stage.value", "reason": "must equal requested action IMPLEMENT"}], self.context())
+        self.assertEqual(["Set executor_result.stage.value to IMPLEMENT."], recipe)
+
+    def test_controller_data_recipes_return_blocked(self) -> None:
+        expected = ["This is a controller-data problem you cannot fix: return stage.status BLOCKED with a blocker quoting this error."]
+        for path, reason in (("$", "editable_paths patterns are unsafe or match everything: ['*']"),
+                             ("$", "role SECURITY_REVIEWER is not a read-only role allowed in IMPLEMENT"),
+                             ("$.executor_result.acceptance_checks[0].evidence",
+                              "AGENT PASS requires controller-owned check_verifiers")):
+            recipe = prompt_rules.retry_recipe([{"path": path, "reason": reason}], self.context())
+            self.assertEqual(expected, recipe)
+
+    def test_schema_enum_error_is_not_only_json(self) -> None:
+        reason = "'IMPLEMENT' is not one of ['SPECIFY', 'CLARIFY', 'PLAN', 'TASKS', 'IMPLEMENT', 'TEST']"
+        recipe = prompt_rules.retry_recipe([{"path": "$.executor_result.stage.value", "reason": reason}], self.context())
+        self.assertEqual([f"Fix: {reason} at $.executor_result.stage.value."], recipe)
 
     def test_unknown_reason_is_generic(self) -> None:
         recipe = prompt_rules.retry_recipe([{"path": "$.executor_result.stage.value", "reason": "some future validator reason"}], self.context())

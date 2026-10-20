@@ -4,6 +4,16 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+
+- Worker prompt examples are schema-valid: `tdd_slices` examples carry every required field and `acceptance_checks` examples never render `{}` (HUMAN checks fall back to a PASS-with-recorded-decision placeholder, otherwise a PLANNED future check).
+- Recorded waivers only emit the WAIVED rule for current/completed-slice checks in IMPLEMENT (every check in TEST); future-slice waivers keep only the PLANNED line.
+- HUMAN checks on verified slices (and every HUMAN check in TEST) now emit an explicit HUMAN-verified rule instead of being silently omitted.
+- Compact source windows clamp to each source's declared `lines` range, drop glob match tokens, cap at 6 windows and 120 lines per source, and honour the no-excerpt reduced ladder.
+- Retry recipes map `expected version`, `must equal requested action` and controller-data failures to concrete instructions, and the only-JSON mapping is limited to real parse/transport errors.
+- The required-commands rule now says a command may be omitted when every check bound to it is WAIVED.
+- The self-check section documents the `/tmp/sdd-selfcheck-<action_id>.json` fallback when `$TMPDIR` is unset or not writable.
+
 ## 15.10.0 - 2026-10-19
 
 ### Added

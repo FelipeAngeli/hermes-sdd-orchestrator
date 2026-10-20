@@ -174,10 +174,9 @@ class AcceptanceRulesTests(unittest.TestCase):
             repo = Path(temp)
             value = manifest(repo, "IMPLEMENT", implement_slice())
             ctx = base_ctx(repo)
-            ctx.delivery["acceptance"]["AC-2"] = {"criterion": "c2", "verification_method": "m", "verifier": "AGENT", "slice_id": "S2"}
-            ctx.delivery["waivers"] = {"AC-2": {"by": "requester", "reason": "r", "quote": "ok", "recorded_at": "2026-01-01T00:00:00Z"}}
+            ctx.delivery["waivers"] = {"AC-1": {"by": "requester", "reason": "r", "quote": "ok", "recorded_at": "2026-01-01T00:00:00Z"}}
             text = prompt_rules.build_prompt(ctx, plan("IMPLEMENT"), value)
-            self.assertIn("AC-2 is WAIVED with exactly this waiver object", text)
+            self.assertIn("AC-1 is WAIVED with exactly this waiver object", text)
             self.assertIn('"by": "requester"', text)
 
     def test_rules_come_from_verifier_context(self) -> None:
