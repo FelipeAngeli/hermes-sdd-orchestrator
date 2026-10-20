@@ -4,6 +4,13 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+
+- Worker prompt item 1: IMPLEMENT and TEST prompts render a deterministic `## Acceptance rules` block built only from the verifier context the controller later passes to `validate_protocol.py`, with concrete bound commands, required commands, `tdd_slices` ids, editable paths, blockers, recorded waivers and minimal valid examples.
+- Worker prompt item 12: an IMPLEMENT prompt starts with a one-slice line (`Only slice <id> …`) plus the policy-derived `Finish within N minutes`; the validator-side per-slice path enforcement needs per-slice paths in STATE and is not implemented.
+- Worker prompt item 2: `controller_data` adds `retry.recipe`, a deterministic deduplicated list of fix instructions derived from each validator error reason, rendered at the top of a corrective-retry prompt as `## Fix these first`.
+- Worker prompt item 3: `prepare` writes an atomic `selfcheck-context.json` (same content as the validation-time verifier context) for IMPLEMENT/TEST, and the prompt adds `## Self-check before you answer` with the exact `validate_protocol.py` command; validation is unchanged.
+- Worker prompt item 8: optional per-stage `prompt_profile: "compact"` in EXECUTORS.md shortens sources to ±15-line windows, renders controller data brief/compact and appends `## Most common rejections (re-check now)`.
 ## 15.9.1 - 2026-10-19
 
 ### Fixed

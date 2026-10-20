@@ -88,7 +88,7 @@ DEFAULT_STAGE_POLICY: dict[str, dict[str, Any]] = {
     "TEST": {"executor": "codex", "model": None, "timeout_seconds": 600, "max_turns": None},
     "REVIEW": {"executor": "claude", "model": None, "timeout_seconds": 600, "max_turns": 40},
 }
-STAGE_KEYS = {"executor", "model", "timeout_seconds", "max_turns", "tools", "permission_mode", "sandbox", "sandbox_network", "codex_home", "env_from"}
+STAGE_KEYS = {"executor", "model", "timeout_seconds", "max_turns", "tools", "permission_mode", "sandbox", "sandbox_network", "codex_home", "env_from", "prompt_profile"}
 DEFAULT_CLAUDE_TOOLS = "Read,Grep,Glob"
 #: Claude tools that cannot change a file; any other tool (or ``default``) makes the worker a writer.
 READ_ONLY_CLAUDE_TOOLS = frozenset({"Read", "Grep", "Glob", "LS", "NotebookRead"})
