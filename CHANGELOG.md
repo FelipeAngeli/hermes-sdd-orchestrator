@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.9.1 - 2026-10-19
+
 ### Fixed
 
 - Review of the 15.9.0 executor launcher changes: `preflight --stage --probe` now runs the model probe with that stage's worker environment (`codex_home`, `env_from`); `codex_home` is applied after `env_from`, and `env_from` refuses names the base allowlist already passes (`WORKER_ENV_NAMES` members or `LC_`/`OPENAI_`/`CODEX_`/`ANTHROPIC_`/`CLAUDE_` prefixes, so an OpenCode `CODEX_*` key needs no `env_from`) and loader-affecting names (`LD_*`, `DYLD_*`, `NODE_OPTIONS`, `PYTHONPATH`, `PYTHONSTARTUP`, `BASH_ENV`, `ENV`) with `POLICY_INVALID`.
