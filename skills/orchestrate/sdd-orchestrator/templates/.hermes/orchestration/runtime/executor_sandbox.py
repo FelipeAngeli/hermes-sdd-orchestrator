@@ -97,6 +97,9 @@ def stage_extension_error(stage: str, entry: dict[str, Any], writing_stages: fro
                 return f"env_from cannot pass {name}: already passed to the worker."
             if name.startswith(_LOADER_ENV_PREFIXES) or name in _LOADER_ENV_NAMES:
                 return f"env_from cannot pass {name}: loader-affecting variables stay with the launcher."
+    prompt_profile = entry.get("prompt_profile")
+    if prompt_profile is not None and prompt_profile not in {"standard", "compact"}:
+        return "prompt_profile must be null or one of standard, compact."
     return None
 
 

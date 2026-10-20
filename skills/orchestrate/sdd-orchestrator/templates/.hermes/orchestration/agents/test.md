@@ -13,6 +13,8 @@ Run the focused validation authorized by the controller and report exact command
 
 ## Method
 
+Follow the prompt's `## Acceptance rules` block literally, run its self-check command before answering, and on a corrective retry fix the `## Fix these first` section before everything else.
+
 1. Recheck the supplied `context_assessment` and controller-owned acceptance mapping (ID, criterion, verification method, verifier and slice assignment); stop if material context is unresolved or the mapping differs.
 2. Verify the requested command exists and is scoped to the authorized change.
 3. Run commands in the supplied order with finite timeouts.

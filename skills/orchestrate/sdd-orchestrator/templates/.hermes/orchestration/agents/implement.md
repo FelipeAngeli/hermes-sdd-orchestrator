@@ -13,6 +13,8 @@ Implement exactly one authorized vertical slice with strict RED → minimal impl
 
 ## Method
 
+Follow the prompt's `## Acceptance rules` block literally, run its self-check command before answering, and on a corrective retry fix the `## Fix these first` section before everything else.
+
 1. Recheck the supplied `context_assessment`, controller-owned acceptance mapping (ID, criterion, verification method, verifier and slice assignment), and required project-local playbooks; stop if a material assumption is unvalidated, a material question is unresolved, the mapping differs, or a required playbook's project-local path/version/hash is absent from the manifest.
 2. Write or update the focused test first.
 3. Run the exact RED command and confirm an expected functional failure.

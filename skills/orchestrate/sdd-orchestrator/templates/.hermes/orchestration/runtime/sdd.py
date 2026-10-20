@@ -616,83 +616,13 @@ def check_manifest(manifest: dict[str, Any], role: str | None) -> dict[str, Any]
 
 # ----------------------------------------------------------------------------- prompt
 
-def _excerpt(repo: Path, source: dict[str, Any]) -> str:
-    start, end = source["lines"]
-    lines = (repo / source["path"]).read_text(encoding="utf-8").splitlines()[start - 1:end]
-    return "\n".join(f"{start + index}: {line}" for index, line in enumerate(lines))
+import prompt_rules  # noqa: E402
 
-
-def controller_data(ctx: Ctx, plan: dict[str, Any], manifest: dict[str, Any], *, brief: bool) -> dict[str, Any]:
-    delivery = ctx.delivery
-    stage, role = plan["stage"], plan["role"]
-    acceptance = delivery.get("acceptance") or {}
-    waivers = delivery.get("waivers") or {}
-    data: dict[str, Any] = {
-        "ticket": ctx.ticket, "stage": stage, "role": role, "profile": ctx.profile,
-        "deliverable_kind": delivery.get("deliverable_kind"),
-        "request": {"title": (ctx.state.get("ticket") or {}).get("title"), "objective": (ctx.state.get("ticket") or {}).get("objective"),
-                    "quote": (delivery.get("authorization") or {}).get("quote")},
-        "executor": executor_for(stage).upper(),
-        "acceptance": [{"id": key, **check} for key, check in sorted(acceptance.items())],
-        "recorded_waivers": {key: value for key, value in waivers.items() if key in acceptance},
-        "answers": delivery.get("answers") or [],
-        "protected_preexisting": (ctx.state.get("baseline") or {}).get("protected_preexisting") or [],
-    }
-    if manifest.get("slice"):
-        import stage_context
-
-        verifier = stage_context.verifier_context(manifest, role=role) if role is None else {}
-        data["slice"] = {key: verifier.get(key) for key in ("current_slice_ids", "completed_slice_ids", "editable_paths", "required_commands", "check_verifiers") if key in verifier}
-    if stage == "REVIEW":
-        data["gates"] = {name: (ctx.state.get("gates") or {}).get(name, {}).get("status", "PENDING") for name in GATE_NAMES}
-        data["agent_owned"] = (ctx.state.get("ownership") or {}).get("agent_owned") or []
-        data["human_accepted_paths"] = (ctx.state.get("ownership") or {}).get("human_accepted") or []
-    previous = delivery.get("summaries") or {}
-    data["previous"] = {name: ({"summary": item.get("summary")} if brief else item) for name, item in previous.items()}
-    if plan["parent"]:
-        retry: dict[str, Any] = {"parent_action_id": plan["parent"]["action_id"],
-                                 "reason": "timeout" if plan["parent"]["exit_code"] == aj_timeout() else plan["parent"]["status"].lower()}
-        errors_file = Path(plan["parent"]["errors_file"])
-        if errors_file.is_file():
-            retry["errors"] = json.loads(errors_file.read_text(encoding="utf-8"))[:10]
-        data["retry"] = retry
-    return data
-
-
-def build_prompt(ctx: Ctx, plan: dict[str, Any], manifest: dict[str, Any]) -> str:
-    stage, role = plan["stage"], plan["role"]
-    limit = int(manifest["limits"].get("max_prompt_bytes") or DEFAULT_MAX_PROMPT_BYTES)
-    if plan["reduced"]:
-        limit //= 2
-    brief_path = ORCHESTRATION / ("sub-agents/project-context-guardian.md" if role == GUARDIAN_ROLE else f"agents/{stage.lower()}.md")
-    envelope = "review_result" if stage == "REVIEW" else "executor_result"
-    playbooks = [str(ORCHESTRATION.parent / item["path"].split("/", 1)[1]) for item in manifest["playbooks"]]
-
-    def render(with_excerpts: bool, brief: bool) -> str:
-        parts = [
-            f"# SDD worker: {role or stage} for ticket {ctx.ticket}",
-            f"Read your brief first: {brief_path}",
-            ("Load these playbooks yourself: " + ", ".join(playbooks)) if playbooks else "No playbook is required.",
-            (f"Return exactly one JSON object `{{\"{envelope}\": {{...}}}}` matching the schema the CLI enforces "
-             f"(schema_version 3{'' if stage == 'REVIEW' else f', stage.value {stage}'}). Copy every acceptance check below with its id, "
-             "criterion, verification_method, verifier and slice_id unchanged; change only status, evidence and waiver. A check in "
-             "recorded_waivers is WAIVED with exactly that waiver object and evidence quoting it. Never write STATE or the journal, "
-             "never commit, push or call external systems."),
-            "## Controller data (authoritative)",
-            "```json\n" + json.dumps(controller_data(ctx, plan, manifest, brief=brief), ensure_ascii=False, indent=1) + "\n```",
-            "## Sources",
-        ]
-        for source in manifest["sources"]:
-            parts.append(f"### {source['path']} lines {source['lines'][0]}-{source['lines'][1]}")
-            if with_excerpts:
-                parts.append(_excerpt(ctx.repo, source))
-        return "\n\n".join(parts) + "\n"
-
-    for with_excerpts, brief in ((not plan["reduced"], plan["reduced"]), (False, False), (False, True)):
-        text = render(with_excerpts, brief)
-        if len(text.encode("utf-8")) <= limit:
-            return text
-    raise SddError("PROMPT_BUDGET_EXCEEDED", f"The {stage} prompt needs {len(text.encode('utf-8'))} bytes even without excerpts; max_prompt_bytes allows {limit}.")
+if __name__ == "__main__":  # run as a script: let `import sdd` in prompt_rules resolve to this module, not a copy
+    sys.modules.setdefault("sdd", sys.modules[__name__])
+_excerpt = prompt_rules._excerpt
+controller_data = prompt_rules.controller_data
+build_prompt = prompt_rules.build_prompt
 
 
 # ----------------------------------------------------------------------------- validation
@@ -1542,6 +1472,10 @@ def cmd_prepare(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     prompt = build_prompt(ctx, plan, manifest)
     prompt_path = Path(plan["prompt"])
     atomic_write_text(prompt_path, prompt)
+    if plan["stage"] in {"IMPLEMENT", "TEST"} and plan["role"] is None:
+        selfcheck = verifier_context(ctx, manifest, plan["role"])
+        atomic_write_text(ctx.run_dir() / f"{plan['action_id']}.selfcheck-context.json",
+                          json.dumps(selfcheck, sort_keys=True, indent=1) + "\n")
     data = copy.deepcopy(ctx.state)
     used, _ = budget(data, "executor_calls")
     set_budget(data, "executor_calls", used=used + 1)

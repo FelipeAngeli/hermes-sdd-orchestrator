@@ -4,6 +4,28 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.10.1 - 2026-10-20
+
+### Fixed
+
+- Worker prompt examples are schema-valid: `tdd_slices` examples carry every required field and `acceptance_checks` examples never render `{}` (HUMAN checks fall back to a PASS-with-recorded-decision placeholder, otherwise a PLANNED future check).
+- Recorded waivers only emit the WAIVED rule for current/completed-slice checks in IMPLEMENT (every check in TEST); future-slice waivers keep only the PLANNED line.
+- HUMAN checks on verified slices (and every HUMAN check in TEST) now emit an explicit HUMAN-verified rule instead of being silently omitted.
+- Compact source windows clamp to each source's declared `lines` range, drop glob match tokens, cap at 6 windows and 120 lines per source, and honour the no-excerpt reduced ladder.
+- Retry recipes map `expected version`, `must equal requested action` and controller-data failures to concrete instructions, and the only-JSON mapping is limited to real parse/transport errors.
+- The required-commands rule now says a command may be omitted when every check bound to it is WAIVED.
+- The self-check section documents the `/tmp/sdd-selfcheck-<action_id>.json` fallback when `$TMPDIR` is unset or not writable.
+
+## 15.10.0 - 2026-10-19
+
+### Added
+
+- Worker prompt item 1: IMPLEMENT and TEST prompts render a deterministic `## Acceptance rules` block built only from the verifier context the controller later passes to `validate_protocol.py`, with concrete bound commands, required commands, `tdd_slices` ids, editable paths, blockers, recorded waivers and minimal valid examples.
+- Worker prompt item 12: an IMPLEMENT prompt starts with a one-slice line (`Only slice <id> …`) plus the policy-derived `Finish within N minutes`; the validator-side per-slice path enforcement needs per-slice paths in STATE and is not implemented.
+- Worker prompt item 2: `controller_data` adds `retry.recipe`, a deterministic deduplicated list of fix instructions derived from each validator error reason, rendered at the top of a corrective-retry prompt as `## Fix these first`.
+- Worker prompt item 3: `prepare` writes an atomic `selfcheck-context.json` (same content as the validation-time verifier context) for IMPLEMENT/TEST, and the prompt adds `## Self-check before you answer` with the exact `validate_protocol.py` command; validation is unchanged.
+- Worker prompt item 8: optional per-stage `prompt_profile: "compact"` in EXECUTORS.md shortens sources to ±15-line windows, renders controller data brief/compact and appends `## Most common rejections (re-check now)`.
+
 ## 15.9.1 - 2026-10-19
 
 ### Fixed
