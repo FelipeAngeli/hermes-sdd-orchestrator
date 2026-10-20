@@ -9,6 +9,7 @@ Documentation of the Hermes SDD Orchestrator. Every page is kept in sync with th
 | Understand the whole system in five minutes | [Overview](overview.md) |
 | See how the layers depend on each other | [Architecture](ARCHITECTURE.md) |
 | Review the Jev decision-layer diagnosis and benchmark protocol | [Jev decision-layer evaluation](reports/jev-decision-layer-evaluation.md) |
+| Review the experimental context engine's offline and live baseline | [Jev context-engine baseline](reports/jev-context-engine-baseline.md) |
 | Install the orchestrator in a project | [Skill and installer](components/skill-and-installer.md) → [Gates and stack detection](components/gates-and-stack-detection.md) |
 | Follow one demand from request to DONE | [Overview — life of a demand](overview.md#life-of-a-demand) |
 | Change the orchestration | [Maintaining the docs](maintaining-docs.md) and [CONTRIBUTING](../CONTRIBUTING.md) |
@@ -32,6 +33,7 @@ Each page owns a set of files (see [doc-map.json](doc-map.json)) and is the sing
 | [Repository-local Hermes hooks](components/hooks.md) | Opt-in shell hooks for slice scope, verification evidence, bounded STATE context and sub-agent audit events |
 | [Obsidian vault](components/obsidian-vault.md) | Vault binding, write containment, worktree bootstrap and migrations |
 | [Context graph](components/context-graph.md) | Modules, rules, tests and decisions as connected notes; querying related context before acting |
+| [Context engine](components/context-engine.md) | Experimental opt-in Jev context selection, audit and recovery |
 | [Store review guardians](components/store-review-guardians.md) | `appstore-review-guardian` and `google-play-review-guardian`: read-only pre-submission audits of iOS and Android apps |
 | [Testing](components/testing.md) | Both test suites and what each test file guarantees |
 
