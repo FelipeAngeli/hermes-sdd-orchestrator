@@ -94,7 +94,7 @@ def tdd_example(current_slice_ids: list[str]) -> str:
     }, ensure_ascii=False)
 
 
-def acceptance_rules_block(context: dict[str, Any], stage: str) -> str:
+def acceptance_rules_block(context: dict[str, Any], stage: str, red_commands: dict[str, str] | None = None) -> str:
     acceptance = context.get("expected_acceptance") or {}
     current = context.get("current_slice_ids") or []
     completed = context.get("completed_slice_ids") or []
@@ -123,6 +123,8 @@ def acceptance_rules_block(context: dict[str, Any], stage: str) -> str:
                          f"`commands[]` with `exit_code: 0` and `result: \"PASS\"`.")
     for check_id in sorted(future_ids):
         lines.append(f"- {check_id} stays PLANNED with evidence null.")
+    for check_id in sorted(red_commands or {}):
+        lines.append(f"- RED for {check_id}: `{red_commands[check_id]}` must exit ≠ 0 against HEAD.")
     if stage == "IMPLEMENT":
         lines.append(f"- `tdd_slices` must contain exactly the ids [{', '.join(current)}]; each needs `red_command`, "
                      f"`red_exit_code` ≠ 0, `red_failure_kind: \"EXPECTED_FUNCTIONAL\"`, non-empty `expected_failure`, "
@@ -257,6 +259,12 @@ def build_prompt(ctx: Any, plan: dict[str, Any], manifest: dict[str, Any]) -> st
     context: dict[str, Any] = {}
     if stage in {"IMPLEMENT", "TEST"} and role is None:
         context = _sdd.verifier_context(ctx, manifest, role)
+    red_commands: dict[str, str] = {}
+    if stage == "IMPLEMENT" and role is None:
+        import acceptance_verifiers
+
+        red_commands = acceptance_verifiers.doc_red_commands(ctx.delivery.get("check_commands") or {},
+                                                             context.get("editable_paths") or [], ctx.profile)
     tokens = compact_match_tokens(context, ctx.ticket) if compact else []
 
     def render(with_excerpts: bool, brief: bool) -> str:
@@ -278,7 +286,7 @@ def build_prompt(ctx: Any, plan: dict[str, Any], manifest: dict[str, Any]) -> st
                      "recorded_waivers is WAIVED with exactly that waiver object and evidence quoting it. Never write STATE or the journal, "
                      "never commit, push or call external systems.")
         if stage in {"IMPLEMENT", "TEST"} and role is None:
-            parts.append(acceptance_rules_block(context, stage))
+            parts.append(acceptance_rules_block(context, stage, red_commands=red_commands))
         parts.append("## Controller data (authoritative)")
         parts.append("```json\n" + json.dumps(data, ensure_ascii=False, indent=None if compact else 1) + "\n```")
         parts.append("## Sources")

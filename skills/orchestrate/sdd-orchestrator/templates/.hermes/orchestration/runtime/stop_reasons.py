@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
-"""Closed registry of every ``stop_reason`` a runtime emits, with exactly one next action each.
-
-LOOP_POLICY.md §9 renders this table and ``tests/test_stop_reasons.py`` keeps the
-three in sync: every literal a runtime emits is registered here, every registered
-code is emitted by some runtime, and §9 lists exactly these codes. A controller
-that meets a stop reason therefore never has to invent a step: it runs the
-``next_command`` (placeholders in ``<...>`` are filled from the user's own
-words) and then ``sdd.py next``.
-
-``{sdd}`` in a command template is rendered as the exact interpreter + path of
-this controller's ``runtime/sdd.py``.
-"""
+"""Closed registry of every runtime stop reason, with exactly one next action."""
 from __future__ import annotations
 
 import shlex
@@ -85,7 +74,7 @@ STOP_REASONS: dict[str, tuple[str, str, str]] = {
     "SCOPE_CHANGE_REQUIRED": (HUMAN, "The slice contract differs from the approved one; it is new scope. Record the user's approval of the current slice contracts.", "{sdd} approve-scope --quote '<user words>'"),
     "INVESTIGATION_BUDGET_EXCEEDED": (HUMAN, "The context budget of the manifest is exceeded; ask for an explicit expansion or narrow the sources.", _RAISE % "investigation_expansions"),
     "PROMPT_BUDGET_EXCEEDED": (HUMAN, "The worker prompt exceeds max_prompt_bytes even after reduction; ask the user to authorize a larger prompt.", "{sdd} budget --raise prompt_bytes --by 16384 --quote '<user words authorizing more>'"),
-    "MANIFEST_INVALID": (BLOCKED, "The stage-context manifest was refused; the findings name the field. Fix the source data, then `sdd.py next`.", _NEXT),
+    "MANIFEST_INVALID": (BLOCKED, "The stage-context manifest was refused; the findings name the field. At IMPLEMENT, a `SLICE_*` finding in a profile with TASKS prints `sdd.py reopen --to TASKS`; otherwise fix the source data, then `sdd.py next`.", _NEXT),
     "JEV_GOVERNANCE_REQUIRED": (BLOCKED, "Automatic Jev consent is recorded but no governance fingerprint is: run `semantic_governor.py decide` for this ticket (or the user withdraws the consent in PROJECT_SETUP.md), then `sdd.py next` rebuilds the manifest.", _NEXT),
     # --- baseline (sdd.py next) ---
     "BASELINE_DRIFT_EXTERNAL": (HUMAN, "HEAD or branch changed outside the agent; ask the user whether to continue on the new baseline and record the answer (it captures the new baseline).", _REBASELINE),
@@ -102,11 +91,6 @@ STOP_REASONS: dict[str, tuple[str, str, str]] = {
     "OWNERSHIP_VIOLATION": (HUMAN, "REVIEW found writes outside the agent-owned paths; ask the user. Accepting them records the answer and redispatches REVIEW; otherwise reopen IMPLEMENT with `sdd.py reopen`.", _REBASELINE),
     "GATE_COMMAND_UNCONFIGURED": (BLOCKED, "A required gate has no verified command in policies/GATES.md; configure it (`detect_stack.py` suggests one; run it once). Editing GATES.md during a demand then needs the user's confirmation once, which `sdd.py next` prints as `confirm-policy --name gates` before the gate runs.", _NEXT),
     "GATE_CONFIRMATION_REQUIRED": (HUMAN, "GATES.md marks this gate NOT_APPLICABLE; record the user's explicit confirmation with the printed `gate --not-applicable` command.", _NEXT),
-    "CONTROLLER_POLICY_CHANGED_DURING_DEMAND": (HUMAN, "policies/GATES.md or EXECUTORS.md no longer matches the hash pinned at `sdd.py start`: its gate commands run on the host and it chooses the worker binary, so a worker with write access could have changed it. Show the user the diff; only their confirmation re-pins it.", _CONFIRM_POLICY),
-    "CONTROLLER_POLICY_UNPINNED": (HUMAN, "A controller policy file has no pinned SHA-256 for this demand (started before pinning existed), so an edit cannot be attributed to the owner. Review each file with the user and record their confirmation; no gate runs until then.", _CONFIRM_POLICY),
-    "CONTROLLER_POLICY_CONFIRMATION_REQUIRED": (HUMAN, "Confirming a controller policy change needs the user's literal words; ask them and record the answer with the printed command.", _CONFIRM_POLICY),
-    "CONTROLLER_POLICY_UNREADABLE": (BLOCKED, "A controller policy file (policies/GATES.md or EXECUTORS.md) is missing or unreadable, so its SHA-256 cannot be pinned and confirming it would pin nothing; Git cannot restore it (the Obsidian container is not a Git repository and a `--local-storage` controller is excluded from Git). Run `restore_commands` in order: `sdd.py restore-policy --name <policy> --skill <installed-skill>` recreates it from the installed skill's template (verified against INSTALL_MANIFEST.json) without ending the demand, `sdd.py confirm-policy` records the user's confirmation of the recreated content, then `sdd.py next`. When the template changed since the install, `reinstall_commands` is the fallback: `sdd.py abandon`, `install_project.py --upgrade` dry run and `--apply`, `confirm-policy`, `sdd.py start`. Reconfigure the gate rows of a recreated GATES.md before the first gate.", "{sdd} restore-policy --name <policy> --skill <installed-skill>"),
-    "CONTROLLER_WRITABLE_BY_WORKER": (BLOCKED, "This stage runs a writing worker and the controller physically lives inside the repository that worker can write (a `--local-storage` install, with or without an Obsidian binding), so it could rewrite the gate commands, the executor policy, the controller's runtime, STATE or the journal together with every hash they are checked against — detection has no anchor the worker cannot reach. The dispatch is refused, also for an action prepared before the check applied. `migrate_to_vault.py` is not the exit (it keeps `runtime/*.py` and `policies/` in the repository); the stop prints the whole sequence in `exit_commands`: `sdd.py abandon` (the user's words; an undispatched action is archived), `install_project.py --obsidian-vault <vault> --obsidian-project <project>` dry run then `--apply`, `mv` of the in-repository `.hermes/orchestration` (and `.hermes.md`) into `<vault>/<project>/.hermes-local-controller-backup/`, and `start` with the new controller's `sdd.py`. Read-only stages keep running meanwhile.", _ABANDON),
     "STATE_MODIFIED_DURING_ACTION": (BLOCKED, "STATE changed while an action was open, outside the journal's state commit: in `--local-storage` mode a writing worker can reach STATE. The result is never folded in; `sdd.py abandon` archives the open action as evidence and returns STATE to IDLE with every per-demand block reset, reverting nothing in the worktree, so `sdd.py start` can re-run the demand. Never repair STATE by hand.", _ABANDON),
     "DONE_GATES_NOT_PASSED": (BLOCKED, "DONE needs focused tests, format, analysis, review and CI (or DISABLED_BY_PROJECT_POLICY) to pass; `sdd.py next` prints the missing gate.", _NEXT),
     "FOCUSED_TESTS_REQUIRED": (BLOCKED, "Format runs only after focused tests pass; run the focused-tests gate first.", _NEXT),
@@ -199,11 +183,6 @@ EXPLANATIONS: dict[str, tuple[str, str, str]] = {
     "OWNERSHIP_VIOLATION": ("A revisão encontrou alterações fora dos arquivos permitidos.", "Os agentes só podem escrever nos caminhos que receberam.", "Decidir se aceita essas alterações ou reabre a implementação."),
     "GATE_COMMAND_UNCONFIGURED": ("Um gate obrigatório não tem comando configurado.", "Sem comando verificado, não dá para provar que a entrega passa.", "Configurar o gate em GATES.md (o detect_stack sugere) e seguir."),
     "GATE_CONFIRMATION_REQUIRED": ("Um gate está marcado como não aplicável.", "Pular uma verificação exige sua confirmação explícita.", "Confirmar com o comando mostrado, se concordar."),
-    "CONTROLLER_POLICY_CHANGED_DURING_DEMAND": ("Uma política do controlador mudou durante a demanda.", "Esses arquivos definem comandos e executores; um agente poderia tê-los alterado.", "Ver a diferença e confirmar, se a mudança for sua."),
-    "CONTROLLER_POLICY_UNPINNED": ("Uma política do controlador não tem hash registrado nesta demanda.", "Sem o hash, não dá para saber quem alterou o arquivo.", "Revisar o arquivo e confirmar."),
-    "CONTROLLER_POLICY_CONFIRMATION_REQUIRED": ("A confirmação da política precisa das suas palavras.", "A confirmação fica registrada com o que você disse.", "Responder e registrar com o comando mostrado."),
-    "CONTROLLER_POLICY_UNREADABLE": ("Uma política do controlador sumiu ou não pode ser lida.", "Sem o arquivo, não há o que confirmar; ele precisa ser recriado.", "Restaurar a partir da skill instalada e confirmar o conteúdo."),
-    "CONTROLLER_WRITABLE_BY_WORKER": ("O controlador está dentro do repositório que o executor pode escrever.", "Um executor com escrita poderia alterar o próprio controlador sem ser notado.", "Encerrar a demanda e mover o controlador para o Obsidian (passos prontos)."),
     "STATE_MODIFIED_DURING_ACTION": ("O estado mudou enquanto uma ação estava aberta.", "Mudança fora do diário indica escrita indevida; o resultado é descartado.", "Encerrar a demanda (nada é revertido) e começar de novo."),
     "DONE_GATES_NOT_PASSED": ("Ainda falta passar algum gate para concluir.", "Concluir exige testes, formatação, análise e revisão aprovados, e CI aprovado ou desativado pela política do projeto.", "Seguir: sdd.py next mostra qual gate falta."),
     "FOCUSED_TESTS_REQUIRED": ("A formatação só roda depois dos testes focados.", "Os gates têm ordem fixa.", "Rodar primeiro o gate de testes focados."),
@@ -240,6 +219,12 @@ EXPLANATIONS: dict[str, tuple[str, str, str]] = {
     "HUMAN_APPROVAL_REQUIRED": ("Há uma aprovação humana pendente.", "O estado registra que você precisa aprovar antes de seguir.", "Responder e então seguir com sdd.py next."),
     "NO_NEXT_ACTION": ("O driver antigo não tem mais ações no plano.", "Esse driver está obsoleto.", "Usar sdd.py next."),
 }
+
+_spec = __import__("importlib.util").util.spec_from_file_location("sdd_stop_reason_additions", Path(__file__).with_name("stop_reason_additions.py"))
+_additions = __import__("importlib.util").util.module_from_spec(_spec)
+_spec.loader.exec_module(_additions)
+_additions.apply(STOP_REASONS, EXPLANATIONS, HUMAN, _NEXT)
+_additions.apply_controller_policy(STOP_REASONS, EXPLANATIONS, HUMAN, BLOCKED, _CONFIRM_POLICY, _ABANDON)
 
 #: Codes a runtime emits through a computed value rather than a literal (journal
 #: error codes surfaced by ``recover`` when the STATE commit cannot be hashed).
