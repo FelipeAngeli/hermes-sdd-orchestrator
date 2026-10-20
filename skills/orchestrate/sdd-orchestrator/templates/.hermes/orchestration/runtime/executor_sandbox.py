@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Sandbox probe and per-stage Codex settings helpers for the executor launcher.
 
-Holds the path containment helpers the launcher shares with the installer, the
+Holds the path containment helpers the launcher uses (the installer keeps its own), the
 Codex-only stage settings (``sandbox_network``, ``codex_home``, ``env_from``) and the
 advisory sandbox probe used by ``preflight --probe-sandbox``. Standard library only.
 """
@@ -21,6 +21,8 @@ CODEX_NETWORK_ACCESS_CONFIG = "sandbox_workspace_write.network_access=true"
 
 _ENV_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 _FORBIDDEN_ENV_PREFIXES = ("TYPESAFE_", "JEV_", "HERMES_")
+_LOADER_ENV_PREFIXES = ("LD_", "DYLD_")
+_LOADER_ENV_NAMES = frozenset({"NODE_OPTIONS", "PYTHONPATH", "PYTHONSTARTUP", "BASH_ENV", "ENV"})
 _MAX_ENV_FROM = 4
 _PROBE_TIMEOUT_SECONDS = 20
 
@@ -61,7 +63,8 @@ def _inside(path: Path, root: Path) -> bool:
     return any(_identity(candidate) == target for candidate in (resolved, *resolved.parents))
 
 
-def stage_extension_error(stage: str, entry: dict[str, Any], writing_stages: frozenset[str]) -> str | None:
+def stage_extension_error(stage: str, entry: dict[str, Any], writing_stages: frozenset[str], worker_env_names: frozenset[str],
+                             worker_env_prefixes: tuple[str, ...], executor_env_prefixes: dict[str, tuple[str, ...]]) -> str | None:
     """Return the POLICY_INVALID message for the Codex-only stage keys, or ``None`` when valid."""
     sandbox_network = entry.get("sandbox_network")
     if sandbox_network is not None:
@@ -87,6 +90,13 @@ def stage_extension_error(stage: str, entry: dict[str, Any], writing_stages: fro
                 return "env_from names must match ^[A-Z][A-Z0-9_]{0,63}$."
             if name.startswith(_FORBIDDEN_ENV_PREFIXES):
                 return f"env_from cannot pass {name}: TYPESAFE_*, JEV_* and HERMES_* stay with the controller."
+            if name in worker_env_names:
+                return f"env_from cannot pass {name}: already passed to the worker."
+            executor_prefixes = tuple(prefix for prefixes in executor_env_prefixes.values() for prefix in prefixes)
+            if name.startswith((*worker_env_prefixes, *executor_prefixes)):
+                return f"env_from cannot pass {name}: already passed to the worker."
+            if name.startswith(_LOADER_ENV_PREFIXES) or name in _LOADER_ENV_NAMES:
+                return f"env_from cannot pass {name}: loader-affecting variables stay with the launcher."
     return None
 
 
@@ -109,15 +119,31 @@ def apply_codex_env(executor: str, settings: dict[str, Any] | None, base_env: di
     missing: list[str] = []
     if executor != "codex" or not settings:
         return additions, missing
-    codex_home = settings.get("codex_home")
-    if codex_home:
-        additions["CODEX_HOME"] = codex_home
     for name in settings.get("env_from") or []:
         if name in base_env:
             additions[name] = base_env[name]
         else:
             missing.append(name)
+    codex_home = settings.get("codex_home")
+    if codex_home:
+        additions["CODEX_HOME"] = codex_home
     return additions, missing
+
+
+def preflight_stage_env(executor: str, settings: dict[str, Any] | None, result: dict[str, Any],
+                        worker_environment: Any) -> tuple[dict[str, str] | None, dict[str, Any] | None]:
+    """Resolve the stage worker env before probing; return (worker_env, blocked payload)."""
+    if settings is not None and settings.get("codex_home") and not Path(settings["codex_home"]).is_dir():
+        return None, {**result, "status": "BLOCKED", "reason": "CODEX_HOME_INVALID",
+                      "next_step": f"codex_home {settings['codex_home']} is not an existing directory. Create it or fix codex_home in policies/EXECUTORS.md.",
+                      "next_command": None}
+    try:
+        return worker_environment(executor, settings), None
+    except Exception as exc:
+        if getattr(exc, "status", None) == "EXECUTOR_ENV_MISSING":
+            return None, {**result, "status": "BLOCKED", "reason": "EXECUTOR_ENV_MISSING", "detail": str(exc),
+                          "next_step": getattr(exc, "next_step", None), "next_command": None}
+        raise
 
 
 def _probe_command(binary: str, network: bool, command: list[str]) -> list[str]:
@@ -138,11 +164,36 @@ def _run_probe(argv: list[str], timeout: int, env: dict[str, str], scratch: str,
     return "OK" if completed.returncode == 0 else "BLOCKED"
 
 
+def _sandbox_config_supported(binary: str, env: dict[str, str], scratch: str, run_quiet: Any) -> bool:
+    try:
+        completed = run_quiet([binary, "sandbox", "--help"], _PROBE_TIMEOUT_SECONDS, cwd=scratch, env=env)
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    output = completed.stdout + completed.stderr
+    return "--config" in output
+
+
+def _docker_probe(binary: str, network: bool, env: dict[str, str], scratch: str, run_quiet: Any) -> str:
+    try:
+        baseline = run_quiet(["docker", "info"], _PROBE_TIMEOUT_SECONDS, cwd=scratch, env=env)
+    except (subprocess.TimeoutExpired, OSError):
+        return "SKIPPED"
+    if baseline.returncode != 0:
+        return "SKIPPED"
+    return _run_probe(_probe_command(binary, network, ["docker", "info"]), _PROBE_TIMEOUT_SECONDS, env, scratch, run_quiet)
+
+
 def probe_sandbox(*, binary: str, settings: dict[str, Any], env: dict[str, str], run_quiet: Any) -> dict[str, Any]:
     """Run the three sandbox probes without a model call; never enables network by itself."""
     network = bool(settings.get("sandbox_network"))
     result: dict[str, Any] = {}
     with tempfile.TemporaryDirectory(prefix="sdd-sandbox-probe-") as scratch:
+        if not _sandbox_config_supported(binary, env, scratch, run_quiet):
+            result["tcp_listen"] = "UNSUPPORTED"
+            result["unix_listen"] = "UNSUPPORTED"
+            result["docker"] = "UNSUPPORTED"
+            result["network_access"] = network
+            return result
         if shutil.which("node"):
             result["tcp_listen"] = _run_probe(
                 _probe_command(binary, network, ["node", "-e", _TCP_LISTEN_SCRIPT]),
@@ -154,9 +205,7 @@ def probe_sandbox(*, binary: str, settings: dict[str, Any], env: dict[str, str],
             result["tcp_listen"] = "SKIPPED"
             result["unix_listen"] = "SKIPPED"
         if shutil.which("docker"):
-            result["docker"] = _run_probe(
-                _probe_command(binary, network, ["docker", "info"]),
-                _PROBE_TIMEOUT_SECONDS, env, scratch, run_quiet)
+            result["docker"] = _docker_probe(binary, network, env, scratch, run_quiet)
         else:
             result["docker"] = "SKIPPED"
     result["network_access"] = network

@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import action_journal as journal_module  # noqa: E402
 import executor_launch as launch  # noqa: E402
+import executor_sandbox  # noqa: E402
 import executor_transport as transport  # noqa: E402
 from test_protocol import executor_fixture  # noqa: E402
 
@@ -187,3 +188,115 @@ class CodexTransportRunTests(unittest.TestCase):
         self.assertNotIn("transport_normalized", result)
         self.assertFalse(self.final.with_name(self.final.name + ".raw-message.txt").exists())
         self.assertEqual(executor_fixture("TEST"), json.loads(self.final.read_text(encoding="utf-8")))
+
+    def test_stale_raw_sidecar_is_removed_before_a_new_dispatch(self) -> None:
+        self.prepare()
+        sidecar = self.final.with_name(self.final.name + ".raw-message.txt")
+        sidecar.write_text("stale previous dispatch", encoding="utf-8")
+        code, result = self.run_codex(json.dumps(executor_fixture("TEST")))
+        self.assertEqual(0, code, result)
+        self.assertEqual("ARTIFACT_READY", result["status"])
+        self.assertFalse(sidecar.exists())
+        self.assertEqual(executor_fixture("TEST"), json.loads(self.final.read_text(encoding="utf-8")))
+
+class PreflightMissingEnvTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temp = tempfile.TemporaryDirectory(prefix="executors-missing-env-")
+        self.addCleanup(temp.cleanup)
+        self.base = Path(temp.name)
+        self.bin = self.base / "bin"
+        self.bin.mkdir()
+        codex = self.bin / "codex"
+        codex.write_text(f"#!{sys.executable}\n{FAKE_CODEX}", encoding="utf-8")
+        codex.chmod(0o755)
+
+    def test_missing_env_from_blocks_preflight_with_reason(self) -> None:
+        self.assertIn("EXECUTOR_ENV_MISSING", launch.LAUNCH_STATUSES)
+        self.assertIn("EXECUTOR_ENV_MISSING", launch.PREFLIGHT_REASONS)
+        policy = {
+            "source": "FILE", "path": "EXECUTORS.md", "allow_bypass_permissions": False,
+            "stages": {"IMPLEMENT": {"executor": "codex", "model": None, "timeout_seconds": 900, "max_turns": None,
+                                     "sandbox": "workspace-write", "env_from": ["MY_MISSING_VAR"]}},
+        }
+        with mock.patch.dict(process_environment, {"PATH": f"{self.bin}{os.pathsep}{process_environment.get('PATH', '')}"}):
+            with mock.patch.object(launch, "load_policy", return_value=policy):
+                result = launch.preflight("codex", None, probe=False, stage="IMPLEMENT", probe_sandbox=False)
+        self.assertEqual(("BLOCKED", "EXECUTOR_ENV_MISSING"), (result["status"], result["reason"]))
+        self.assertIn("MY_MISSING_VAR", result["detail"])
+
+
+
+class RunMissingEnvTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temp = tempfile.TemporaryDirectory(prefix="executors-run-missing-env-")
+        self.addCleanup(temp.cleanup)
+        self.base = Path(temp.name)
+        self.repo = self.base / "repo"
+        self.repo.mkdir()
+        self.runtime = self.base / "runtime"
+        self.runtime.mkdir()
+        self.journal = self.runtime / "ACTION_JOURNAL.json"
+        self.final = self.runtime / "final-message.json"
+        self.prompt = self.runtime / "prompt.txt"
+        self.prompt.write_text("Do the stage work.\n", encoding="utf-8")
+
+    def test_missing_env_from_var_leaves_journal_prepared(self) -> None:
+        policy = self.base / "EXECUTORS.md"
+        policy.write_text('```json\n{"executors_version": 1, "stages": {"IMPLEMENT": {"executor": "codex", "env_from": ["MY_MISSING_VAR"]}}}\n```\n',
+                          encoding="utf-8")
+        workspace = {"path": str(self.repo), "branch": "dev", "head": "a" * 40, "git_common_dir": str(self.repo / ".git")}
+        value = journal_module.empty_journal(workspace)
+        value["action"].update({
+            "id": "T-1-IMPLEMENT-01", "ticket": "T-1", "stage": "IMPLEMENT", "name": "implement", "status": "PREPARED",
+            "executor": "CODEX", "schema_path": "schemas/EXECUTOR_RESULT_SCHEMA.json", "protocol_version": 3,
+            "prompt_hash": hashlib.sha256(self.prompt.read_bytes()).hexdigest(), "final_message_path": str(self.final),
+            "attempt": 1, "retry_mode": None,
+        })
+        value["fingerprints"].update({"baseline": "b" * 64, "ownership": "o" * 64, "state_before": "s" * 64})
+        journal_module.prepare_action(self.journal, value)
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            code = launch.main(["run", "--stage", "IMPLEMENT", "--prompt-file", str(self.prompt),
+                                "--journal", str(self.journal), "--final", str(self.final),
+                                "--policy", str(policy)])
+        self.assertEqual(2, code)
+        result = json.loads(buffer.getvalue())
+        self.assertEqual("EXECUTOR_ENV_MISSING", result["status"])
+        self.assertEqual("PREPARED", json.loads(self.journal.read_text(encoding="utf-8"))["action"]["status"])
+
+
+
+class PreflightStageProbeEnvTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temp = tempfile.TemporaryDirectory(prefix="executors-stage-probe-")
+        self.addCleanup(temp.cleanup)
+        self.base = Path(temp.name)
+        self.home = self.base / "codex-home"
+        self.home.mkdir()
+        self.bin = self.base / "bin"
+        self.bin.mkdir()
+        codex = self.bin / "codex"
+        codex.write_text(f"#!{sys.executable}\n{FAKE_CODEX}", encoding="utf-8")
+        codex.chmod(0o755)
+
+    def test_stage_probe_receives_codex_home_and_env_from(self) -> None:
+        policy = {
+            "source": "FILE", "path": "EXECUTORS.md", "allow_bypass_permissions": False,
+            "stages": {"IMPLEMENT": {"executor": "codex", "model": None, "timeout_seconds": 900, "max_turns": None,
+                                     "sandbox": "workspace-write", "codex_home": str(self.home),
+                                     "env_from": ["OPENCODE_API_KEY"]}},
+        }
+        captured: dict = {}
+
+        def fake_model_probe(**kwargs):
+            captured.update(kwargs)
+            return {"model_check": "ACCEPTED", "probe_exit_code": 0, "probe_stderr_tail": ""}
+
+        with mock.patch.dict(process_environment, {"PATH": f"{self.bin}{os.pathsep}{process_environment.get('PATH', '')}",
+                                                   "OPENCODE_API_KEY": "secret"}):
+            with mock.patch.object(launch, "load_policy", return_value=policy), \
+                    mock.patch.object(executor_sandbox, "model_probe", side_effect=fake_model_probe):
+                result = launch.preflight("codex", None, probe=True, stage="IMPLEMENT", probe_sandbox=False)
+        self.assertEqual("ACCEPTED", result["model_check"])
+        self.assertEqual(str(self.home), captured["worker_env"]["CODEX_HOME"])
+        self.assertEqual("secret", captured["worker_env"]["OPENCODE_API_KEY"])
