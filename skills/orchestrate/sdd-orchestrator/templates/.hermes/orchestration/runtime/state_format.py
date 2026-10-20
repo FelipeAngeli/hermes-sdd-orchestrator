@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 FENCE_RE = re.compile(r"^(?P<before>.*?)```yaml\s*\n(?P<body>.*?)```(?P<after>.*)$", re.S)
 
@@ -40,7 +40,7 @@ PROFILES = {
 #: Backward transitions allowed with a recorded human reason (a reopened stage).
 #: A stage never transitions to itself: a failure inside IMPLEMENT (the DECISION_DOC
 #: gate stage) reopens in place with ``sdd.py reopen`` (a FIX slice), not a transition.
-REOPEN_TARGETS = {"TEST": ("IMPLEMENT",), "REVIEW": ("IMPLEMENT",)}
+REOPEN_TARGETS={"TEST":("IMPLEMENT",),"REVIEW":("IMPLEMENT",),"IMPLEMENT":("TASKS",)}
 
 
 class StateFormatError(Exception):
@@ -54,7 +54,7 @@ class StateFormatError(Exception):
         return f"{self.code}: {self.message}" + (f" | {self.detail}" if self.detail else "")
 
 
-def split_fence(text: str) -> Tuple[str, str, str]:
+def split_fence(text: str) -> tuple[str, str, str]:
     match = FENCE_RE.match(text)
     if not match:
         raise StateFormatError(
@@ -81,7 +81,7 @@ def detect(text: str) -> str:
     return "yaml-block"
 
 
-def parse(text: str) -> Dict[str, Any]:
+def parse(text: str) -> dict[str, Any]:
     body = split_fence(text)[1]
     stripped = body.lstrip()
     if stripped.startswith("{"):
@@ -122,7 +122,7 @@ def normalise(text: str) -> str:
     return result
 
 
-def dump(text: str, data: Dict[str, Any], *, log: str | None = None) -> str:
+def dump(text: str, data: dict[str, Any], *, log: str | None = None) -> str:
     """Return STATE.md with ``data`` as its JSON payload, prose preserved, plus one log line.
 
     Like ``normalise`` the result is re-parsed and refused unless it reads back
@@ -142,7 +142,7 @@ def dump(text: str, data: Dict[str, Any], *, log: str | None = None) -> str:
     return result
 
 
-def profile_path(profile: str) -> Tuple[str, ...]:
+def profile_path(profile: str) -> tuple[str, ...]:
     if profile not in PROFILES:
         raise StateFormatError("STATE_PROFILE_UNKNOWN", f"Unknown delivery profile {profile!r}.", detail=", ".join(PROFILES))
     return PROFILES[profile]
@@ -158,14 +158,14 @@ def next_stage(profile: str, current: str) -> str:
 
 
 def apply_transition(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     target: str,
     *,
     profile: str,
-    provenance: Dict[str, Any] | None = None,
+    provenance: dict[str, Any] | None = None,
     clarify_skip_reason: str | None = None,
     reopen_reason: str | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return a copy of ``data`` moved to ``target``; refuse any transition the profile forbids.
 
     Forward: every stage strictly between current and target must be absent from
@@ -219,7 +219,7 @@ def apply_transition(
     return result
 
 
-def skipped_stage_names(data: Dict[str, Any]) -> List[str]:
+def skipped_stage_names(data: dict[str, Any]) -> list[str]:
     """Skipped stages as names; entries may be plain names (legacy) or {stage, reason}."""
     return [item.get("stage") if isinstance(item, dict) else item for item in (data.get("stage") or {}).get("skipped", [])]
 
@@ -229,8 +229,8 @@ def skipped_stage_names(data: Dict[str, Any]) -> List[str]:
 # ---------------------------------------------------------------------------
 
 
-def _parse_block(body: str) -> Dict[str, Any]:
-    lines: List[Tuple[int, str]] = []
+def _parse_block(body: str) -> dict[str, Any]:
+    lines: list[tuple[int, str]] = []
     for raw in body.splitlines():
         if "\t" in raw[: len(raw) - len(raw.lstrip())]:
             raise StateFormatError(
@@ -255,14 +255,14 @@ def _parse_block(body: str) -> Dict[str, Any]:
     return value
 
 
-def _raw_lines(body: str) -> List[str]:
+def _raw_lines(body: str) -> list[str]:
     return body.splitlines()
 
 
 def _parse_mapping(
-    lines: List[Tuple[int, str]], index: int, indent: int, raw: List[str]
-) -> Tuple[Dict[str, Any], int]:
-    result: Dict[str, Any] = {}
+    lines: list[tuple[int, str]], index: int, indent: int, raw: list[str]
+) -> tuple[dict[str, Any], int]:
+    result: dict[str, Any] = {}
     while index < len(lines):
         line_indent, content = lines[index]
         if line_indent < indent:
@@ -295,15 +295,15 @@ def _parse_mapping(
 
 
 def _parse_block_scalar(
-    lines: List[Tuple[int, str]], index: int, indent: int, style: str
-) -> Tuple[str, int]:
+    lines: list[tuple[int, str]], index: int, indent: int, style: str
+) -> tuple[str, int]:
     """Consume a folded (``>``) or literal (``|``) block scalar.
 
     Comments were already stripped, which is safe here because these blocks hold
     prose; ``#`` mid-sentence is preserved by ``_strip_comment`` since it only
     treats whitespace-preceded hashes as comments.
     """
-    collected: List[str] = []
+    collected: list[str] = []
     while index < len(lines) and lines[index][0] > indent:
         collected.append(lines[index][1])
         index += 1
@@ -312,9 +312,9 @@ def _parse_block_scalar(
 
 
 def _parse_sequence(
-    lines: List[Tuple[int, str]], index: int, indent: int, raw: List[str]
-) -> Tuple[List[Any], int]:
-    items: List[Any] = []
+    lines: list[tuple[int, str]], index: int, indent: int, raw: list[str]
+) -> tuple[list[Any], int]:
+    items: list[Any] = []
     while index < len(lines):
         line_indent, content = lines[index]
         if line_indent != indent or not content.startswith("- "):
@@ -347,7 +347,7 @@ def _looks_like_mapping_entry(token: str) -> bool:
     return True
 
 
-def _split_key(content: str) -> Tuple[str, str, str]:
+def _split_key(content: str) -> tuple[str, str, str]:
     in_single = in_double = False
     for position, char in enumerate(content):
         if char == '"' and not in_single:
@@ -389,12 +389,12 @@ def _parse_scalar_or_inline(token: str) -> Any:
     return _parse_scalar(token)
 
 
-def _parse_flow(text: str, index: int) -> Tuple[Any, int]:
+def _parse_flow(text: str, index: int) -> tuple[Any, int]:
     index = _skip_space(text, index)
     if index >= len(text):
         raise StateFormatError("STATE_SHAPE_UNRECOGNISED", "Unterminated inline collection.")
     if text[index] == "{":
-        result: Dict[str, Any] = {}
+        result: dict[str, Any] = {}
         index += 1
         index = _skip_space(text, index)
         if index < len(text) and text[index] == "}":
@@ -419,7 +419,7 @@ def _parse_flow(text: str, index: int) -> Tuple[Any, int]:
                 "STATE_SHAPE_UNRECOGNISED", "Malformed inline mapping.", detail=text
             )
     if text[index] == "[":
-        items: List[Any] = []
+        items: list[Any] = []
         index += 1
         index = _skip_space(text, index)
         if index < len(text) and text[index] == "]":
@@ -439,7 +439,7 @@ def _parse_flow(text: str, index: int) -> Tuple[Any, int]:
     raise StateFormatError("STATE_SHAPE_UNRECOGNISED", "Expected inline collection.", detail=text)
 
 
-def _read_flow_value(text: str, index: int) -> Tuple[Any, int]:
+def _read_flow_value(text: str, index: int) -> tuple[Any, int]:
     index = _skip_space(text, index)
     if index < len(text) and text[index] in "{[":
         return _parse_flow(text, index)
@@ -447,7 +447,7 @@ def _read_flow_value(text: str, index: int) -> Tuple[Any, int]:
     return _parse_scalar(token.strip()), index
 
 
-def _read_flow_token(text: str, index: int, stop: str) -> Tuple[str, int]:
+def _read_flow_token(text: str, index: int, stop: str) -> tuple[str, int]:
     start = index
     in_single = in_double = False
     while index < len(text):

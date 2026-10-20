@@ -77,6 +77,7 @@ This table is the closed vocabulary: it is generated from `runtime/stop_reasons.
 | --- | --- | --- |
 | `NONE` | PAUSED | Nothing stops the loop; continue with the next step. → `sdd.py next` |
 | `STAGE_TRANSITION_BUDGET_REACHED` | HUMAN | The stage-transition budget is spent; ask the user whether to authorize more transitions. → `sdd.py budget --raise stage_transitions --by 1 --quote '<user words authorizing more>'` |
+| `BUDGET_BELOW_PLAN` | HUMAN | The plan needs more TDD slices or executor calls than the budget allows; the stop prints the exact raise command(s). → `sdd.py budget --raise <name> --by <n> --quote '<user words>'` |
 | `EXECUTOR_CALL_BUDGET_REACHED` | HUMAN | The executor-call budget is spent; ask the user whether to authorize more calls. → `sdd.py budget --raise executor_calls --by 1 --quote '<user words authorizing more>'` |
 | `RETRY_BUDGET_REACHED` | HUMAN | The corrective-retry budget for this action is spent; ask the user to authorize one more retry or to reopen the stage. → `sdd.py budget --raise corrective_retries --by 1 --quote '<user words authorizing more>'` |
 | `TDD_SLICE_BUDGET_REACHED` | HUMAN | The TDD-slice budget is spent; IMPLEMENT stays open. Ask the user to authorize more slices. → `sdd.py budget --raise tdd_slices --by 1 --quote '<user words authorizing more>'` |
@@ -107,7 +108,7 @@ This table is the closed vocabulary: it is generated from `runtime/stop_reasons.
 | `SCOPE_CHANGE_REQUIRED` | HUMAN | The slice contract differs from the approved one; it is new scope. Record the user's approval of the current slice contracts. → `sdd.py approve-scope --quote '<user words>'` |
 | `INVESTIGATION_BUDGET_EXCEEDED` | HUMAN | The context budget of the manifest is exceeded; ask for an explicit expansion or narrow the sources. → `sdd.py budget --raise investigation_expansions --by 1 --quote '<user words authorizing more>'` |
 | `PROMPT_BUDGET_EXCEEDED` | HUMAN | The worker prompt exceeds max_prompt_bytes even after reduction; ask the user to authorize a larger prompt. → `sdd.py budget --raise prompt_bytes --by 16384 --quote '<user words authorizing more>'` |
-| `MANIFEST_INVALID` | BLOCKED | The stage-context manifest was refused; the findings name the field. Fix the source data, then `sdd.py next`. → `sdd.py next` |
+| `MANIFEST_INVALID` | BLOCKED | The stage-context manifest was refused; the findings name the field. Fix the source data, then `sdd.py next` (at IMPLEMENT a `SLICE_*` finding reopens to TASKS). → `sdd.py next` |
 | `JEV_GOVERNANCE_REQUIRED` | BLOCKED | Automatic Jev consent is recorded but no governance fingerprint is: run `semantic_governor.py decide` for this ticket (or the user withdraws the consent in PROJECT_SETUP.md), then `sdd.py next` rebuilds the manifest. → `sdd.py next` |
 | `BASELINE_DRIFT_EXTERNAL` | HUMAN | HEAD or branch changed outside the agent; ask the user whether to continue on the new baseline and record the answer (it captures the new baseline). → `sdd.py rebaseline --quote '<user words>'` |
 | `PREEXISTING_FILE_MODIFIED` | HUMAN | A protected pre-existing file changed during the demand; ask the user. Never restore it with Git reset/checkout. Accepting the change records the answer and captures the new hashes. → `sdd.py rebaseline --quote '<user words>'` |

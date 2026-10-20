@@ -4,6 +4,14 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+
+- Per-AC verifiers: a PLAN/TASKS acceptance check's `verification_method` may carry exactly one backtick command; the fold binds it only when `runtime/acceptance_verifiers.py` allowlists it, stores `delivery.check_commands`/`check_commands_refused`, and `slice_block` adds one `required_verification` item per bound AC (the project gate stays unchanged).
+- Doc-slice RED: for a document slice the controller builds a HEAD-based RED command per AC (`git show HEAD:<path> | <verifier>`), rendered in the prompt's Acceptance rules block. `kind: DOC_CHECK` is not added because the schema has no `kind` and the HEAD-based RED satisfies the existing RED/`EXPECTED_FUNCTIONAL` rule.
+- Safe editable paths: TASKS normalizes only trailing-directory-slash `impact_files` entries (`tasks/x/` → `tasks/x/**`; files and existing globs are unchanged), records `delivery.editable_path_normalizations`, and `validate_protocol.py` refuses unsafe TASKS entries plus DECISION_DOC PLAN entries through its controller-owned `validate_impact_files` context before either can be folded.
+- Reopen to TASKS: `sdd.py reopen --to TASKS --reason R --quote Q` reopens IMPLEMENT only with no completed slice and a `MANIFEST_INVALID` refusal caused by a `SLICE_*` finding; it clears slice state so TASKS re-plans, and the IMPLEMENT stop prints the reopen as its `next_command`.
+- Budget below plan: `sdd.py transition --to IMPLEMENT` stops with `BUDGET_BELOW_PLAN` when planned slices exceed the remaining TDD-slice budget or the executor-call budget (planned + TEST + REVIEW), carrying the deficit and the exact `sdd.py budget --raise <name> --by <n> --quote '<user words>'` command(s).
+
 ## 15.10.1 - 2026-10-20
 
 ### Fixed

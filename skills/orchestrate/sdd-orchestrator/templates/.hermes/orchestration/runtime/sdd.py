@@ -515,6 +515,10 @@ def slice_block(ctx: Ctx, data: dict[str, Any], stage: str, slice_id: str | None
         verification.append({"id": "focused-tests", "kind": "TEST", "command": focused, "check_ids": agent_checks, "introduced_by_slice": False})
     for key in sorted(key for key, check in acceptance.items() if check.get("verifier") == "HUMAN"):
         verification.append({"id": f"human-{key.lower()}", "kind": "HUMAN", "command": None, "check_ids": [key], "introduced_by_slice": False})
+    for key, command in sorted((delivery.get("check_commands") or {}).items()):
+        if key in acceptance and command:
+            verification.append({"id": f"check-{key.lower()}", "kind": "STATIC_ANALYSIS",
+                                 "command": command, "check_ids": [key], "introduced_by_slice": False})
     planned = list(slices.get("planned") or [])
     known = sorted({check["slice_id"] for check in acceptance.values() if check.get("slice_id")})
     playbook = IMPLEMENT_PLAYBOOK[delivery.get("profile") or "CODE"]
@@ -611,7 +615,10 @@ def check_manifest(manifest: dict[str, Any], role: str | None) -> dict[str, Any]
         code = "SCOPE_CHANGE_REQUIRED"
     else:
         code = "MANIFEST_INVALID"
-    return stop(code, findings=errors[:5])
+    payload = stop(code, findings=errors[:5])
+    if code == "MANIFEST_INVALID" and manifest.get("stage") == "IMPLEMENT" and role is None and any(item.get("code", "").startswith("SLICE_") for item in errors):
+        payload["next_command"] = sdd("reopen", "--to", "TASKS", "--reason", "<failure>", "--quote", "<user words>")
+    return payload
 
 
 # ----------------------------------------------------------------------------- prompt
@@ -631,6 +638,8 @@ def verifier_context(ctx: Ctx, manifest: dict[str, Any], role: str | None) -> di
     import stage_context
 
     context = stage_context.verifier_context(manifest, role=role)
+    if manifest.get("stage") == "TASKS" or (manifest.get("stage") == "PLAN" and ctx.profile == "DECISION_DOC"):
+        context["validate_impact_files"] = True
     waivers = {key: value for key, value in (ctx.delivery.get("waivers") or {}).items() if key in (ctx.delivery.get("acceptance") or {})}
     if waivers:
         context["recorded_waivers"] = waivers
@@ -648,6 +657,7 @@ def validate_result(ctx: Ctx, stage: str, role: str | None, manifest: dict[str, 
         completed_slice_ids=as_set("completed_slice_ids"), editable_paths=as_set("editable_paths"),
         required_commands=context.get("required_commands"), check_verifiers=context.get("check_verifiers"),
         role=context.get("role"), recorded_waivers=context.get("recorded_waivers"),
+        validate_impact_files=bool(context.get("validate_impact_files")),
     )
 
 
@@ -691,14 +701,6 @@ def baseline_stop(ctx: Ctx) -> dict[str, Any] | None:
     return None
 
 
-def _identity(path: Path) -> tuple[int, int] | None:
-    try:
-        info = os.stat(path)
-    except OSError:
-        return None
-    return info.st_dev, info.st_ino
-
-
 def controller_inside_repository(repository: Path) -> bool:
     """True when the controller's ``.hermes`` directory physically lives inside ``repository``.
 
@@ -708,49 +710,36 @@ def controller_inside_repository(repository: Path) -> bool:
     compares device and inode of every ancestor, so a differently-cased spelling of the same
     directory (case-insensitive macOS volumes) or a symlinked path still matches.
     """
-    target = _identity(repository)
-    if target is None:
-        return False
-    current = ORCHESTRATION.parent
-    while True:
-        if _identity(current) == target:
-            return True
-        if current.parent == current:
-            return False
-        current = current.parent
+    import controller_isolation
+
+    return controller_isolation.controller_inside_repository(repository, ORCHESTRATION.parent)
 
 
 def installer_mode_arguments() -> list[str]:
     """Installer flags that reproduce this controller's own storage (``--upgrade`` keeps it)."""
-    try:
-        import obsidian_binding
+    import controller_isolation
 
-        source = obsidian_binding._installed_container_binding()
-        binding = obsidian_binding.load_path(source) if source is not None else None
-    except Exception:  # an unreadable binding falls back to the placeholders the user fills
-        binding = None
-    if binding is not None and not (CONTROLLER_ROOT / ".git").exists():
-        return ["--obsidian-vault", str(binding.raw.get("vault_path") or binding.vault_path),
-                "--obsidian-project", str(binding.project_container)]
-    if (CONTROLLER_ROOT / ".git").exists():
-        return ["--local-storage"]
-    return ["--obsidian-vault", "<vault>", "--obsidian-project", "<project>"]
+    return controller_isolation.installer_mode_arguments(CONTROLLER_ROOT)
 
 
 def installer_command(repository: Path, *arguments: str) -> str:
     """The skill's installer, whose path only the Hermes session knows (``<installed-skill>``)."""
-    return shlex.join([sys.executable, "<installed-skill>/scripts/install_project.py", "--target", str(repository), *arguments, "--json"])
+    import controller_isolation
+
+    return controller_isolation.installer_command(repository, *arguments)
 
 
 def demand_exit_prefix(ctx: Ctx, reason: str) -> list[str]:
     """``abandon`` when a demand is open (it also archives an undispatched PREPARED action)."""
-    if ctx.stage in {"IDLE", "DONE"}:
-        return [sdd("close")] if ctx.stage == "DONE" else []
-    return [sdd("abandon", "--reason", reason, "--quote", "<user words>")]
+    import controller_isolation
+
+    return controller_isolation.demand_exit_prefix(ctx.stage, sdd, reason)
 
 
 def restart_command(script: str | Path) -> str:
-    return shlex.join([sys.executable, str(script), "start", "--ticket", "<ticket-id>", "--title", "<title>", "--objective", "<objective>"])
+    import controller_isolation
+
+    return controller_isolation.restart_command(script)
 
 
 def move_out_commands(ctx: Ctx) -> list[str]:
@@ -761,30 +750,12 @@ def move_out_commands(ctx: Ctx) -> list[str]:
     and needs a binding a ``--local-storage`` install does not have. A fresh Obsidian install
     is what puts the controller out of every worker's reach.
     """
-    repository = ctx.repo
-    container = "<vault>/<project>"
-    backup = f"{container}/.hermes-local-controller-backup"
-    commands = demand_exit_prefix(ctx, "move the controller out of the repository (CONTROLLER_WRITABLE_BY_WORKER)")
-    install = ["--obsidian-vault", "<vault>", "--obsidian-project", "<project>"]
-    commands += [installer_command(repository, *install), installer_command(repository, *install, "--apply")]
-    if controller_inside_repository(repository):
-        commands.append(shlex.join(["mkdir", "-p", backup]))
-        commands.append(shlex.join(["mv", str(ORCHESTRATION), f"{backup}/orchestration"]))
-        # A repository-local binding would outrank the container's for operator CLIs, and the
-        # card points at the old controller: both leave with it. Nothing else under .hermes moves
-        # (a TypeSafe .env stays out of the vault).
-        for leftover in (ORCHESTRATION.parent / "obsidian.json", CONTROLLER_ROOT / ".hermes.md"):
-            if leftover.is_file():
-                commands.append(shlex.join(["mv", str(leftover), f"{backup}/{leftover.name}"]))
-    new_sdd = f"{container}/Hermes/orchestration/runtime/sdd.py"
-    # The new container holds the template GATES.md/EXECUTORS.md (the in-repository copies were
-    # writable by workers, so they are not carried over). A runtime the binding already kept in
-    # the vault still pins the old digests, and `start` refuses a policy that differs from its
-    # last pin: the user confirms the new files first.
-    for name in sorted(CONTROLLER_POLICY_FILES):
-        commands.append(shlex.join([sys.executable, new_sdd, "confirm-policy", "--name", name, "--by", "requester", "--quote", "<user words>"]))
-    commands.append(restart_command(new_sdd))
-    return commands
+    import controller_isolation
+
+    return controller_isolation.move_out_commands(
+        ctx, orchestration=ORCHESTRATION, controller_root=CONTROLLER_ROOT,
+        controller_policy_files=CONTROLLER_POLICY_FILES, sdd_command=sdd,
+    )
 
 
 def controller_isolation_error(storage: str, stage: str, ctx: Ctx | None = None) -> SddError | None:
@@ -805,39 +776,17 @@ def controller_isolation_error(storage: str, stage: str, ctx: Ctx | None = None)
     Read-only stages are unaffected: a worker that cannot write cannot rewrite the
     controller.
     """
-    inside = controller_inside_repository(ctx.repo) if ctx is not None else storage == "LOCAL"
-    if not inside:
-        return None
-    import executor_launch
+    import controller_isolation
 
-    try:
-        settings = executor_launch.stage_settings(executor_launch.load_policy(), stage, executor=None, model=None, timeout=None)
-    except executor_launch.LaunchError:
+    data = controller_isolation.controller_isolation_error_data(
+        storage, stage, ctx, orchestration=ORCHESTRATION, controller_root=CONTROLLER_ROOT,
+        controller_policy_files=CONTROLLER_POLICY_FILES, sdd_command=sdd,
+    )
+    if data is None:
         return None
-    if not executor_launch.is_writing_worker(settings):
-        return None
-    if ctx is not None:
-        commands = move_out_commands(ctx)
-    else:
-        commands = [installer_command(CONTROLLER_ROOT, "--obsidian-vault", "<vault>", "--obsidian-project", "<project>", "--apply"),
-                    restart_command("<vault>/<project>/Hermes/orchestration/runtime/sdd.py")]
-    return SddError("CONTROLLER_WRITABLE_BY_WORKER",
-                    f"{stage} runs a writing worker ({settings['executor']}) and the controller lives inside the repository it can write "
-                    f"({ORCHESTRATION}): it could rewrite policies/GATES.md (whose commands run on the host), policies/EXECUTORS.md, the "
-                    "controller runtime, STATE or the journal together with every hash they are checked against.",
-                    next_step="Nothing was dispatched. Ask the user for an Obsidian vault and a project container in it, then run "
-                              "`exit_commands` in order, stopping at the first non-zero exit: `abandon` closes the demand with their words "
-                              "(nothing in the worktree is reverted; an undispatched action is archived), the installer's dry run must "
-                              "return READY before `--apply` installs the controller in the container, which is never a writable root "
-                              "for a worker, the in-repository controller is moved aside into the container, the user confirms the new "
-                              "controller's template GATES.md/EXECUTORS.md and its `start` re-runs the demand (configure the gate rows "
-                              "again; the old in-repository copies were writable by workers and are not adopted). Fill `<installed-skill>` with this skill's installed path and `<vault>`/"
-                              "`<project>` with the user's answer. Read-only stages (SPECIFY, CLARIFY, PLAN, TASKS, REVIEW) would still "
-                              "run here; only a writing stage is refused, because with the controller inside the worker's writable tree "
-                              "no detection can hold.",
-                    next_command=commands[0],
-                    exit_commands=commands,
-                    stage=stage, executor=settings["executor"], controller_root=str(CONTROLLER_ROOT))
+    return SddError(
+        data["code"], data["message"], next_step=data["next_step"], next_command=data["next_command"], **data["extra"]
+    )
 
 
 def dispatch_dir_arguments(storage: str) -> list[str]:
@@ -1040,6 +989,13 @@ def transition_step(ctx: Ctx) -> dict[str, Any]:
         missing = done_gate_failure(ctx)
         if missing:
             return stopped(ctx, stop("DONE_GATES_NOT_PASSED", gate=missing, next_command=done_gate_command(ctx, missing)))
+    if target == "IMPLEMENT":
+        import plan_checks
+
+        deficit = plan_checks.budget_below_plan(ctx.state, ctx.profile)
+        if deficit:
+            next_command, extra = plan_checks.budget_below_plan_stop(deficit, sdd)
+            return stopped(ctx, stop("BUDGET_BELOW_PLAN", next_command=next_command, **extra))
     return step("TRANSITION", [sdd(*arguments)], f"Move STATE from {stage} to {target} with provenance, then `sdd.py next`.", target=target)
 
 
@@ -1570,13 +1526,19 @@ def apply_result(ctx: Ctx, data: dict[str, Any], action: dict[str, Any], result:
         delivery["open_questions"] = [answered.get(item["question"], {"index": index + 1, "question": item["question"], "impact": item["impact"]})
                                       for index, item in enumerate(questions)]
     profile = delivery.get("profile") or "CODE"
-    if (stage == "TASKS") or (stage == "PLAN" and profile == "DECISION_DOC"):
-        if stage == "PLAN":
-            for check in delivery["acceptance"].values():
-                check["slice_id"] = DOC_SLICE
-        planned = list(dict.fromkeys(check["slice_id"] for check in delivery["acceptance"].values() if check["slice_id"]))
-        delivery["slices"] = {"planned": planned, "completed": [], "editable_paths": sorted(set(payload["impact_files"]))}
-        delivery["approved_slice_sha256s"] = slice_hashes(ctx, data, planned)
+    if stage in {"PLAN", "TASKS"}:
+        import acceptance_verifiers
+
+        gate_commands = frozenset(row.get("command") for row in gate_table().values() if row.get("command"))
+        acceptance_verifiers.fold_plan_tasks(
+            delivery,
+            stage=stage,
+            profile=profile,
+            impact_files=payload["impact_files"],
+            approve_slices=lambda planned: slice_hashes(ctx, data, planned),
+            gate_commands=gate_commands,
+            doc_slice=DOC_SLICE,
+        )
     if stage == "IMPLEMENT":
         slice_id = current_slice(ctx)
         delivery["slices"]["completed"] = [*delivery["slices"].get("completed", []), slice_id]
@@ -1753,7 +1715,17 @@ def cmd_transition(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     except sf.StateFormatError as exc:
         raise SddError("STEP_MISMATCH", str(exc), next_command=sdd("next")) from exc
     set_budget(data, "investigation_expansions", used=0)
-    fix = reopen_slices(data) if reopen else None
+    if reopen and args.to == "TASKS":
+        reset_for_tasks_replan(data)
+    fix = None if (reopen and args.to == "TASKS") else (reopen_slices(data) if reopen else None)
+    if args.to == "IMPLEMENT":
+        import plan_checks
+
+        deficit = plan_checks.budget_below_plan(data, ctx.profile)
+        if deficit:
+            next_command, extra = plan_checks.budget_below_plan_stop(deficit, sdd)
+            raise SddError("BUDGET_BELOW_PLAN", "The plan needs more TDD slices or executor calls than the budget allows.",
+                           next_command=next_command, **extra)
     data.setdefault("resume", {})["next_action"] = args.to
     ctx.write_state(data, f"{current} -> {args.to}" + (f" (reopened: {args.reason}; slice {fix})" if reopen else "") + (f" (CLARIFY skipped: {args.skip_reason})" if args.skip_reason else ""))
     if args.to == "DONE":
@@ -1762,13 +1734,41 @@ def cmd_transition(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     return {"status": "TRANSITIONED", "from": current, "to": args.to, "next_step": "Run `sdd.py next`.", "next_command": sdd("next")}
 
 
+def reopen_to_tasks_refusal(ctx: Ctx, data: dict[str, Any]) -> SddError | None:
+    import plan_checks
+
+    refusal = plan_checks.reopen_to_tasks_refusal(
+        ctx, data, build_manifest=build_manifest, check_manifest=check_manifest, sdd_command=sdd
+    )
+    if refusal is None:
+        return None
+    return SddError(refusal["code"], refusal["message"], next_command=refusal["next_command"])
+
+
+def reset_for_tasks_replan(data: dict[str, Any]) -> None:
+    import plan_checks
+
+    plan_checks.reset_for_tasks_replan(data)
+
+
 def cmd_reopen(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
-    """Reopen the implementation after a failed gate or review: a FIX slice in IMPLEMENT, never a lateral transition."""
+    """Reopen IMPLEMENT: in place for a FIX slice, or back to TASKS after slice-data manifest findings."""
     ctx.require_pristine()
     if not (args.reason.strip() and args.quote.strip()):
         raise SddError("STEP_MISMATCH", "--reason and the user's literal --quote are required.", next_command=reopen_command())
     current = ctx.stage
-    if current in sf.REOPEN_TARGETS:
+    if args.to == "TASKS":
+        data = copy.deepcopy(ctx.state)
+        refusal = reopen_to_tasks_refusal(ctx, data)
+        if refusal is not None:
+            raise refusal
+        result = cmd_transition(ctx, argparse.Namespace(to="TASKS", artifact=None, skip_reason=None, reason=args.reason, quote=args.quote))
+        ctx.reload()
+        record_wiki(ctx, "decision", f"{ctx.ticket} IMPLEMENT reopened to TASKS",
+                    f"Reason: {args.reason}\nUser: {args.quote}", stage="IMPLEMENT")
+        return {**result, "status": "REOPENED", "from": current, "to": "TASKS",
+                "next_step": "TASKS re-plans the slice set; run `sdd.py next`.", "next_command": sdd("next")}
+    if "IMPLEMENT" in sf.REOPEN_TARGETS.get(current, ()):
         args.to, args.artifact, args.skip_reason = "IMPLEMENT", None, None
         result = cmd_transition(ctx, args)
         ctx.reload()
@@ -2668,6 +2668,7 @@ def parser() -> argparse.ArgumentParser:
     transition.add_argument("--reason", help="Why a stage is reopened.")
     transition.add_argument("--quote", help="The user's literal words authorizing a reopen.")
     reopen = commands.add_parser("reopen", help="After a failed gate or a REVIEW asking for changes: open a FIX slice in IMPLEMENT and reset the gates.")
+    reopen.add_argument("--to", choices=("TASKS",), default=None, help="Reopen IMPLEMENT to TASKS after slice-data manifest findings.")
     reopen.add_argument("--reason", required=True)
     reopen.add_argument("--quote", required=True, help="The user's literal words authorizing the reopen.")
     waive = commands.add_parser("waive", help="Record a human decision as a waiver (non-HUMAN checks only after an answered request-decision).")
