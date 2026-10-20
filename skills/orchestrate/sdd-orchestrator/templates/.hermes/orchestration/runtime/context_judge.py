@@ -156,6 +156,8 @@ class JevJudge:
         for segment in segments:
             reason = self._screen(segment)
             payload = None
+            if reason is None and len(segment.text) > self.config.get("max_segment_chars", 2400):
+                reason = "SEGMENT_TOO_LARGE"
             if reason is None:
                 payload = build_payload(
                     task, constraints, segment.text, self.config.get("max_payload_bytes", 24000),

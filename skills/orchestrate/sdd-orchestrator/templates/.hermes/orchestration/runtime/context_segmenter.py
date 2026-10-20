@@ -40,7 +40,8 @@ def split_text(text: str, target: int, maximum: int) -> list[tuple[int, int]]:
     """Return ``(start, end)`` spans on paragraph or line boundaries; code stays whole.
 
     A span never ends inside a line: a single line longer than ``maximum`` stays one
-    span (the judge then refuses it as too large), so no token is ever cut in two.
+    span, so no token is ever cut in two; the judge refuses any span longer than
+    ``max_segment_chars`` (``SEGMENT_TOO_LARGE``), so such a span is never sent.
     """
     if len(text) <= maximum or is_code_like(text):
         return [(0, len(text))]
@@ -73,7 +74,7 @@ def segment(request: Any, config: dict[str, Any], stage: str) -> list[Segment]:
     for message in request.messages:
         for block in message.blocks:
             kind = _BLOCK_KINDS.get(block.type)
-            if kind is None or kind not in eligible or not block.text:
+            if kind is None or kind not in eligible or not block.text or not block.editable:
                 continue
             body = 0
             if block.type == "sdd_section" and block.text.startswith("#"):

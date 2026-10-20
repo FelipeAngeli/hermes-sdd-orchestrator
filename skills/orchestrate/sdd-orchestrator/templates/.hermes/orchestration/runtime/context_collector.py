@@ -20,6 +20,7 @@ class Block:
     path: tuple[int, ...]
     text: str = ""
     text_item: int | None = None
+    editable: bool = True
 
 
 @dataclass
@@ -50,14 +51,25 @@ def estimate_tokens(value: int | bytes | bytearray, bytes_per_token: int) -> int
     return math.ceil(size / bytes_per_token)
 
 
-def _text(value: Any) -> tuple[str, int | None]:
+def _text(value: Any) -> tuple[str, int | None, bool]:
+    """Return ``(text, text_item, editable)``.
+
+    A field with several text parts is read as all parts joined (so screening and
+    constraints see everything) but is not editable: no single part can be rewritten.
+    """
     if isinstance(value, str):
-        return value, None
+        return value, None, True
     if isinstance(value, list):
-        for index, item in enumerate(value):
-            if isinstance(item, dict) and item.get("type") in TEXT_PART_TYPES and isinstance(item.get("text"), str):
-                return item["text"], index
-    return "", None
+        parts = [
+            (index, item["text"])
+            for index, item in enumerate(value)
+            if isinstance(item, dict) and item.get("type") in TEXT_PART_TYPES and isinstance(item.get("text"), str)
+        ]
+        if len(parts) == 1:
+            return parts[0][1], parts[0][0], True
+        if parts:
+            return "\n".join(text for _, text in parts), None, False
+    return "", None, False
 
 
 def from_anthropic(native: dict[str, Any], raw: bytes = b"") -> ContextRequest:
@@ -76,8 +88,8 @@ def from_anthropic(native: dict[str, Any], raw: bytes = b"") -> ContextRequest:
             elif block.get("type") == "tool_use" and isinstance(block.get("id"), str) and isinstance(block.get("name"), str):
                 blocks.append(Block("tool_use", block, path))
             elif block.get("type") == "tool_result" and isinstance(block.get("tool_use_id"), str):
-                text, item = _text(block.get("content"))
-                blocks.append(Block("tool_result", block, path, text, item))
+                text, item, editable = _text(block.get("content"))
+                blocks.append(Block("tool_result", block, path, text, item, editable))
             else:
                 blocks.append(Block("opaque", block, path))
         messages.append(Message(message.get("role", ""), blocks, (index,)))
@@ -90,14 +102,15 @@ def from_openai(native: dict[str, Any], raw: bytes = b"") -> ContextRequest:
     for index, item in enumerate(native.get("input", [])):
         role = item.get("role", "") if isinstance(item, dict) else ""
         block = Block("opaque", item, (index,))
-        if isinstance(item, dict) and item.get("type") == "message":
-            text, text_item = _text(item.get("content"))
-            block = Block("text", item, (index,), text, text_item)
+        is_message = isinstance(item, dict) and (item.get("type") == "message" or ("type" not in item and isinstance(item.get("role"), str)))
+        if is_message:
+            text, text_item, editable = _text(item.get("content"))
+            block = Block("text", item, (index,), text, text_item, editable)
         elif isinstance(item, dict) and item.get("type") == "function_call" and isinstance(item.get("call_id"), str):
             block = Block("tool_use", item, (index,))
         elif isinstance(item, dict) and item.get("type") == "function_call_output" and isinstance(item.get("call_id"), str):
-            text, text_item = _text(item.get("output"))
-            block = Block("tool_result", item, (index,), text, text_item)
+            text, text_item, editable = _text(item.get("output"))
+            block = Block("tool_result", item, (index,), text, text_item, editable)
         messages.append(Message(role, [block], (index,)))
     return ContextRequest("openai", native, messages, raw)
 
