@@ -34,6 +34,7 @@ Each page owns a set of files (see [doc-map.json](doc-map.json)) and is the sing
 | [Obsidian vault](components/obsidian-vault.md) | Vault binding, write containment, worktree bootstrap and migrations |
 | [Context graph](components/context-graph.md) | Modules, rules, tests and decisions as connected notes; querying related context before acting |
 | [Context engine](components/context-engine.md) | Experimental opt-in Jev context selection, audit and recovery |
+| [Agent manager](components/agent-manager.md) | Opt-in registry, delegation configuration and contract validation |
 | [Store review guardians](components/store-review-guardians.md) | `appstore-review-guardian` and `google-play-review-guardian`: read-only pre-submission audits of iOS and Android apps |
 | [Testing](components/testing.md) | Both test suites and what each test file guarantees |
 

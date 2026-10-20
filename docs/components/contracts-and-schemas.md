@@ -2,9 +2,11 @@
 
 [Docs index](../README.md) · Related: [Stage agents](stage-agents.md), [Sub-agents](sub-agents.md), [Action journal](action-journal.md), [Gates](gates-and-stack-detection.md)
 
-**Files:** `contracts/EXECUTOR_CONTRACT.md`, `contracts/REVIEW_CONTRACT.md`, `schemas/EXECUTOR_RESULT_SCHEMA.json`, `schemas/REVIEW_RESULT_SCHEMA.json`, `schemas/DECISION_REQUEST_SCHEMA.json`, `schemas/DECISION_RECEIPT_SCHEMA.json`, `runtime/decision_orchestration.py`, `runtime/validate_protocol.py`, `runtime/executor_launch.py`, `runtime/executor_transport.py`, `runtime/executor_sandbox.py`, `policies/EXECUTORS.md`.
+**Files:** `contracts/EXECUTOR_CONTRACT.md`, `contracts/REVIEW_CONTRACT.md`, `schemas/EXECUTOR_RESULT_SCHEMA.json`, `schemas/REVIEW_RESULT_SCHEMA.json`, `schemas/DECISION_REQUEST_SCHEMA.json`, `schemas/DECISION_RECEIPT_SCHEMA.json`, `schemas/AGENT_REGISTRY_SCHEMA.json`, `schemas/DELEGATION_CONTRACT_SCHEMA.json`, `runtime/decision_orchestration.py`, `runtime/validate_protocol.py`, `runtime/executor_launch.py`, `runtime/executor_transport.py`, `runtime/executor_sandbox.py`, `policies/EXECUTORS.md`.
 
 Every worker ends with **one JSON document**, written to a unique final-message file. Markdown, YAML, transcripts and JSONL events are never accepted as a substitute. Both envelopes use `schema_version: 3` and reject unknown properties. Each [stage agent](stage-agents.md) and [sub-agent](sub-agents.md) declares which schema applies in its `result_schema` frontmatter.
+
+The additive agent-manager schemas are version 1: `AGENT_REGISTRY_SCHEMA.json` closes the deterministic read-only registry, and `DELEGATION_CONTRACT_SCHEMA.json` closes a proposed delegation request. Their current behavior is documented in [Agent manager](agent-manager.md); neither changes the existing executor or review envelopes.
 
 ## Typed Jev decisions
 
