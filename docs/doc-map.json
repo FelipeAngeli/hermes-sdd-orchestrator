@@ -92,6 +92,20 @@
     "docs/components/context-graph.md": [
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/context_graph.py"
     ],
+    "docs/components/context-engine.md": [
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/context_config.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/context_collector.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/context_segmenter.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/context_policy.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/context_cache.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/context_judge.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/context_rebuilder.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/context_audit.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/context_metrics.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/context_engine.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/context_cli.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/CONTEXT_ENGINE.md"
+    ],
     "docs/components/testing.md": [
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/tests/*",
       "tests/*"
