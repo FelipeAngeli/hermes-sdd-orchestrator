@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.10.1 - 2026-10-20
+
 ### Fixed
 
 - Worker prompt examples are schema-valid: `tdd_slices` examples carry every required field and `acceptance_checks` examples never render `{}` (HUMAN checks fall back to a PASS-with-recorded-decision placeholder, otherwise a PLANNED future check).
