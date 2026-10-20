@@ -25,6 +25,10 @@ from os import environ as process_environment
 from pathlib import Path
 from typing import Any
 
+import executor_sandbox
+from executor_sandbox import _inside
+from executor_transport import extract_result
+
 RUNTIME_ROOT = Path(__file__).resolve().parent
 ORCHESTRATION_ROOT = RUNTIME_ROOT.parent
 #: Directory holding ``.hermes/`` (the repository, or the Obsidian project container).
@@ -52,7 +56,7 @@ LAUNCH_STATUSES = (
     "PROMPT_MISSING", "REPOSITORY_INVALID", "SCHEMA_UNSUPPORTED", "ADD_DIR_WRITABLE_REFUSED", "EXECUTOR_POLICY_UNSAFE",
     "CONTROLLER_WRITABLE_BY_WORKER", "LAUNCHER_INTERRUPTED",
 )
-PREFLIGHT_REASONS = ("EXECUTOR_UNAVAILABLE", "EXECUTOR_CLI_UNSUPPORTED", "MODEL_INVALID", "MODEL_REJECTED")
+PREFLIGHT_REASONS = ("EXECUTOR_UNAVAILABLE", "EXECUTOR_CLI_UNSUPPORTED", "MODEL_INVALID", "MODEL_REJECTED", "CODEX_HOME_INVALID")
 MODEL_CHECKS = ("NOT_PROBED", "ACCEPTED", "REJECTED", "TIMEOUT")
 POLICY_SOURCES = ("FILE", "DEFAULTS")
 DESCRIPTION = "Canonical Claude/Codex executor launcher for journaled SDD dispatch."
@@ -84,7 +88,7 @@ DEFAULT_STAGE_POLICY: dict[str, dict[str, Any]] = {
     "TEST": {"executor": "codex", "model": None, "timeout_seconds": 600, "max_turns": None},
     "REVIEW": {"executor": "claude", "model": None, "timeout_seconds": 600, "max_turns": 40},
 }
-STAGE_KEYS = {"executor", "model", "timeout_seconds", "max_turns", "tools", "permission_mode", "sandbox"}
+STAGE_KEYS = {"executor", "model", "timeout_seconds", "max_turns", "tools", "permission_mode", "sandbox", "sandbox_network", "codex_home", "env_from"}
 DEFAULT_CLAUDE_TOOLS = "Read,Grep,Glob"
 #: Claude tools that cannot change a file; any other tool (or ``default``) makes the worker a writer.
 READ_ONLY_CLAUDE_TOOLS = frozenset({"Read", "Grep", "Glob", "LS", "NotebookRead"})
@@ -192,6 +196,9 @@ def _validate_stage_entry(stage: str, entry: dict[str, Any], fix: str) -> None:
     sandbox = entry.get("sandbox")
     if sandbox is not None and sandbox not in CODEX_SANDBOXES:
         raise bad(f"sandbox must be null or one of {CODEX_SANDBOXES}.")
+    extension_error = executor_sandbox.stage_extension_error(stage, entry, WRITING_STAGES)
+    if extension_error:
+        raise bad(extension_error)
 
 
 def stage_settings(policy: dict[str, Any], stage: str, *, executor: str | None, model: str | None, timeout: int | None) -> dict[str, Any]:
@@ -222,32 +229,6 @@ def is_writing_worker(settings: dict[str, Any]) -> bool:
     if tools == "default":
         return True
     return any(tool.strip() and tool.strip() not in READ_ONLY_CLAUDE_TOOLS for tool in tools.split(","))
-
-
-def _identity(path: Path) -> tuple[int, int] | None:
-    try:
-        status = path.stat()
-    except OSError:
-        return None
-    return status.st_dev, status.st_ino
-
-
-def _inside(path: Path, root: Path) -> bool:
-    """True when ``path`` is ``root`` or below it, comparing files rather than spellings.
-
-    ``Path.resolve()`` keeps the caller's letter case on a case-insensitive filesystem
-    (``/X/REPO`` and ``/x/repo`` are the same directory), so the textual test alone lets an
-    alias escape. Each existing ancestor of ``path`` is compared to ``root`` by
-    ``(st_dev, st_ino)``, as the installer does for ``OBSIDIAN_VAULT_OVERLAPS_TARGET``;
-    the textual test stays for paths that do not exist yet.
-    """
-    resolved, base = path.resolve(), root.resolve()
-    if resolved == base or base in resolved.parents:
-        return True
-    target = _identity(base)
-    if target is None:
-        return False
-    return any(_identity(candidate) == target for candidate in (resolved, *resolved.parents))
 
 
 def check_extra_dirs(stage: str, settings: dict[str, Any], repository: Path, add_dirs: list[str], read_dirs: list[str]) -> None:
@@ -392,12 +373,17 @@ def _run_quiet(argv: list[str], timeout: int, cwd: str | None = None, env: dict[
     return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, cwd=cwd, env=env, stdin=subprocess.DEVNULL, check=False)
 
 
-def preflight(executor: str, model: str | None, probe: bool) -> dict[str, Any]:
+def preflight(executor: str, model: str | None, probe: bool, stage: str | None = None, probe_sandbox: bool = False) -> dict[str, Any]:
     binary = shutil.which(executor)
     if binary is None:
         return {"status": "BLOCKED", "executor": executor, "reason": "EXECUTOR_UNAVAILABLE",
                 "next_step": f"Install the {executor} CLI and put it on PATH, or select the other executor for these stages in policies/EXECUTORS.md.",
                 "next_command": None}
+    settings: dict[str, Any] | None = None
+    if stage is not None:
+        policy = load_policy()
+        settings = stage_settings(policy, stage, executor=executor, model=model, timeout=None)
+        model = settings.get("model")
     result: dict[str, Any] = {"executor": executor, "path": binary}
     try:
         version = _run_quiet([binary, "--version"], 30)
@@ -425,33 +411,29 @@ def preflight(executor: str, model: str | None, probe: bool) -> dict[str, Any]:
             return {**result, "status": "BLOCKED", "reason": "MODEL_REJECTED",
                     "next_step": f"Fix the {executor} login or pick a model this CLI accepts, then rerun preflight with --probe.",
                     "next_command": _command(_python(), Path(__file__), "preflight", "--executor", executor, *(["--model", model] if model else []), "--probe")}
-    return {**result, "status": "READY", "next_step": "The executor is ready; dispatch with `executor_launch.py run`." + ("" if probe else " Add --probe to confirm login and model with one minimal call."),
-            "next_command": None}
+    if settings is not None:
+        if settings.get("codex_home") and not Path(settings["codex_home"]).is_dir():
+            return {**result, "status": "BLOCKED", "reason": "CODEX_HOME_INVALID",
+                    "next_step": f"codex_home {settings['codex_home']} is not an existing directory. Create it or fix codex_home in policies/EXECUTORS.md.",
+                    "next_command": None}
+        sandbox_probe, warnings, probe_next_step = executor_sandbox.preflight_sandbox_extra(
+            do_probe=probe_sandbox, binary=binary, settings=settings,
+            worker_env=worker_environment(executor, settings), run_quiet=_run_quiet)
+        if sandbox_probe is not None:
+            result["sandbox_probe"] = sandbox_probe
+        if probe_next_step:
+            result["next_step"] = probe_next_step
+        if warnings:
+            result["warnings"] = warnings
+    ready_step = result.get("next_step") or ("The executor is ready; dispatch with `executor_launch.py run`." + ("" if probe else " Add --probe to confirm login and model with one minimal call."))
+    return {**result, "status": "READY", "next_step": ready_step, "next_command": None}
 
 
 def _probe(executor: str, binary: str, model: str | None) -> dict[str, Any]:
     """One minimal real call that proves login and model acceptance; never used by the dispatch path."""
-    with tempfile.TemporaryDirectory(prefix="sdd-executor-probe-") as scratch:
-        if executor == "claude":
-            argv = [binary, "-p", "--output-format", "json", "--no-session-persistence", *CLAUDE_ISOLATION_ARGS, "--max-turns", "1", "--tools", ""]
-            argv += ["--model", model] if model else []
-            argv.append("Reply with the single word OK.")
-        else:
-            argv = [binary, "exec", "--ephemeral", "--skip-git-repo-check", "--sandbox", "read-only", "--color", "never", "-C", scratch]
-            argv += ["--model", model] if model else []
-            argv += ["-o", str(Path(scratch) / "probe.txt"), "Reply with the single word OK."]
-        try:
-            completed = _run_quiet(argv, PROBE_TIMEOUT_SECONDS, cwd=scratch, env=worker_environment(executor))
-        except subprocess.TimeoutExpired:
-            return {"model_check": "TIMEOUT", "probe_exit_code": TIMEOUT_EXIT_CODE}
-        accepted = completed.returncode == 0
-        if accepted and executor == "claude":
-            try:
-                accepted = not json.loads(completed.stdout).get("is_error", False)
-            except (json.JSONDecodeError, AttributeError):
-                accepted = False
-        return {"model_check": "ACCEPTED" if accepted else "REJECTED", "probe_exit_code": completed.returncode,
-                "probe_stderr_tail": completed.stderr[-TAIL_CHARACTERS:]}
+    return executor_sandbox.model_probe(executor=executor, binary=binary, model=model, isolation_args=CLAUDE_ISOLATION_ARGS,
+                                        probe_timeout=PROBE_TIMEOUT_SECONDS, tail_characters=TAIL_CHARACTERS,
+                                        worker_env=worker_environment(executor), run_quiet=_run_quiet)
 
 
 # --------------------------------------------------------------------------- build
@@ -482,6 +464,8 @@ def build_argv(*, stage: str, settings: dict[str, Any], schema: dict[str, Any], 
         argv += ["--model", settings["model"]]
     if is_writing_worker(settings):
         argv += ["--config", CODEX_NO_EXTRA_WRITABLE_ROOTS]
+        if settings.get("sandbox_network"):
+            argv += ["--config", executor_sandbox.CODEX_NETWORK_ACCESS_CONFIG]
     for directory in add_dirs:
         argv += ["--add-dir", directory]
     argv.append("-")
@@ -524,11 +508,16 @@ def _plan(args: argparse.Namespace) -> dict[str, Any]:
         raise LaunchError("PROMPT_MISSING", f"Prompt file {prompt} does not exist.", "Write the prompt file, record its SHA-256 in the prepared journal, then retry.")
     check_extra_dirs(args.stage, settings, repository, list(args.add_dir), list(args.read_dir))
     check_controller_isolation(args.stage, settings, repository)
+    codex_home_violation = executor_sandbox.codex_home_error(settings, repository, CONTROLLER_HERMES_ROOT)
+    if codex_home_violation:
+        raise LaunchError("POLICY_INVALID", f"{args.stage}: {codex_home_violation}",
+                          "Fix codex_home in policies/EXECUTORS.md: it must be an absolute directory outside the repository and the controller directory.")
+    worker_env = worker_environment(settings["executor"], settings)
     binary = shutil.which(settings["executor"]) or settings["executor"]
     argv = build_argv(stage=args.stage, settings=settings, schema=schema, repository=repository, final=final, add_dirs=list(args.add_dir), binary=binary,
                       read_dirs=list(args.read_dir))
     return {"policy": policy, "settings": settings, "schema": schema, "journal": journal, "journal_value": journal_value,
-            "repository": repository, "final": final, "prompt": prompt, "argv": argv}
+            "repository": repository, "final": final, "prompt": prompt, "argv": argv, "worker_env": worker_env}
 
 
 def _archive_command(journal: Path) -> str:
@@ -597,10 +586,21 @@ def _check_dispatch(plan: dict[str, Any], stage: str) -> str:
 
 # --------------------------------------------------------------------------- run
 
-def worker_environment(executor: str) -> dict[str, str]:
-    """Allow-listed environment for the worker: base variables plus the executor's own auth and config."""
+def worker_environment(executor: str, settings: dict[str, Any] | None = None) -> dict[str, str]:
+    """Allow-listed environment for the worker: base variables plus the executor's own auth and config.
+
+    With stage ``settings``, Codex workers also receive the per-stage ``codex_home`` override
+    and the ``env_from`` allowlist; a missing ``env_from`` variable is ``EXECUTOR_ENV_MISSING``.
+    """
     prefixes = (*WORKER_ENV_PREFIXES, *EXECUTOR_ENV_PREFIXES[executor])
-    return {name: value for name, value in process_environment.items() if name in WORKER_ENV_NAMES or name.startswith(prefixes)}
+    env = {name: value for name, value in process_environment.items() if name in WORKER_ENV_NAMES or name.startswith(prefixes)}
+    if settings:
+        additions, missing = executor_sandbox.apply_codex_env(executor, settings, process_environment)
+        if missing:
+            raise LaunchError("EXECUTOR_ENV_MISSING", f"env_from variable(s) not set in the controller environment: {', '.join(missing)}",
+                              "Set the missing variable(s) in the controller environment, or drop them from env_from in policies/EXECUTORS.md.")
+        env.update(additions)
+    return env
 
 
 class LauncherInterrupted(BaseException):
@@ -714,39 +714,6 @@ def _atomic_write(path: Path, data: bytes) -> None:
                 pass
 
 
-def extract_result(executor: str, stdout: bytes, last_message: Path) -> tuple[bytes | None, bool, dict[str, Any]]:
-    """Return (final bytes, is_json_object, diagnostics). Raw non-JSON output is kept as evidence."""
-    diagnostics: dict[str, Any] = {}
-    if executor == "claude":
-        text = stdout.decode("utf-8", errors="replace")
-        try:
-            envelope = json.loads(text)
-        except json.JSONDecodeError:
-            return (stdout if text.strip() else None), False, {"envelope": "NOT_JSON"}
-        if not isinstance(envelope, dict):
-            return stdout, False, {"envelope": "NOT_OBJECT"}
-        diagnostics = {"envelope_subtype": envelope.get("subtype"), "envelope_is_error": envelope.get("is_error")}
-        structured = envelope.get("structured_output")
-        if isinstance(structured, dict):
-            return (json.dumps(structured, indent=2, ensure_ascii=False) + "\n").encode("utf-8"), True, diagnostics
-        result = envelope.get("result")
-        if not isinstance(result, str) or not result.strip():
-            return None, False, diagnostics
-        try:
-            is_object = isinstance(json.loads(result), dict)
-        except json.JSONDecodeError:
-            is_object = False
-        return result.encode("utf-8"), is_object, diagnostics
-    if not last_message.is_file():
-        return None, False, {"last_message": "MISSING"}
-    data = last_message.read_bytes()
-    if not data.strip():
-        return None, False, {"last_message": "EMPTY"}
-    try:
-        return data, isinstance(json.loads(data.decode("utf-8")), dict), diagnostics
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return data, False, diagnostics
-
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     plan = _plan(args)
@@ -787,7 +754,7 @@ def _dispatch(args: argparse.Namespace, plan: dict[str, Any], prompt_hash: str, 
             if last_message.exists():
                 last_message.unlink()
         exit_code, stdout, stderr, timed_out = _spawn(plan["argv"], cwd=plan["repository"], prompt=plan["prompt"], timeout=settings["timeout_seconds"],
-                                                      env=worker_environment(settings["executor"]))
+                                                      env=plan["worker_env"])
     except LauncherInterrupted as exc:  # _spawn already killed the executor process group
         exit_code, interrupted, launcher_error = LAUNCHER_ERROR_EXIT_CODE, exc.signum, str(exc)
     except FileNotFoundError as exc:
@@ -822,6 +789,8 @@ def _dispatch(args: argparse.Namespace, plan: dict[str, Any], prompt_hash: str, 
         if data is None:
             return {**base, "status": "EXECUTOR_NO_OUTPUT", "next_step": "The executor exited 0 without a final message. Archive the interrupted action before any retry.",
                     "next_command": _archive_command(journal)}
+        if diagnostics.get("transport_normalized") and settings["executor"] == "codex" and last_message.is_file():
+            _atomic_write(plan["final"].with_name(plan["final"].name + ".raw-message.txt"), last_message.read_bytes())
         _atomic_write(plan["final"], data)
         code, artifact = _journal_cli(journal, "record-artifact")
         if code != 0:
@@ -869,7 +838,9 @@ def main(argv: list[str] | None = None) -> int:
     check = commands.add_parser("preflight", help="Check CLI presence, version and flags.")
     check.add_argument("--executor", required=True, choices=EXECUTORS)
     check.add_argument("--model", help="Model name to check.")
+    check.add_argument("--stage", choices=STAGES, help="Load that stage's settings from policies/EXECUTORS.md.")
     check.add_argument("--probe", action="store_true", help="Make one minimal real call to confirm login and model.")
+    check.add_argument("--probe-sandbox", action="store_true", help="Probe the Codex workspace-write sandbox (TCP, Unix socket, Docker) without a model call.")
     _add_launch_arguments(commands.add_parser("build", help="Print the exact argv run would execute."))
     _add_launch_arguments(commands.add_parser("run", help="Run one journaled dispatch in the foreground."))
     args = parser.parse_args(argv)
@@ -878,7 +849,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(stage_transport_schema(args.stage, args.role), indent=2, ensure_ascii=False))
             return 0
         if args.command == "preflight":
-            result = preflight(args.executor, args.model, args.probe)
+            result = preflight(args.executor, args.model, args.probe, stage=args.stage, probe_sandbox=args.probe_sandbox)
         elif args.command == "build":
             plan = _plan(args)
             schema_file, _ = _side_paths(plan["final"])

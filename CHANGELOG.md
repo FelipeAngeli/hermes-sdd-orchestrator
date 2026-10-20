@@ -4,6 +4,13 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+
+- Executor launcher item 13: a strict-but-tolerant Codex final-message transport accepts one fenced ` ```json `/` ``` ` block whose content is a JSON object, or exactly one top-level JSON object with nothing else that parses as JSON, normalizes it into `--final` and keeps the raw message as `<final>.raw-message.txt`; two blocks, two objects, a non-object block or prose without a block stay `OUTPUT_INVALID`.
+- Executor launcher item 15: optional per-stage `sandbox_network` (Codex `workspace-write` only) adds `--config sandbox_workspace_write.network_access=true`, and `preflight` reports `SANDBOX_NETWORK_ENABLED`.
+- Executor launcher item 7: optional per-stage `codex_home` and `env_from` (Codex only) set `CODEX_HOME` and allowlist up to 4 controller environment variables for that worker; a missing `env_from` variable is `EXECUTOR_ENV_MISSING` before any journal write.
+- Executor launcher item 6: `preflight --stage --probe-sandbox` probes the Codex `workspace-write` sandbox (TCP listen, Unix-socket listen, `docker info`) without a model call and warns `SANDBOX_NETWORK_REQUIRED` with a `next_step` when a probe is blocked and the stage does not set `sandbox_network`.
+
 ## 15.8.1 - 2026-10-19
 
 ### Fixed
