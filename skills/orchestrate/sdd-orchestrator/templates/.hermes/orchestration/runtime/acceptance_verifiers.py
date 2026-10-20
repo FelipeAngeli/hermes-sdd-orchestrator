@@ -23,18 +23,10 @@ GREP_FLAGS = frozenset({
     "--fixed-strings", "--count", "--quiet",
 })
 
-#: Shell-composition characters refused in every non-pinned shape (pinned one-liners
-#: may contain ``;``, ``(``, ``)`` only inside their quoted, strictly-matched argument).
+#: Shell-composition characters refused in every built-in shape.
 DANGEROUS_CHARACTERS = set(';&|<>$`\\\n')
 #: Characters refused inside the free text of ``rg``/``grep`` patterns and path arguments.
 ARGUMENT_FORBIDDEN_CHARACTERS = set('(){}*?')
-
-#: Strict shapes for the three language one-liners; the path is extracted and checked.
-_SAFE_PATH = r"[A-Za-z0-9._/@+-]+"
-PYTHON_RE = re.compile(rf"import yaml,sys; yaml\.safe_load\(open\('({_SAFE_PATH})'\)\)\Z")
-RUBY_RE = re.compile(rf"YAML\.load_file\('({_SAFE_PATH})'\)\Z")
-NODE_RE = re.compile(rf"JSON\.parse\(require\('fs'\)\.readFileSync\('({_SAFE_PATH})','utf8'\)\)\Z")
-_PINNED_DANGEROUS_CHARACTERS = set('$`\\"\n')
 
 _CITED_COMMAND = re.compile(r"`([^`]+)`")
 
@@ -75,17 +67,6 @@ def allowed_check_command(
         return False
     program, arguments = tokens[0], tokens[1:]
 
-    # Pinned one-liner shapes first: their quoted argument may contain `;`, `(` and
-    # `)` that are not shell syntax; the strict regex and path character check pin
-    # the only accepted value.
-    if program == "python3":
-        return len(arguments) == 2 and arguments[0] == "-c" and _strict_path(arguments[1], PYTHON_RE, repo_paths_ok)
-    if program == "ruby":
-        return len(arguments) == 3 and arguments[0] == "-ryaml" and arguments[1] == "-e" and _strict_path(arguments[2], RUBY_RE, repo_paths_ok)
-    if program == "node":
-        return len(arguments) == 2 and arguments[0] == "-e" and _strict_path(arguments[1], NODE_RE, repo_paths_ok)
-
-    # Every other shape must be free of shell composition anywhere.
     if any(character in command for character in DANGEROUS_CHARACTERS):
         return False
 
@@ -141,7 +122,7 @@ def fold_plan_tasks(
         check_commands, refused = bind_check_commands(delivery.get("acceptance") or {}, gate_commands=gate_commands)
         delivery["check_commands"] = check_commands
         delivery["check_commands_refused"] = refused
-    if stage == "PLAN":
+    if stage == "PLAN" and profile == "DECISION_DOC":
         for check in delivery.get("acceptance", {}).values():
             check["slice_id"] = doc_slice
     if stage == "TASKS" or (stage == "PLAN" and profile == "DECISION_DOC"):
@@ -152,11 +133,6 @@ def fold_plan_tasks(
         delivery["slices"] = {"planned": planned, "completed": [], "editable_paths": editable_paths}
         delivery["editable_path_normalizations"] = normalizations
         delivery["approved_slice_sha256s"] = approve_slices(planned)
-
-
-def _strict_path(argument: str, shape: re.Pattern[str], repo_paths_ok: Callable[[str], bool]) -> bool:
-    match = shape.match(argument)
-    return bool(match) and not any(character in argument for character in _PINNED_DANGEROUS_CHARACTERS) and repo_paths_ok(match.group(1))
 
 
 def is_doc_path(pattern: str) -> bool:
@@ -185,13 +161,10 @@ def doc_red_command(command: str) -> str | None:
         return None
     if len(tokens) < 3 or tokens[0] not in {"rg", "grep"}:
         return None
-    program, arguments = tokens[0], tokens[1:]
-    flags = [item for item in arguments if item.startswith("-")]
-    rest = [item for item in arguments if not item.startswith("-")]
-    if len(rest) != 2:
+    if len(tokens) < 3 or tokens[-1].startswith("-") or sum(not token.startswith("-") for token in tokens[1:]) < 2:
         return None
-    pattern, path = rest
-    return f"git show HEAD:{path} | {' '.join([program, *flags, shlex.quote(pattern)])}"
+    path = tokens[-1]
+    return f"git show {shlex.quote(f'HEAD:{path}')} | {shlex.join(tokens[:-1])}"
 
 
 def doc_red_commands(

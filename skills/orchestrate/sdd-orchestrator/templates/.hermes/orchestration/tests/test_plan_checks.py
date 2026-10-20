@@ -72,6 +72,29 @@ class PlanImpactFileValidationTests(unittest.TestCase):
 
 
 class FoldNormalizationTests(unittest.TestCase):
+    def test_code_plan_fold_preserves_acceptance_slice_ids(self) -> None:
+        import acceptance_verifiers
+
+        delivery = {"acceptance": {
+            "AC-01": {"slice_id": "S1"},
+            "AC-02": {"slice_id": "S2"},
+        }}
+        acceptance_verifiers.fold_plan_tasks(
+            delivery, stage="PLAN", profile="CODE", impact_files=[],
+            approve_slices=lambda planned: planned,
+        )
+        self.assertEqual(["S1", "S2"], [check["slice_id"] for check in delivery["acceptance"].values()])
+
+    def test_decision_doc_plan_fold_uses_doc_slice(self) -> None:
+        import acceptance_verifiers
+
+        delivery = {"acceptance": {"AC-01": {"slice_id": "S1"}}}
+        acceptance_verifiers.fold_plan_tasks(
+            delivery, stage="PLAN", profile="DECISION_DOC", impact_files=["docs/a.md"],
+            approve_slices=lambda planned: planned,
+        )
+        self.assertEqual("DOC", delivery["acceptance"]["AC-01"]["slice_id"])
+
     def test_tasks_fold_normalizes_and_records(self) -> None:
         result = {"executor_result": {
             "schema_version": 3,

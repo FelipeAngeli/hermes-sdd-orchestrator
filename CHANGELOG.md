@@ -6,6 +6,13 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ### Fixed
 
+- Per-AC verifiers no longer have built-in `python3 -c`, `ruby -ryaml -e` or `node -e` one-liner shapes (introduced by the untagged 15.11.0): the controller binds only `rg`/`grep`/`test` plus commands that exactly match a configured `GATES.md` gate, so ecosystem knowledge stays in `detect_stack.py`/`GATES.md` (the language-neutral payload invariant). Such a check is recorded in `delivery.check_commands_refused` unless the same command is a gate; `tests/test_sdd_orchestrator_skill.py` now refuses a language one-liner in any runtime module other than `detect_stack.py`.
+- A CODE PLAN no longer rewrites every acceptance check's `slice_id` to `DOC`: `acceptance_verifiers.fold_plan_tasks` assigns `DOC` only for a DECISION_DOC PLAN again, as before 15.11.0.
+- `BUDGET_BELOW_PLAN` no longer reserves a TEST call for DECISION_DOC, which has no TEST stage: `plan_checks.budget_below_plan` derives the post-IMPLEMENT executor calls from the profile stages (TEST and REVIEW for CODE, REVIEW for DECISION_DOC), so a DECISION_DOC demand with exactly pending + 1 calls left no longer stops falsely.
+- The doc-slice RED hint keeps the verifier's token order (`rg -e PAT -n f` no longer becomes `rg -e -n PAT`) and quotes the `HEAD:<path>` argument.
+- `stop_reasons.py` loads `stop_reason_additions.py` by sibling path, so a path-loaded consumer (`terminal_progress.py`) works when its tests run in isolation; before, `python -m unittest test_terminal_progress` failed with `ModuleNotFoundError`.
+- `BUDGET_BELOW_PLAN`'s registry command is a real `budget --raise` instead of `sdd.py next` (which only reprinted the HUMAN stop); the live stop still prints the exact raise commands for the shortfall in `next_commands`. LOOP_POLICY.md §9 is regenerated from `stop_reasons.policy_table()`, and `tests/test_stop_reasons.py` compares the whole table instead of only the codes.
+- `docs/components/testing.md` no longer claims built-in package-runner or language shapes, and a duplicated refusal fixture was removed.
 - The acceptance-verifier refusal test no longer carries `/etc/passwd` and `os.system` fixtures: the Hermes Skills Guard scan read them as CRITICAL traversal and HIGH execution findings and blocked CI. The synthetic absolute paths and the harmless `python3 -c` one-liner prove the same invariants (an absolute path and a non-pinned shape are refused), and `tools/check_skill_security.py` returns `ALLOWED` again.
 
 ## 15.11.0 - 2026-10-20

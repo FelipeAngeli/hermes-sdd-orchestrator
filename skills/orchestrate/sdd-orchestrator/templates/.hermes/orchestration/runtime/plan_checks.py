@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from state_format import PROFILES
+
 
 def normalize_editable_path(entry: str) -> str:
     """Normalize a TASKS impact entry: only a trailing ``/`` becomes ``<dir>/**``."""
@@ -36,9 +38,8 @@ def impact_file_errors(entries: Iterable[str], pattern_is_safe) -> list[tuple[in
 def budget_below_plan(data: dict, profile: str) -> dict[str, int] | None:
     """Return the shortfall (``tdd_slices``, ``executor_calls``) for IMPLEMENT, or None when enough.
 
-    IMPLEMENT dispatches one executor call per planned slice, plus TEST and REVIEW.
-    The ``profile`` argument is accepted for call-site clarity; the same arithmetic
-    applies to CODE and DECISION_DOC.
+    IMPLEMENT dispatches one executor call per pending slice, plus every remaining
+    profile stage after IMPLEMENT (TEST and REVIEW for CODE; REVIEW for DECISION_DOC).
     """
     slices = (data.get("delivery") or {}).get("slices") or {}
     planned = set(slices.get("planned") or [])
@@ -49,7 +50,8 @@ def budget_below_plan(data: dict, profile: str) -> dict[str, int] | None:
     tdd = budgets.get("tdd_slices") or {}
     executor = budgets.get("executor_calls") or {}
     tdd_deficit = max(0, len(pending) - (int(tdd.get("max", 0)) - int(tdd.get("used", 0))))
-    executor_deficit = max(0, len(pending) + 2 - (int(executor.get("max", 0)) - int(executor.get("used", 0))))
+    after_implement = sum(stage in {"TEST", "REVIEW"} for stage in PROFILES[profile][PROFILES[profile].index("IMPLEMENT") + 1:])
+    executor_deficit = max(0, len(pending) + after_implement - (int(executor.get("max", 0)) - int(executor.get("used", 0))))
     if tdd_deficit or executor_deficit:
         return {"tdd_slices": tdd_deficit, "executor_calls": executor_deficit}
     return None

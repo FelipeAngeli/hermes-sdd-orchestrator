@@ -48,6 +48,12 @@ class BudgetBelowPlanTests(unittest.TestCase):
     def test_enough_budget_does_not_stop(self) -> None:
         self.assertIsNone(plan_checks.budget_below_plan(budget_state(9, tdd_max=9), "CODE"))
 
+    def test_post_implement_calls_follow_the_profile_stages(self) -> None:
+        data = budget_state(2, tdd_max=2, exec_max=3)
+        self.assertEqual({"tdd_slices": 0, "executor_calls": 1}, plan_checks.budget_below_plan(data, "CODE"))
+        data["delivery"]["profile"] = "DECISION_DOC"
+        self.assertIsNone(plan_checks.budget_below_plan(data, "DECISION_DOC"))
+
     def test_after_a_raise_the_transition_proceeds(self) -> None:
         data = budget_state(9)
         self.assertEqual({"tdd_slices": 3, "executor_calls": 0}, plan_checks.budget_below_plan(data, "CODE"))

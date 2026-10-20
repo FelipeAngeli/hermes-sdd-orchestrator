@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
-"""Closed registry of every ``stop_reason`` a runtime emits, with exactly one next action each.
-
-LOOP_POLICY.md §9 renders this table and ``tests/test_stop_reasons.py`` keeps the
-three in sync: every literal a runtime emits is registered here, every registered
-code is emitted by some runtime, and §9 lists exactly these codes. A controller
-that meets a stop reason therefore never has to invent a step: it runs the
-``next_command`` (placeholders in ``<...>`` are filled from the user's own
-words) and then ``sdd.py next``.
-
-``{sdd}`` in a command template is rendered as the exact interpreter + path of
-this controller's ``runtime/sdd.py``.
-"""
+"""Closed registry of every runtime stop reason, with exactly one next action."""
 from __future__ import annotations
 
 import shlex
@@ -231,7 +220,9 @@ EXPLANATIONS: dict[str, tuple[str, str, str]] = {
     "NO_NEXT_ACTION": ("O driver antigo não tem mais ações no plano.", "Esse driver está obsoleto.", "Usar sdd.py next."),
 }
 
-import stop_reason_additions as _additions
+_spec = __import__("importlib.util").util.spec_from_file_location("sdd_stop_reason_additions", Path(__file__).with_name("stop_reason_additions.py"))
+_additions = __import__("importlib.util").util.module_from_spec(_spec)
+_spec.loader.exec_module(_additions)
 _additions.apply(STOP_REASONS, EXPLANATIONS, HUMAN, _NEXT)
 _additions.apply_controller_policy(STOP_REASONS, EXPLANATIONS, HUMAN, BLOCKED, _CONFIRM_POLICY, _ABANDON)
 

@@ -74,10 +74,9 @@ def runtime_sources() -> list[Path]:
     return sorted(path for path in RUNTIME.glob("*.py") if path.name not in {"stop_reasons.py", "stop_reason_additions.py"})
 
 
-def policy_codes() -> set[str]:
+def policy_table() -> str:
     text = (ORCHESTRATION / "policies" / "LOOP_POLICY.md").read_text(encoding="utf-8")
-    section = text.split("## 9.", 1)[1].split("\n## ", 1)[0]
-    return set(re.findall(r"^\| `([A-Z][A-Z0-9_]+)` \|", section, re.M))
+    return "| Stop reason | Kind | Next action |" + text.split("| Stop reason | Kind | Next action |", 1)[1].split("\n## ", 1)[0].rstrip()
 
 
 class StopReasonRegistryTests(unittest.TestCase):
@@ -93,8 +92,8 @@ class StopReasonRegistryTests(unittest.TestCase):
             with self.subTest(code=code):
                 self.assertIn(f'"{code}"', sources)
 
-    def test_loop_policy_section_9_lists_exactly_the_registry(self) -> None:
-        self.assertEqual(set(stop_reasons.STOP_REASONS), policy_codes())
+    def test_loop_policy_section_9_equals_the_generated_registry_table(self) -> None:
+        self.assertEqual(stop_reasons.policy_table(), policy_table())
 
     def test_every_stop_reason_maps_to_one_kind_and_next_step(self) -> None:
         for code, (kind, step, command) in stop_reasons.STOP_REASONS.items():

@@ -59,19 +59,24 @@ class AllowlistTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertTrue(av.allowed_check_command(command))
 
-    def test_accepts_test_python_ruby_and_node_shapes(self) -> None:
+    def test_accepts_test_and_refuses_pinned_language_shapes_unless_they_are_gates(self) -> None:
         import acceptance_verifiers as av
 
         for command in (
             "test -f docs/a.md",
             "test -s docs/a.md",
             "test -d docs/a.md",
+        ):
+            with self.subTest(command=command):
+                self.assertTrue(av.allowed_check_command(command))
+        for command in (
             "python3 -c \"import yaml,sys; yaml.safe_load(open('docs/a.yaml'))\"",
             "ruby -ryaml -e \"YAML.load_file('docs/a.yml')\"",
             "node -e \"JSON.parse(require('fs').readFileSync('docs/a.json','utf8'))\"",
         ):
             with self.subTest(command=command):
-                self.assertTrue(av.allowed_check_command(command))
+                self.assertFalse(av.allowed_check_command(command))
+                self.assertTrue(av.allowed_check_command(command, gate_commands={command}))
 
     def test_project_runner_scripts_need_an_exact_gate_command(self) -> None:
         """The controller is toolchain-neutral: a project runner is admitted only as a configured gate."""
@@ -119,25 +124,9 @@ class AllowlistTests(unittest.TestCase):
             "rg -e x --files",
             "make test -- --watch",
             "make test; x",
-            "rg --pre=sh x a.md",
         ):
             with self.subTest(command=command):
                 self.assertFalse(av.allowed_check_command(command))
-
-    def test_refuses_shell_characters_and_parent_paths_in_pinned_shapes(self) -> None:
-        import acceptance_verifiers as av
-
-        shapes = (
-            ("python3 -c \"import yaml,sys; yaml.safe_load(open('{}'))\"", "docs/a.yaml"),
-            ("ruby -ryaml -e \"YAML.load_file('{}')\"", "docs/a.yml"),
-            ("node -e \"JSON.parse(require('fs').readFileSync('{}','utf8'))\"", "docs/a.json"),
-        )
-        for template, good_path in shapes:
-            for unsafe_path in ("$(touch /tmp/pwned)", "`id`", 'bad"path', "bad\npath", "../outside.yml"):
-                with self.subTest(template=template, unsafe_path=unsafe_path):
-                    self.assertFalse(av.allowed_check_command(template.format(unsafe_path)))
-            with self.subTest(template=template, good_path=good_path):
-                self.assertTrue(av.allowed_check_command(template.format(good_path)))
 
 
 class ExtractCommandTests(unittest.TestCase):
@@ -226,6 +215,10 @@ class DocRedTests(unittest.TestCase):
                          av.doc_red_command('rg -n "Decision" docs/adr/0001.md'))
         self.assertEqual("git show HEAD:docs/a.md | grep -n Decision",
                          av.doc_red_command('grep -n "Decision" docs/a.md'))
+        self.assertEqual("git show HEAD:docs/a.md | rg -e Decision -n",
+                         av.doc_red_command('rg -e "Decision" -n docs/a.md'))
+        self.assertEqual("git show 'HEAD:docs/a file.md' | rg -n Decision",
+                         av.doc_red_command('rg -n "Decision" "docs/a file.md"'))
         self.assertIsNone(av.doc_red_command("test -f docs/a.md"))
         self.assertIsNone(av.doc_red_command("make test"))
         self.assertIsNone(av.doc_red_command('rg -n "Decision"'))

@@ -7,11 +7,15 @@ from __future__ import annotations
 
 
 def apply(stop_reasons: dict, explanations: dict, human: str, next_command: str) -> None:
-    """Add the BUDGET_BELOW_PLAN registry and readable-table rows."""
+    """Add the BUDGET_BELOW_PLAN registry and readable-table rows.
+
+    ``next_command`` is the registry fallback; the live stop always replaces it with
+    the exact raise command(s) for the computed shortfall (``plan_checks.budget_below_plan_stop``).
+    """
     stop_reasons["BUDGET_BELOW_PLAN"] = (
         human,
-        "The plan needs more TDD slices or executor calls than the budget allows; ask the user to raise the shortfall.",
-        next_command,
+        "The plan needs more TDD slices or executor calls than the budget allows; the stop prints the exact raise command(s) for the shortfall in `next_commands`.",
+        "{sdd} budget --raise tdd_slices --by 1 --quote '<user words authorizing more>'",
     )
     explanations["BUDGET_BELOW_PLAN"] = (
         "O plano precisa de mais fatias de TDD ou chamadas ao executor do que o orçamento permite.",
