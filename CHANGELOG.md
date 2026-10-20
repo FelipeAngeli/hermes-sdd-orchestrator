@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.10.0 - 2026-10-19
+
 ### Added
 
 - Worker prompt item 1: IMPLEMENT and TEST prompts render a deterministic `## Acceptance rules` block built only from the verifier context the controller later passes to `validate_protocol.py`, with concrete bound commands, required commands, `tdd_slices` ids, editable paths, blockers, recorded waivers and minimal valid examples.
