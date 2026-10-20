@@ -42,6 +42,8 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/DECISION_RECEIPT_SCHEMA.json",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/decision_orchestration.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/validate_protocol.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/executor_sandbox.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/executor_transport.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/executor_launch.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/EXECUTORS.md"
     ],
