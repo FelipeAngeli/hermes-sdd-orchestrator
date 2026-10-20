@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "AGENT_REGISTRY_SCHEMA.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "registry_version",
+    "agents",
+    "playbooks",
+    "sources",
+    "registry_sha256"
+  ],
+  "properties": {
+    "registry_version": {
+      "const": 1
+    },
+    "agents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agent_id",
+          "kind",
+          "role",
+          "stages",
+          "source",
+          "source_sha256",
+          "executor_policy",
+          "result_schema",
+          "leaf_only",
+          "executor",
+          "model",
+          "timeout_seconds",
+          "max_turns",
+          "tools",
+          "sandbox",
+          "permission_mode",
+          "writes"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "STAGE",
+              "ROLE"
+            ]
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source": {
+            "type": "string"
+          },
+          "source_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "executor_policy": {
+            "type": "string"
+          },
+          "result_schema": {
+            "type": "string"
+          },
+          "leaf_only": {
+            "const": true
+          },
+          "executor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timeout_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_turns": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tools": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "sandbox": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "permission_mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "writes": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "playbooks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "version",
+          "status",
+          "source",
+          "source_sha256"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "source_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "status": {
+            "enum": [
+              "PARSED",
+              "UNPARSED"
+            ]
+          }
+        }
+      }
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "registry_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

@@ -106,6 +106,14 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/context_cli.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/CONTEXT_ENGINE.md"
     ],
+    "docs/components/agent-manager.md": [
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/agent_registry.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/delegation_config.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/delegation_contract.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/DELEGATION.md",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/AGENT_REGISTRY_SCHEMA.json",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/DELEGATION_CONTRACT_SCHEMA.json"
+    ],
     "docs/components/testing.md": [
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/tests/*",
       "tests/*"
