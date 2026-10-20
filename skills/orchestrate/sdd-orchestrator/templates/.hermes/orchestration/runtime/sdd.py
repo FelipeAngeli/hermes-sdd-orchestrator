@@ -617,6 +617,9 @@ def check_manifest(manifest: dict[str, Any], role: str | None) -> dict[str, Any]
 # ----------------------------------------------------------------------------- prompt
 
 import prompt_rules  # noqa: E402
+
+if __name__ == "__main__":  # run as a script: let `import sdd` in prompt_rules resolve to this module, not a copy
+    sys.modules.setdefault("sdd", sys.modules[__name__])
 _excerpt = prompt_rules._excerpt
 controller_data = prompt_rules.controller_data
 build_prompt = prompt_rules.build_prompt

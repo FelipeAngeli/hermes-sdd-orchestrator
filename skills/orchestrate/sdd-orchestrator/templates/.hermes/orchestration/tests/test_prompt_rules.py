@@ -361,5 +361,24 @@ class CompactProfileTests(unittest.TestCase):
             self.assertLess(len(compact.encode("utf-8")), 25 * 1024)
 
 
+class ScriptModuleIdentityTests(unittest.TestCase):
+    def test_prompt_rules_uses_the_running_script_module(self) -> None:
+        """Run as a script, sdd.py must be the module prompt_rules imports, or its SddError escapes `except`."""
+        import subprocess
+
+        probe = (
+            "import sys, types\n"
+            f"sys.path.insert(0, {str(RUNTIME)!r})\n"
+            f"path = {str(RUNTIME / 'sdd.py')!r}\n"
+            "module = types.ModuleType('__main__'); module.__file__ = path; sys.modules['__main__'] = module\n"
+            "sys.argv = ['sdd.py', '--help']\n"
+            "try:\n    exec(compile(open(path, encoding='utf-8').read(), path, 'exec'), module.__dict__)\n"
+            "except SystemExit:\n    pass\n"
+            "import sdd\nprint('SAME' if sdd.SddError is module.SddError else 'DIFFERENT')\n"
+        )
+        completed = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=60, check=False)
+        self.assertEqual(completed.stdout.strip().splitlines()[-1], "SAME", completed.stderr[-2000:])
+
+
 if __name__ == "__main__":
     unittest.main()
