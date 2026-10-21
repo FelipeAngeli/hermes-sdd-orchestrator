@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.16.3 - 2026-10-21
+
 ### Fixed
 
 - Validation gates, fourth review round of PR #62. `gate_workspace` no longer asks git to compare content: git applied worker-controlled settings along the way, and four of them hid an edit (one also ran a program):
