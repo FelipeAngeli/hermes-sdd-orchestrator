@@ -19,6 +19,11 @@ MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
 NON_BLOCKING_SEVERITIES = frozenset({"LOW", "INFO", "NOTE", "MINOR", "NIT", "NON_BLOCKING", "NONE", "NO_FINDINGS"})
 
 
+def severity_key(value: Any) -> str:
+    """Severity as compared with ``NON_BLOCKING_SEVERITIES``: surrounding spaces removed, upper case."""
+    return str(value or "").strip().upper()
+
+
 def _expected_set(validator, context):
     """The controller must state which acceptance checks exist; with no expected set, zero checks proves nothing."""
     stated = any(key in context for key in ("expected_check_ids", "check_commands", "waivers"))
@@ -120,7 +125,7 @@ def _test(validator, body, context):
 
 def _review(validator, body, context):
     findings = body["findings"]
-    blocking = [item for item in findings if str(item.get("severity", "")).strip().upper() not in NON_BLOCKING_SEVERITIES]
+    blocking = [item for item in findings if severity_key(item.get("severity")) not in NON_BLOCKING_SEVERITIES]
     gates = body["gate_status"]
     not_passed = [name for name in ("focused_tests", "format", "analyze") if gates.get(name) != "PASS"]
     baseline_ok = body["baseline"]["preserved"] and body["ownership"]["valid"]

@@ -50,16 +50,25 @@ VENDORS = {"codex": "openai", "gpt": "openai", "openai": "openai", "chatgpt": "o
 def family(name: str | None) -> str | None:
     """Vendor family of a model or executor name (``gpt-5-codex``, ``codex-cli`` and ``CODEX`` are all ``openai``).
 
-    Words are lower-case ASCII runs that start with a letter at a word boundary; the first
-    word in ``VENDORS`` wins, else the first word's letters. A name with no such word
-    (``4o``, a non-ASCII spelling) has no family and never counts as independent.
+    Words are lower-case ASCII runs that start with a letter at a word boundary. A word that
+    is a ``VENDORS`` key (``o3``) or starts with one (``codexcli``, ``claudecode``) gives that
+    vendor; otherwise a vendor name of four letters or more anywhere in the name (``mycodex``)
+    does; otherwise the first word's letters. A name with any non-ASCII character (a
+    look-alike spelling) or with no ASCII word (``4o``) has no family and never counts as
+    independent.
     """
     text = str(name or "").strip().lower()
+    if not text.isascii():
+        return None
     words = re.findall(r"(?<![a-z0-9])[a-z][a-z0-9]*", text)
     for word in words:
-        letters = re.match(r"[a-z]+", word).group(0)
-        if word in VENDORS or letters in VENDORS:
-            return VENDORS.get(word) or VENDORS[letters]
+        for key in sorted(VENDORS, key=len, reverse=True):
+            if word.startswith(key):
+                return VENDORS[key]
+    squeezed = re.sub(r"[^a-z]", "", text)
+    for key in sorted(VENDORS, key=len, reverse=True):
+        if len(key) >= 4 and key in squeezed:
+            return VENDORS[key]
     return re.match(r"[a-z]+", words[0]).group(0) if words else None
 
 

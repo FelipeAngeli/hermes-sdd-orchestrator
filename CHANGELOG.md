@@ -4,6 +4,17 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+
+- Validation gates, third review round of PR #62. A worker could no longer hide an edit or mask a false claim:
+  - **Base diff** (`gate_workspace`): with `context.base_commit`, changes are computed against a fresh temporary index built from the base tree, so commits since the base, the index's cached stat data and `skip-worktree`/`assume-unchanged` flags hide nothing. Without a base, those flags make the fingerprint incomplete, so a stale PASS is never reused. The base must be a full object id of an ancestor of HEAD; a ref name, a short id or an unrelated commit is BLOCKED.
+  - **Git environment:** `GIT_DIR`/`GIT_WORK_TREE` are pinned (a repository `core.worktree` can no longer redirect the scan), and replace refs and grafts are off. `core.fileMode` and `extensions.worktreeConfig` are overridden, and filters are found in every config scope, including `config.worktree`. The ineffective `-c core.worktree` and redundant `diff.external` overrides were removed.
+  - **Ignore rules:** an untracked file counts unless a `.gitignore` that exists unchanged in the base tree ignores it, so a worker-written or edited ignore rule hides nothing.
+  - **Fingerprint:** unreadable and special files make it incomplete instead of crashing the evaluation.
+  - **Claims:** a claim whose argv equals a configured gate command is re-run as that command, so a disallowed spelling cannot mask a false claim about it.
+  - **Reviewers:** glued executor names map to their vendor (`codexcli`, `claudecode`, `gpt4o`), and non-ASCII names have no family.
+  - **Tests:** `test_gates_round3.py` covers each finding and the rules the reviewers' third mutation run (67 rules, 12 survivors) found untested. A follow-up run of 24 rules left 6. Of those, 3 were covered by new tests and re-run as killed, `diff.external` was removed as redundant, one is an equivalent reordering, and `core.checkStat`/`core.trustctime` were removed because a same-size, same-mtime probe showed git reports the edit without them.
+
 ## 15.16.0 - 2026-10-21
 
 ### Added
@@ -21,7 +32,7 @@ All notable changes to the orchestration are recorded here. Every change under `
   - **Reviewers:** families map through a vendor table (`gpt-5-codex` and `codex` are both `openai`), and the reviewer context labels quoted worker text as untrusted.
   - **Store:** an evidence store inside the repository is refused (`GATE_STORE_INSIDE_REPO`).
   - **Redaction:** `redaction.redact` masks the distinctive GitHub, GitLab, webhook and Slack prefixes even when glued to a preceding word.
-  - **Tests:** `test_gates_hardening.py` covers the 12 rules the reviewers' mutation run found untested, plus each new rule; a 29-mutation run leaves none surviving. `docs/components/validation-gates.md` now states the same-user and `.git` limits plainly.
+  - **Tests:** `test_gates_hardening.py` covers the 12 rules the reviewers' mutation run found untested, plus the new rules. (Correction: a 29-mutation run left 4 survivors, which were then covered and re-run as killed; the reviewers' third run found 12 more, covered in the next release.) `docs/components/validation-gates.md` now states the same-user and `.git` limits plainly.
 
 ## 15.15.2 - 2026-10-21
 
