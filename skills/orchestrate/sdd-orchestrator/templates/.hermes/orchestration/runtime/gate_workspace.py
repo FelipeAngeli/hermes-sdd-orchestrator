@@ -97,7 +97,8 @@ def _objects(repo: Path, ids: list[str], kind: bytes) -> dict[str, bytes] | None
     for oid in ids:
         end = out.find(b"\n", position)
         header = out[position:end].split(b" ") if end >= 0 else []
-        if len(header) != 3 or header[0].decode("ascii", "replace") != oid or header[1] != kind:
+        # The type is not compared separately: the id is re-hashed with the expected type, so any other type mismatches.
+        if len(header) != 3 or header[0].decode("ascii", "replace") != oid:
             return None
         size = int(header[2])
         body = out[end + 1:end + 1 + size]

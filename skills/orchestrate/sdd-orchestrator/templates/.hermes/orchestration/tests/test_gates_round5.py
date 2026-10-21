@@ -145,6 +145,30 @@ class IgnoredCacheTests(Base):
         self.assertEqual("PASS", first["verdict"])
         self.assertFalse(second["reused"], "a planted cache in an ignored path must be new evidence")
 
+    def test_a_same_size_cache_rewrite_with_its_mtime_restored_is_new_evidence(self):
+        engine = self.engine()
+        first = self.evaluate_test(engine)
+        cache = next((self.repo / "__pycache__").iterdir())
+        stat = cache.stat()
+        cache.write_bytes(bytes(byte ^ 0xFF for byte in cache.read_bytes()))
+        os.utime(cache, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        self.assertEqual(stat.st_size, cache.stat().st_size)
+        second = self.evaluate_test(engine)
+        self.assertEqual("PASS", first["verdict"])
+        self.assertFalse(second["reused"], "only the ctime changed, and the worker cannot set it back")
+
+    def test_a_command_that_changes_a_tracked_file_does_not_mark_the_new_state_as_reviewed(self):
+        (self.repo / "touch_it.py").write_text("from pathlib import Path\nPath('README.md').write_text('rewritten by the command\\n')\n", encoding="utf-8")
+        self.base = commit_all(self.repo, "a command with a side effect")
+        command = f"{sys.executable} touch_it.py"
+        engine = gate_engine.GateEngine(self.root / "store", self.repo, commands={"focused_tests": command, "analyze": ANALYZE_CMD},
+                                        reviewers=[gate_reviewer.Reviewer("c", "CLAUDE", FakeReviewer())])
+        context = {"implementer": "CODEX", "base_commit": self.base, "check_commands": {"AC-1": command}}
+        first = engine.evaluate("TEST", "T-1", artifact("TEST"), context=context)
+        second = engine.evaluate("TEST", "T-1", artifact("TEST"), context=context)
+        self.assertIsNone(first["reuse_key"])
+        self.assertFalse(second["reused"], "the decision was made on the state before the command changed README.md")
+
     def test_the_gates_own_caches_do_not_prevent_reuse(self):
         engine = self.engine()
         first = self.evaluate_test(engine)
