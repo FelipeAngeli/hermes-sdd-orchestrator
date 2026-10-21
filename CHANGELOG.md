@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.15.0 - 2026-10-21
+
 ### Added
 
 - Opt-in SDD validation gates in observation mode (`runtime/gate_*.py`, `schemas/GATE_DECISION_SCHEMA.json`), inspired by the CompozyOS gates and goal evaluators: a GateRegistry with one gate per stage (SPECIFY … REVIEW), a DeterministicValidator that checks artifacts against the real workspace and re-runs configured or allowlisted commands without a shell, an AgentReviewer that asks only reviewers independent of the implementer with minimal context and counts an uncited PASS, a reviewer error or disagreement as INCONCLUSIVE, a content-addressed, redacted, versioned EvidenceCollector, and structured GateDecisions (`gate_id`, `task_id`, `PASS|FAIL|BLOCKED|INCONCLUSIVE`, `evidence_refs`, `failed_criteria`, `suggested_actions`, `evaluator`, `timestamp`) in an append-only hash-chained log. Every PASS has evidence, identical evidence reuses the recorded decision without re-review, and a FAIL produces a bounded corrective task the loop engine can run (`gated_handler`). Nothing in the controller calls the gates; `OBSERVE` never blocks and `ENFORCE` is explicit. CLI: `evaluate`, `history`, `verify`, `registry`. See `docs/components/validation-gates.md`.
