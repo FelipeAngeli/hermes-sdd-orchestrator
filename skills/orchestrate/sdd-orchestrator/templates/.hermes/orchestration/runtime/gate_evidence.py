@@ -167,7 +167,7 @@ class DecisionLog:
     def find(self, idempotency_key: str) -> dict[str, Any] | None:
         """The latest decision with this key, read from a verified log."""
         for record in reversed(self.verified_records()):
-            if record.get("idempotency_key") == idempotency_key:
+            if idempotency_key in (record.get("idempotency_key"), record.get("reuse_key")):
                 return record
         return None
 

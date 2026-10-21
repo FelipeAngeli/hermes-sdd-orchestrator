@@ -4,6 +4,16 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+
+- Validation gates, fifth review round of PR #62. Each item below was reproduced by a reviewer with a proof of concept:
+  - **Object store** (CRITICAL): git does not re-hash a loose object when it reads one. A worker that copied a tree it built over the base tree's object in `.git/objects` made an edited file look unchanged, with or without `base_commit`. `scan` now reads the reference commit and every tree under it with `git cat-file --batch`, re-hashes each object and parses the trees itself (it no longer uses `ls-tree`). A mismatch makes the scope checks INCONCLUSIVE.
+  - **Scan budget** (HIGH): past `MAX_SCAN_BYTES` the scan returned the partial list it had and the scope checks PASSed on it (a sparse 4 GiB file hid an edit made after it). The change list is now undecided (`changed` is None) and the checks are INCONCLUSIVE.
+  - **Lazy fetch** (HIGH): with a promisor remote and a missing object, `rev-parse`, `merge-base` and `ls-tree` ran the repository's `core.sshCommand`. Git now runs with `GIT_NO_LAZY_FETCH=1`. The 15.16.3 text said no git call could run a worker program; that was wrong.
+  - **Symlinks** (HIGH): the fingerprint hashed a symlink's target string, so editing what it pointed to reused a stale PASS. A changed symlink now makes the fingerprint incomplete (marker `symlink`). A tracked directory replaced by a symlink is reported with every tracked path under it, instead of being followed.
+  - **Ignored paths** (MEDIUM): a rule that ignores a directory holding tracked files no longer hides new files there. Every ignored entry's name, type, size, mtime and ctime now goes into the fingerprint, so a planted cache (a `.pyc` whose header matches the restored source) is new evidence. Decisions gain an optional `reuse_key` in `GATE_DECISION_SCHEMA.json` (the same key computed after the gate's own commands wrote their caches), so an unchanged workspace is still reused.
+  - **Tests:** `test_gates_round5.py` (8 tests). 7 of them fail against the 15.16.3 code; the 8th checks that the gate's own caches do not prevent reuse.
+
 ## 15.16.3 - 2026-10-21
 
 ### Fixed
