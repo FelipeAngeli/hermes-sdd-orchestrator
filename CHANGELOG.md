@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.14.4 - 2026-10-20
+
 ### Fixed
 
 - Loop engine (PR #61 review, round 4): every commit first writes the new state to `execution.pending.json`; after a crash a complete trailing event rolls forward to that state (hash-checked) instead of being dropped, so restoring the previous `execution.json` can no longer erase a recorded `reject` or completion, and only a torn line (including a split UTF-8 character) is trimmed; concurrent `start`s of one id return `EXECUTION_EXISTS`; non-JSON failures, token counts and input requests are `RESULT_INVALID`.
