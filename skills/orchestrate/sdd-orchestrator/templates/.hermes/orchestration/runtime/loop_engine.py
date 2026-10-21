@@ -15,6 +15,7 @@ an interrupted node applied its effect, so recovery never duplicates it.
 """
 from __future__ import annotations
 
+import copy
 import threading
 import time
 from pathlib import Path
@@ -38,13 +39,14 @@ class NodeContext:
         attempt = record["attempts"][-1]
         self.execution_id = execution["execution_id"]
         self.node = node
-        self.inputs = inputs
-        self.partial = record["partial"]
-        self.correction = record["correction"]
+        self.inputs = copy.deepcopy(inputs)
+        self.partial = copy.deepcopy(record["partial"])
+        self.correction = copy.deepcopy(record["correction"])
         self.human_input = record["human_input"]
         self.attempt = attempt["attempt"]
         self.generation = record["generation"]
         self.idempotency_key = attempt["idempotency_key"]
+        self.attempt_id = attempt.get("attempt_id")
         self.deadline_seconds = node["timeout_seconds"]
         self._engine, self._execution, self._closed = engine, execution, False
 
@@ -52,11 +54,15 @@ class NodeContext:
         with self._engine._write_lock:
             if self._closed:
                 return
-            self._execution["nodes"][self.node["id"]]["partial"] = partial
+            self._execution["nodes"][self.node["id"]]["partial"] = copy.deepcopy(partial)
             self._engine._commit(self._execution, "NODE_PROGRESS", {"node": self.node["id"]})
 
     def cancel_requested(self) -> bool:
         return self._engine.store.read_cancel_request(self.execution_id) is not None
+
+    def abandoned(self) -> bool:
+        """True once the engine stopped waiting for this attempt (timeout); a cooperative handler stops then."""
+        return self._closed
 
 
 class LoopEngine:
@@ -67,6 +73,7 @@ class LoopEngine:
         self.reconcilers = dict(reconcilers or {})
         self.clock, self.sleep = clock, sleep
         self._write_lock = threading.RLock()
+        self._stale: dict[str, threading.Thread] = {}
 
     # -- lifecycle -----------------------------------------------------------------
     def start(self, definition: dict[str, Any], execution_id: str | None = None) -> dict[str, Any]:
@@ -93,10 +100,16 @@ class LoopEngine:
 
     def run(self, execution_id: str, *, max_steps: int | None = None) -> dict[str, Any]:
         with self.store.runner_lock(execution_id):
-            execution, spec = self.load(execution_id)
+            execution = self.store.load(execution_id, repair=True)
+            spec = self.store.load_definition(execution_id, execution["definition_sha256"])
+            loop_state.verify_integrity(execution, spec, self.store.events(execution_id))
             nodes = loop_model.node_map(spec)
             steps = 0
             while not loop_state.is_terminal(execution):
+                if all(record["status"] == "COMPLETED" for record in execution["nodes"].values()):
+                    self._commit(execution, *loop_state.finalize(execution, "COMPLETED", "COMPLETED", self.clock()))
+                    self.store.clear_cancel_request(execution_id)
+                    break
                 if self._cancel_if_requested(execution):
                     break
                 if execution["halt"] is not None:
@@ -106,9 +119,6 @@ class LoopEngine:
                 if max_steps is not None and steps >= max_steps:
                     execution["status"] = "PENDING"
                     self._commit(execution, "RUNNER_YIELDED", {"steps": steps})
-                    break
-                if all(record["status"] == "COMPLETED" for record in execution["nodes"].values()):
-                    self._commit(execution, *loop_state.finalize(execution, "COMPLETED", "COMPLETED", self.clock()))
                     break
                 self._step(execution, spec, nodes)
                 steps += 1
@@ -161,6 +171,10 @@ class LoopEngine:
         if handler is None:
             self._halt(execution, spec, "HANDLER_MISSING", node=name)
             return
+        stale = self._stale.get(name)
+        if stale is not None and stale.is_alive() and not node["idempotent"]:
+            self._halt(execution, spec, "NODE_STILL_RUNNING", node=name)
+            return
         self._attempt(execution, spec, nodes, node, handler)
 
     def _attempt(self, execution: dict[str, Any], spec: dict[str, Any], nodes: dict[str, dict[str, Any]],
@@ -168,7 +182,8 @@ class LoopEngine:
         name, record = node["id"], execution["nodes"][node["id"]]
         attempt = len(record["attempts"]) + 1
         record["attempts"].append({"attempt": attempt, "generation": record["generation"], "result": None, "failure": None,
-                                   "idempotency_key": loop_policy.idempotency_key(execution["execution_id"], name, record["generation"], attempt),
+                                   "idempotency_key": loop_policy.idempotency_key(execution["execution_id"], name, record["generation"]),
+                                   "attempt_id": loop_policy.attempt_id(execution["execution_id"], name, record["generation"], attempt),
                                    "started_at": self.clock(), "human_authorized": record["retry_authorized"]})
         record["status"] = "RUNNING"
         record["retry_authorized"] = False
@@ -185,12 +200,7 @@ class LoopEngine:
             success, failure = loop_policy.normalize_result(value)
         self._settle(execution, spec, nodes, node, success, failure)
 
-    def _invoke(self, handler: Handler, context: NodeContext, timeout: float | None) -> tuple[Any, dict[str, Any] | None]:
-        if timeout is None:
-            try:
-                return handler(context), None
-            except Exception as error:  # noqa: BLE001 - classified, never retried blindly
-                return None, loop_policy.failure_from_exception(error)
+    def _invoke(self, handler: Handler, context: NodeContext, timeout: float) -> tuple[Any, dict[str, Any] | None]:
         box: dict[str, Any] = {}
 
         def target() -> None:
@@ -205,6 +215,7 @@ class LoopEngine:
         if worker.is_alive():
             with self._write_lock:
                 context._closed = True
+            self._stale[context.node["id"]] = worker
             return None, loop_policy.timeout_failure(timeout)
         context._closed = True
         error = box.get("error")

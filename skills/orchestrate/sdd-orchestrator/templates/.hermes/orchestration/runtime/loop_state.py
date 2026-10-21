@@ -76,10 +76,8 @@ def halt(execution: dict[str, Any], spec: dict[str, Any], reason: str, now: floa
         return finalize(execution, "FAILED", reason, now)
     status = {"APPROVAL": "WAITING_APPROVAL", "INPUT": "WAITING_INPUT"}.get(kind, "BLOCKED")
     execution["status"] = status
-    if node is not None and kind in ("APPROVAL", "INPUT"):
+    if node is not None:
         execution["nodes"][node]["status"] = status
-    elif node is not None and kind == "DECISION":
-        execution["nodes"][node]["status"] = "BLOCKED"
     execution["pending"] = {"kind": kind, "node": node, "reason": reason, "category": category, "prompt": prompt,
                             "allowed_decisions": list(PENDING_KINDS[kind])}
     return "EXECUTION_HALTED", {"reason": reason, "node": node}
@@ -121,6 +119,45 @@ def merge_tokens(usage: dict[str, Any], tokens: Any, method: Any) -> None:
         usage["tokens_method"] = "ESTIMATED"
     else:
         usage["tokens_method"] = "MEASURED"
+
+
+def _decision_key(entry: dict[str, Any]) -> tuple[Any, Any, Any]:
+    return entry.get("decision"), entry.get("node"), entry.get("generation")
+
+
+def verify_integrity(execution: dict[str, Any], spec: dict[str, Any], events: list[dict[str, Any]]) -> None:
+    """Refuse an execution whose limits or approvals are not explained by the definition and recorded decisions.
+
+    Every recorded decision must also appear in the event log, limits must equal the
+    definition limits plus the recorded raises (within the hard ceilings), and an
+    approval must match a recorded human decision of the same node generation.
+    """
+    def tampered(message: str) -> loop_model.LoopError:
+        return loop_model.LoopError("EXECUTION_TAMPERED", message,
+                                    "execution.json was changed outside the loop runtime; restore it from a backup or start a new execution.")
+
+    logged = {_decision_key(event) for event in events if "decision" in event}
+    expected = dict(spec["limits"])
+    for entry in execution["decisions"]:
+        if entry.get("decision") == "cancel":
+            continue
+        if _decision_key(entry) not in logged:
+            raise tampered(f"decision {entry.get('decision')!r} on {entry.get('node')!r} is not in events.jsonl.")
+        if entry.get("decision") == "raise-budget":
+            key, _, raw = str(entry.get("value") or "").partition("=")
+            if key in loop_model.RAISABLE_LIMITS and raw.isdigit():
+                expected[key] = int(raw)
+    for key, ceiling in loop_model.LIMIT_CEILINGS.items():
+        value = execution["limits"].get(key)
+        if value is not None and value > ceiling:
+            raise tampered(f"{key}={value} is above the hard ceiling {ceiling}.")
+    if execution["limits"] != expected:
+        raise tampered("limits differ from the definition plus the recorded raise-budget decisions.")
+    recorded = {_decision_key(entry) for entry in execution["decisions"]}
+    for name, record in execution["nodes"].items():
+        approval = record.get("approval")
+        if approval and (approval.get("decision"), name, record["generation"]) not in recorded:
+            raise tampered(f"{name} carries an approval no human decision recorded.")
 
 
 def summary(execution: dict[str, Any]) -> dict[str, Any]:

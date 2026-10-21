@@ -63,6 +63,7 @@ HERMES_STOP_REASON = {
     "APPROVAL_REJECTED": "HUMAN_DECISION_REQUIRED",
     "INPUT_REQUIRED": "CLARIFICATION_REQUIRED",
     "NO_RUNNABLE_NODE": "BLOCKED",
+    "NODE_STILL_RUNNING": "EXECUTOR_TIMEOUT",
 }
 
 #: Experimental defaults (owner request) and the hard ceilings a definition or raise can never exceed.
@@ -87,6 +88,8 @@ LIMIT_CEILINGS = {
     "backoff_base_seconds": 300,
     "backoff_max_seconds": 600,
 }
+#: People allowed to approve a SECURITY gate unless the definition names others.
+DEFAULT_SECURITY_APPROVERS = ("requester",)
 RAISABLE_LIMITS = ("max_correction_cycles", "max_transient_retries", "max_timeout_retries", "max_node_runs", "max_tokens", "max_wall_clock_seconds")
 TIMEOUT_CEILING_SECONDS = 7200
 
@@ -205,6 +208,7 @@ def validate_definition(value: Any) -> dict[str, Any]:
     spec.setdefault("loop_type", "GENERIC")
     spec.setdefault("policy", {})
     spec["policy"].setdefault("on_unrecoverable_failure", "ESCALATE")
+    spec["policy"].setdefault("security_approvers", list(DEFAULT_SECURITY_APPROVERS))
     spec["limits"] = _limits(spec.get("limits") or {})
     nodes: dict[str, dict[str, Any]] = {}
     for raw in spec["nodes"]:
@@ -222,6 +226,9 @@ def validate_definition(value: Any) -> dict[str, Any]:
         node.setdefault("on_failure", None)
         if "timeout_seconds" not in node:
             node["timeout_seconds"] = spec["limits"]["timeouts_by_kind"].get(node["kind"])
+        if node["kind"] != "wait" and node["timeout_seconds"] is None:
+            raise LoopError("TIMEOUT_REQUIRED", f"{node['id']}: a {node['kind']} node needs a finite timeout.",
+                            "Set timeout_seconds or limits.timeouts_by_kind for its kind; only wait nodes may have none.")
         if node["kind"] == "wait" and node["effect"] == "EXTERNAL":
             raise LoopError("DEFINITION_INVALID", f"{node['id']}: a wait node has no effect.", "Remove effect from the wait node.")
         nodes[node["id"]] = node

@@ -40,7 +40,8 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "on_unrecoverable_failure": {"enum": ["ESCALATE", "FAIL"]}
+        "on_unrecoverable_failure": {"enum": ["ESCALATE", "FAIL"]},
+        "security_approvers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/text"}}
       }
     }
   },

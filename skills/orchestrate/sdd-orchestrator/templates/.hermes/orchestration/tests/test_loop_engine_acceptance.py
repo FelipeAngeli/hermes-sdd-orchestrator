@@ -115,13 +115,14 @@ class SchedulingTests(Base):
 
 
 class FailureTests(Base):
-    def test_transient_failures_retry_with_exponential_backoff_and_new_keys(self):
+    def test_transient_failures_retry_with_exponential_backoff_and_a_stable_idempotency_key(self):
         handler = self.rec.handler("A", [loop_policy.TransientFailure("NET", "reset"), loop_policy.TransientFailure("NET", "reset"), ok()])
         _, execution = self.start_and_run(definition([node("A", idempotent=True)]), {"A": handler})
         self.assertEqual(["A", "A", "A"], self.rec.calls)
         self.assertEqual([1, 2], self.clock.sleeps)
-        keys = [ctx.idempotency_key for ctx in self.rec.contexts["A"]]
-        self.assertEqual(3, len(set(keys)))
+        keys = {ctx.idempotency_key for ctx in self.rec.contexts["A"]}
+        self.assertEqual(1, len(keys), "every retry of one generation replays with the same key")
+        self.assertEqual(3, len({ctx.attempt_id for ctx in self.rec.contexts["A"]}))
         self.assertEqual("COMPLETED", execution["status"])
 
     def test_transient_retries_are_bounded_then_escalated(self):

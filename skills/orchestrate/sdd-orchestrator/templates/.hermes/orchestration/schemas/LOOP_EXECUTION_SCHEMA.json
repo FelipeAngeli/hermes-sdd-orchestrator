@@ -7,13 +7,28 @@
   "required": ["schema_version", "execution_id", "loop_id", "definition_sha256", "status", "created_at", "updated_at", "limits", "usage", "nodes", "corrections", "pending", "halt", "outcome", "decisions", "checkpoint"],
   "properties": {
     "schema_version": {"const": 1},
-    "execution_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "execution_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\\Z"},
     "loop_id": {"type": "string"},
     "definition_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "status": {"$ref": "#/$defs/state"},
     "created_at": {"type": "number"},
     "updated_at": {"type": "number"},
-    "limits": {"type": "object"},
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_correction_cycles", "max_transient_retries", "max_timeout_retries", "max_node_runs", "max_tokens", "max_wall_clock_seconds", "backoff_base_seconds", "backoff_max_seconds", "timeouts_by_kind"],
+      "properties": {
+        "max_correction_cycles": {"type": "integer", "minimum": 0, "maximum": 10},
+        "max_transient_retries": {"type": "integer", "minimum": 0, "maximum": 5},
+        "max_timeout_retries": {"type": "integer", "minimum": 0, "maximum": 3},
+        "max_node_runs": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "max_tokens": {"type": ["integer", "null"], "minimum": 1, "maximum": 1000000000},
+        "max_wall_clock_seconds": {"type": ["integer", "null"], "minimum": 1, "maximum": 86400},
+        "backoff_base_seconds": {"type": "number", "minimum": 0, "maximum": 300},
+        "backoff_max_seconds": {"type": "number", "minimum": 0, "maximum": 600},
+        "timeouts_by_kind": {"type": "object"}
+      }
+    },
     "usage": {
       "type": "object",
       "additionalProperties": false,
@@ -37,7 +52,14 @@
           "attempts": {"type": "array", "items": {"type": "object", "required": ["attempt", "generation", "idempotency_key", "result"]}},
           "transient_retries": {"type": "integer", "minimum": 0},
           "timeout_retries": {"type": "integer", "minimum": 0},
-          "retry_authorized": {"type": "boolean"}
+          "retry_authorized": {"type": "boolean"},
+          "approval": {
+            "anyOf": [
+              {"type": "null"},
+              {"type": "object", "additionalProperties": false, "required": ["decision", "category"],
+               "properties": {"decision": {"enum": ["approve", "reject"]}, "category": {"enum": ["SECURITY", "EXTERNAL_MUTATION", "PROTECTED_FILE", "SCOPE", "HUMAN"]}}}
+            ]
+          }
         }
       }
     },

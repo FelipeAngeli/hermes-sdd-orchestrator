@@ -110,9 +110,15 @@ def classify(node: dict[str, Any], record: dict[str, Any], failure: dict[str, An
     return {"decision": RETRY, "counter": counter, "delay": backoff_seconds(record[counter], limits)}
 
 
-def idempotency_key(execution_id: str, node_id: str, generation: int, attempt: int) -> str:
-    """Stable per attempt: a handler forwards it to external systems so a replay can be deduplicated."""
-    return f"{execution_id}:{node_id}:g{generation}:a{attempt}"
+def idempotency_key(execution_id: str, node_id: str, generation: int) -> str:
+    """Stable for every attempt of one node generation (retries and crash replays included), so an
+    external system that receives it can recognise a replay; a correction opens a new generation."""
+    return f"{execution_id}:{node_id}:g{generation}"
+
+
+def attempt_id(execution_id: str, node_id: str, generation: int, attempt: int) -> str:
+    """Unique per attempt, for logs and audit; never a deduplication key."""
+    return f"{idempotency_key(execution_id, node_id, generation)}:a{attempt}"
 
 
 def next_step(reason: str) -> str:
@@ -137,4 +143,6 @@ NEXT_STEPS = {
     "EXTERNAL_APPROVAL_REQUIRED": "The node changes an external system; only the user's explicit approval lets it run.",
     "INPUT_REQUIRED": "Ask the user the pending question and record the answer with `resolve --decision provide-input`.",
     "NO_RUNNABLE_NODE": "No node can run and the loop is not complete; inspect node statuses with `status`.",
+    "NODE_STILL_RUNNING": "An earlier timed-out attempt of this non-idempotent node is still running in this process; "
+                          "wait for it to end (or restart the runner), check its effect, then `resolve --decision retry` or `mark-applied`.",
 }

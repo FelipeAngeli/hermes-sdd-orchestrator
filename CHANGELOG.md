@@ -4,6 +4,10 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+
+- Loop engine (PR #61 review): lock-free reads (`status`, a deferred `cancel`) no longer truncate events a runner is committing; a verifier halted on a spent run budget resumes after `raise-budget` instead of sticking at `NO_RUNNABLE_NODE`; `cancel`/`resolve` on an unknown id create nothing; `raise-budget` must name the exhausted budget; SECURITY approvals come only from `policy.security_approvers` and any name with a program or AI-executor token is refused; `execution.json` edits not explained by the definition and the event log are `EXECUTION_TAMPERED`; the store is owner-private 0700 with files written 0600 and never through links; ids with a trailing newline are refused; every non-`wait` node needs a finite timeout (`TIMEOUT_REQUIRED`); a cancel during the last node keeps the run `COMPLETED`; handlers get copies of their inputs, the idempotency key is stable per node generation (`attempt_id` is per attempt), and a non-idempotent node is not restarted while its timed-out attempt still runs (`NODE_STILL_RUNNING`). `docs/components/loop-engine.md` now cites the upstream CompozyOS commit instead of a local path.
+
 ## 15.14.0 - 2026-10-20
 
 ### Added
