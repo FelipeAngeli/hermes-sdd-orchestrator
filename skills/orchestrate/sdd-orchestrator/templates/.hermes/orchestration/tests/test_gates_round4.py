@@ -11,6 +11,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gate_fixtures import ANALYZE_CMD, TEST_CMD, FakeReviewer, artifact, git, make_repo  # noqa: E402
@@ -129,11 +130,67 @@ class TreeShapeTests(Base):
         self.assertNotEqual(first["changed"]["tests/conftest.py"], second["changed"]["tests/conftest.py"])
 
     def test_a_base_negation_rule_is_honoured(self):
+        (self.repo / "sub").mkdir()
         (self.repo / "debug.log").write_text("noise\n", encoding="utf-8")
-        (self.repo / "keep.log").write_text("changed\n", encoding="utf-8")
+        (self.repo / "sub" / "keep.log").write_text("untracked, re-included by !keep.log\n", encoding="utf-8")
         changed = set(self.changed())
-        self.assertIn("keep.log", changed)
+        self.assertIn("sub/keep.log", changed)
         self.assertNotIn("debug.log", changed)
+
+    def test_a_tracked_file_replaced_by_a_directory_or_fifo_is_changed(self):
+        (self.repo / "README.md").unlink()
+        (self.repo / "README.md").mkdir()
+        os.mkfifo(self.repo / "tag.py.fifo")
+        (self.repo / "tag.py").unlink()
+        os.rename(self.repo / "tag.py.fifo", self.repo / "tag.py")
+        self.assertLessEqual({"README.md", "tag.py"}, set(self.changed()))
+
+    def test_files_inside_a_nested_git_directory_are_reported(self):
+        hidden = self.repo / "tests" / ".git"
+        hidden.mkdir(parents=True)
+        (hidden / "payload.py").write_text("import os\n", encoding="utf-8")
+        self.assertIn("tests/.git/payload.py", self.changed())
+
+    def test_a_check_ignore_failure_is_unreadable_not_clean(self):
+        (self.repo / "new.py").write_text("x = 1\n", encoding="utf-8")
+        real = gate_workspace.git
+        def failing(repo, *args, **kwargs):
+            return None if args[:1] == ("check-ignore",) else real(repo, *args, **kwargs)
+        with mock.patch.object(gate_workspace, "git", failing):
+            found = gate_workspace.scan(self.repo, self.base)
+        self.assertIsNone(found["changed"])
+
+    def test_repository_config_cannot_borrow_a_trusted_ignore_file(self):
+        (self.repo / "sub").mkdir(exist_ok=True)
+        (self.repo / "sub" / ".gitignore").write_text("*.py\n", encoding="utf-8")
+        self.base = commit_all(self.repo, "sub ignore")
+        (self.repo / "new.py").write_text("x = 1\n", encoding="utf-8")
+        git(self.repo, "config", "core.excludesFile", "sub/.gitignore")
+        self.assertIn("new.py", self.changed())
+        git(self.repo, "config", "--unset", "core.excludesFile")
+        decoy = self.root / "decoy"
+        decoy.mkdir()
+        (decoy / ".gitignore").write_text("*\n", encoding="utf-8")
+        git(self.repo, "config", "core.worktree", str(decoy))
+        self.assertIn("new.py", self.changed())
+
+    def test_an_unreadable_new_file_makes_the_fingerprint_incomplete(self):
+        secret = self.repo / "secret.py"
+        secret.write_text("x = 1\n", encoding="utf-8")
+        os.chmod(secret, 0)
+        try:
+            found = gate_workspace.fingerprint(self.repo, self.base)
+        finally:
+            os.chmod(secret, 0o600)
+        self.assertEqual("unreadable", found["changed"]["secret.py"])
+        self.assertFalse(found["complete"])
+
+    def test_walk_and_byte_limits_make_the_scan_incomplete(self):
+        with mock.patch.object(gate_workspace, "MAX_ENTRIES", 2):
+            self.assertIsNone(gate_workspace.scan(self.repo, self.base)["changed"])
+        with mock.patch.object(gate_workspace, "MAX_SCAN_BYTES", 10):
+            self.assertFalse(gate_workspace.scan(self.repo, self.base)["complete"])
+        self.assertTrue(gate_workspace.scan(self.repo, self.base)["complete"])
 
     def test_a_submodule_blocks_the_scope_check(self):
         library = self.root / "lib"
