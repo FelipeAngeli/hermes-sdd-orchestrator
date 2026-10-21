@@ -4,6 +4,10 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+
+- Loop engine (PR #61 review, round 3): restoring an older `execution.json` can no longer roll back the event log, re-run completed nodes or undo a rejection (only one trailing uncommitted line may be trimmed, anything else is `EXECUTION_TAMPERED` before trimming); an immediate `cancel` verifies integrity first; `start` builds the execution in a staging directory renamed atomically; a non-JSON handler output is `RESULT_INVALID` and an unsavable state raises `STATE_NOT_SERIALIZABLE` without advancing the checkpoint.
+
 ## 15.14.2 - 2026-10-20
 
 ### Fixed

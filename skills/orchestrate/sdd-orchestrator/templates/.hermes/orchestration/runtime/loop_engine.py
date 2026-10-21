@@ -16,6 +16,7 @@ an interrupted node applied its effect, so recovery never duplicates it.
 from __future__ import annotations
 
 import copy
+import json
 import threading
 import time
 from pathlib import Path
@@ -54,6 +55,7 @@ class NodeContext:
         with self._engine._write_lock:
             if self._closed:
                 return
+            json.dumps(partial, sort_keys=True, allow_nan=False)  # TypeError/ValueError reaches the handler, nothing is saved
             self._execution["nodes"][self.node["id"]]["partial"] = copy.deepcopy(partial)
             self._engine._commit(self._execution, "NODE_PROGRESS", {"node": self.node["id"]})
 

@@ -41,6 +41,8 @@ def request_cancel(store: Path | str, execution_id: str, *, by: str, reason: str
     try:
         with loop_store.runner_lock(execution_id):
             execution = loop_store.load(execution_id, repair=True)
+            spec = loop_store.load_definition(execution_id, execution["definition_sha256"])
+            loop_state.verify_integrity(execution, spec, loop_store.events(execution_id))
             if loop_state.is_terminal(execution):
                 return {"status": execution["status"], "execution_id": execution_id, "note": "already terminal"}
             execution["updated_at"] = _now()

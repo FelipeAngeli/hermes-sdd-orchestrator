@@ -17,6 +17,7 @@ ambiguous and a human (or a reconciler that proves the effect) decides.
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 FAILURE_CLASSES = ("TRANSIENT", "TIMEOUT", "FUNCTIONAL", "UNKNOWN")
@@ -72,6 +73,11 @@ def normalize_result(value: Any) -> tuple[dict[str, Any] | None, dict[str, Any] 
                       "effect_applied": None}
     if value["status"] == "SUCCEEDED":
         output = value.get("output", {})
+        try:
+            json.dumps(output, sort_keys=True, allow_nan=False)
+        except (TypeError, ValueError):
+            return None, {"class": "UNKNOWN", "code": "RESULT_INVALID", "message": "handler output is not JSON with string keys",
+                          "effect_applied": None}
         return {"output": output if output is not None else {}, "tokens": value.get("tokens"),
                 "tokens_method": value.get("tokens_method"), "needs_input": value.get("needs_input")}, None
     failure = dict(value.get("failure") or {})

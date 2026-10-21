@@ -68,6 +68,11 @@ def private_dir(path: Path, *, create: bool) -> None:
                                    f"chmod 700 {path} (and make sure you own it), or use another store.")
 
 
+def _tampered(message: str) -> loop_model.LoopError:
+    return loop_model.LoopError("EXECUTION_TAMPERED", message,
+                                "execution.json or events.jsonl was changed outside the loop runtime; restore both from the same backup.")
+
+
 def _regular(path: Path) -> None:
     if path.is_symlink() or (path.exists() and not path.is_file()):
         raise loop_model.LoopError("STORE_PATH_UNSAFE", f"{path} is a symlink or not a regular file.", "Restore the file; never link it.")
@@ -129,12 +134,26 @@ class LoopStore:
         return directory
 
     def create(self, execution_id: str, definition: dict[str, Any], execution: dict[str, Any]) -> None:
+        """Build the execution in a private staging directory, then rename it into place in one step,
+        so a crash during ``start`` never leaves a half-created execution behind."""
         private_dir(self.root, create=True)
         directory = self.directory(execution_id)
-        directory.mkdir(mode=0o700)
-        os.chmod(directory, 0o700)
-        atomic_write_json(directory / "definition.json", definition)
-        self.commit(execution, "EXECUTION_STARTED", {})
+        if directory.exists():
+            raise FileExistsError(directory)
+        staging = Path(tempfile.mkdtemp(prefix=f".creating-{execution_id}.", dir=self.root))
+        try:
+            os.chmod(staging, 0o700)
+            atomic_write_json(staging / "definition.json", definition)
+            self._commit_in(staging, execution, "EXECUTION_STARTED", {})
+            os.rename(staging, directory)
+        except BaseException:
+            for child in staging.glob("*") if staging.exists() else ():
+                with contextlib.suppress(OSError):
+                    child.unlink()
+            with contextlib.suppress(OSError):
+                staging.rmdir()
+            raise
+        _fsync_directory(self.root)
 
     def load_definition(self, execution_id: str, expected_sha256: str) -> dict[str, Any]:
         path = self.require(execution_id) / "definition.json"
@@ -169,29 +188,41 @@ class LoopStore:
         path = directory / "events.jsonl"
         if not path.exists():
             return
-        kept: list[str] = []
-        changed = False
-        for line in _read_text(path).splitlines():
+        lines = [line for line in _read_text(path).splitlines() if line.strip()]
+        seqs: list[int | None] = []
+        for line in lines:
             try:
-                seq = json.loads(line)["seq"]
+                seqs.append(int(json.loads(line)["seq"]))
             except (ValueError, KeyError, TypeError):
-                changed = True
-                break
-            if seq > committed:
-                changed = True
-                break
-            kept.append(line)
-        if changed:
-            _replace_atomically(path, "".join(item + "\n" for item in kept).encode("utf-8"))
+                seqs.append(None)
+        if committed not in seqs:
+            raise _tampered("the event of the committed checkpoint is missing from events.jsonl.")
+        position = len(seqs) - 1 - seqs[::-1].index(committed)
+        if seqs[:position + 1] != list(range(1, committed + 1)):
+            raise _tampered("events.jsonl is not the contiguous sequence 1..checkpoint.")
+        tail = seqs[position + 1:]
+        # A crash leaves at most one trailing line: the next event (seq = checkpoint + 1) or a torn write.
+        if len(tail) > 1 or (tail and tail[0] not in (None, committed + 1)):
+            raise _tampered(f"{len(tail)} event(s) follow the committed checkpoint; an older execution.json was restored.")
+        if tail:
+            _replace_atomically(path, "".join(line + "\n" for line in lines[:position + 1]).encode("utf-8"))
 
     def commit(self, execution: dict[str, Any], event: str, data: dict[str, Any]) -> None:
         """Write-ahead the event, then atomically replace execution.json with the new checkpoint."""
-        directory = self.directory(execution["execution_id"])
-        seq = execution["checkpoint"]["seq"] + 1
+        self._commit_in(self.directory(execution["execution_id"]), execution, event, data)
+
+    def _commit_in(self, directory: Path, execution: dict[str, Any], event: str, data: dict[str, Any]) -> None:
+        previous = execution["checkpoint"]
+        seq = previous["seq"] + 1
         at = execution["updated_at"]
         execution["checkpoint"] = {"seq": seq, "at": at, "event": event}
-        record = {**data, "seq": seq, "at": at, "event": event, "state_sha256": loop_model.digest(execution)}
-        line = json.dumps(record, sort_keys=True, ensure_ascii=False)
+        try:
+            record = {**data, "seq": seq, "at": at, "event": event, "state_sha256": loop_model.digest(execution)}
+            line = json.dumps(record, sort_keys=True, ensure_ascii=False)
+        except (TypeError, ValueError) as error:
+            execution["checkpoint"] = previous
+            raise loop_model.LoopError("STATE_NOT_SERIALIZABLE", f"the execution cannot be saved as canonical JSON: {error}",
+                                       "Return JSON-serializable outputs with string keys from handlers.") from error
         events = directory / "events.jsonl"
         _regular(events)
         descriptor = os.open(events, os.O_WRONLY | os.O_APPEND | os.O_CREAT | NOFOLLOW, 0o600)
