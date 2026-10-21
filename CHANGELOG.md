@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.15.1 - 2026-10-21
+
 ### Fixed
 
 - Validation gates (PR #62 review). A worker could no longer forge a PASS:
