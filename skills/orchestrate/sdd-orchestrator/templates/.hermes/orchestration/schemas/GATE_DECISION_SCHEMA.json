@@ -4,7 +4,7 @@
   "description": "GateDecision appended by runtime/gate_engine.py to the hash-chained decision log. Every evaluation records gate_id, task_id, verdict, evidence_refs, failed_criteria, suggested_actions, evaluator and timestamp; PASS always has evidence.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "decision_id", "gate_id", "task_id", "stage", "verdict", "evidence_refs", "failed_criteria", "suggested_actions", "evaluator", "timestamp", "criteria", "generation", "previous_decision_id", "idempotency_key", "registry_sha256", "artifact_sha256", "mode", "blocking", "corrective_task"],
+  "required": ["schema_version", "decision_id", "gate_id", "task_id", "stage", "verdict", "evidence_refs", "failed_criteria", "suggested_actions", "evaluator", "timestamp", "criteria", "generation", "previous_decision_id", "idempotency_key", "registry_sha256", "artifact_sha256", "mode", "blocking", "corrective_task", "retryable"],
   "properties": {
     "schema_version": {"const": 1},
     "decision_id": {"type": "string", "pattern": "^gd-[a-f0-9]{24}$"},
@@ -25,6 +25,8 @@
     "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "mode": {"enum": ["OBSERVE", "ENFORCE"]},
     "blocking": {"type": "boolean"},
+    "retryable": {"type": "boolean", "description": "INCONCLUSIVE because of a timeout, an unrunnable command, a git failure or a reviewer error; never reused."},
+    "reused": {"type": "boolean", "description": "Set only on the value evaluate() returns (true when the recorded decision was reused); never stored."},
     "corrective_task": {
       "anyOf": [
         {"type": "null"},
@@ -61,7 +63,8 @@
         "id": {"type": "string", "minLength": 1},
         "status": {"enum": ["PASS", "FAIL", "BLOCKED", "INCONCLUSIVE", "NOT_EVALUATED"]},
         "refs": {"type": "array", "items": {"$ref": "#/$defs/ref"}},
-        "detail": {"type": "string"}
+        "detail": {"type": "string"},
+        "transient": {"type": "boolean"}
       }
     }
   }

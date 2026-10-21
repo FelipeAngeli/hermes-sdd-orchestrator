@@ -12,8 +12,17 @@ never overrules a failing test and is not consulted on a known defect.
 Idempotency: the decision key hashes the registry, gate, task, artifact, workspace
 state, configured commands, reviewer roster and the relevant context. The same key
 returns the stored decision (``reused: true``) without re-running anything or asking a
-reviewer again. A new key appends a new decision with ``generation`` + 1 and
-``previous_decision_id``; nothing is ever overwritten.
+reviewer again, after the log's hash chain is verified and every evidence reference of
+that decision still resolves. A ``retryable`` decision (INCONCLUSIVE because of a
+timeout, an unrunnable command, a git failure or a reviewer error) is not reused: the
+same inputs are evaluated again as a new generation. A new evaluation appends a decision
+with ``generation`` + 1 and ``previous_decision_id``; nothing is ever overwritten.
+
+Context is controller-owned: ``check_commands`` (bound verifiers), ``editable_paths``,
+``implementer``, ``waivers`` (human waivers the controller recorded) and
+``expected_check_ids`` must come from the controller's own state, never from a worker
+artifact. The implementer is also read from the artifact's ``executor.name``; a reviewer
+of either family does not count, and an unknown implementer blocks AGENT criteria.
 
 Mode ``OBSERVE`` (default) records decisions with ``blocking: false`` and never changes
 the workflow. ``ENFORCE`` marks any non-PASS ``blocking: true``. Nothing in the
@@ -37,7 +46,8 @@ from gate_validator import BLOCKED, FAIL, INCONCLUSIVE, PASS, DeterministicValid
 MODES = ("OBSERVE", "ENFORCE")
 DECISION_VERSION = 1
 NOT_EVALUATED = "NOT_EVALUATED"
-CONTEXT_KEYS = ("check_commands", "editable_paths", "implementer")
+#: Controller-owned inputs; a worker must never supply any of them (see the module docstring).
+CONTEXT_KEYS = ("check_commands", "editable_paths", "implementer", "waivers", "expected_check_ids")
 EVALUATOR = "gate_engine/deterministic"
 
 
@@ -85,7 +95,7 @@ class GateEngine:
                     "workspace": validator.workspace_fingerprint(), "commands": self.commands, "timeouts": self.timeouts,
                     "reviewers": sorted((item.name, item.family) for item in self.reviewers), "context": context, "mode": self.mode})
         existing = self.log.find(key)
-        if existing is not None:
+        if existing is not None and not existing.get("retryable") and self._evidence_intact(existing):
             return {**existing, "reused": True}
         artifact_ref = self.evidence.put({"kind": "artifact", "stage": stage, "sha256": artifact_sha, "summary": _artifact_summary(stage, artifact)})
         results = gate_stages.evaluate_stage(validator, stage, artifact, context)
@@ -94,7 +104,8 @@ class GateEngine:
         if agent and aggregate(results) != FAIL and len(results) > 1:
             refs = sorted({ref for item in results for ref in item["refs"]} | {artifact_ref})
             evidence = [(ref, self.evidence.get(ref) or {}) for ref in refs]
-            reviewed, independence, names = gate_reviewer.review(gate, task_id, agent, evidence, self.reviewers, context.get("implementer"))
+            implementers = [context.get("implementer"), _executor_name(artifact)]
+            reviewed, independence, names = gate_reviewer.review(gate, task_id, agent, evidence, self.reviewers, implementers)
             results.extend(reviewed)
             if independence is not None:
                 results = [item for item in results if item["id"] != "INDEPENDENT_REVIEWER"] + [independence]
@@ -111,8 +122,10 @@ class GateEngine:
             verdict = INCONCLUSIVE
             failed.append({"id": "EVIDENCE_PRESENT", "status": INCONCLUSIVE, "refs": [], "detail": "a PASS needs evidence beyond the artifact"})
         history = self.log.history(gate["gate_id"], task_id)
+        retryable = verdict == INCONCLUSIVE and any(item.get("transient") for item in failed)
         decision = {
-            "schema_version": DECISION_VERSION, "decision_id": "gd-" + key[:24], "gate_id": gate["gate_id"], "task_id": task_id,
+            "schema_version": DECISION_VERSION, "decision_id": "gd-" + _sha({"key": key, "generation": len(history) + 1})[:24],
+            "gate_id": gate["gate_id"], "task_id": task_id, "retryable": retryable,
             "stage": stage, "verdict": verdict, "evidence_refs": evidence_refs, "failed_criteria": failed,
             "suggested_actions": gate_corrections.suggested_actions(failed), "evaluator": evaluator, "timestamp": _now(),
             "criteria": results, "generation": len(history) + 1,
@@ -122,6 +135,16 @@ class GateEngine:
             "corrective_task": gate_corrections.corrective_task(stage, failed) if verdict == FAIL else None,
         }
         return {**self.log.append(decision), "reused": False}
+
+    def _evidence_intact(self, decision: dict[str, Any]) -> bool:
+        """Every reference of a reusable decision still resolves; an edited record raises EVIDENCE_TAMPERED."""
+        return all(self.evidence.get(ref) is not None for ref in decision["evidence_refs"])
+
+
+def _executor_name(artifact: Any) -> str | None:
+    body = artifact.get("executor_result") if isinstance(artifact, dict) else None
+    executor = body.get("executor") if isinstance(body, dict) else None
+    return executor.get("name") if isinstance(executor, dict) else None
 
 
 def _artifact_summary(stage: str, artifact: Any) -> dict[str, Any]:

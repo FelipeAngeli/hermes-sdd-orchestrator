@@ -7,15 +7,18 @@ criteria texts and short evidence summaries with their references, capped at
 ``MAX_CONTEXT_BYTES``: never the conversation, the repository or the worker's prose.
 
 Rules applied here, never by the model:
-- a reviewer of the implementer's family does not count; with no independent reviewer
-  the criteria are BLOCKED (``INDEPENDENT_REVIEWER``);
+- a reviewer of the implementer's family (``family``: leading letters, case-folded) does
+  not count; with no independent reviewer, or an unknown implementer, the criteria are
+  BLOCKED (``INDEPENDENT_REVIEWER``);
 - a PASS that cites no evidence reference from the context counts as INCONCLUSIVE;
 - independent reviewers that disagree make the criterion INCONCLUSIVE;
-- a reviewer error, malformed answer or missing criterion is INCONCLUSIVE.
+- a reviewer error, malformed answer or missing criterion is INCONCLUSIVE (an error is
+  ``transient``, so the same evidence may be reviewed again).
 """
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -31,6 +34,12 @@ class Reviewer:
     name: str
     family: str
     call: Callable[[dict[str, Any]], Any]
+
+
+def family(name: str | None) -> str | None:
+    """Model family of a name: its leading letters, lower-cased (``codex-cli`` and ``CODEX`` are both ``codex``)."""
+    match = re.match(r"[a-z]+", str(name or "").strip().lower())
+    return match.group(0) if match else None
 
 
 def _summary(record: dict[str, Any]) -> str:
@@ -57,8 +66,8 @@ def _answers(reviewer: Reviewer, context: dict[str, Any]) -> dict[str, dict[str,
         reply = reviewer.call(context)
         entries = reply.get("criteria") if isinstance(reply, dict) else None
     except Exception as error:  # noqa: BLE001 - a failing reviewer is inconclusive, never a pass
-        return {item["id"]: {"verdict": INCONCLUSIVE, "refs": [], "note": f"{reviewer.name} failed: {type(error).__name__}"}
-                for item in context["criteria"]}
+        return {item["id"]: {"verdict": INCONCLUSIVE, "refs": [], "note": f"{reviewer.name} failed: {type(error).__name__}",
+                             "transient": True} for item in context["criteria"]}
     found: dict[str, dict[str, Any]] = {}
     for entry in entries if isinstance(entries, list) else []:
         if not isinstance(entry, dict) or entry.get("id") not in {item["id"] for item in context["criteria"]}:
@@ -75,13 +84,15 @@ def _answers(reviewer: Reviewer, context: dict[str, Any]) -> dict[str, dict[str,
 
 
 def review(gate: dict[str, Any], task_id: str, criteria: list[dict[str, Any]], evidence: list[tuple[str, dict[str, Any]]],
-           reviewers: list[Reviewer], implementer: str | None) -> tuple[list[dict[str, Any]], dict[str, Any] | None, list[str]]:
+           reviewers: list[Reviewer], implementers: list[str | None]) -> tuple[list[dict[str, Any]], dict[str, Any] | None, list[str]]:
     """Return (criterion results, independence result or None, names of reviewers consulted)."""
     if not criteria:
         return [], None, []
-    independent = [item for item in reviewers if not implementer or item.family.upper() != implementer.upper()]
+    own = {family(name) for name in implementers} - {None}
+    independent = [item for item in reviewers if own and family(item.family) and family(item.family) not in own]
     if not independent:
-        detail = "no reviewer independent of the implementer is configured"
+        detail = ("the implementer is unknown, so no reviewer can be shown to be independent" if not own
+                  else "no reviewer independent of the implementer is configured")
         blocked = [{"id": item["id"], "status": BLOCKED, "refs": [], "detail": detail} for item in criteria]
         return blocked, {"id": "INDEPENDENT_REVIEWER", "status": BLOCKED, "refs": [], "detail": detail}, []
     context = build_context(gate, task_id, criteria, evidence)
@@ -95,6 +106,9 @@ def review(gate: dict[str, Any], task_id: str, criteria: list[dict[str, Any]], e
             status, notes = INCONCLUSIVE, "reviewers disagree (" + notes + ")"
         else:
             status = verdicts.pop()
-        results.append({"id": item["id"], "status": status, "refs": refs, "detail": notes})
+        entry = {"id": item["id"], "status": status, "refs": refs, "detail": notes}
+        if status == INCONCLUSIVE and any(answers[name][item["id"]].get("transient") for name in answers):
+            entry["transient"] = True
+        results.append(entry)
     independence = {"id": "INDEPENDENT_REVIEWER", "status": PASS, "refs": [], "detail": ", ".join(sorted(answers))}
     return results, independence, sorted(answers)

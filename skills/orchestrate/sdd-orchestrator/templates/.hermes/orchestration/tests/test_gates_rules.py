@@ -41,6 +41,7 @@ class Base(unittest.TestCase):
 
     def evaluate(self, stage, value, engine=None, **context):
         context.setdefault("check_commands", {"AC-1": TEST_CMD})
+        context.setdefault("implementer", "CODEX")
         return (engine or self.engine()).evaluate(stage, "T-1", value, context=context)
 
     def ids(self, decision):
@@ -209,7 +210,8 @@ class IntegrationTests(Base):
             return {"status": "SUCCEEDED", "output": {"artifact": value, "diff": attempts["IMPLEMENT"]}}
 
         handlers = {stage: gate_engine.gated_handler(gates, stage_handler, task_id="T-1",
-                                                     context={"check_commands": {"AC-1": TEST_CMD}, "editable_paths": ["app.py"]})
+                                                     context={"check_commands": {"AC-1": TEST_CMD}, "editable_paths": ["app.py"],
+                                                              "implementer": "CODEX"})
                     for stage in loop_sdd.SDD_STAGES}
         engine = loop_engine.LoopEngine(Path(self._tmp.name) / "loop", handlers=handlers)
         execution = engine.run(engine.start(loop_sdd.build_definition(ticket="T-1", objective="o"))["execution_id"])

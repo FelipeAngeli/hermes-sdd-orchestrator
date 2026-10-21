@@ -2,22 +2,24 @@
 
 Commands come only from the caller's configuration (the GATES.md rows) or from
 verifiers that ``acceptance_verifiers.allowed_check_command`` accepts. They run
-without a shell (``shlex.split``), in the repository, with a timeout, and their exit
-code and bounded, redacted output are stored as evidence. A worker's own report is
-never trusted: a command it claims passed is re-run, and its file lists are compared
-with ``git status``.
+without a shell (``shlex.split``), in the repository, with a timeout and a minimal
+environment; stdout and stderr go to temporary files, and only a bounded window of
+their end is redacted and stored as evidence. A worker's own report is never trusted:
+a command it claims passed is re-run, its file lists are compared with ``git status``
+(``gate_workspace``), and its acceptance list and waivers are checked against the
+controller-owned context.
 
 Each check returns ``{"id", "status", "refs", "detail"}`` with status PASS, FAIL,
 BLOCKED or INCONCLUSIVE (a timeout or an unrunnable command is INCONCLUSIVE, never PASS).
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
 import shlex
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -25,14 +27,18 @@ from typing import Any, Callable
 import jsonschema
 
 import acceptance_verifiers
+import gate_workspace
 import redaction
 import validate_protocol
 from gate_evidence import EvidenceCollector
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "schemas"
 OUTPUT_LIMIT = 4000
+#: Bytes read back from the end of an output file: the tail plus room for redaction to see a whole secret.
+OUTPUT_WINDOW = OUTPUT_LIMIT * 4 + 4096
 DEFAULT_TIMEOUT = 300
-CITED = re.compile(r"`([^`]+)`")
+#: At most this many distinct worker-claimed commands are re-run per evaluation.
+MAX_REPRODUCED = 10
 #: A command argument that names a repository file: path characters only, with an extension or a directory part.
 FILE_TOKEN = re.compile(r"(?:[\w.-]+/)*[\w-][\w.-]*\.[A-Za-z0-9]+|(?:[\w.-]+/)+[\w.-]+")
 PASS, FAIL, BLOCKED, INCONCLUSIVE = "PASS", "FAIL", "BLOCKED", "INCONCLUSIVE"
@@ -40,12 +46,28 @@ PASS, FAIL, BLOCKED, INCONCLUSIVE = "PASS", "FAIL", "BLOCKED", "INCONCLUSIVE"
 SAFE_ENV = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "SYSTEMROOT", "PYTHONPATH", "VIRTUAL_ENV")
 
 
-def result(identifier: str, status: str, refs: list[str] | None = None, detail: str = "") -> dict[str, Any]:
-    return {"id": identifier, "status": status, "refs": list(refs or []), "detail": detail}
+def result(identifier: str, status: str, refs: list[str] | None = None, detail: str = "", *, transient: bool = False) -> dict[str, Any]:
+    """A criterion result; ``transient`` marks an INCONCLUSIVE caused by a timeout or an environment failure."""
+    found = {"id": identifier, "status": status, "refs": list(refs or []), "detail": detail}
+    if transient:
+        found["transient"] = True
+    return found
 
 
-def _tail(text: str) -> str:
-    return redaction.redact(text[-OUTPUT_LIMIT:])
+def _run_result(identifier: str, run: dict[str, Any], command: str) -> dict[str, Any]:
+    detail = run.get("detail") or f"exit {run['exit_code']}"
+    return result(identifier, run["outcome"], [run["ref"]], f"`{command}`: {detail}", transient=run["outcome"] == INCONCLUSIVE)
+
+
+def _tail(handle: Any) -> str:
+    """Redact the end window first, then cut, so a secret straddling the cut is never stored half-masked."""
+    handle.seek(0, os.SEEK_END)
+    size = handle.tell()
+    handle.seek(max(0, size - OUTPUT_WINDOW))
+    text = handle.read().decode("utf-8", "replace")
+    if size > OUTPUT_WINDOW and "\n" in text:
+        text = text.split("\n", 1)[1]
+    return redaction.redact(text)[-OUTPUT_LIMIT:]
 
 
 class DeterministicValidator:
@@ -57,6 +79,14 @@ class DeterministicValidator:
         self.timeouts = dict(timeouts or {})
         self.clock = clock
         self._runs: dict[str, dict[str, Any]] = {}
+
+    @property
+    def allowed(self) -> set[str]:
+        return {value for value in self.commands.values() if value}
+
+    def permitted(self, command: Any) -> bool:
+        return isinstance(command, str) and bool(command) and (
+            command in self.allowed or acceptance_verifiers.allowed_check_command(command, gate_commands=self.allowed))
 
     # -- command execution ----------------------------------------------------------
     def run(self, command: str, *, purpose: str, timeout: int | None = None) -> dict[str, Any]:
@@ -71,11 +101,13 @@ class DeterministicValidator:
             if not argv:
                 raise ValueError("empty command")
             env = {key: os.environ[key] for key in SAFE_ENV if key in os.environ}
-            started = self.clock()
-            completed = subprocess.run(argv, cwd=self.repo, capture_output=True, text=True, timeout=limit, check=False, env=env)
-            record.update(exit_code=completed.returncode, outcome=PASS if completed.returncode == 0 else FAIL,
-                          stdout_tail=_tail(completed.stdout), stderr_tail=_tail(completed.stderr),
-                          duration_seconds=round(max(0.0, self.clock() - started), 3))
+            with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+                started = self.clock()
+                completed = subprocess.run(argv, cwd=self.repo, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
+                                           timeout=limit, check=False, env=env)
+                record.update(exit_code=completed.returncode, outcome=PASS if completed.returncode == 0 else FAIL,
+                              stdout_tail=_tail(out), stderr_tail=_tail(err),
+                              duration_seconds=round(max(0.0, self.clock() - started), 3))
         except subprocess.TimeoutExpired:
             record.update(exit_code=None, outcome=INCONCLUSIVE, detail=f"timed out after {limit} s")
         except (OSError, ValueError) as error:
@@ -85,32 +117,10 @@ class DeterministicValidator:
         return record
 
     def workspace_fingerprint(self) -> dict[str, Any]:
-        """HEAD plus the content hash of every changed file: the exact state a command ran against."""
-        head = subprocess.run(["git", "-C", str(self.repo), "rev-parse", "HEAD"], capture_output=True, text=True, check=False)
-        changed = self.changed_files()
-        hashes = {}
-        for path in changed:
-            target = self.repo / path
-            hashes[path] = (hashlib.sha256(target.read_bytes()).hexdigest()
-                            if target.is_file() and not target.is_symlink() else None)
-        return {"head": head.stdout.strip() or None, "changed": hashes}
+        return gate_workspace.fingerprint(self.repo)
 
-    def changed_files(self) -> list[str]:
-        completed = subprocess.run(["git", "-C", str(self.repo), "status", "--porcelain", "-z", "--untracked-files=all"],
-                                   capture_output=True, check=False)
-        entries = completed.stdout.decode("utf-8", "replace").split("\0")
-        files: list[str] = []
-        skip = False
-        for entry in entries:
-            if skip:
-                skip = False
-                continue
-            if len(entry) < 4:
-                continue
-            if entry[0] in "RC":
-                skip = True
-            files.append(entry[3:])
-        return sorted(set(files))
+    def changed_files(self) -> list[str] | None:
+        return gate_workspace.changed_files(self.repo)
 
     # -- generic checks ------------------------------------------------------------
     def schema(self, action: str, value: Any, identifier: str = "SCHEMA_VALID") -> dict[str, Any]:
@@ -135,9 +145,7 @@ class DeterministicValidator:
         command = self.commands.get(gate)
         if not command:
             return result(identifier, BLOCKED, [], f"no {gate} command is configured")
-        run = self.run(command, purpose=gate, timeout=self.timeouts.get(gate))
-        detail = run.get("detail") or f"exit {run['exit_code']}"
-        return result(identifier, run["outcome"], [run["ref"]], f"`{command}`: {detail}")
+        return _run_result(identifier, self.run(command, purpose=gate, timeout=self.timeouts.get(gate)), command)
 
     def files_named_exist(self, gate: str, identifier: str) -> dict[str, Any]:
         """Every argument of the test command that looks like a repository file must exist (a missing test is not a pass)."""
@@ -163,30 +171,42 @@ class DeterministicValidator:
         return result(identifier, FAIL if missing else PASS, [ref], f"missing: {', '.join(missing)}" if missing else "")
 
     def reproduce_claims(self, artifact: dict[str, Any], identifier: str = "EVIDENCE_REPRODUCED") -> dict[str, Any]:
-        """Re-run every command the worker reports as PASS that the gate is allowed to run; any mismatch is false evidence."""
-        refs, mismatches, skipped = [], [], []
-        allowed = {value for value in self.commands.values() if value}
+        """Re-run claimed passing commands the gate may run (at most ``MAX_REPRODUCED``); a mismatch is false evidence."""
+        refs, mismatches, unsettled, skipped, capped, seen = [], [], [], [], [], set()
         for entry in artifact.get("commands") or []:
-            command = entry.get("command")
-            if entry.get("result") != PASS or not command:
+            command = entry.get("command") if isinstance(entry, dict) else None
+            if not isinstance(command, str) or entry.get("result") != PASS or command in seen:
                 continue
-            if command not in allowed and not acceptance_verifiers.allowed_check_command(command, gate_commands=allowed):
+            seen.add(command)
+            if not self.permitted(command):
                 skipped.append(command)
-                continue
-            run = self.run(command, purpose="reproduce worker claim")
-            refs.append(run["ref"])
-            if run["outcome"] != PASS:
-                mismatches.append(command)
-        ref = self.evidence.put({"kind": "claims", "mismatches": mismatches, "not_reproducible": skipped})
-        refs.append(ref)
+            elif len(refs) >= MAX_REPRODUCED:
+                capped.append(command)
+            else:
+                run = self.run(command, purpose="reproduce worker claim")
+                refs.append(run["ref"])
+                if run["outcome"] == FAIL:
+                    mismatches.append(command)
+                elif run["outcome"] != PASS:
+                    unsettled.append(command)
+        refs.append(self.evidence.put({"kind": "claims", "mismatches": mismatches, "not_reproducible": skipped[:50],
+                                       "over_cap": capped[:50]}))
         if mismatches:
             return result(identifier, FAIL, refs, "claimed PASS but failed when re-run: " + ", ".join(mismatches))
-        return result(identifier, PASS, refs, f"{len(skipped)} claim(s) not re-runnable (not allowlisted)" if skipped else "")
+        if unsettled:
+            return result(identifier, INCONCLUSIVE, refs, "re-run did not finish: " + ", ".join(unsettled), transient=True)
+        notes = ([f"{len(skipped)} claim(s) not re-runnable (not allowlisted)"] if skipped else []) + \
+                ([f"{len(capped)} claim(s) over the re-run cap"] if capped else [])
+        return result(identifier, PASS, refs, "; ".join(notes))
 
     def workspace_claims(self, artifact: dict[str, Any], editable: list[str] | None) -> list[dict[str, Any]]:
         claimed = sorted({item["path"] for key in ("modified_paths", "created_paths") for item in artifact.get(key) or []})
         actual = self.changed_files()
         ref = self.evidence.put({"kind": "workspace", "claimed": claimed, "actual": actual, "editable": editable})
+        if actual is None:
+            detail = "git status failed; the workspace cannot be read"
+            return [result("CLAIMS_MATCH_WORKSPACE", INCONCLUSIVE, [ref], detail, transient=True),
+                    result("WITHIN_EDITABLE_PATHS", INCONCLUSIVE, [ref], detail, transient=True)]
         mismatch = sorted(set(claimed) ^ set(actual))
         checks = [result("CLAIMS_MATCH_WORKSPACE", FAIL if mismatch else PASS, [ref],
                          f"claimed and actual differ: {', '.join(mismatch)}" if mismatch else "")]
@@ -198,23 +218,34 @@ class DeterministicValidator:
                                  f"outside the slice: {', '.join(outside)}" if outside else ""))
         return checks
 
-    def acceptance(self, checks: list[dict[str, Any]], bound: dict[str, str]) -> list[dict[str, Any]]:
-        """One criterion per acceptance check: PASS only when its bound verifier passes when the gate runs it."""
+    def acceptance(self, checks: list[dict[str, Any]], context: dict[str, Any], expected: list[str] | None = None) -> list[dict[str, Any]]:
+        """One criterion per acceptance check the artifact lists or the controller expects.
+
+        PASS only when the check's controller-bound verifier (``context.check_commands``)
+        passes when the gate runs it, or when the controller recorded a waiver for it
+        (``context.waivers``). A waiver written only in the artifact is BLOCKED, and a check
+        the controller expects (``expected``, ``context.expected_check_ids``, bound or waived
+        ids) that the artifact leaves out is a FAIL.
+        """
+        bound = context.get("check_commands") or {}
+        waivers = context.get("waivers") or {}
+        listed = {check["id"]: check for check in checks}
+        wanted = set(expected or ()) | set(context.get("expected_check_ids") or ()) | set(bound) | set(waivers)
         found: list[dict[str, Any]] = []
-        allowed = {value for value in self.commands.values() if value}
-        for check in checks:
-            identifier = f"ACCEPTANCE:{check['id']}"
-            if check.get("status") == "WAIVED" and check.get("waiver"):
-                found.append(result(identifier, PASS, [self.evidence.put({"kind": "waiver", "check": check["id"], "waiver": check["waiver"]})],
-                                    "waived by a recorded human decision"))
-                continue
-            if check.get("verifier") == "HUMAN":
+        for check_id in sorted(wanted - set(listed)):
+            ref = self.evidence.put({"kind": "acceptance_missing", "check": check_id, "listed": sorted(listed)})
+            found.append(result(f"ACCEPTANCE:{check_id}", FAIL, [ref], "expected by the controller but missing from the artifact"))
+        for check_id, check in listed.items():
+            identifier = f"ACCEPTANCE:{check_id}"
+            if check_id in waivers:
+                ref = self.evidence.put({"kind": "waiver", "check": check_id, "waiver": waivers[check_id], "source": "controller"})
+                found.append(result(identifier, PASS, [ref], "waived by a controller-recorded decision"))
+            elif check.get("status") == "WAIVED":
+                found.append(result(identifier, BLOCKED, [], "the artifact claims a waiver the controller did not record"))
+            elif check.get("verifier") == "HUMAN":
                 found.append(result(identifier, BLOCKED, [], "a HUMAN check needs a recorded human decision"))
-                continue
-            command = bound.get(check["id"])
-            if not command or not (command in allowed or acceptance_verifiers.allowed_check_command(command, gate_commands=allowed)):
+            elif not self.permitted(bound.get(check_id)):
                 found.append(result(identifier, FAIL, [], "no allowlisted verifier is bound; a textual claim is not proof"))
-                continue
-            run = self.run(command, purpose=f"acceptance {check['id']}")
-            found.append(result(identifier, run["outcome"], [run["ref"]], f"`{command}`: exit {run['exit_code']}"))
+            else:
+                found.append(_run_result(identifier, self.run(bound[check_id], purpose=f"acceptance {check_id}"), bound[check_id]))
         return found

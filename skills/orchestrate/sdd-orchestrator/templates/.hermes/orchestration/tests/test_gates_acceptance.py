@@ -40,6 +40,7 @@ class Base(unittest.TestCase):
     def evaluate(self, stage="TEST", value=None, engine=None, **context):
         engine = engine or self.engine()
         context.setdefault("check_commands", {"AC-1": TEST_CMD})
+        context.setdefault("implementer", "CODEX")
         return engine.evaluate(stage, "T-1", value if value is not None else artifact(stage), context=context)
 
     def assert_contract(self, decision):

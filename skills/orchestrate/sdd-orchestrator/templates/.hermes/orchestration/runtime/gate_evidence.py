@@ -159,11 +159,17 @@ class DecisionLog:
                 os.fsync(handle.fileno())
             return record
 
+    def verified_records(self) -> list[dict[str, Any]]:
+        """The records, after the whole hash chain is checked (raises ``DECISION_LOG_TAMPERED``)."""
+        self.verify()
+        return self.records()
+
     def find(self, idempotency_key: str) -> dict[str, Any] | None:
-        for record in reversed(self.records()):
+        """The latest decision with this key, read from a verified log."""
+        for record in reversed(self.verified_records()):
             if record.get("idempotency_key") == idempotency_key:
                 return record
         return None
 
     def history(self, gate_id: str, task_id: str) -> list[dict[str, Any]]:
-        return [record for record in self.records() if record.get("gate_id") == gate_id and record.get("task_id") == task_id]
+        return [record for record in self.verified_records() if record.get("gate_id") == gate_id and record.get("task_id") == task_id]

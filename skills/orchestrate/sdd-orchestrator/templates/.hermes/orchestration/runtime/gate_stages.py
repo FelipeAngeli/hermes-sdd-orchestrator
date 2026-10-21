@@ -10,7 +10,11 @@ from __future__ import annotations
 from typing import Any
 
 import acceptance_verifiers
+from gate_evidence import canonical
 from gate_validator import BLOCKED, FAIL, PASS, DeterministicValidator, result
+
+#: Largest artifact (canonical JSON bytes) a gate evaluates; a larger one fails SCHEMA_VALID.
+MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
 
 
 def _ref(validator: DeterministicValidator, identifier: str, payload: dict[str, Any]) -> str:
@@ -85,15 +89,15 @@ def _implement(validator, body, context):
 
 def _test(validator, body, context):
     checks = body["acceptance_checks"]
-    bound = context.get("check_commands") or {}
-    uncovered = [item["id"] for item in checks if item["verifier"] == "AGENT" and item["status"] != "WAIVED" and item["id"] not in bound]
+    bound, waivers = context.get("check_commands") or {}, context.get("waivers") or {}
+    uncovered = [item["id"] for item in checks if item["verifier"] == "AGENT" and item["id"] not in bound and item["id"] not in waivers]
     return [
         validator.configured("focused_tests", "TESTS_CONFIGURED"),
         validator.files_named_exist("focused_tests", "TESTS_EXIST"),
         validator.command_check("focused_tests", "TESTS_PASS"),
         validator.reproduce_claims(body),
         _check(validator, "CHECKS_COVERED", not uncovered, {"uncovered": uncovered}, "checks with no bound verifier: " + ", ".join(uncovered)),
-        *validator.acceptance(checks, bound),
+        *validator.acceptance(checks, context),
     ]
 
 
@@ -109,7 +113,10 @@ def _review(validator, body, context):
         _check(validator, "RECORDED_GATES_PASS", not not_passed, {"gate_status": gates}, "not PASS: " + ", ".join(not_passed)),
         _check(validator, "BASELINE_AND_OWNERSHIP", baseline_ok, {"baseline": body["baseline"], "ownership": body["ownership"]},
                "baseline not preserved or ownership invalid"),
-        *validator.acceptance(body["acceptance"]["checks"], context.get("check_commands") or {}),
+        # The reported gate_status is only a consistency check: the gate re-runs the real commands.
+        validator.command_check("focused_tests", "TESTS_PASS"),
+        validator.command_check("analyze", "STATIC_ANALYSIS"),
+        *validator.acceptance(body["acceptance"]["checks"], context, expected=body["acceptance"]["expected_check_ids"]),
     ]
 
 
@@ -119,6 +126,10 @@ HANDLERS = {"SPECIFY": _specify, "CLARIFY": _clarify, "PLAN": _plan, "TASKS": _t
 
 def evaluate_stage(validator: DeterministicValidator, stage: str, artifact: Any, context: dict[str, Any]) -> list[dict[str, Any]]:
     """Run the schema check, then (only on a valid artifact) the stage's deterministic checks."""
+    size = len(canonical(artifact))
+    if size > MAX_ARTIFACT_BYTES:
+        return [_check(validator, "SCHEMA_VALID", False, {"bytes": size, "limit": MAX_ARTIFACT_BYTES},
+                       f"the artifact is {size} bytes; the limit is {MAX_ARTIFACT_BYTES}")]
     schema = validator.schema(stage, artifact)
     if schema["status"] != PASS:
         return [schema]

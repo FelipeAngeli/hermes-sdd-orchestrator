@@ -47,12 +47,14 @@ class DecisionUnits(Base):
         engine.evaluate("TEST", "T-1", artifact("TEST"), context={"check_commands": {"AC-1": TEST_CMD}})
         write_app(self.repo, correct=False)
         engine.evaluate("TEST", "T-1", artifact("TEST"), context={"check_commands": {"AC-1": TEST_CMD}})
-        engine.evaluate("REVIEW", "T-1", review_artifact(), context={"check_commands": {"AC-1": TEST_CMD}})
+        returned = engine.evaluate("REVIEW", "T-1", review_artifact(), context={"check_commands": {"AC-1": TEST_CMD}})
+        jsonschema.validate(returned, SCHEMA)  # the returned value (with ``reused``) matches the contract too
         engine.evaluate("SPECIFY", "T-1", {"not": "an artifact"})
         records = gate_evidence.DecisionLog(self.store).records()
         self.assertEqual(4, len(records))
         for record in records:
             jsonschema.validate(record, SCHEMA)
+            self.assertNotIn("reused", record)
         self.assertEqual("FAIL", records[-1]["verdict"], "an invalid artifact fails its schema criterion")
 
     def test_inconclusive_and_blocked_produce_no_corrective_task(self):
@@ -74,8 +76,13 @@ class DecisionUnits(Base):
             raise RuntimeError("model unavailable")
 
         engine = self.engine(reviewers=[gate_reviewer.Reviewer("claude-review", "CLAUDE", broken)])
-        decision = engine.evaluate("REVIEW", "T-1", review_artifact(), context={"check_commands": {"AC-1": TEST_CMD}})
+        context = {"check_commands": {"AC-1": TEST_CMD}, "implementer": "CODEX"}
+        decision = engine.evaluate("REVIEW", "T-1", review_artifact(), context=context)
         self.assertEqual("INCONCLUSIVE", decision["verdict"])
+        self.assertTrue(decision["retryable"], "a reviewer error is transient")
+        again = engine.evaluate("REVIEW", "T-1", review_artifact(), context=context)
+        self.assertFalse(again["reused"], "a transient INCONCLUSIVE is evaluated again, not reused")
+        self.assertEqual(2, again["generation"])
 
     def test_a_changed_workspace_is_a_new_decision(self):
         engine = self.engine()

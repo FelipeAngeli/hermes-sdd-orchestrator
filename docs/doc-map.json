@@ -117,6 +117,7 @@
     "docs/components/validation-gates.md": [
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/gate_registry.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/gate_validator.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/gate_workspace.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/gate_stages.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/gate_reviewer.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/gate_evidence.py",

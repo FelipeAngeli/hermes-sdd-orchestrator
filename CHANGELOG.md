@@ -4,6 +4,18 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+
+- Validation gates (PR #62 review). A worker could no longer forge a PASS:
+  - **Proof:** waivers count only when the controller recorded them (`context.waivers`); a waiver written in the artifact is BLOCKED. An expected acceptance check the artifact leaves out fails. REVIEW re-runs Focused tests and Analyze (`TESTS_PASS`, `STATIC_ANALYSIS`) instead of trusting the reported `gate_status`.
+  - **Decision log:** decision reuse and history verify the hash chain and the evidence references first, so a tampered log raises `DECISION_LOG_TAMPERED`.
+  - **Implementer:** the artifact's `executor.name` also counts as implementer. Families are normalised (`gate_reviewer.family`), and an unknown implementer blocks AGENT criteria.
+  - **Git:** git runs hardened in the new `runtime/gate_workspace.py` (minimal environment, no global or system config, `core.fsmonitor`/`hooksPath`/`untrackedCache` overridden, `--no-renames`, failures INCONCLUSIVE).
+  - **Retries:** timeouts, git failures and reviewer errors are `transient`, and their `retryable` decisions are evaluated again instead of reused.
+  - **Limits:** command output goes to temporary files and is redacted before it is cut; artifacts are capped at 2 MiB and re-run claims at 10.
+  - **Contract:** `GATE_DECISION_SCHEMA.json` adds `retryable`, the returned-only `reused` and the per-criterion `transient`.
+  - **Tests:** `test_gates_review.py` covers each regression, and a 26-mutation run is fully killed. `docs/components/validation-gates.md` now documents the controller-owned context and these limits.
+
 ## 15.15.0 - 2026-10-21
 
 ### Added
