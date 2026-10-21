@@ -15,6 +15,22 @@ from gate_validator import BLOCKED, FAIL, PASS, DeterministicValidator, result
 
 #: Largest artifact (canonical JSON bytes) a gate evaluates; a larger one fails SCHEMA_VALID.
 MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
+#: Review finding severities that do not block; any other value (case and spaces ignored) blocks.
+NON_BLOCKING_SEVERITIES = frozenset({"LOW", "INFO", "NOTE", "MINOR", "NIT", "NON_BLOCKING", "NONE", "NO_FINDINGS"})
+
+
+def _expected_set(validator, context):
+    """The controller must state which acceptance checks exist; with no expected set, zero checks proves nothing."""
+    stated = any(key in context for key in ("expected_check_ids", "check_commands", "waivers"))
+    return _check(validator, "EXPECTED_CHECKS_STATED", stated, {"context_keys": sorted(context)},
+                  "the controller gave no expected_check_ids, check_commands or waivers", BLOCKED)
+
+
+def _format_check(validator):
+    """Format is re-run when configured; an unconfigured format gate is recorded, not trusted from the report."""
+    if validator.commands.get("format"):
+        return validator.command_check("format", "FORMAT")
+    return _check(validator, "FORMAT", True, {"format": None}, "")
 
 
 def _ref(validator: DeterministicValidator, identifier: str, payload: dict[str, Any]) -> str:
@@ -97,13 +113,14 @@ def _test(validator, body, context):
         validator.command_check("focused_tests", "TESTS_PASS"),
         validator.reproduce_claims(body),
         _check(validator, "CHECKS_COVERED", not uncovered, {"uncovered": uncovered}, "checks with no bound verifier: " + ", ".join(uncovered)),
+        _expected_set(validator, context),
         *validator.acceptance(checks, context),
     ]
 
 
 def _review(validator, body, context):
     findings = body["findings"]
-    blocking = [item for item in findings if str(item.get("severity", "")).upper() in {"CRITICAL", "HIGH", "BLOCKER", "BLOCKING"}]
+    blocking = [item for item in findings if str(item.get("severity", "")).strip().upper() not in NON_BLOCKING_SEVERITIES]
     gates = body["gate_status"]
     not_passed = [name for name in ("focused_tests", "format", "analyze") if gates.get(name) != "PASS"]
     baseline_ok = body["baseline"]["preserved"] and body["ownership"]["valid"]
@@ -116,6 +133,8 @@ def _review(validator, body, context):
         # The reported gate_status is only a consistency check: the gate re-runs the real commands.
         validator.command_check("focused_tests", "TESTS_PASS"),
         validator.command_check("analyze", "STATIC_ANALYSIS"),
+        _format_check(validator),
+        _expected_set(validator, context),
         *validator.acceptance(body["acceptance"]["checks"], context, expected=body["acceptance"]["expected_check_ids"]),
     ]
 

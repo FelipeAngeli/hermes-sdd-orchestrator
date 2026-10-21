@@ -4,6 +4,23 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+
+- Validation gates, second review round of PR #62:
+  - **New context key and criteria:** `context.base_commit` (changes measured with `git diff <base>` plus untracked files only `.gitignore` excludes). New criteria `EXPECTED_CHECKS_STATED` (TEST and REVIEW are BLOCKED unless the controller states the expected checks) and `FORMAT` (REVIEW re-runs a configured Format command). `GateRegistry` v3.
+
+### Fixed
+
+- Validation gates, second review round of PR #62. A worker could no longer hide changes or forge a PASS:
+  - **Git** (`gate_workspace`): `core.worktree`, `core.excludesFile`, `core.attributesFile`, `diff.external` and every repository `filter.<name>` program are overridden, with `GIT_ATTR_NOSYSTEM` and no stdin. `assume-unchanged` and `skip-worktree` flags fail the IMPLEMENT scope checks.
+  - **Reuse:** files are hashed in chunks with per-file and file-count limits. An incomplete fingerprint (git failed, too many files, a file too large) makes the decision `retryable`, so a workspace outside git is never served a stale PASS.
+  - **Reproduced claims:** claims equal to a configured gate run first, spellings are deduplicated by argv, and claims over the cap make `EVIDENCE_REPRODUCED` INCONCLUSIVE.
+  - **REVIEW:** any finding severity outside `NON_BLOCKING_SEVERITIES` (case and spaces ignored) blocks an approval.
+  - **Reviewers:** families map through a vendor table (`gpt-5-codex` and `codex` are both `openai`), and the reviewer context labels quoted worker text as untrusted.
+  - **Store:** an evidence store inside the repository is refused (`GATE_STORE_INSIDE_REPO`).
+  - **Redaction:** `redaction.redact` masks the distinctive GitHub, GitLab, webhook and Slack prefixes even when glued to a preceding word.
+  - **Tests:** `test_gates_hardening.py` covers the 12 rules the reviewers' mutation run found untested, plus each new rule; a 29-mutation run leaves none surviving. `docs/components/validation-gates.md` now states the same-user and `.git` limits plainly.
+
 ## 15.15.2 - 2026-10-21
 
 ### Fixed
@@ -22,7 +39,7 @@ All notable changes to the orchestration are recorded here. Every change under `
   - **Retries:** timeouts, git failures and reviewer errors are `transient`, and their `retryable` decisions are evaluated again instead of reused.
   - **Limits:** command output goes to temporary files and is redacted before it is cut; artifacts are capped at 2 MiB and re-run claims at 10.
   - **Contract:** `GATE_DECISION_SCHEMA.json` adds `retryable`, the returned-only `reused` and the per-criterion `transient`.
-  - **Tests:** `test_gates_review.py` covers each regression, and a 26-mutation run is fully killed. `docs/components/validation-gates.md` now documents the controller-owned context and these limits.
+  - **Tests:** `test_gates_review.py` covers each regression. (Correction: that 26-mutation run left 3 survivors, killed after the tests were sharpened; the second review's 38-mutation run then found 12 more, covered in 15.16.0.) `docs/components/validation-gates.md` now documents the controller-owned context and these limits.
 
 ## 15.15.0 - 2026-10-21
 

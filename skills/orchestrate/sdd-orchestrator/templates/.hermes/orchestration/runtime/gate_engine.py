@@ -14,14 +14,16 @@ state, configured commands, reviewer roster and the relevant context. The same k
 returns the stored decision (``reused: true``) without re-running anything or asking a
 reviewer again, after the log's hash chain is verified and every evidence reference of
 that decision still resolves. A ``retryable`` decision (INCONCLUSIVE because of a
-timeout, an unrunnable command, a git failure or a reviewer error) is not reused: the
-same inputs are evaluated again as a new generation. A new evaluation appends a decision
+timeout, an unrunnable command, a git failure or a reviewer error, or any decision made
+while the workspace fingerprint was incomplete: git failed, too many files, or a file
+too large to hash) is not reused: the same inputs are evaluated again as a new generation. A new evaluation appends a decision
 with ``generation`` + 1 and ``previous_decision_id``; nothing is ever overwritten.
 
 Context is controller-owned: ``check_commands`` (bound verifiers), ``editable_paths``,
-``implementer``, ``waivers`` (human waivers the controller recorded) and
-``expected_check_ids`` must come from the controller's own state, never from a worker
-artifact. The implementer is also read from the artifact's ``executor.name``; a reviewer
+``implementer``, ``waivers`` (human waivers the controller recorded),
+``expected_check_ids`` and ``base_commit`` (the commit the slice started from) must come
+from the controller's own state, never from a worker artifact. The store must be outside
+the repository (``GATE_STORE_INSIDE_REPO``). The implementer is also read from the artifact's ``executor.name``; a reviewer
 of either family does not count, and an unknown implementer blocks AGENT criteria.
 
 Mode ``OBSERVE`` (default) records decisions with ``blocking: false`` and never changes
@@ -47,7 +49,7 @@ MODES = ("OBSERVE", "ENFORCE")
 DECISION_VERSION = 1
 NOT_EVALUATED = "NOT_EVALUATED"
 #: Controller-owned inputs; a worker must never supply any of them (see the module docstring).
-CONTEXT_KEYS = ("check_commands", "editable_paths", "implementer", "waivers", "expected_check_ids")
+CONTEXT_KEYS = ("check_commands", "editable_paths", "implementer", "waivers", "expected_check_ids", "base_commit")
 EVALUATOR = "gate_engine/deterministic"
 
 
@@ -79,6 +81,9 @@ class GateEngine:
         if mode not in MODES:
             raise ValueError(f"GATE_MODE_INVALID: {mode!r}")
         self.store, self.repo = Path(store), Path(repo)
+        resolved_store, resolved_repo = self.store.resolve(), self.repo.resolve()
+        if resolved_store == resolved_repo or resolved_repo in resolved_store.parents:
+            raise ValueError("GATE_STORE_INSIDE_REPO: keep the evidence store outside the repository gate commands run in")
         self.commands, self.timeouts = dict(commands), dict(timeouts or {})
         self.reviewers = list(reviewers or [])
         self.mode = mode
@@ -89,10 +94,12 @@ class GateEngine:
     def evaluate(self, stage: str, task_id: str, artifact: Any, *, context: dict[str, Any] | None = None) -> dict[str, Any]:
         gate = self.registry.for_stage(stage)
         context = {key: copy.deepcopy(value) for key, value in (context or {}).items() if key in CONTEXT_KEYS}
-        validator = DeterministicValidator(self.repo, self.evidence, commands=self.commands, timeouts=self.timeouts)
+        validator = DeterministicValidator(self.repo, self.evidence, commands=self.commands, timeouts=self.timeouts,
+                                           base=context.get("base_commit"))
         artifact_sha = _sha(artifact)
+        workspace = validator.workspace_fingerprint()
         key = _sha({"registry": self.registry.digest(), "gate": gate["gate_id"], "task": task_id, "artifact": artifact_sha,
-                    "workspace": validator.workspace_fingerprint(), "commands": self.commands, "timeouts": self.timeouts,
+                    "workspace": workspace, "commands": self.commands, "timeouts": self.timeouts,
                     "reviewers": sorted((item.name, item.family) for item in self.reviewers), "context": context, "mode": self.mode})
         existing = self.log.find(key)
         if existing is not None and not existing.get("retryable") and self._evidence_intact(existing):
@@ -122,7 +129,8 @@ class GateEngine:
             verdict = INCONCLUSIVE
             failed.append({"id": "EVIDENCE_PRESENT", "status": INCONCLUSIVE, "refs": [], "detail": "a PASS needs evidence beyond the artifact"})
         history = self.log.history(gate["gate_id"], task_id)
-        retryable = verdict == INCONCLUSIVE and any(item.get("transient") for item in failed)
+        # An unreadable or partly hashed workspace cannot prove "no new evidence", so such a decision is never reused.
+        retryable = not workspace["complete"] or (verdict == INCONCLUSIVE and any(item.get("transient") for item in failed))
         decision = {
             "schema_version": DECISION_VERSION, "decision_id": "gd-" + _sha({"key": key, "generation": len(history) + 1})[:24],
             "gate_id": gate["gate_id"], "task_id": task_id, "retryable": retryable,

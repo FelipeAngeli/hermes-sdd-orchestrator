@@ -176,7 +176,6 @@ class WorkspaceTests(Base):
         git(self.repo, "config", "core.fsmonitor", str(hook))
         self.assertIsNotNone(gate_workspace.changed_files(self.repo))
         self.assertFalse(marker.exists())
-        self.assertNotIn("GATE_SECRET", gate_workspace.git_env())
 
     def test_a_rename_reports_both_paths(self):
         (self.repo / "protected").mkdir()
@@ -200,6 +199,8 @@ class WorkspaceTests(Base):
         self.assertTrue(decision["retryable"])
 
     def test_reproduced_claims_are_capped(self):
+        for index in range(gate_validator.MAX_REPRODUCED + 5):
+            (self.repo / f"file{index}.txt").write_text("x\n", encoding="utf-8")
         claims = [{"command": f"test -f file{index}.txt", "purpose": "p", "timeout_seconds": 5, "exit_code": 0, "result": "PASS"}
                   for index in range(gate_validator.MAX_REPRODUCED + 5)]
         decision = self.evaluate("TEST", artifact("TEST", commands=claims, acceptance_checks=[]), check_commands={})

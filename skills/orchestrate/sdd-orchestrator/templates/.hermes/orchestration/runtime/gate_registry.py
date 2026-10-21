@@ -17,7 +17,7 @@ import hashlib
 import json
 from typing import Any
 
-REGISTRY_VERSION = 2
+REGISTRY_VERSION = 3
 EVALUATORS = ("DETERMINISTIC", "AGENT")
 GATE_STAGES = ("SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST", "REVIEW")
 
@@ -73,6 +73,7 @@ GATES: dict[str, list[dict[str, str]]] = {
         _criterion("TESTS_PASS", "The focused-tests command, run by the gate, exits 0."),
         _criterion("EVIDENCE_REPRODUCED", "Every command the worker reports as passing passes when the gate re-runs it."),
         _criterion("CHECKS_COVERED", "Every AGENT acceptance check has a controller-bound verifier or a controller-recorded waiver."),
+        _criterion("EXPECTED_CHECKS_STATED", "The controller states which acceptance checks are expected.", on_fail="BLOCKED"),
         _NO_BLOCKERS,
     ],
     "REVIEW": [
@@ -82,6 +83,8 @@ GATES: dict[str, list[dict[str, str]]] = {
         _criterion("BASELINE_AND_OWNERSHIP", "The baseline is preserved and ownership is valid."),
         _criterion("TESTS_PASS", "The focused-tests command, re-run by the gate at review, exits 0."),
         _criterion("STATIC_ANALYSIS", "The configured static-analysis command, re-run by the gate at review, passes."),
+        _criterion("FORMAT", "The configured format command, re-run by the gate at review, passes (recorded as PASS when none is configured)."),
+        _criterion("EXPECTED_CHECKS_STATED", "The controller states which acceptance checks are expected.", on_fail="BLOCKED"),
         _INDEPENDENT,
         _criterion("FUNCTIONAL_ADHERENCE", "The change does what the acceptance criteria require, per the cited evidence.", evaluator="AGENT"),
         _criterion("SECURITY", "The change introduces no security weakness visible in the cited evidence.", evaluator="AGENT"),

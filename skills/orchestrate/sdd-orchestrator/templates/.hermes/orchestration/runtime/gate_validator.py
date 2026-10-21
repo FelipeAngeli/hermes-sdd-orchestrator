@@ -54,6 +54,14 @@ def result(identifier: str, status: str, refs: list[str] | None = None, detail: 
     return found
 
 
+def _argv_key(command: str) -> tuple[str, ...]:
+    """A command's identity for de-duplication: its argv, with ``./`` path prefixes removed."""
+    try:
+        return tuple(token[2:] if token.startswith("./") else token for token in shlex.split(command))
+    except ValueError:
+        return (command,)
+
+
 def _run_result(identifier: str, run: dict[str, Any], command: str) -> dict[str, Any]:
     detail = run.get("detail") or f"exit {run['exit_code']}"
     return result(identifier, run["outcome"], [run["ref"]], f"`{command}`: {detail}", transient=run["outcome"] == INCONCLUSIVE)
@@ -72,8 +80,9 @@ def _tail(handle: Any) -> str:
 
 class DeterministicValidator:
     def __init__(self, repo: Path, evidence: EvidenceCollector, *, commands: dict[str, str | None],
-                 timeouts: dict[str, int] | None = None, clock: Callable[[], float] = time.time) -> None:
+                 timeouts: dict[str, int] | None = None, clock: Callable[[], float] = time.time, base: str | None = None) -> None:
         self.repo = Path(repo).resolve()
+        self.base = base
         self.evidence = evidence
         self.commands = dict(commands)
         self.timeouts = dict(timeouts or {})
@@ -117,10 +126,10 @@ class DeterministicValidator:
         return record
 
     def workspace_fingerprint(self) -> dict[str, Any]:
-        return gate_workspace.fingerprint(self.repo)
+        return gate_workspace.fingerprint(self.repo, self.base)
 
     def changed_files(self) -> list[str] | None:
-        return gate_workspace.changed_files(self.repo)
+        return gate_workspace.changed_files(self.repo, self.base)
 
     # -- generic checks ------------------------------------------------------------
     def schema(self, action: str, value: Any, identifier: str = "SCHEMA_VALID") -> dict[str, Any]:
@@ -173,11 +182,15 @@ class DeterministicValidator:
     def reproduce_claims(self, artifact: dict[str, Any], identifier: str = "EVIDENCE_REPRODUCED") -> dict[str, Any]:
         """Re-run claimed passing commands the gate may run (at most ``MAX_REPRODUCED``); a mismatch is false evidence."""
         refs, mismatches, unsettled, skipped, capped, seen = [], [], [], [], [], set()
-        for entry in artifact.get("commands") or []:
-            command = entry.get("command") if isinstance(entry, dict) else None
-            if not isinstance(command, str) or entry.get("result") != PASS or command in seen:
+        entries = [entry for entry in artifact.get("commands") or [] if isinstance(entry, dict)
+                   and isinstance(entry.get("command"), str) and entry.get("result") == PASS]
+        # Claims equal to a configured gate command are re-run first, so cheap claims cannot push them over the cap.
+        entries.sort(key=lambda entry: _argv_key(entry["command"]) not in {_argv_key(value) for value in self.allowed})
+        for entry in entries:
+            command = entry["command"]
+            if _argv_key(command) in seen:
                 continue
-            seen.add(command)
+            seen.add(_argv_key(command))
             if not self.permitted(command):
                 skipped.append(command)
             elif len(refs) >= MAX_REPRODUCED:
@@ -195,15 +208,20 @@ class DeterministicValidator:
             return result(identifier, FAIL, refs, "claimed PASS but failed when re-run: " + ", ".join(mismatches))
         if unsettled:
             return result(identifier, INCONCLUSIVE, refs, "re-run did not finish: " + ", ".join(unsettled), transient=True)
-        notes = ([f"{len(skipped)} claim(s) not re-runnable (not allowlisted)"] if skipped else []) + \
-                ([f"{len(capped)} claim(s) over the re-run cap"] if capped else [])
-        return result(identifier, PASS, refs, "; ".join(notes))
+        if capped:
+            return result(identifier, INCONCLUSIVE, refs, f"{len(capped)} claimed passing command(s) over the re-run cap of {MAX_REPRODUCED}")
+        return result(identifier, PASS, refs, f"{len(skipped)} claim(s) not re-runnable (not allowlisted)" if skipped else "")
 
     def workspace_claims(self, artifact: dict[str, Any], editable: list[str] | None) -> list[dict[str, Any]]:
         claimed = sorted({item["path"] for key in ("modified_paths", "created_paths") for item in artifact.get(key) or []})
         actual = self.changed_files()
-        ref = self.evidence.put({"kind": "workspace", "claimed": claimed, "actual": actual, "editable": editable})
-        if actual is None:
+        hidden = gate_workspace.hidden_by_index(self.repo)
+        ref = self.evidence.put({"kind": "workspace", "claimed": claimed, "actual": actual, "editable": editable,
+                                 "base": self.base, "hidden_by_index": hidden})
+        if hidden:
+            detail = "index flags hide edits (assume-unchanged or skip-worktree): " + ", ".join(hidden[:20])
+            return [result("CLAIMS_MATCH_WORKSPACE", FAIL, [ref], detail), result("WITHIN_EDITABLE_PATHS", FAIL, [ref], detail)]
+        if actual is None or hidden is None:
             detail = "git status failed; the workspace cannot be read"
             return [result("CLAIMS_MATCH_WORKSPACE", INCONCLUSIVE, [ref], detail, transient=True),
                     result("WITHIN_EDITABLE_PATHS", INCONCLUSIVE, [ref], detail, transient=True)]

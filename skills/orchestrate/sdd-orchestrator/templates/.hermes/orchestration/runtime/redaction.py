@@ -26,6 +26,8 @@ __all__ = ["redact"]
 # pattern, which must fail after a long scan when no "." follows, also refuses
 # to start after "-" (``eyJ-eyJ-…`` would otherwise be quadratic).
 _T = r"(?<![A-Za-z0-9_])"  # not inside a word
+# Glued: distinctive vendor prefixes need no boundary at all; each attempt is bounded by the run length.
+_G = ""
 _SECRET_KEY = r"(?<![A-Za-z0-9_.-])"  + r"[A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|access[_-]?key|secret|token|passw(?:or)?d|passwd|pwd|credential|private[_-]?key|client[_-]?secret|auth)[A-Za-z0-9_.-]{0,40}"
 _PLAIN_VALUE = re.compile(r"^(?:\d+(?:\.\d+)?|true|false|null|none|\[redacted\])$", re.IGNORECASE)
 # Keys whose values are credentials even when they look like plain numbers.
@@ -33,13 +35,16 @@ _ALWAYS_SECRET_KEY = re.compile(r"(?i)passw|pwd|secret|credential|private[_-]?ke
 _SECRET_PATTERNS = (
     # Well-known token shapes (private-key blocks are handled by _redact_key_blocks).
     re.compile(_T + r"(?:sk|rk|pk)[-_](?:live|test|proj|ant)?[-_]?[A-Za-z0-9_-]{16,512}"),
-    re.compile(_T + r"github_pat_[A-Za-z0-9_]{20,512}"),
-    re.compile(_T + r"gh[pousr]_[A-Za-z0-9]{20,512}"),
-    re.compile(_T + r"glpat-[A-Za-z0-9_-]{16,512}"),
+    # Distinctive vendor prefixes match even when glued to a preceding word ("xxxxghp_…", "ID_ghp_…"):
+    # a prefix inside an identifier is far likelier a leaked token than a word. They are not repeated
+    # patterns of a single character class, so the scan stays linear.
+    re.compile(_G + r"github_pat_[A-Za-z0-9_]{20,512}"),
+    re.compile(_G + r"gh[pousr]_[A-Za-z0-9]{20,512}"),
+    re.compile(_G + r"glpat-[A-Za-z0-9_-]{16,512}"),
     re.compile(_T + r"hf_[A-Za-z0-9]{20,512}"),
     re.compile(_T + r"npm_[A-Za-z0-9]{20,512}"),
-    re.compile(_T + r"whsec_[A-Za-z0-9+/=]{16,512}"),
-    re.compile(_T + r"xox[abposr]-[A-Za-z0-9-]{10,512}"),
+    re.compile(_G + r"whsec_[A-Za-z0-9+/=]{16,512}"),
+    re.compile(_G + r"xox[abposr]-[A-Za-z0-9-]{10,512}"),
     re.compile(r"https://hooks\.slack\.com/services/[A-Za-z0-9/_-]{1,512}"),
     re.compile(_T + r"AIza[0-9A-Za-z_-]{30,512}"),
     re.compile(_T + r"(?:AKIA|ASIA)[0-9A-Z]{16}(?![0-9A-Z])"),
