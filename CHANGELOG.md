@@ -4,6 +4,10 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+
+- Loop engine (PR #61 review, round 2): every event carries `state_sha256` and `execution.json` must match the hash of its committed event, so editing that file alone (skipping a gate, resetting `usage`, rewriting a recorded raise) is `EXECUTION_TAMPERED`; decision events also log `value`, `by` and `quote`; a `raise-budget` value with whitespace is normalized instead of locking the execution; the docs state that approver names are attribution, not authentication, and that retries keep the same idempotency key.
+
 ## 15.14.1 - 2026-10-20
 
 ### Fixed

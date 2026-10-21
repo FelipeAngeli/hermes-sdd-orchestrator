@@ -233,6 +233,62 @@ class ReviewRegressions(unittest.TestCase):
             self.assertEqual("EXECUTION_TAMPERED", caught.exception.code)
         self.assertEqual([], self.rec.calls)
 
+    def _edit(self, identifier, mutate):
+        path = self.store / identifier / "execution.json"
+        value = json.loads(path.read_text(encoding="utf-8"))
+        mutate(value)
+        path.write_text(json.dumps(value), encoding="utf-8")
+
+    def assert_tampered(self, engine, identifier):
+        with self.assertRaises(loop_model.LoopError) as caught:
+            engine.run(identifier)
+        self.assertEqual("EXECUTION_TAMPERED", caught.exception.code)
+
+    def test_a_hand_completed_gate_is_refused(self):
+        spec = definition([node("SEC", kind="gate", approval={"category": "SECURITY", "reason": "r"}),
+                           node("PUSH", depends_on=["SEC"], idempotent=True)])
+        engine = self.engine({"SEC": self.rec.handler("SEC"), "PUSH": self.rec.handler("PUSH")})
+        identifier = engine.run(engine.start(spec)["execution_id"])["execution_id"]
+
+        def complete(value):
+            value["nodes"]["SEC"]["status"] = "COMPLETED"
+            value.update(status="RUNNING", pending=None, halt=None)
+
+        self._edit(identifier, complete)
+        self.assert_tampered(engine, identifier)
+        self.assertEqual([], self.rec.calls)
+
+    def test_a_reset_usage_is_refused(self):
+        engine = self.engine({name: self.rec.handler(name) for name in "ABC"})
+        spec = definition([node("A"), node("B", depends_on=["A"]), node("C", depends_on=["B"])], limits={"max_node_runs": 1})
+        identifier = engine.run(engine.start(spec)["execution_id"])["execution_id"]
+
+        def reset(value):
+            value["usage"]["node_runs"] = 0
+            value["nodes"]["B"]["status"] = "PENDING"
+            value.update(status="RUNNING", pending=None, halt=None)
+
+        self._edit(identifier, reset)
+        self.assert_tampered(engine, identifier)
+        self.assertEqual(["A"], self.rec.calls)
+
+    def test_a_rewritten_raise_value_is_refused_and_whitespace_is_normalized(self):
+        engine = self.engine({name: self.rec.handler(name) for name in "ABC"})
+        spec = definition([node("A"), node("B", depends_on=["A"]), node("C", depends_on=["B"])], limits={"max_node_runs": 1})
+        identifier = engine.run(engine.start(spec)["execution_id"])["execution_id"]
+        self.resolve(identifier, decision="raise-budget", value=" max_node_runs = 2 ")
+        execution = engine.run(identifier)
+        self.assertEqual("max_node_runs=2", execution["decisions"][-1]["value"])
+        self.assertEqual("RUN_BUDGET_EXHAUSTED", execution["halt"]["reason"])
+
+        def rewrite(value):
+            value["decisions"][-1]["value"] = "max_node_runs=1000"
+            value["limits"]["max_node_runs"] = 1000
+
+        self._edit(identifier, rewrite)
+        self.assert_tampered(engine, identifier)
+        self.assertEqual(["A", "B"], self.rec.calls)
+
     def test_store_directories_are_private_and_links_are_refused(self):
         import os
         import stat as stat_module

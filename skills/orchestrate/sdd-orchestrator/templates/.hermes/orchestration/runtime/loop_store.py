@@ -11,6 +11,9 @@ Layout under the store directory passed by the caller (never a default inside a 
 The store root and every execution directory are owner-private (0700, owned by the
 current user, never a symlink); files are written 0600 and never through a symlink.
 
+Every event carries ``state_sha256``, the canonical hash of the execution it commits, so
+an edit of execution.json alone no longer matches the last event (``loop_state.verify_integrity``).
+
 Write order for every checkpoint: append the event (fsync), then replace execution.json
 (fsync file and directory). An event whose ``seq`` is above the committed checkpoint
 is uncommitted; only a caller holding the runner lock removes it (``repair=True``),
@@ -187,7 +190,8 @@ class LoopStore:
         seq = execution["checkpoint"]["seq"] + 1
         at = execution["updated_at"]
         execution["checkpoint"] = {"seq": seq, "at": at, "event": event}
-        line = json.dumps({"seq": seq, "at": at, "event": event, **data}, sort_keys=True, ensure_ascii=False)
+        record = {**data, "seq": seq, "at": at, "event": event, "state_sha256": loop_model.digest(execution)}
+        line = json.dumps(record, sort_keys=True, ensure_ascii=False)
         events = directory / "events.jsonl"
         _regular(events)
         descriptor = os.open(events, os.O_WRONLY | os.O_APPEND | os.O_CREAT | NOFOLLOW, 0o600)

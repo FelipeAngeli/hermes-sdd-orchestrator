@@ -136,6 +136,9 @@ def verify_integrity(execution: dict[str, Any], spec: dict[str, Any], events: li
         return loop_model.LoopError("EXECUTION_TAMPERED", message,
                                     "execution.json was changed outside the loop runtime; restore it from a backup or start a new execution.")
 
+    committed = [event for event in events if event.get("seq") == execution["checkpoint"]["seq"]]
+    if not committed or committed[-1].get("state_sha256") != loop_model.digest(execution):
+        raise tampered("execution.json does not match the state hash of its last committed event.")
     logged = {_decision_key(event) for event in events if "decision" in event}
     expected = dict(spec["limits"])
     for entry in execution["decisions"]:

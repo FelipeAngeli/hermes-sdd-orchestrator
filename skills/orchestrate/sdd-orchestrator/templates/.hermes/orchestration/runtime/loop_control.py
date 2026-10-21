@@ -180,6 +180,8 @@ def resolve(store: Path | str, execution_id: str, *, node: str | None, decision:
         if target != pending["node"]:
             raise loop_model.LoopError("NODE_MISMATCH", f"the pending decision is for {pending['node']!r}, not {node!r}.",
                                        "Pass --node with the pending node.")
+        if decision == "raise-budget" and value is not None:
+            value = "".join(value.split())
         now = _now()
         generation = execution["nodes"][target]["generation"] if target else None
         execution["decisions"].append({"decision": decision, "by": by, "quote": quote, "node": target, "value": value,
@@ -187,5 +189,6 @@ def resolve(store: Path | str, execution_id: str, *, node: str | None, decision:
         outcome = _apply(execution, spec, decision, target, value)
         execution["updated_at"] = now
         event, data = outcome or ("HUMAN_DECISION", {})
-        loop_store.commit(execution, event, {**data, "decision": decision, "node": target, "generation": generation})
+        loop_store.commit(execution, event, {**data, "decision": decision, "node": target, "generation": generation,
+                                             "value": value, "by": by, "quote": quote})
         return loop_state.summary(execution)
