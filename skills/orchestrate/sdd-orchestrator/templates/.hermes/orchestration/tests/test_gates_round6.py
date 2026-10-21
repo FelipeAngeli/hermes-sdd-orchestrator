@@ -115,6 +115,42 @@ class IgnoredSymlinkTests(Base):
             self.assert_only_the_ignored_digest_fails()
 
 
+class GitDirectoryTests(Base):
+    def test_a_payload_kept_in_git_cannot_keep_a_stale_pass(self):
+        payload = self.repo / ".git" / "info" / "t.py"
+        payload.parent.mkdir(exist_ok=True)
+        payload.write_text("def total(values):\n    return sum(values)\n", encoding="utf-8")
+        (self.repo / "app.py").write_text("from pathlib import Path\nexec(Path(__file__).with_name('.git').joinpath('info', 't.py').read_text())\n",
+                                          encoding="utf-8")
+        first = self.evaluate()
+        payload.write_text("def total(values):\n    return sum(values) - 1\n", encoding="utf-8")
+        second = self.evaluate()
+        self.assertEqual("PASS", first["verdict"])
+        self.assertFalse(second["reused"], "the payload in .git changed")
+        self.assertEqual("FAIL", second["verdict"])
+
+    def test_an_untouched_git_directory_still_allows_reuse(self):
+        first = self.evaluate()
+        self.assertTrue(self.evaluate()["reused"])
+        self.assertEqual(first["idempotency_key"], self.evaluate()["idempotency_key"])
+
+    def test_a_payload_in_the_common_git_directory_of_a_linked_worktree_is_new_evidence(self):
+        worktree = self.root / "linked"
+        git(self.repo, "worktree", "add", "-q", str(worktree))
+        before = gate_workspace.fingerprint(worktree, self.base)
+        (self.repo / ".git" / "info" / "payload.py").write_text("x = 2\n", encoding="utf-8")
+        after = gate_workspace.fingerprint(worktree, self.base)
+        self.assertTrue(before["complete"])
+        self.assertNotEqual(before["git_dir"], after["git_dir"], "the shared .git is where a linked worktree's objects and info live")
+
+    def test_an_unwalkable_git_directory_makes_the_fingerprint_incomplete(self):
+        self.assertTrue(gate_workspace.scan(self.repo, self.base)["complete"])
+        with mock.patch.object(gate_workspace, "_git_dirs_digest", return_value=None):
+            found = gate_workspace.fingerprint(self.repo, self.base)
+        self.assertIsNotNone(found["ignored"])
+        self.assertFalse(found["complete"])
+
+
 class CommandCacheTests(Base):
     def test_a_cache_the_command_plants_cannot_be_served_as_reviewed(self):
         plant = ("import atexit, os, py_compile\n"

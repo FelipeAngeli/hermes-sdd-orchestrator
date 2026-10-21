@@ -10,7 +10,8 @@ INCONCLUSIVE. AGENT criteria run only when no deterministic criterion failed, so
 never overrules a failing test and is not consulted on a known defect.
 
 Idempotency: the decision key hashes the registry, gate, task, artifact, workspace
-state (``gate_workspace.fingerprint``, which includes the metadata of ignored entries),
+state (``gate_workspace.fingerprint``, which includes the metadata of ignored entries
+and of the git directory),
 configured commands, reviewer roster and the relevant context. Gate commands run with
 their Python bytecode cache redirected outside the repository, so they do not change
 the workspace they were evaluated on. The same key

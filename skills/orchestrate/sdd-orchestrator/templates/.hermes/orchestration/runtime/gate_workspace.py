@@ -29,8 +29,10 @@ program. Instead:
   ``GIT_DIR``/``GIT_WORK_TREE`` pinned to the repository, and the settings that change
   ignore matching pinned (``FIXED_OVERRIDES``);
 - ignored paths are outside the change list but not outside the fingerprint: the name,
-  type, size, mtime and ctime of every ignored entry go into ``ignored``, so a planted
-  cache (a ``.pyc`` Python would load) is new evidence and a stale PASS is not reused.
+  type, size, mtime and ctime of every ignored entry go into ``ignored`` (an ignored
+  symlink adds its target's metadata), and the same metadata of every entry in the git
+  directory and its common directory goes into ``git_dir``, so a payload planted in an
+  ignored path or in ``.git`` is new evidence and a stale PASS is not reused.
 
 Submodules (gitlinks) are not supported: their content is another repository, so a tree
 with one cannot be scanned. Exceeding ``MAX_ENTRIES`` walked entries or ``MAX_SCAN_BYTES``
@@ -334,7 +336,7 @@ def _hash(path: Path) -> str | None:
 
 
 def _ignored_digest(repo: Path, roots: list[str]) -> str | None:
-    """Name, type, size, mtime and ctime of every entry under the ignored paths (ctime cannot be set back by the worker).
+    """Name, type, size, mtime and ctime of every entry under ``roots``, relative to ``repo`` (ctime cannot be set back).
 
     A symlink adds the metadata of the file it points to, so changing that file is new evidence. A symlink to a
     directory, or one that cannot be resolved, returns None: its contents are not walked, so the digest cannot
@@ -368,12 +370,33 @@ def _ignored_digest(repo: Path, roots: list[str]) -> str | None:
     return digest.hexdigest()
 
 
+def _git_dirs_digest(repo: Path) -> str | None:
+    """Metadata of every entry in the git directory and its common directory (a linked worktree has both).
+
+    Code under test can read files the worker keeps in ``.git``; the walk skips ``.git``, so without this a payload
+    there could change without new evidence. The gate's own git calls are read-only (``GIT_OPTIONAL_LOCKS=0``).
+    """
+    listed = git(repo, "rev-parse", "--absolute-git-dir", "--git-common-dir")
+    lines = listed.stdout.decode("utf-8", "surrogateescape").splitlines() if listed else []
+    if len(lines) != 2:
+        return None
+    digests = []
+    for directory in sorted({Path(lines[0]).resolve(), (repo / lines[1]).resolve()}):
+        part = _ignored_digest(directory, ["."])
+        if part is None:
+            return None
+        digests.append(f"{directory}:{part}")
+    return hashlib.sha256("\0".join(digests).encode("utf-8", "surrogateescape")).hexdigest()
+
+
 def fingerprint(repo: Path, base: str | None = None) -> dict[str, Any]:
-    """HEAD, base, the content hash of every changed file and the metadata of every ignored entry."""
+    """HEAD, base, the content hash of every changed file and the metadata of every ignored and git-directory entry."""
     found = scan(repo, base)
     changed = found["changed"]
     hashes = {path: _hash(repo / path) for path in (changed or [])[:MAX_FILES]}
     ignored = _ignored_digest(repo, found.get("ignored", [])) if changed is not None else None
-    complete = found["complete"] and ignored is not None and not any(value in INCOMPLETE_MARKERS for value in hashes.values())
+    git_dir = _git_dirs_digest(repo) if changed is not None else None
+    complete = (found["complete"] and ignored is not None and git_dir is not None
+                and not any(value in INCOMPLETE_MARKERS for value in hashes.values()))
     return {"head": found["head"], "base": base, "changed": hashes if changed is not None else None, "ignored": ignored,
-            "complete": complete}
+            "git_dir": git_dir, "complete": complete}

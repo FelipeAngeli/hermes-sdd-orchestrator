@@ -4,6 +4,13 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+
+- Validation gates, seventh review round of PR #62:
+  - **Payloads in `.git`** (HIGH): the walk skips `.git`, so code under test that read a file the worker kept there (directly, or through a `.pth` in an ignored `.venv`) reused a stale PASS after that file changed. The fingerprint now has `git_dir`: the name, type, size, mtime and ctime of every entry in the git directory and its common directory, bounded by `MAX_ENTRIES`. The gate's own git calls do not write there, so an untouched repository is still reused.
+  - **Documentation:** the bytecode redirect covers a Python process that keeps the gate's environment, not `python -E`/`-I`, a child with an empty environment or a sourceless `.pyc`. Runners that write a cache on every run (pytest, mypy, ruff, Jest) disable reuse unless their cache is pointed outside the repository. Reuse assumes commands read only the repository. The 15.16.5 entry said 3 of the round-6 tests fail against 15.16.4; 5 do.
+  - **Tests:** four more in `test_gates_round6.py`: a payload in `.git`, an untouched `.git` still reused, a payload in a linked worktree's common git directory, and an unwalkable git directory. The first fails against the 15.16.5 code. A mutation run of 3 rules (`.hermes-dev/mut7.log`) first left 2 survivors (the incompleteness flag and the common directory); the last two tests were added for them and the rerun in the same log killed all 3.
+
 ## 15.16.5 - 2026-10-21
 
 ### Fixed
@@ -13,7 +20,7 @@ All notable changes to the orchestration are recorded here. Every change under `
   - **Bytecode outside the repository:** gate commands run with `PYTHONPYCACHEPREFIX` set to a fresh, gate-owned directory and `PYTHONDONTWRITEBYTECODE=1`. Python neither loads a `.pyc` planted in the repository nor writes one there, so an unchanged workspace is still reused without `reuse_key`.
   - **Ignored symlinks** (HIGH): a symlink under an ignored path added only its own metadata, so changing the file it pointed to (inside `.git` or outside the repository) reused a stale PASS. The fingerprint now adds the target's metadata. A symlink to a directory, or one that does not resolve, makes it incomplete.
   - **Documented limits:** more than `MAX_ENTRIES` entries under ignored paths (a large `node_modules` or `.venv`) makes the fingerprint incomplete and disables reuse. A base rule that ignores files by pattern hides new files matching it. The "Limits" bullets now describe the current fingerprint and scan budget. The `gate_engine` docstring is updated.
-  - **Tests:** `test_gates_round6.py` (6 tests; 3 fail against the 15.16.4 code, the other 3 pin limits). Two round-5 tests were adapted: the gate no longer writes `__pycache__`, and decisions have no `reuse_key`. A mutation run of 7 rules (`.hermes-dev/mut6.log`) left 4 survivors: the ignored-symlink-to-directory, dangling-symlink and `MAX_ENTRIES` tests checked only `complete`, which the walk already cleared. They now assert that the scan is complete and only the ignored digest fails, and the rerun in the same log killed all 4. `.hermes-dev/mut5.log` now also holds the round-5 reruns: `ctime` killed; `obj-kind` and `reuse-only-ignored` report `NOMATCH` because that code was removed.
+  - **Tests:** `test_gates_round6.py` (6 tests; 5 fail against the 15.16.4 code, the `MAX_ENTRIES` test pins an existing limit). Two round-5 tests were adapted: the gate no longer writes `__pycache__`, and decisions have no `reuse_key`. A mutation run of 7 rules (`.hermes-dev/mut6.log`) left 4 survivors: the ignored-symlink-to-directory, dangling-symlink and `MAX_ENTRIES` tests checked only `complete`, which the walk already cleared. They now assert that the scan is complete and only the ignored digest fails, and the rerun in the same log killed all 4. `.hermes-dev/mut5.log` now also holds the round-5 reruns: `ctime` killed; `obj-kind` and `reuse-only-ignored` report `NOMATCH` because that code was removed.
 
 ## 15.16.4 - 2026-10-21
 
