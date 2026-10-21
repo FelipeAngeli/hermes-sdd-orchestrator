@@ -187,11 +187,11 @@ class LoopStore:
             raise loop_model.LoopError("EXECUTION_CORRUPT", "; ".join(errors), "Restore the execution directory from a backup.")
         if value["execution_id"] != execution_id:
             raise loop_model.LoopError("EXECUTION_CORRUPT", "execution.json belongs to another execution id.", "Restore the directory.")
-        if repair and self._reconcile_events(directory, value["checkpoint"]["seq"]):
-            return self.load(execution_id, repair=True)
+        if repair and self._reconcile_events(directory, value):
+            return self.load(execution_id)
         return value
 
-    def _reconcile_events(self, directory: Path, committed: int) -> bool:
+    def _reconcile_events(self, directory: Path, current: dict[str, Any]) -> bool:
         """Bring execution.json and events.jsonl back to one committed state; True when it rolled forward.
 
         A crash leaves at most one trailing line after the checkpoint. A torn (unparseable)
@@ -199,6 +199,7 @@ class LoopStore:
         it commits was written to ``execution.pending.json`` before the event, so recovery
         rolls forward to it when its hash matches, and refuses (EXECUTION_TAMPERED) otherwise.
         """
+        committed = current["checkpoint"]["seq"]
         path = directory / "events.jsonl"
         if not path.exists():
             return False
@@ -233,7 +234,14 @@ class LoopStore:
             pending = json.loads(_read_text(pending_path))
         except (OSError, ValueError, loop_model.LoopError):
             pending = None
-        if pending is None or loop_model.digest(pending) != parsed[-1].get("state_sha256"):
+        event = parsed[-1] or {}
+        valid = (isinstance(pending, dict) and not loop_model.schema_errors(pending, loop_model.EXECUTION_SCHEMA_PATH)
+                 and pending["execution_id"] == current["execution_id"]
+                 and pending["definition_sha256"] == current["definition_sha256"]
+                 and pending["checkpoint"]["seq"] == committed + 1
+                 and pending["checkpoint"]["event"] == event.get("event")
+                 and loop_model.digest(pending) == event.get("state_sha256"))
+        if not valid:
             raise _tampered(f"event {committed + 1} is complete but execution.json is at {committed}, and no matching pending state exists.")
         atomic_write_json(directory / "execution.json", pending)
         return True

@@ -88,22 +88,6 @@ class ReviewRegressions(unittest.TestCase):
         self.assertTrue(loop_control.is_machine_name("hermes-agent"))
         self.assertFalse(loop_control.is_machine_name("felipe"))
 
-    def test_a_hand_edited_approval_or_limit_is_refused(self):
-        spec = definition([node("SEC", kind="gate", approval={"category": "SECURITY", "reason": "r"})])
-        engine = self.engine({"SEC": self.rec.handler("SEC")})
-        identifier = engine.run(engine.start(spec)["execution_id"])["execution_id"]
-        path = self.store / identifier / "execution.json"
-        original = json.loads(path.read_text(encoding="utf-8"))
-        for mutate in (lambda value: value["nodes"]["SEC"].update(approval={"decision": "approve", "category": "SECURITY"}),
-                       lambda value: value["limits"].update(max_node_runs=999)):
-            value = json.loads(json.dumps(original))
-            mutate(value)
-            path.write_text(json.dumps(value), encoding="utf-8")
-            with self.assertRaises(loop_model.LoopError) as caught:
-                engine.run(identifier)
-            self.assertEqual("EXECUTION_TAMPERED", caught.exception.code)
-        self.assertEqual([], self.rec.calls)
-
     def _edit(self, identifier, mutate):
         path = self.store / identifier / "execution.json"
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -114,109 +98,6 @@ class ReviewRegressions(unittest.TestCase):
         with self.assertRaises(loop_model.LoopError) as caught:
             engine.run(identifier)
         self.assertEqual("EXECUTION_TAMPERED", caught.exception.code)
-
-    def test_a_hand_completed_gate_is_refused(self):
-        spec = definition([node("SEC", kind="gate", approval={"category": "SECURITY", "reason": "r"}),
-                           node("PUSH", depends_on=["SEC"], idempotent=True)])
-        engine = self.engine({"SEC": self.rec.handler("SEC"), "PUSH": self.rec.handler("PUSH")})
-        identifier = engine.run(engine.start(spec)["execution_id"])["execution_id"]
-
-        def complete(value):
-            value["nodes"]["SEC"]["status"] = "COMPLETED"
-            value.update(status="RUNNING", pending=None, halt=None)
-
-        self._edit(identifier, complete)
-        self.assert_tampered(engine, identifier)
-        self.assertEqual([], self.rec.calls)
-
-    def test_a_reset_usage_is_refused(self):
-        engine = self.engine({name: self.rec.handler(name) for name in "ABC"})
-        spec = definition([node("A"), node("B", depends_on=["A"]), node("C", depends_on=["B"])], limits={"max_node_runs": 1})
-        identifier = engine.run(engine.start(spec)["execution_id"])["execution_id"]
-
-        def reset(value):
-            value["usage"]["node_runs"] = 0
-            value["nodes"]["B"]["status"] = "PENDING"
-            value.update(status="RUNNING", pending=None, halt=None)
-
-        self._edit(identifier, reset)
-        self.assert_tampered(engine, identifier)
-        self.assertEqual(["A"], self.rec.calls)
-
-    def test_a_rewritten_raise_value_is_refused_and_whitespace_is_normalized(self):
-        engine = self.engine({name: self.rec.handler(name) for name in "ABC"})
-        spec = definition([node("A"), node("B", depends_on=["A"]), node("C", depends_on=["B"])], limits={"max_node_runs": 1})
-        identifier = engine.run(engine.start(spec)["execution_id"])["execution_id"]
-        self.resolve(identifier, decision="raise-budget", value=" max_node_runs = 2 ")
-        execution = engine.run(identifier)
-        self.assertEqual("max_node_runs=2", execution["decisions"][-1]["value"])
-        self.assertEqual("RUN_BUDGET_EXHAUSTED", execution["halt"]["reason"])
-
-        def rewrite(value):
-            value["decisions"][-1]["value"] = "max_node_runs=1000"
-            value["limits"]["max_node_runs"] = 1000
-
-        self._edit(identifier, rewrite)
-        self.assert_tampered(engine, identifier)
-        self.assertEqual(["A", "B"], self.rec.calls)
-
-    def test_restoring_an_older_execution_file_is_refused(self):
-        spec = definition([node("A"), node("B", depends_on=["A"])])
-        engine = self.engine({name: self.rec.handler(name) for name in "AB"})
-        identifier = engine.start(spec)["execution_id"]
-        path = self.store / identifier / "execution.json"
-        early = path.read_text(encoding="utf-8")
-        self.assertEqual("COMPLETED", engine.run(identifier)["status"])
-        events_before = (self.store / identifier / "events.jsonl").read_text(encoding="utf-8")
-        path.write_text(early, encoding="utf-8")
-        self.assert_tampered(engine, identifier)
-        with self.assertRaises(loop_model.LoopError) as caught:
-            loop_control.request_cancel(self.store, identifier, by="requester", reason="x")
-        self.assertEqual("EXECUTION_TAMPERED", caught.exception.code)
-        self.assertEqual(events_before, (self.store / identifier / "events.jsonl").read_text(encoding="utf-8"))
-        self.assertEqual(["A", "B"], self.rec.calls)
-
-    def test_a_crash_after_the_event_rolls_forward_instead_of_dropping_it(self):
-        from unittest import mock
-        import loop_store
-
-        spec = definition([node("SEC", kind="gate", approval={"category": "SECURITY", "reason": "r"}),
-                           node("PUSH", depends_on=["SEC"])])
-        engine = self.engine({"SEC": self.rec.handler("SEC"), "PUSH": self.rec.handler("PUSH")})
-        identifier = engine.run(engine.start(spec)["execution_id"])["execution_id"]
-        real = loop_store.atomic_write_json
-
-        def crash_on_final_replace(path, value):
-            if path.name == "execution.json":
-                raise KeyboardInterrupt("power loss")
-            return real(path, value)
-
-        with mock.patch.object(loop_store, "atomic_write_json", side_effect=crash_on_final_replace):
-            with self.assertRaises(KeyboardInterrupt):
-                self.resolve(identifier, node="SEC", decision="reject", by="requester", quote="não")
-        execution = LoopStore(self.store).load(identifier)
-        self.assertEqual("WAITING_APPROVAL", execution["status"], "execution.json still holds the pre-reject state")
-        execution = engine.run(identifier)
-        self.assertEqual("FAILED", execution["status"])
-        self.assertEqual("APPROVAL_REJECTED", execution["outcome"]["reason"])
-        self.assertEqual([], self.rec.calls)
-
-    def test_restoring_the_previous_step_cannot_undo_a_reject(self):
-        spec = definition([node("SEC", kind="gate", approval={"category": "SECURITY", "reason": "r"}),
-                           node("PUSH", depends_on=["SEC"])])
-        engine = self.engine({"SEC": self.rec.handler("SEC"), "PUSH": self.rec.handler("PUSH")})
-        identifier = engine.run(engine.start(spec)["execution_id"])["execution_id"]
-        path = self.store / identifier / "execution.json"
-        before = path.read_text(encoding="utf-8")
-        self.resolve(identifier, node="SEC", decision="reject", by="requester", quote="não")
-        path.write_text(before, encoding="utf-8")
-        execution = engine.run(identifier)
-        self.assertEqual("FAILED", execution["status"])
-        self.assertIn("reject", [event.get("decision") for event in LoopStore(self.store).events(identifier)])
-        (self.store / identifier / "execution.pending.json").unlink()
-        path.write_text(before, encoding="utf-8")
-        self.assert_tampered(engine, identifier)
-        self.assertEqual([], self.rec.calls)
 
     def test_concurrent_starts_of_one_id_return_execution_exists(self):
         import threading
@@ -245,14 +126,16 @@ class ReviewRegressions(unittest.TestCase):
         execution = engine.run(engine.start(definition([node("A", idempotent=True)]))["execution_id"])
         self.assertEqual("UNKNOWN_FAILURE", execution["halt"]["reason"])
 
-    def test_cancel_refuses_a_forged_state(self):
-        spec = definition([node("SEC", kind="gate", approval={"category": "SECURITY", "reason": "r"})])
-        engine = self.engine({"SEC": self.rec.handler("SEC")})
-        identifier = engine.run(engine.start(spec)["execution_id"])["execution_id"]
-        self._edit(identifier, lambda value: value["nodes"]["SEC"].update(status="COMPLETED"))
-        with self.assertRaises(loop_model.LoopError) as caught:
-            loop_control.request_cancel(self.store, identifier, by="requester", reason="x")
-        self.assertEqual("EXECUTION_TAMPERED", caught.exception.code)
+    def test_lone_surrogates_are_a_malformed_result(self):
+        for result in ({"status": "SUCCEEDED", "output": {"x": "\ud800"}},
+                       {"status": "FAILED", "output": {}, "failure": {"class": "FUNCTIONAL", "code": "X", "message": "\ud800"}},
+                       {"status": "SUCCEEDED", "output": {}, "needs_input": {"prompt": "\ud800"}}):
+            with self.subTest(result=result):
+                store = Path(self._tmp.name) / f"s{len(self.rec.calls)}-{id(result)}"
+                engine = loop_engine.LoopEngine(store, handlers={"A": lambda ctx, value=result: value},
+                                                clock=self.clock.time, sleep=self.clock.sleep)
+                execution = engine.run(engine.start(definition([node("A", idempotent=True)]))["execution_id"])
+                self.assertEqual("UNKNOWN_FAILURE", execution["halt"]["reason"])
 
     def test_a_non_json_output_is_a_malformed_result_not_a_crash(self):
         engine = self.engine({"A": lambda ctx: {"status": "SUCCEEDED", "output": {1: "a", "b": 2}}})

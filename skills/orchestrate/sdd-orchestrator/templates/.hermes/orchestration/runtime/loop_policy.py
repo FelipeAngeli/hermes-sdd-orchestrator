@@ -75,7 +75,7 @@ def normalize_result(value: Any) -> tuple[dict[str, Any] | None, dict[str, Any] 
         output = value.get("output", {})
         try:
             json.dumps({"output": output, "tokens": value.get("tokens"), "needs_input": value.get("needs_input")},
-                       sort_keys=True, allow_nan=False).encode("utf-8")
+                       sort_keys=True, allow_nan=False, ensure_ascii=False).encode("utf-8")
         except (TypeError, ValueError, UnicodeEncodeError):
             return None, {"class": "UNKNOWN", "code": "RESULT_INVALID", "message": "handler output is not JSON with string keys",
                           "effect_applied": None}
@@ -83,7 +83,7 @@ def normalize_result(value: Any) -> tuple[dict[str, Any] | None, dict[str, Any] 
                 "tokens_method": value.get("tokens_method"), "needs_input": value.get("needs_input")}, None
     try:
         failure = dict(value.get("failure") or {})
-        json.dumps(failure, sort_keys=True, allow_nan=False).encode("utf-8")
+        json.dumps(failure, sort_keys=True, allow_nan=False, ensure_ascii=False).encode("utf-8")
     except (TypeError, ValueError, UnicodeEncodeError):
         return None, {"class": "UNKNOWN", "code": "RESULT_INVALID", "message": "handler failure is not JSON with string keys",
                       "effect_applied": None}
