@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.16.1 - 2026-10-21
+
 ### Fixed
 
 - Validation gates, third review round of PR #62. A worker could no longer hide an edit or mask a false claim:
