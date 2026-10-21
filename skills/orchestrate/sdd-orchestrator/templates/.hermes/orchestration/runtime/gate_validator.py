@@ -100,7 +100,7 @@ class DeterministicValidator:
             argv = shlex.split(command)
             if not argv:
                 raise ValueError("empty command")
-            env = {key: os.environ[key] for key in SAFE_ENV if key in os.environ}
+            env = {key: value for key in SAFE_ENV if (value := os.environ.get(key)) is not None}
             with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
                 started = self.clock()
                 completed = subprocess.run(argv, cwd=self.repo, stdin=subprocess.DEVNULL, stdout=out, stderr=err,

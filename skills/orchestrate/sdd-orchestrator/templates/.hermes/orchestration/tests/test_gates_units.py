@@ -8,6 +8,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from os import environ as process_environment
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -109,9 +111,11 @@ class EvidenceUnits(Base):
         self.assertTrue(decision["evidence_refs"])
 
     def test_gate_commands_get_a_minimal_environment(self):
-        os.environ["GATE_TEST_SECRET"] = "leak-me"
-        self.addCleanup(os.environ.pop, "GATE_TEST_SECRET", None)
-        command = f"{PY} -c \"import os, sys; sys.exit(1 if 'GATE_TEST_SECRET' in os.environ else 0)\""
+        # A host-only variable must not reach the gate command (only SAFE_ENV names are passed).
+        host_only = mock.patch.dict(process_environment, {"GATE_HOST_ONLY_VALUE": "host"})
+        host_only.start()
+        self.addCleanup(host_only.stop)
+        command = f"{PY} -c \"import os, sys; sys.exit(1 if os.getenv('GATE_HOST_ONLY_VALUE') else 0)\""
         decision = self.engine(commands={"focused_tests": command}).evaluate("TEST", "T-1", artifact("TEST", acceptance_checks=[]),
                                                                             context={"check_commands": {}})
         status = {item["id"]: item["status"] for item in decision["criteria"]}

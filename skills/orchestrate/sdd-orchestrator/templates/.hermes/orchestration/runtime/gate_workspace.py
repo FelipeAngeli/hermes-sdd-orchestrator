@@ -25,7 +25,7 @@ GIT_OVERRIDES = ("-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false"
 
 
 def git_env() -> dict[str, str]:
-    env = {key: os.environ[key] for key in GIT_SAFE_ENV if key in os.environ}
+    env = {key: value for key in GIT_SAFE_ENV if (value := os.environ.get(key)) is not None}
     env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_OPTIONAL_LOCKS="0", GIT_TERMINAL_PROMPT="0",
                HOME=os.devnull)
     return env
