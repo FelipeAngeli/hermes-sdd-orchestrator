@@ -84,9 +84,10 @@ def overrides(repo: Path) -> list[str]:
     return found
 
 
-def git(repo: Path, *args: str, index: Path | None = None, data: bytes | None = None,
-        ok_codes: tuple[int, ...] = (0,)) -> subprocess.CompletedProcess | None:
-    return _raw(repo, overrides(repo), *args, index=index, data=data, ok_codes=ok_codes)
+def git(repo: Path, *args: str, index: Path | None = None, data: bytes | None = None, ok_codes: tuple[int, ...] = (0,),
+        settings: list[str] | None = None) -> subprocess.CompletedProcess | None:
+    """Run hardened git; ``settings`` reuses overrides already computed for this scan (one filter lookup per scan)."""
+    return _raw(repo, overrides(repo) if settings is None else settings, *args, index=index, data=data, ok_codes=ok_codes)
 
 
 def _split(completed: subprocess.CompletedProcess | None) -> list[str] | None:
@@ -95,38 +96,41 @@ def _split(completed: subprocess.CompletedProcess | None) -> list[str] | None:
     return [item for item in completed.stdout.decode("utf-8", "replace").split("\0") if item]
 
 
-def valid_base(repo: Path, base: str) -> bool:
+def valid_base(repo: Path, base: str, settings: list[str] | None = None) -> bool:
     """A full object id of a commit that is an ancestor of HEAD (a ref name could be moved by the worker)."""
-    return (bool(OBJECT_ID.match(base)) and git(repo, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}") is not None
-            and git(repo, "merge-base", "--is-ancestor", base, "HEAD") is not None)
+    if not OBJECT_ID.match(base):
+        return False
+    settings = overrides(repo) if settings is None else settings
+    return (git(repo, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}", settings=settings) is not None
+            and git(repo, "merge-base", "--is-ancestor", base, "HEAD", settings=settings) is not None)
 
 
-def _changed_since(repo: Path, base: str) -> list[str] | None:
+def _changed_since(repo: Path, base: str, settings: list[str]) -> list[str] | None:
     with tempfile.TemporaryDirectory(prefix="gate-index-") as scratch:
         index = Path(scratch) / "index"
-        if git(repo, "read-tree", base, index=index) is None:
+        if git(repo, "read-tree", base, index=index, settings=settings) is None:
             return None
-        tracked = _split(git(repo, "diff", "--name-only", "--no-renames", "--no-ext-diff", "--no-textconv", "-z", index=index))
-        untracked = _split(git(repo, "ls-files", "--others", "-z", index=index))
+        tracked = _split(git(repo, "diff", "--name-only", "--no-renames", "--no-ext-diff", "--no-textconv", "-z", index=index, settings=settings))
+        untracked = _split(git(repo, "ls-files", "--others", "-z", index=index, settings=settings))
         if tracked is None or untracked is None:
             return None
-        listed = _split(git(repo, "ls-tree", "-r", "--name-only", "-z", base))
+        listed = _split(git(repo, "ls-tree", "-r", "--name-only", "-z", base, settings=settings))
         if listed is None:
             return None
         trusted = {path for path in set(listed) - set(tracked) if path == ".gitignore" or path.endswith("/.gitignore")}
-        hidden = _ignored_by_trusted(repo, untracked, trusted, index)
+        hidden = _ignored_by_trusted(repo, untracked, trusted, index, settings)
         if hidden is None:
             return None
         return sorted(set(tracked) | (set(untracked) - hidden))
 
 
-def _ignored_by_trusted(repo: Path, paths: list[str], trusted: set[str], index: Path) -> set[str] | None:
+def _ignored_by_trusted(repo: Path, paths: list[str], trusted: set[str], index: Path, settings: list[str]) -> set[str] | None:
     """The paths whose deciding ignore rule comes from a .gitignore that exists unchanged in the base tree."""
     if not paths:
         return set()
     data = b"".join(os.fsencode(path) + b"\0" for path in paths)
     # Exit 1 means "nothing ignored"; -v -n prints every path with the source of its last matching rule (empty if none).
-    checked = git(repo, "check-ignore", "-v", "-n", "-z", "--stdin", index=index, data=data, ok_codes=(0, 1))
+    checked = git(repo, "check-ignore", "-v", "-n", "-z", "--stdin", index=index, data=data, ok_codes=(0, 1), settings=settings)
     if checked is None:
         return None
     fields = checked.stdout.decode("utf-8", "replace").split("\0")
@@ -138,17 +142,18 @@ def _ignored_by_trusted(repo: Path, paths: list[str], trusted: set[str], index: 
     return hidden
 
 
-def changed_files(repo: Path, base: str | None = None) -> list[str] | None:
+def changed_files(repo: Path, base: str | None = None, settings: list[str] | None = None) -> list[str] | None:
     """Every changed or untracked path (relative to ``base`` when given), or None when git fails or the base is invalid."""
+    settings = overrides(repo) if settings is None else settings
     if base:
-        return _changed_since(repo, base) if valid_base(repo, base) else None
-    entries = _split(git(repo, "status", "--porcelain", "-z", "--untracked-files=all", "--no-renames"))
+        return _changed_since(repo, base, settings) if valid_base(repo, base, settings) else None
+    entries = _split(git(repo, "status", "--porcelain", "-z", "--untracked-files=all", "--no-renames", settings=settings))
     return None if entries is None else sorted({entry[3:] for entry in entries if len(entry) >= 4})
 
 
-def hidden_by_index(repo: Path) -> list[str] | None:
+def hidden_by_index(repo: Path, settings: list[str] | None = None) -> list[str] | None:
     """Tracked paths whose edits the index is told to ignore (assume-unchanged or skip-worktree)."""
-    entries = _split(git(repo, "ls-files", "-v", "-z"))
+    entries = _split(git(repo, "ls-files", "-v", "-z", settings=settings))
     if entries is None:
         return None
     return sorted(entry[2:] for entry in entries if len(entry) > 2 and (entry[0].islower() or entry[0] == "S"))
@@ -182,9 +187,10 @@ def _hash(path: Path) -> str | None:
 
 def fingerprint(repo: Path, base: str | None = None) -> dict[str, Any]:
     """HEAD, base and the content hash of every changed file: the exact state a command ran against."""
-    head = git(repo, "rev-parse", "HEAD")
-    changed = changed_files(repo, base)
-    hidden = [] if base else hidden_by_index(repo)
+    settings = overrides(repo)
+    head = git(repo, "rev-parse", "HEAD", settings=settings)
+    changed = changed_files(repo, base, settings)
+    hidden = [] if base else hidden_by_index(repo, settings)
     hashes = {path: _hash(repo / path) for path in (changed or [])[:MAX_FILES]}
     complete = (head is not None and changed is not None and len(changed) <= MAX_FILES and hidden == []
                 and not any(value in INCOMPLETE_MARKERS for value in hashes.values()))

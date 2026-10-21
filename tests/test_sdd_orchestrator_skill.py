@@ -656,11 +656,17 @@ class InstallerBehaviorTests(unittest.TestCase):
         check: bool = True,
         cwd: Path | None = None,
         env: dict[str, str] | None = None,
+        timeout: int = 120,
     ) -> subprocess.CompletedProcess[str]:
-        result = subprocess.run(args, text=True, capture_output=True, timeout=120, cwd=cwd, env=env)
+        result = subprocess.run(args, text=True, capture_output=True, timeout=timeout, cwd=cwd, env=env)
         if check and result.returncode:
             self.fail(result.stdout + result.stderr)
         return result
+
+    def installed_suite(self, tests: Path, cwd: Path) -> subprocess.CompletedProcess[str]:
+        """Run the whole installed suite, which needs more than the 120 s one command gets."""
+        argv = (sys.executable, "-m", "unittest", "discover", "-s", str(tests), "-p", "test_*.py")
+        return self.execute(*argv, cwd=cwd, check=False, timeout=900)
 
     def initialize_repository(self, root: Path, *, marker: str = "fixture\n") -> None:
         self.execute("git", "init", "-q", "-b", "main", str(root))
@@ -807,11 +813,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             )
             self.assertEqual(0, result.returncode, result.stdout + result.stderr)
             container = Path(json.loads(result.stdout)["project_container"])
-            suite = self.execute(
-                sys.executable, "-m", "unittest", "discover",
-                "-s", str(container / "Hermes/orchestration/tests"), "-p", "test_*.py",
-                cwd=target, check=False,
-            )
+            suite = self.installed_suite(container / "Hermes/orchestration/tests", target)
             self.assertEqual(0, suite.returncode, suite.stderr[-4000:])
             self.assertEqual("", self.execute("git", "-C", str(target), "status", "--porcelain").stdout)
 
@@ -1481,11 +1483,7 @@ class InstallerBehaviorTests(unittest.TestCase):
 
             # The installed suite isolates the dispatch gate from this consent
             # record, so a consented project still passes its own tests.
-            suite = self.execute(
-                sys.executable, "-m", "unittest", "discover",
-                "-s", str(target / ".hermes/orchestration/tests"), "-p", "test_*.py",
-                cwd=target,
-            )
+            suite = self.installed_suite(target / ".hermes/orchestration/tests", target)
             self.assertIn("OK", suite.stderr)
 
     def test_legacy_typesafe_answer_never_authorizes_automatic_governance(self) -> None:
@@ -2830,11 +2828,7 @@ class InstallerBehaviorTests(unittest.TestCase):
             self.assertIn(".hermes/orchestration", exclude.read_text(encoding="utf-8"))
             self.assertEqual("", self.execute("git", "-C", str(target), "status", "--porcelain").stdout)
 
-            suite = self.execute(
-                sys.executable, "-m", "unittest", "discover",
-                "-s", str(target / ".hermes/orchestration/tests"), "-p", "test_*.py",
-                cwd=target,
-            )
+            suite = self.installed_suite(target / ".hermes/orchestration/tests", target)
             self.assertIn("OK", suite.stderr)
 
     def test_second_run_is_idempotent(self) -> None:
