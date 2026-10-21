@@ -146,6 +146,9 @@ class IgnoredCacheTests(Base):
         self.assertFalse(second["reused"], "a planted cache in an ignored path must be new evidence")
 
     def test_a_same_size_cache_rewrite_with_its_mtime_restored_is_new_evidence(self):
+        # Round 6: the gate's commands no longer write ``__pycache__``, so the worker plants the cache first.
+        py_compile.compile(str(self.repo / "app.py"), cfile=str(self.repo / "__pycache__" / f"app.{sys.implementation.cache_tag}.pyc"),
+                           doraise=True)
         engine = self.engine()
         first = self.evaluate_test(engine)
         cache = next((self.repo / "__pycache__").iterdir())
@@ -166,7 +169,8 @@ class IgnoredCacheTests(Base):
         context = {"implementer": "CODEX", "base_commit": self.base, "check_commands": {"AC-1": command}}
         first = engine.evaluate("TEST", "T-1", artifact("TEST"), context=context)
         second = engine.evaluate("TEST", "T-1", artifact("TEST"), context=context)
-        self.assertIsNone(first["reuse_key"])
+        # Round 6 removed ``reuse_key``; the contract it served stays: the state the command created was never reviewed.
+        self.assertNotIn("reuse_key", first)
         self.assertFalse(second["reused"], "the decision was made on the state before the command changed README.md")
 
     def test_the_gates_own_caches_do_not_prevent_reuse(self):
@@ -175,6 +179,7 @@ class IgnoredCacheTests(Base):
         second = self.evaluate_test(engine)
         self.assertEqual("PASS", first["verdict"])
         self.assertTrue(second["reused"])
+        self.assertFalse((self.repo / "__pycache__").exists(), "gate commands must not write bytecode into the repository")
 
 
 class LimitTests(Base):

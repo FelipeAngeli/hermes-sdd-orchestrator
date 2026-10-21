@@ -21,7 +21,6 @@
     "generation": {"type": "integer", "minimum": 1},
     "previous_decision_id": {"type": ["string", "null"]},
     "idempotency_key": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "reuse_key": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
     "registry_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "mode": {"enum": ["OBSERVE", "ENFORCE"]},

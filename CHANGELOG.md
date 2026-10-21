@@ -4,6 +4,15 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+
+- Validation gates, sixth review round of PR #62:
+  - **`reuse_key` removed** (HIGH): it was the key computed from the workspace the gate's own commands left behind. A worker command could plant bytecode for a wrong same-size source as it exited, and the next evaluation then reused the PASS through `reuse_key` while a fresh run would fail. Release 15.16.4 said a planted cache could not be served a stale PASS; that was wrong for caches written during the gate's own commands. Decisions have no `reuse_key` and `GATE_DECISION_SCHEMA.json` no longer has the field. Records written by 15.16.4 had `reuse_key`, but that release was never merged.
+  - **Bytecode outside the repository:** gate commands run with `PYTHONPYCACHEPREFIX` set to a fresh, gate-owned directory and `PYTHONDONTWRITEBYTECODE=1`. Python neither loads a `.pyc` planted in the repository nor writes one there, so an unchanged workspace is still reused without `reuse_key`.
+  - **Ignored symlinks** (HIGH): a symlink under an ignored path added only its own metadata, so changing the file it pointed to (inside `.git` or outside the repository) reused a stale PASS. The fingerprint now adds the target's metadata. A symlink to a directory, or one that does not resolve, makes it incomplete.
+  - **Documented limits:** more than `MAX_ENTRIES` entries under ignored paths (a large `node_modules` or `.venv`) makes the fingerprint incomplete and disables reuse. A base rule that ignores files by pattern hides new files matching it. The "Limits" bullets now describe the current fingerprint and scan budget. The `gate_engine` docstring is updated.
+  - **Tests:** `test_gates_round6.py` (5 tests; 3 fail against the 15.16.4 code, the other 2 pin limits that already held). Two round-5 tests were adapted: the gate no longer writes `__pycache__`, and decisions have no `reuse_key`.
+
 ## 15.16.4 - 2026-10-21
 
 ### Fixed

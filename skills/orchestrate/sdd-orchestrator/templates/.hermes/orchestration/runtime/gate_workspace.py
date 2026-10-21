@@ -334,7 +334,12 @@ def _hash(path: Path) -> str | None:
 
 
 def _ignored_digest(repo: Path, roots: list[str]) -> str | None:
-    """Name, type, size, mtime and ctime of every entry under the ignored paths (ctime cannot be set back by the worker)."""
+    """Name, type, size, mtime and ctime of every entry under the ignored paths (ctime cannot be set back by the worker).
+
+    A symlink adds the metadata of the file it points to, so changing that file is new evidence. A symlink to a
+    directory, or one that cannot be resolved, returns None: its contents are not walked, so the digest cannot
+    vouch for them and the fingerprint is incomplete.
+    """
     digest, pending, seen = hashlib.sha256(), sorted(root.rstrip("/") for root in roots), 0
     while pending:
         relative = pending.pop()
@@ -346,6 +351,15 @@ def _ignored_digest(repo: Path, roots: list[str]) -> str | None:
         if seen > MAX_ENTRIES:
             return None
         digest.update(os.fsencode(relative) + b"\0%o %d %d %d\0" % (info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns))
+        if stat.S_ISLNK(info.st_mode):
+            try:
+                target = (repo / relative).stat()
+            except OSError:
+                return None
+            if not stat.S_ISREG(target.st_mode):
+                return None
+            digest.update(b"->%o %d %d %d %d %d\0" % (target.st_mode, target.st_size, target.st_mtime_ns, target.st_ctime_ns,
+                                                        target.st_dev, target.st_ino))
         if stat.S_ISDIR(info.st_mode):
             try:
                 pending.extend(sorted(relative + "/" + name for name in os.listdir(repo / relative)))

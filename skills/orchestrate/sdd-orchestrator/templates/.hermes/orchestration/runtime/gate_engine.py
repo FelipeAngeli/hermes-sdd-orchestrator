@@ -10,13 +10,17 @@ INCONCLUSIVE. AGENT criteria run only when no deterministic criterion failed, so
 never overrules a failing test and is not consulted on a known defect.
 
 Idempotency: the decision key hashes the registry, gate, task, artifact, workspace
-state, configured commands, reviewer roster and the relevant context. The same key
+state (``gate_workspace.fingerprint``, which includes the metadata of ignored entries),
+configured commands, reviewer roster and the relevant context. Gate commands run with
+their Python bytecode cache redirected outside the repository, so they do not change
+the workspace they were evaluated on. The same key
 returns the stored decision (``reused: true``) without re-running anything or asking a
 reviewer again, after the log's hash chain is verified and every evidence reference of
 that decision still resolves. A ``retryable`` decision (INCONCLUSIVE because of a
 timeout, an unrunnable command, a git failure or a reviewer error, or any decision made
 while the workspace fingerprint was incomplete: git failed, no HEAD, submodules, too
-many files, or a file too large, unreadable or special) is not reused: the same inputs are evaluated again as a new generation. A new evaluation appends a decision
+many files, a file too large, unreadable or special, a changed symlink, a symlinked
+directory under an ignored path, or more than ``MAX_ENTRIES`` ignored entries) is not reused: the same inputs are evaluated again as a new generation. A new evaluation appends a decision
 with ``generation`` + 1 and ``previous_decision_id``; nothing is ever overwritten.
 
 Context is controller-owned: ``check_commands`` (bound verifiers), ``editable_paths``,
@@ -98,10 +102,9 @@ class GateEngine:
                                            base=context.get("base_commit"))
         artifact_sha = _sha(artifact)
         workspace = validator.workspace_fingerprint()
-        inputs = {"registry": self.registry.digest(), "gate": gate["gate_id"], "task": task_id, "artifact": artifact_sha,
-                  "commands": self.commands, "timeouts": self.timeouts,
-                  "reviewers": sorted((item.name, item.family) for item in self.reviewers), "context": context, "mode": self.mode}
-        key = _sha({**inputs, "workspace": workspace})
+        key = _sha({"registry": self.registry.digest(), "gate": gate["gate_id"], "task": task_id, "artifact": artifact_sha,
+                    "workspace": workspace, "commands": self.commands, "timeouts": self.timeouts,
+                    "reviewers": sorted((item.name, item.family) for item in self.reviewers), "context": context, "mode": self.mode})
         existing = self.log.find(key)
         if existing is not None and not existing.get("retryable") and self._evidence_intact(existing):
             return {**existing, "reused": True}
@@ -132,19 +135,13 @@ class GateEngine:
         history = self.log.history(gate["gate_id"], task_id)
         # An unreadable or partly hashed workspace cannot prove "no new evidence", so such a decision is never reused.
         retryable = not workspace["complete"] or (verdict == INCONCLUSIVE and any(item.get("transient") for item in failed))
-        # The gate's own commands write caches (``__pycache__``, ``.pytest_cache``) into ignored paths. When that is
-        # the only difference afterwards, the decision may also be found from the state the commands left behind;
-        # any other change, or ignored entries the worker plants later, still forces a new evaluation.
-        after = validator.workspace_fingerprint()
-        same_but_ignored = after["complete"] and {**after, "ignored": None} == {**workspace, "ignored": None}
-        reuse_key = _sha({**inputs, "workspace": after}) if same_but_ignored and after != workspace else None
         decision = {
             "schema_version": DECISION_VERSION, "decision_id": "gd-" + _sha({"key": key, "generation": len(history) + 1})[:24],
             "gate_id": gate["gate_id"], "task_id": task_id, "retryable": retryable,
             "stage": stage, "verdict": verdict, "evidence_refs": evidence_refs, "failed_criteria": failed,
             "suggested_actions": gate_corrections.suggested_actions(failed), "evaluator": evaluator, "timestamp": _now(),
             "criteria": results, "generation": len(history) + 1,
-            "previous_decision_id": history[-1]["decision_id"] if history else None, "idempotency_key": key, "reuse_key": reuse_key,
+            "previous_decision_id": history[-1]["decision_id"] if history else None, "idempotency_key": key,
             "registry_sha256": self.registry.digest(), "artifact_sha256": artifact_sha, "mode": self.mode,
             "blocking": self.mode == "ENFORCE" and verdict != PASS,
             "corrective_task": gate_corrections.corrective_task(stage, failed) if verdict == FAIL else None,

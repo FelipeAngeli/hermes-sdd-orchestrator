@@ -110,7 +110,11 @@ class DeterministicValidator:
             if not argv:
                 raise ValueError("empty command")
             env = {key: value for key in SAFE_ENV if (value := os.environ.get(key)) is not None}
-            with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+            # A fresh, gate-owned bytecode cache: Python then neither loads a ``.pyc`` planted in the repository's
+            # ``__pycache__`` nor writes one there, so the command cannot change the state it is evaluated on.
+            with tempfile.TemporaryDirectory(prefix="gate-pycache-") as pycache, tempfile.TemporaryFile() as out, \
+                    tempfile.TemporaryFile() as err:
+                env.update(PYTHONPYCACHEPREFIX=pycache, PYTHONDONTWRITEBYTECODE="1")
                 started = self.clock()
                 completed = subprocess.run(argv, cwd=self.repo, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
                                            timeout=limit, check=False, env=env)
