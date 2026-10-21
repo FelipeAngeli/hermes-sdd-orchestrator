@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.16.2 - 2026-10-21
+
 ### Fixed
 
 - Installer tests: the three tests that run the whole installed controller suite in one subprocess now run through one `installed_suite` helper with a 900 s bound instead of the 120 s bound for single commands. The suite took about 113 s on CI runners before the validation-gate tests were added and timed out after (`tests/test_sdd_orchestrator_skill.py`).
