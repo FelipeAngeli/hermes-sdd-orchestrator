@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Loop definition v1",
+  "description": "LoopDefinition for runtime/loop_engine.py: identifier, objective, type, nodes with dependencies, limits and policy. Validated by runtime/loop_model.py, which also rejects cycles, unknown dependencies, planned-but-unimplemented kinds and limits above the hard ceilings.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "loop_id", "objective", "nodes"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "loop_id": {"$ref": "#/$defs/id"},
+    "objective": {"$ref": "#/$defs/text"},
+    "loop_type": {"enum": ["GENERIC", "SDD_DELIVERY"]},
+    "ticket": {"type": ["string", "null"]},
+    "nodes": {"type": "array", "minItems": 1, "maxItems": 200, "items": {"$ref": "#/$defs/node"}},
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_correction_cycles": {"type": "integer", "minimum": 0},
+        "max_transient_retries": {"type": "integer", "minimum": 0},
+        "max_timeout_retries": {"type": "integer", "minimum": 0},
+        "max_node_runs": {"type": "integer", "minimum": 1},
+        "max_tokens": {"type": ["integer", "null"], "minimum": 1},
+        "max_wall_clock_seconds": {"type": ["integer", "null"], "minimum": 1},
+        "backoff_base_seconds": {"type": "number", "minimum": 0},
+        "backoff_max_seconds": {"type": "number", "minimum": 0},
+        "timeouts_by_kind": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "run-agent": {"$ref": "#/$defs/timeout"},
+            "run-tool": {"$ref": "#/$defs/timeout"},
+            "gate": {"$ref": "#/$defs/timeout"},
+            "wait": {"$ref": "#/$defs/timeout"}
+          }
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "on_unrecoverable_failure": {"enum": ["ESCALATE", "FAIL"]},
+        "security_approvers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/text"}}
+      }
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "text": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+    "timeout": {"type": ["integer", "null"], "minimum": 1},
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["run-agent", "run-tool", "gate", "wait", "run-loop", "fan-out", "collect", "branch"]},
+        "description": {"type": "string"},
+        "handler": {"$ref": "#/$defs/id"},
+        "depends_on": {"type": "array", "items": {"$ref": "#/$defs/id"}},
+        "idempotent": {"type": "boolean"},
+        "effect": {"enum": ["NONE", "LOCAL", "EXTERNAL"]},
+        "timeout_seconds": {"$ref": "#/$defs/timeout"},
+        "params": {"type": "object"},
+        "approval": {
+          "anyOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["category", "reason"],
+              "properties": {
+                "category": {"enum": ["SECURITY", "EXTERNAL_MUTATION", "PROTECTED_FILE", "SCOPE", "HUMAN"]},
+                "reason": {"$ref": "#/$defs/text"}
+              }
+            }
+          ]
+        },
+        "on_failure": {
+          "anyOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["reopen"],
+              "properties": {"reopen": {"$ref": "#/$defs/id"}}
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -4,6 +4,42 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.14.5 - 2026-10-20
+
+### Fixed
+
+- Loop engine (PR #61 review, round 5): roll-forward recovery adopts `execution.pending.json` only when it is schema-valid, of the same execution and definition, exactly one step ahead with the trailing event's name and hash, and reloads once, so a forged trailing event is `EXECUTION_TAMPERED` instead of a `RecursionError` and never overwrites the good checkpoint; lone surrogates in handler output, failures and input requests are `RESULT_INVALID`.
+
+## 15.14.4 - 2026-10-20
+
+### Fixed
+
+- Loop engine (PR #61 review, round 4): every commit first writes the new state to `execution.pending.json`; after a crash a complete trailing event rolls forward to that state (hash-checked) instead of being dropped, so restoring the previous `execution.json` can no longer erase a recorded `reject` or completion, and only a torn line (including a split UTF-8 character) is trimmed; concurrent `start`s of one id return `EXECUTION_EXISTS`; non-JSON failures, token counts and input requests are `RESULT_INVALID`.
+
+## 15.14.3 - 2026-10-20
+
+### Fixed
+
+- Loop engine (PR #61 review, round 3): restoring an older `execution.json` can no longer roll back the event log, re-run completed nodes or undo a rejection (only one trailing uncommitted line may be trimmed, anything else is `EXECUTION_TAMPERED` before trimming); an immediate `cancel` verifies integrity first; `start` builds the execution in a staging directory renamed atomically; a non-JSON handler output is `RESULT_INVALID` and an unsavable state raises `STATE_NOT_SERIALIZABLE` without advancing the checkpoint.
+
+## 15.14.2 - 2026-10-20
+
+### Fixed
+
+- Loop engine (PR #61 review, round 2): every event carries `state_sha256` and `execution.json` must match the hash of its committed event, so editing that file alone (skipping a gate, resetting `usage`, rewriting a recorded raise) is `EXECUTION_TAMPERED`; decision events also log `value`, `by` and `quote`; a `raise-budget` value with whitespace is normalized instead of locking the execution; the docs state that approver names are attribution, not authentication, and that retries keep the same idempotency key.
+
+## 15.14.1 - 2026-10-20
+
+### Fixed
+
+- Loop engine (PR #61 review): lock-free reads (`status`, a deferred `cancel`) no longer truncate events a runner is committing; a verifier halted on a spent run budget resumes after `raise-budget` instead of sticking at `NO_RUNNABLE_NODE`; `cancel`/`resolve` on an unknown id create nothing; `raise-budget` must name the exhausted budget; SECURITY approvals come only from `policy.security_approvers` and any name with a program or AI-executor token is refused; `execution.json` edits not explained by the definition and the event log are `EXECUTION_TAMPERED`; the store is owner-private 0700 with files written 0600 and never through links; ids with a trailing newline are refused; every non-`wait` node needs a finite timeout (`TIMEOUT_REQUIRED`); a cancel during the last node keeps the run `COMPLETED`; handlers get copies of their inputs, the idempotency key is stable per node generation (`attempt_id` is per attempt), and a non-idempotent node is not restarted while its timed-out attempt still runs (`NODE_STILL_RUNNING`). `docs/components/loop-engine.md` now cites the upstream CompozyOS commit instead of a local path.
+
+## 15.14.0 - 2026-10-20
+
+### Added
+
+- Experimental, opt-in loop engine (`runtime/loop_engine.py` and its `loop_*` modules, `schemas/LOOP_DEFINITION_SCHEMA.json`, `schemas/LOOP_EXECUTION_SCHEMA.json`), inspired by the CompozyOS Goal/Verification/Stop/Outcome contracts. LoopDefinition, LoopExecution, LoopNode, LoopCheckpoint and LoopOutcome; node kinds `run-agent`, `run-tool`, `gate` and `wait` (`run-loop`, `fan-out`, `collect`, `branch` refused as planned); nine states mapped to journal and STATE statuses and to registered stop reasons. Dependency-ordered execution with cycle detection, transient versus functional failure, bounded retries with exponential backoff, no automatic re-run of a non-idempotent node whose effect is unknown, write-ahead checkpoints before every transition, crash recovery without repeating completed work, reconcilers, run/token/time budgets, cooperative cancellation, human-only decisions with literal quotes and never-automatic security approval. The SDD adapter turns a profile into a chain whose TEST/REVIEW failure re-runs only IMPLEMENT and its downstream through `correction_loop` (3 correction cycles, 2 transient retries). Nothing in the controller calls it; the CLI (`validate`, `sdd-definition`, `status`, `cancel`, `resolve`) never runs a node. See `docs/components/loop-engine.md`.
+
 ## 15.13.0 - 2026-10-20
 
 ### Added
