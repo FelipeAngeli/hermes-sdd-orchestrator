@@ -86,20 +86,33 @@ class IgnoredSymlinkTests(Base):
         self.assertEqual("PASS", first["verdict"])
         self.assertFalse(second["reused"], "the symlink's target changed")
 
+    def assert_only_the_ignored_digest_fails(self):
+        """The scan itself is complete; only the ignored digest cannot vouch for what is under the ignored path."""
+        self.assertTrue(gate_workspace.scan(self.repo, self.base)["complete"])
+        found = gate_workspace.fingerprint(self.repo, self.base)
+        self.assertEqual({}, found["changed"])
+        self.assertIsNone(found["ignored"])
+        self.assertFalse(found["complete"])
+
     def test_an_ignored_symlink_to_a_directory_makes_the_fingerprint_incomplete(self):
         outside = self.root / "outside"
         outside.mkdir()
-        os.symlink(outside, self.repo / "__pycache__")
-        self.assertFalse(gate_workspace.fingerprint(self.repo, self.base)["complete"])
+        (self.repo / "__pycache__").mkdir()
+        os.symlink(outside, self.repo / "__pycache__" / "linked")
+        self.assert_only_the_ignored_digest_fails()
+
+    def test_a_dangling_ignored_symlink_makes_the_fingerprint_incomplete(self):
+        (self.repo / "__pycache__").mkdir()
+        os.symlink(self.root / "missing.pyc", self.repo / "__pycache__" / CACHE)
+        self.assert_only_the_ignored_digest_fails()
 
     def test_too_many_ignored_entries_make_the_fingerprint_incomplete(self):
         (self.repo / "__pycache__").mkdir()
-        for index in range(5):
+        for index in range(20):
             (self.repo / "__pycache__" / f"{index}.pyc").write_bytes(b"x")
-        with mock.patch.object(gate_workspace, "MAX_ENTRIES", 3):
-            found = gate_workspace.fingerprint(self.repo, self.base)
-        self.assertIsNone(found["ignored"])
-        self.assertFalse(found["complete"])
+        # The walk sees 6 top-level entries (the ignored directory counts once); the digest sees 21.
+        with mock.patch.object(gate_workspace, "MAX_ENTRIES", 10):
+            self.assert_only_the_ignored_digest_fails()
 
 
 class CommandCacheTests(Base):
