@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Gate decision v1",
+  "description": "GateDecision appended by runtime/gate_engine.py to the hash-chained decision log. Every evaluation records gate_id, task_id, verdict, evidence_refs, failed_criteria, suggested_actions, evaluator and timestamp; PASS always has evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "decision_id", "gate_id", "task_id", "stage", "verdict", "evidence_refs", "failed_criteria", "suggested_actions", "evaluator", "timestamp", "criteria", "generation", "previous_decision_id", "idempotency_key", "registry_sha256", "artifact_sha256", "mode", "blocking", "corrective_task"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "decision_id": {"type": "string", "pattern": "^gd-[a-f0-9]{24}$"},
+    "gate_id": {"type": "string", "pattern": "^sdd\\.[a-z]+$"},
+    "task_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "stage": {"enum": ["SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST", "REVIEW"]},
+    "verdict": {"$ref": "#/$defs/verdict"},
+    "evidence_refs": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/ref"}},
+    "failed_criteria": {"type": "array", "items": {"$ref": "#/$defs/criterion"}},
+    "suggested_actions": {"type": "array", "items": {"type": "string"}},
+    "evaluator": {"type": "string", "minLength": 1},
+    "timestamp": {"type": "string", "minLength": 20},
+    "criteria": {"type": "array", "items": {"$ref": "#/$defs/criterion"}},
+    "generation": {"type": "integer", "minimum": 1},
+    "previous_decision_id": {"type": ["string", "null"]},
+    "idempotency_key": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "registry_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "mode": {"enum": ["OBSERVE", "ENFORCE"]},
+    "blocking": {"type": "boolean"},
+    "corrective_task": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stage", "failure_class", "unit", "failed_criteria", "hypothesis", "evidence", "scope"],
+          "properties": {
+            "stage": {"type": "string"},
+            "failure_class": {"type": "string"},
+            "unit": {"type": "string"},
+            "failed_criteria": {"type": "array", "items": {"type": "string"}},
+            "hypothesis": {"type": "string"},
+            "evidence": {"type": "string"},
+            "scope": {"type": "string"}
+          }
+        }
+      ]
+    },
+    "prev_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "record_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  },
+  "allOf": [
+    {"if": {"properties": {"verdict": {"const": "PASS"}}}, "then": {"properties": {"evidence_refs": {"minItems": 1}, "failed_criteria": {"maxItems": 0}}}}
+  ],
+  "$defs": {
+    "verdict": {"enum": ["PASS", "FAIL", "BLOCKED", "INCONCLUSIVE"]},
+    "ref": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "refs", "detail"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "status": {"enum": ["PASS", "FAIL", "BLOCKED", "INCONCLUSIVE", "NOT_EVALUATED"]},
+        "refs": {"type": "array", "items": {"$ref": "#/$defs/ref"}},
+        "detail": {"type": "string"}
+      }
+    }
+  }
+}

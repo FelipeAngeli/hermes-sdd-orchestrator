@@ -114,6 +114,17 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/AGENT_REGISTRY_SCHEMA.json",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/DELEGATION_CONTRACT_SCHEMA.json"
     ],
+    "docs/components/validation-gates.md": [
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/gate_registry.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/gate_validator.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/gate_stages.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/gate_reviewer.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/gate_evidence.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/gate_corrections.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/gate_engine.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/gate_cli.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/GATE_DECISION_SCHEMA.json"
+    ],
     "docs/components/loop-engine.md": [
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/loop_model.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/loop_policy.py",
