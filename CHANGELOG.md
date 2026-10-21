@@ -4,6 +4,17 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+
+- Validation gates, fourth review round of PR #62. `gate_workspace` no longer asks git to compare content: git applied worker-controlled settings along the way, and four of them hid an edit (one also ran a program):
+  - a filter driver named with `=` (`-c filter.a=b.clean=` cannot address it), which ran the worker's program and hid the edit;
+  - an `ident` or `eol` attribute in a worktree `.gitattributes` or `.git/info/attributes`, which erased any content inside a `$Id$` span;
+  - an embedded repository, listed as one directory whose files were never hashed, so a stale PASS was reused;
+  - `core.checkStat=minimal` with `core.trustctime=false` over a refreshed index, which hid a same-size, same-mtime edit. Release 15.16.1 removed these two overrides on the strength of a probe that ran against a racily clean index, where git always rehashes; that probe proved nothing, and the claim in its entry was wrong.
+
+  `scan` now lists the reference tree with `git ls-tree` and compares each tracked file's raw-bytes blob id, executable bit and type on disk itself, and walks the working tree itself. Untracked paths are matched with `git check-ignore --no-index` against `.gitignore` files unchanged from the reference tree. No git call reads the index or file contents, so filters, attributes, the stat cache, index flags, hooks and fsmonitor are no longer involved, and the git overrides that neutralised them are gone. Submodules are not supported: a tree with one makes the scope checks BLOCKED (a worktree `.gitmodules` `ignore = all` used to hide a dirty submodule). `hidden_by_index` was removed. New limits `MAX_ENTRIES` (200 000 walked entries) and `MAX_SCAN_BYTES` (4 GiB compared) make the fingerprint incomplete instead of slow.
+  - **Tests:** `test_gates_round4.py` covers each finding; six of its tests fail against the 15.16.2 code. The installer test helper `installed_suite` checks the exit code again (it relied on `OK` appearing in stderr).
+
 ## 15.16.2 - 2026-10-21
 
 ### Fixed

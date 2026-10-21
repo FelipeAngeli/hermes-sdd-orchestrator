@@ -164,8 +164,9 @@ class WorkspaceBypassTests(Base):
         decision = self.evaluate("IMPLEMENT", artifact("IMPLEMENT", modified_paths=["app.py"]), base_commit=base, editable_paths=["app.py"])
         self.assertEqual("FAIL", self.status(decision)["WITHIN_EDITABLE_PATHS"]["status"])
 
-    def test_index_flags_that_hide_edits_fail(self):
+    def test_index_flags_cannot_hide_an_edit_from_the_scope_check(self):
         git(self.repo, "update-index", "--skip-worktree", "README.md")
+        (self.repo / "README.md").write_text("out of scope\n", encoding="utf-8")
         decision = self.evaluate("IMPLEMENT", artifact("IMPLEMENT", modified_paths=["app.py"]), editable_paths=["app.py"])
         self.assertEqual("FAIL", self.status(decision)["WITHIN_EDITABLE_PATHS"]["status"])
         self.assertIn("README.md", self.status(decision)["WITHIN_EDITABLE_PATHS"]["detail"])

@@ -15,8 +15,8 @@ returns the stored decision (``reused: true``) without re-running anything or as
 reviewer again, after the log's hash chain is verified and every evidence reference of
 that decision still resolves. A ``retryable`` decision (INCONCLUSIVE because of a
 timeout, an unrunnable command, a git failure or a reviewer error, or any decision made
-while the workspace fingerprint was incomplete: git failed, too many files, or a file
-too large to hash) is not reused: the same inputs are evaluated again as a new generation. A new evaluation appends a decision
+while the workspace fingerprint was incomplete: git failed, no HEAD, submodules, too
+many files, or a file too large, unreadable or special) is not reused: the same inputs are evaluated again as a new generation. A new evaluation appends a decision
 with ``generation`` + 1 and ``previous_decision_id``; nothing is ever overwritten.
 
 Context is controller-owned: ``check_commands`` (bound verifiers), ``editable_paths``,

@@ -666,7 +666,7 @@ class InstallerBehaviorTests(unittest.TestCase):
     def installed_suite(self, tests: Path, cwd: Path) -> subprocess.CompletedProcess[str]:
         """Run the whole installed suite, which needs more than the 120 s one command gets."""
         argv = (sys.executable, "-m", "unittest", "discover", "-s", str(tests), "-p", "test_*.py")
-        return self.execute(*argv, cwd=cwd, check=False, timeout=900)
+        return self.execute(*argv, cwd=cwd, timeout=900)
 
     def initialize_repository(self, root: Path, *, marker: str = "fixture\n") -> None:
         self.execute("git", "init", "-q", "-b", "main", str(root))

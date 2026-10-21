@@ -65,10 +65,11 @@ class HiddenEditTests(Base):
             with self.subTest(flag):
                 write_app(self.repo, correct=True)
                 git(self.repo, "update-index", "--no-skip-worktree", "--no-assume-unchanged", "app.py")
-                first = self.evaluate("TEST", artifact("TEST"))
+                first = self.evaluate("TEST", artifact("TEST", summary=flag))
                 git(self.repo, "update-index", flag, "app.py")
                 write_app(self.repo, correct=False)
-                second = self.evaluate("TEST", artifact("TEST"))
+                second = self.evaluate("TEST", artifact("TEST", summary=flag))
+                self.assertIn("app.py", gate_workspace.changed_files(self.repo, self.base))
                 self.assertFalse(second["reused"], "an index flag must not hide an edit from the fingerprint")
                 self.assertEqual("FAIL", second["verdict"])
                 self.assertEqual("PASS", first["verdict"])
@@ -192,8 +193,9 @@ class ClaimAndReviewTests(Base):
         decision = self.evaluate("TEST", artifact("TEST", commands=claim, acceptance_checks=[]), engine=engine, check_commands={})
         self.assertEqual("FAIL", self.status(decision)["EVIDENCE_REPRODUCED"]["status"])
 
-    def test_an_unreadable_index_is_inconclusive_not_clean(self):
-        with mock.patch.object(gate_workspace, "hidden_by_index", return_value=None):
+    def test_an_unreadable_workspace_is_inconclusive_not_clean(self):
+        unreadable = {"head": None, "base": None, "changed": None, "complete": False, "reason": "git failed"}
+        with mock.patch.object(gate_workspace, "scan", return_value=unreadable):
             decision = self.evaluate("IMPLEMENT", artifact("IMPLEMENT", modified_paths=["app.py"]), editable_paths=["app.py"])
         self.assertEqual("INCONCLUSIVE", self.status(decision)["WITHIN_EDITABLE_PATHS"]["status"])
 

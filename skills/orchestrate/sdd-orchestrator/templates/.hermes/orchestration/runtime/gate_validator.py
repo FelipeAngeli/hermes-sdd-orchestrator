@@ -218,19 +218,16 @@ class DeterministicValidator:
 
     def workspace_claims(self, artifact: dict[str, Any], editable: list[str] | None) -> list[dict[str, Any]]:
         claimed = sorted({item["path"] for key in ("modified_paths", "created_paths") for item in artifact.get(key) or []})
-        actual = self.changed_files()
-        # Against a base the fresh index ignores index flags; without one they would hide edits from git status.
-        hidden = [] if self.base else gate_workspace.hidden_by_index(self.repo)
+        found = gate_workspace.scan(self.repo, self.base)
+        actual = found["changed"]
         ref = self.evidence.put({"kind": "workspace", "claimed": claimed, "actual": actual, "editable": editable,
-                                 "base": self.base, "hidden_by_index": hidden})
-        if hidden:
-            detail = "index flags hide edits (assume-unchanged or skip-worktree): " + ", ".join(hidden[:20])
-            return [result("CLAIMS_MATCH_WORKSPACE", FAIL, [ref], detail), result("WITHIN_EDITABLE_PATHS", FAIL, [ref], detail)]
-        if self.base and actual is None and not gate_workspace.valid_base(self.repo, self.base):
-            detail = "base_commit must be the full object id of an ancestor of HEAD"
+                                 "base": self.base, "reason": found.get("reason")})
+        if found.get("reason") in ("invalid base", "submodules are not supported"):
+            detail = ("base_commit must be the full object id of an ancestor of HEAD" if found["reason"] == "invalid base"
+                      else "the repository has submodules, whose content the gate cannot compare")
             return [result("CLAIMS_MATCH_WORKSPACE", BLOCKED, [ref], detail), result("WITHIN_EDITABLE_PATHS", BLOCKED, [ref], detail)]
-        if actual is None or hidden is None:
-            detail = "git failed; the workspace cannot be read"
+        if actual is None:
+            detail = f"the workspace cannot be read ({found.get('reason', 'unknown')})"
             return [result("CLAIMS_MATCH_WORKSPACE", INCONCLUSIVE, [ref], detail, transient=True),
                     result("WITHIN_EDITABLE_PATHS", INCONCLUSIVE, [ref], detail, transient=True)]
         mismatch = sorted(set(claimed) ^ set(actual))
