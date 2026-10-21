@@ -68,11 +68,11 @@ class StoreUnits(unittest.TestCase):
         execution = engine.start(definition([node("A")]))
         identifier = execution["execution_id"]
         events = self.store / identifier / "events.jsonl"
-        with open(events, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps({"seq": 2, "event": "NODE_STARTED"}) + "\n")
+        with open(events, "ab") as handle:
+            handle.write(b'{"seq": 2, "event": "NODE_ST\xc3')  # torn in the middle of a UTF-8 character
         store = LoopStore(self.store)
         store.load(identifier)  # a lock-free reader (status) between append and replace
-        self.assertEqual([1, 2], [item["seq"] for item in store.events(identifier)])
+        self.assertEqual("UNREADABLE", store.events(identifier)[-1]["event"])
         with store.runner_lock(identifier):
             store.load(identifier, repair=True)
         self.assertEqual([1], [item["seq"] for item in store.events(identifier)])

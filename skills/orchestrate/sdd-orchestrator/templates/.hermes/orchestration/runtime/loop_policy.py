@@ -74,13 +74,19 @@ def normalize_result(value: Any) -> tuple[dict[str, Any] | None, dict[str, Any] 
     if value["status"] == "SUCCEEDED":
         output = value.get("output", {})
         try:
-            json.dumps(output, sort_keys=True, allow_nan=False)
-        except (TypeError, ValueError):
+            json.dumps({"output": output, "tokens": value.get("tokens"), "needs_input": value.get("needs_input")},
+                       sort_keys=True, allow_nan=False).encode("utf-8")
+        except (TypeError, ValueError, UnicodeEncodeError):
             return None, {"class": "UNKNOWN", "code": "RESULT_INVALID", "message": "handler output is not JSON with string keys",
                           "effect_applied": None}
         return {"output": output if output is not None else {}, "tokens": value.get("tokens"),
                 "tokens_method": value.get("tokens_method"), "needs_input": value.get("needs_input")}, None
-    failure = dict(value.get("failure") or {})
+    try:
+        failure = dict(value.get("failure") or {})
+        json.dumps(failure, sort_keys=True, allow_nan=False).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError):
+        return None, {"class": "UNKNOWN", "code": "RESULT_INVALID", "message": "handler failure is not JSON with string keys",
+                      "effect_applied": None}
     if failure.get("class") not in FAILURE_CLASSES:
         failure["class"] = "UNKNOWN"
     failure.setdefault("code", "FAILED")

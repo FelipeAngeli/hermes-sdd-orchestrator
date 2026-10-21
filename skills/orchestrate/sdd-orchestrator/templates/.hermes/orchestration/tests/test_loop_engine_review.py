@@ -176,6 +176,75 @@ class ReviewRegressions(unittest.TestCase):
         self.assertEqual(events_before, (self.store / identifier / "events.jsonl").read_text(encoding="utf-8"))
         self.assertEqual(["A", "B"], self.rec.calls)
 
+    def test_a_crash_after_the_event_rolls_forward_instead_of_dropping_it(self):
+        from unittest import mock
+        import loop_store
+
+        spec = definition([node("SEC", kind="gate", approval={"category": "SECURITY", "reason": "r"}),
+                           node("PUSH", depends_on=["SEC"])])
+        engine = self.engine({"SEC": self.rec.handler("SEC"), "PUSH": self.rec.handler("PUSH")})
+        identifier = engine.run(engine.start(spec)["execution_id"])["execution_id"]
+        real = loop_store.atomic_write_json
+
+        def crash_on_final_replace(path, value):
+            if path.name == "execution.json":
+                raise KeyboardInterrupt("power loss")
+            return real(path, value)
+
+        with mock.patch.object(loop_store, "atomic_write_json", side_effect=crash_on_final_replace):
+            with self.assertRaises(KeyboardInterrupt):
+                self.resolve(identifier, node="SEC", decision="reject", by="requester", quote="não")
+        execution = LoopStore(self.store).load(identifier)
+        self.assertEqual("WAITING_APPROVAL", execution["status"], "execution.json still holds the pre-reject state")
+        execution = engine.run(identifier)
+        self.assertEqual("FAILED", execution["status"])
+        self.assertEqual("APPROVAL_REJECTED", execution["outcome"]["reason"])
+        self.assertEqual([], self.rec.calls)
+
+    def test_restoring_the_previous_step_cannot_undo_a_reject(self):
+        spec = definition([node("SEC", kind="gate", approval={"category": "SECURITY", "reason": "r"}),
+                           node("PUSH", depends_on=["SEC"])])
+        engine = self.engine({"SEC": self.rec.handler("SEC"), "PUSH": self.rec.handler("PUSH")})
+        identifier = engine.run(engine.start(spec)["execution_id"])["execution_id"]
+        path = self.store / identifier / "execution.json"
+        before = path.read_text(encoding="utf-8")
+        self.resolve(identifier, node="SEC", decision="reject", by="requester", quote="não")
+        path.write_text(before, encoding="utf-8")
+        execution = engine.run(identifier)
+        self.assertEqual("FAILED", execution["status"])
+        self.assertIn("reject", [event.get("decision") for event in LoopStore(self.store).events(identifier)])
+        (self.store / identifier / "execution.pending.json").unlink()
+        path.write_text(before, encoding="utf-8")
+        self.assert_tampered(engine, identifier)
+        self.assertEqual([], self.rec.calls)
+
+    def test_concurrent_starts_of_one_id_return_execution_exists(self):
+        import threading
+
+        results = []
+
+        def start():
+            try:
+                results.append(self.engine({}).start(definition([node("A")]), execution_id="race-1")["execution_id"])
+            except loop_model.LoopError as error:
+                results.append(error.code)
+            except Exception as error:  # noqa: BLE001
+                results.append(type(error).__name__)
+
+        threads = [threading.Thread(target=start) for _ in range(6)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertLessEqual(set(results), {"race-1", "EXECUTION_EXISTS"})
+        self.assertEqual([], [path.name for path in self.store.iterdir() if path.name.startswith(".creating-")])
+
+    def test_a_non_json_failure_is_a_malformed_result(self):
+        bad = {"status": "FAILED", "output": {}, "failure": {"class": "FUNCTIONAL", "code": "X", "message": "m", 1: "x"}}
+        engine = self.engine({"A": lambda ctx: bad})
+        execution = engine.run(engine.start(definition([node("A", idempotent=True)]))["execution_id"])
+        self.assertEqual("UNKNOWN_FAILURE", execution["halt"]["reason"])
+
     def test_cancel_refuses_a_forged_state(self):
         spec = definition([node("SEC", kind="gate", approval={"category": "SECURITY", "reason": "r"})])
         engine = self.engine({"SEC": self.rec.handler("SEC")})

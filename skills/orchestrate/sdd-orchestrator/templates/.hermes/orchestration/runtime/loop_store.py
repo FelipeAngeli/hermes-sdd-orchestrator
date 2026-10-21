@@ -14,14 +14,16 @@ current user, never a symlink); files are written 0600 and never through a symli
 Every event carries ``state_sha256``, the canonical hash of the execution it commits, so
 an edit of execution.json alone no longer matches the last event (``loop_state.verify_integrity``).
 
-Write order for every checkpoint: append the event (fsync), then replace execution.json
-(fsync file and directory). An event whose ``seq`` is above the committed checkpoint
-is uncommitted; only a caller holding the runner lock removes it (``repair=True``),
-so a lock-free reader such as ``status`` never deletes an event a runner is committing.
+Write order for every checkpoint: write the new state to execution.pending.json, append
+the event (fsync), then replace execution.json (fsync file and directory). After a crash
+a caller holding the runner lock (``repair=True``) rolls forward to the pending state
+when the trailing event is complete, or trims a torn line; a lock-free reader such as
+``status`` writes nothing.
 """
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import os
 import re
@@ -145,9 +147,14 @@ class LoopStore:
             os.chmod(staging, 0o700)
             atomic_write_json(staging / "definition.json", definition)
             self._commit_in(staging, execution, "EXECUTION_STARTED", {})
-            os.rename(staging, directory)
+            try:
+                os.rename(staging, directory)
+            except OSError as error:
+                if error.errno in (errno.EEXIST, errno.ENOTEMPTY):
+                    raise FileExistsError(directory) from error
+                raise
         except BaseException:
-            for child in staging.glob("*") if staging.exists() else ():
+            for child in staging.iterdir() if staging.exists() else ():
                 with contextlib.suppress(OSError):
                     child.unlink()
             with contextlib.suppress(OSError):
@@ -180,21 +187,33 @@ class LoopStore:
             raise loop_model.LoopError("EXECUTION_CORRUPT", "; ".join(errors), "Restore the execution directory from a backup.")
         if value["execution_id"] != execution_id:
             raise loop_model.LoopError("EXECUTION_CORRUPT", "execution.json belongs to another execution id.", "Restore the directory.")
-        if repair:
-            self._truncate_uncommitted_events(directory, value["checkpoint"]["seq"])
+        if repair and self._reconcile_events(directory, value["checkpoint"]["seq"]):
+            return self.load(execution_id, repair=True)
         return value
 
-    def _truncate_uncommitted_events(self, directory: Path, committed: int) -> None:
+    def _reconcile_events(self, directory: Path, committed: int) -> bool:
+        """Bring execution.json and events.jsonl back to one committed state; True when it rolled forward.
+
+        A crash leaves at most one trailing line after the checkpoint. A torn (unparseable)
+        line is trimmed. A complete ``checkpoint + 1`` event is never thrown away: the state
+        it commits was written to ``execution.pending.json`` before the event, so recovery
+        rolls forward to it when its hash matches, and refuses (EXECUTION_TAMPERED) otherwise.
+        """
         path = directory / "events.jsonl"
         if not path.exists():
-            return
-        lines = [line for line in _read_text(path).splitlines() if line.strip()]
+            return False
+        _regular(path)
+        lines = [line for line in path.read_bytes().split(b"\n") if line.strip()]
         seqs: list[int | None] = []
+        parsed: list[dict[str, Any] | None] = []
         for line in lines:
             try:
-                seqs.append(int(json.loads(line)["seq"]))
-            except (ValueError, KeyError, TypeError):
+                item = json.loads(line.decode("utf-8"))
+                seqs.append(int(item["seq"]))
+                parsed.append(item)
+            except (ValueError, KeyError, TypeError, UnicodeDecodeError):
                 seqs.append(None)
+                parsed.append(None)
         if committed not in seqs:
             raise _tampered("the event of the committed checkpoint is missing from events.jsonl.")
         position = len(seqs) - 1 - seqs[::-1].index(committed)
@@ -204,8 +223,20 @@ class LoopStore:
         # A crash leaves at most one trailing line: the next event (seq = checkpoint + 1) or a torn write.
         if len(tail) > 1 or (tail and tail[0] not in (None, committed + 1)):
             raise _tampered(f"{len(tail)} event(s) follow the committed checkpoint; an older execution.json was restored.")
-        if tail:
-            _replace_atomically(path, "".join(line + "\n" for line in lines[:position + 1]).encode("utf-8"))
+        if not tail:
+            return False
+        if tail[0] is None:
+            _replace_atomically(path, b"".join(line + b"\n" for line in lines[:position + 1]))
+            return False
+        pending_path = directory / "execution.pending.json"
+        try:
+            pending = json.loads(_read_text(pending_path))
+        except (OSError, ValueError, loop_model.LoopError):
+            pending = None
+        if pending is None or loop_model.digest(pending) != parsed[-1].get("state_sha256"):
+            raise _tampered(f"event {committed + 1} is complete but execution.json is at {committed}, and no matching pending state exists.")
+        atomic_write_json(directory / "execution.json", pending)
+        return True
 
     def commit(self, execution: dict[str, Any], event: str, data: dict[str, Any]) -> None:
         """Write-ahead the event, then atomically replace execution.json with the new checkpoint."""
@@ -223,6 +254,7 @@ class LoopStore:
             execution["checkpoint"] = previous
             raise loop_model.LoopError("STATE_NOT_SERIALIZABLE", f"the execution cannot be saved as canonical JSON: {error}",
                                        "Return JSON-serializable outputs with string keys from handlers.") from error
+        atomic_write_json(directory / "execution.pending.json", execution)
         events = directory / "events.jsonl"
         _regular(events)
         descriptor = os.open(events, os.O_WRONLY | os.O_APPEND | os.O_CREAT | NOFOLLOW, 0o600)
@@ -237,13 +269,14 @@ class LoopStore:
         path = self.directory(execution_id) / "events.jsonl"
         if not path.exists():
             return []
+        _regular(path)
         found: list[dict[str, Any]] = []
-        for line in _read_text(path).splitlines():
+        for line in path.read_bytes().split(b"\n"):
             if not line.strip():
                 continue
             try:
-                found.append(json.loads(line))
-            except ValueError:
+                found.append(json.loads(line.decode("utf-8")))
+            except (ValueError, UnicodeDecodeError):
                 found.append({"event": "UNREADABLE"})
         return found
 
