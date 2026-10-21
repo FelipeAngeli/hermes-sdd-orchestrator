@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.15.2 - 2026-10-21
+
 ### Fixed
 
 - Validation gates: read the allow-listed environment with `os.environ.get` (`gate_validator`, `gate_workspace`) and set the host-only test variable through `mock.patch.dict`, so the pinned Hermes skill security scan returns SAFE again (CI failed with CAUTION on `python_os_environ`). Behaviour is unchanged.
