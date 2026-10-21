@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.14.5 - 2026-10-20
+
 ### Fixed
 
 - Loop engine (PR #61 review, round 5): roll-forward recovery adopts `execution.pending.json` only when it is schema-valid, of the same execution and definition, exactly one step ahead with the trailing event's name and hash, and reloads once, so a forged trailing event is `EXECUTION_TAMPERED` instead of a `RecursionError` and never overwrites the good checkpoint; lone surrogates in handler output, failures and input requests are `RESULT_INVALID`.
