@@ -171,6 +171,7 @@ def _optimize(raw, fmt, stage, task, config, metrics, started, original, evaluat
     metrics.values["evaluator_calls"] = report.calls
     metrics.values["evaluator_input_tokens"] = report.usage["input_tokens"]
     metrics.values["evaluator_output_tokens"] = report.usage["output_tokens"]
+    metrics.values["evaluator_calls_without_usage"] = report.calls - report.usage_reported
     for reason in report.errors.values():
         metrics.count("evaluation_errors", reason)
     for item in misses:

@@ -151,6 +151,14 @@
     "docs/components/store-review-guardians.md": [
       "skills/release/appstore-review-guardian/*",
       "skills/release/google-play-review-guardian/*"
+    ],
+    "docs/components/observability.md": [
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/obs_model.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/obs_tracer.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/obs_metrics.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/obs_cli.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/obs_benchmark.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/PRICES.json"
     ]
   }
 }

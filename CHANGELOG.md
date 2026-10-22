@@ -4,6 +4,40 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.17.0 - 2026-10-22
+
+### Added
+
+- **Observability engine** (opt-in, read-only; [docs/components/observability.md](docs/components/observability.md)): `runtime/obs_model.py`, `obs_tracer.py`, `obs_metrics.py`, `obs_cli.py` and `obs_benchmark.py`, plus the versioned list-price table `policies/PRICES.json`.
+  - ExecutionTracer derives correlated events (`trace_id`, `run_id`, `loop_id`, `session_id`, `agent_id`, `parent_agent_id`, `task_id`, `stage`, `event_type`, `timestamp`) on demand from the stores that already exist: loop store, action-journal history, the hash-verified gate decision log, Jev receipts and reports, context-engine run metrics and the local supervisor log. It persists nothing, so there is no second source of truth. Free-text keys (prompts, goals, quotes, messages, outputs, paths) are dropped and the remaining strings are redacted.
+  - The trackers report tokens per stage and per actor, with `MEASURED`, `ESTIMATED` and `SIMULATED` never summed together and unknown counts never treated as zero. Cost is a list-price estimate with the table's version and hash, and records it cannot price are `UNPRICED` with a reason. The trackers also cover latency percentiles, progress (first-attempt success, retries by cause, correction loops, recovery after interruption, time to completion, human wait, concurrency, policy blocks) and Jev gross vs net saving, with the evaluator's own tokens and latency counted.
+  - `obs_cli.py report|events|prices` prints JSON. `--output` writes 0600 atomically and never through a symlink.
+  - `obs_benchmark.py` runs the same SDD delivery under scenarios A (current), B (Jev dry run), C (Jev active) and D (C plus raised loop limits), offline or with live Jev calls capped by `--max-live-calls`. The measured baseline is in [docs/reports/observability-baseline.md](docs/reports/observability-baseline.md). In 20 live calls, Jev's context evaluation saved nothing on the TEST fixture and cost 6 378 tokens per run. No performance gain is claimed: agent work in the benchmark is simulated.
+  - Two additive runtime changes feed it. The loop engine records each attempt's own handler-reported `tokens`/`tokens_method` (`loop_state.record_attempt_tokens`), failed attempts included, while the `max_tokens` budget still counts successful attempts only. `executor_transport.extract_result` adds the Claude CLI envelope's `MEASURED` usage to the `run` output as `usage` (`envelope_usage`).
+  - Review round 1 of PR #63 (fixed before release):
+    - **Hostile stores**: a document of the wrong shape, deep nesting or a non-numeric value used to crash the whole report and hide every other source. Every reader now runs under `obs_tracer.guarded`, so such a file yields `SOURCE_UNREADABLE`. Numbers must be finite. Store files over 64 MiB are not read, event logs are streamed, and symlinked ticket directories are not followed.
+    - **Privacy**: a nested failure dict or a key spelled `Message`/`PROMPT` let free text through. Failures are now reduced to class and code, key matching ignores case, and every kept string must be code-shaped with no spaces.
+    - **Labels**: benchmark agent tokens were labelled `ESTIMATED` and the offline stand-in counted as live `MEASURED` calls. Both are now `SIMULATED`. An evaluator call that reported no usage counted as free; it is now counted in `calls_with_unknown_usage` and makes the net saving `null`. Cost priced without unknown cache tokens is marked `is_lower_bound`.
+    - **Docs**: the claims that the Claude envelope usage "feeds the tracer" and that `reported_by_provider_usd` exists were wrong (nothing stores launcher output) and are removed. `observability.md` now states that `trace_id` is per store family, joined through `task_id`.
+    - **Fixes**: `human_wait` keeps the first unresolved halt and closes cancelled runs. Reports are written with `allow_nan=False`, and the Claude envelope's `cost_usd` must be finite.
+  - Review round 2 of PR #63 (fixed before release):
+    - **Crash**: huge JSON integers (`1` followed by 400 zeros) crashed the whole report with `OverflowError` after the guarded readers had returned. `obs_model.number` now rejects any magnitude above `MAX_MAGNITUDE` (1e15).
+    - **Privacy**: dict keys skipped the code-shape check, so a secret placed in a key reached the report. Keys must now pass `code()`, and the failure class and code are reduced to code-shaped scalars where they are read. That also removes a lone surrogate that crashed `events`.
+    - **Labels**:
+      - Context-engine evaluator calls that reported no usage were still summed as measured zero. `context_judge` now counts the calls that reported usage, and `context_engine` records `evaluator_calls_without_usage` (an additive metric). The tracer turns those runs into unknown usage, so the net saving is `null`.
+      - Evaluator tokens are now summed per method (`by_method`); mixed methods give `null` totals and `MIXED`.
+    - **TOCTOU**: store files are read through one descriptor up to `MAX_FILE_BYTES`, so a file that grows after the check is refused (`obs_tracer.read_bounded`, also used for the supervisor log).
+    - **Docs**:
+      - `LOOP_SUMMARY` token labels are the budget's labels.
+      - The `CODE_TEXT` character set now also allows `[` and `]`, for model names such as `claude-opus-4-6[1m]`.
+      - Identifiers with spaces become `null`, and code-shaped personal data is an accepted residual.
+  - Review round 3 of PR #63 (fixed before release):
+    - **Regression from round 2**: allowing `[` and `]` anywhere in `CODE_TEXT` let bracketed-key secret assignments (`user[password]=…`, `[api_key]=…`) through `obs_cli events`. Brackets are now allowed only as one short trailing suffix (`claude-opus-4-6[1m]`). `SECRET_ASSIGNMENT` rejects any secret-named key followed by `=` or `:`, which also closes `api_key=,…`, an older gap that `redaction.redact` does not cover.
+    - **Bounded read**: loop `events.jsonl` is read line by line under the `MAX_FILE_BYTES` budget, so a file that grows after the check is cut off.
+    - **Tests**: sharpened so the 1e15 cap, `usage_reported`, the tracer's unknown-usage override and the mixed-method net are each proven on their own (4 of the 5 mutations the reviewer found surviving). Review round 4 showed that the bounded-read tests still passed with either guard disabled. They were replaced by `test_reads_are_bounded_by_the_bytes_actually_read` and `test_loop_events_respect_the_byte_budget`, which also assert that a cut line is never parsed.
+    - **Docs**: error, timeout and refused calls count as calls without usage. A run with any such call is reported fully unknown. Older `metrics.json` files are read as fully reported.
+  - Tests: 46 in `tests/test_observability.py` and `tests/test_observability_inputs.py` (shared fixtures in `tests/obs_fixtures.py`, split to stay under the file-size limit); the 11 added in review round 1 all fail against the first candidate, the 4 added in round 2 all fail against the second, and the 2 added in round 3 both fail against the third. The mutation table grew to 28 rules (`.hermes-dev/mut-obs.log`). A first rerun was invalid, because six patterns no longer matched the new code. The valid rerun left 2 survivors (the failure projection and gross applied vs dry-run saving). Two tests were sharpened, and that run killed all 28. Rounds 2 and 3 grew the table to 41 rules. Review round 4 then found that the harness reused bytecode caches: a mutant restored within the same second at the same size could run stale `.pyc`. The kill counts of runs 1–12 are therefore not reliable, and the log says so. With the bounded-read guards disabled the harness, run without caches, reported 4 survivors. The harness now deletes `__pycache__` and runs with `-B` and `PYTHONDONTWRITEBYTECODE=1`. Its run 13, on the rewritten tests, killed all 41.
+
 ## 15.16.9 - 2026-10-21
 
 ### Fixed

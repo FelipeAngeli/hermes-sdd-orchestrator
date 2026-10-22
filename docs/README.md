@@ -10,6 +10,7 @@ Documentation of the Hermes SDD Orchestrator. Every page is kept in sync with th
 | See how the layers depend on each other | [Architecture](ARCHITECTURE.md) |
 | Review the Jev decision-layer diagnosis and benchmark protocol | [Jev decision-layer evaluation](reports/jev-decision-layer-evaluation.md) |
 | Review the experimental context engine's offline and live baseline | [Jev context-engine baseline](reports/jev-context-engine-baseline.md) |
+| See measured tokens, cost, latency and the A/B/C/D comparison | [Observability baseline](reports/observability-baseline.md) |
 | Install the orchestrator in a project | [Skill and installer](components/skill-and-installer.md) → [Gates and stack detection](components/gates-and-stack-detection.md) |
 | Follow one demand from request to DONE | [Overview — life of a demand](overview.md#life-of-a-demand) |
 | Change the orchestration | [Maintaining the docs](maintaining-docs.md) and [CONTRIBUTING](../CONTRIBUTING.md) |
@@ -37,6 +38,7 @@ Each page owns a set of files (see [doc-map.json](doc-map.json)) and is the sing
 | [Agent manager](components/agent-manager.md) | Opt-in registry, delegation configuration and contract validation |
 | [Validation gates](components/validation-gates.md) | Opt-in, observation-mode gates per SDD stage: deterministic checks, independent reviewers, versioned evidence, auditable decisions |
 | [Loop engine](components/loop-engine.md) | Experimental, opt-in durable loop executor: definitions, checkpoints, retries, crash recovery, bounded TEST/REVIEW correction |
+| [Observability engine](components/observability.md) | Read-only traces, tokens (measured vs estimated), list-price cost, latency, progress and Jev gross vs net saving over the existing stores; A/B/C/D benchmark |
 | [Store review guardians](components/store-review-guardians.md) | `appstore-review-guardian` and `google-play-review-guardian`: read-only pre-submission audits of iOS and Android apps |
 | [Testing](components/testing.md) | Both test suites and what each test file guarantees |
 

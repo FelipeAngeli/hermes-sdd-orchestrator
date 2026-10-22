@@ -14,6 +14,7 @@ class Metrics:
             "evaluator_calls": 0,
             "evaluator_input_tokens": 0,
             "evaluator_output_tokens": 0,
+            "evaluator_calls_without_usage": 0,
             "estimated_saving": 0,
             "estimated_net_saving": 0,
             "effective_saving": 0,
