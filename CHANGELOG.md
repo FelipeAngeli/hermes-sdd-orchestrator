@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.17.0 - 2026-10-22
+
 ### Added
 
 - **Observability engine** (opt-in, read-only; [docs/components/observability.md](docs/components/observability.md)): `runtime/obs_model.py`, `obs_tracer.py`, `obs_metrics.py`, `obs_cli.py` and `obs_benchmark.py`, plus the versioned list-price table `policies/PRICES.json`.
