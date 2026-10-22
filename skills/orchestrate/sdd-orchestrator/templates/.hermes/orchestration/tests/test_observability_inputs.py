@@ -157,19 +157,29 @@ class ReviewRoundTwoTests(LoopFixture):
         self.assertEqual(0, context["evaluator_tokens"]["calls_with_unknown_usage"])
         self.assertIsNone(context["net_saving_tokens"]["applied"])
 
-    def test_a_file_that_grows_past_the_limit_is_refused(self):
-        path = self.root / "grows.json"
-        path.write_text('{"a": 1}')
-        with mock.patch.object(obs_tracer, "MAX_FILE_BYTES", 4):  # the stat is not consulted: only the bytes read count
-            self.assertEqual("SOURCE_UNREADABLE", obs_tracer.collect(receipts=[path])[0]["event_type"])
+    def test_reads_are_bounded_by_the_bytes_actually_read(self):
+        path = self.root / "ten.json"
+        path.write_bytes(b"0123456789")
+        self.assertEqual(b"0123456789", obs_tracer.read_bounded(path, 10))
+        with self.assertRaises(OSError):  # one byte over: refused, never silently truncated
+            obs_tracer.read_bounded(path, 9)
+
+    def test_loop_events_respect_the_byte_budget(self):
         store = self.store / "g1"
         store.mkdir(parents=True)
         (store / "definition.json").write_text("{}")
         (store / "execution.json").write_text("{}")
-        (store / "events.jsonl").write_text('{"event": "A", "seq": 1}\n' * 3)
+        (store / "events.jsonl").write_text('{"event": "A", "seq": 1}\n' * 3)  # 3 lines of 25 bytes
+
+        def names():
+            return [item["event_type"] for item in obs_tracer.loop_store_events(self.store)]
+
+        with mock.patch.object(obs_tracer, "MAX_FILE_BYTES", 30):  # oversized when checked: not read at all
+            self.assertNotIn("LOOP_A", names())
         with mock.patch.object(obs_tracer, "_regular"), mock.patch.object(obs_tracer, "MAX_FILE_BYTES", 30):
-            names = [item["event_type"] for item in obs_tracer.loop_store_events(self.store)]
-        self.assertEqual(1, names.count("LOOP_A"))
+            grown = names()  # grew after the check: whole lines within the budget only, the cut line is not parsed
+        self.assertEqual((1, 0), (grown.count("LOOP_A"), grown.count("LOOP_EVENT_UNREADABLE")))
+        self.assertEqual(3, names().count("LOOP_A"))
 
     def test_bracketed_secret_assignments_are_dropped(self):
         value = "Zq8vN3kT1pR7wX2m"
