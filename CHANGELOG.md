@@ -4,6 +4,13 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+
+- Validation gates, ninth review round of PR #62:
+  - **Writes through a shared memory mapping** (MEDIUM): on APFS a write through a `MAP_SHARED` mapping that is not flushed moves no size, mtime, ctime or inode, so a worker process that outlived its evaluation could change a payload in `.git`, or the gitfile itself, while the metadata-only `git_dir` digest stayed equal and a stale PASS was reused. `git_dir` now hashes the content of every regular file in the git directory and its common directory outside `objects/` (objects are re-hashed when read and are the bulk of a repository), within `MAX_HASH_BYTES` in total, and the text of the `.git` entry. Past the budget the fingerprint is incomplete. The 15.16.7 entry said that rewriting the `.git` entry always moves its ctime; that is false for this case.
+  - **Release HEAD:** 15.16.7 had a changelog fix committed after its release commit, so `tools/release.py --tag` refused that head (`HEAD_NOT_RELEASE`). This release commit is again the last commit of the branch.
+  - **Tests:** three more in `test_gates_round6.py` (a mapped write into `.git`, a mapped same-size rewrite of the gitfile, the content budget and `objects/` exclusion). All three fail against the 15.16.7 code. A mutation run of 4 rules (`.hermes-dev/mut9.log`) first left 3 survivors: the gitfile test had broken the path (git then stopped resolving it), and the budget test did not exercise the exclusion. Both were fixed, and the rerun in the same log killed all 4.
+
 ## 15.16.7 - 2026-10-21
 
 ### Fixed

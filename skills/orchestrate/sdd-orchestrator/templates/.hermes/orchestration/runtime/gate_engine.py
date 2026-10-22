@@ -21,7 +21,8 @@ that decision still resolves. A ``retryable`` decision (INCONCLUSIVE because of 
 timeout, an unrunnable command, a git failure or a reviewer error, or any decision made
 while the workspace fingerprint was incomplete: git failed, no HEAD, submodules, too
 many files, a file too large, unreadable or special, a changed symlink, a symlinked
-directory under an ignored path, or more than ``MAX_ENTRIES`` ignored or git-directory entries) is not reused: the same inputs are evaluated again as a new generation. A new evaluation appends a decision
+directory under an ignored path, more than ``MAX_ENTRIES`` ignored or git-directory entries, or more than ``MAX_HASH_BYTES``
+of git-directory content) is not reused: the same inputs are evaluated again as a new generation. A new evaluation appends a decision
 with ``generation`` + 1 and ``previous_decision_id``; nothing is ever overwritten.
 
 Context is controller-owned: ``check_commands`` (bound verifiers), ``editable_paths``,

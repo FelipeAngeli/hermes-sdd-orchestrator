@@ -4,6 +4,7 @@ Do not edit, skip or weaken these tests; the implementation must satisfy them wi
 """
 from __future__ import annotations
 
+import mmap
 import os
 import py_compile
 import subprocess
@@ -173,6 +174,46 @@ class GitDirectoryTests(Base):
         after = gate_workspace.fingerprint(self.repo, self.base)
         self.assertTrue(before["complete"])
         self.assertNotEqual(before["git_dir"], after["git_dir"])
+
+    def test_a_write_through_a_shared_mapping_into_git_is_new_evidence(self):
+        payload = self.repo / ".git" / "info" / "t.py"
+        payload.parent.mkdir(exist_ok=True)
+        payload.write_bytes(b"return sum(values)  \n")
+        before = gate_workspace.fingerprint(self.repo, self.base)
+        with payload.open("r+b") as handle, mmap.mmap(handle.fileno(), 0) as mapped:
+            mapped[:] = b"return sum(values)-1\n"
+            # No flush: on APFS the page stays dirty and size, mtime, ctime and inode do not move.
+            self.assertEqual(b"return sum(values)-1\n", payload.read_bytes())
+            after = gate_workspace.fingerprint(self.repo, self.base)
+        self.assertTrue(before["complete"])
+        self.assertNotEqual(before["git_dir"], after["git_dir"], "the content in .git changed")
+
+    def test_the_gitfile_text_is_part_of_the_digest(self):
+        worktree = self.root / "linked"
+        git(self.repo, "worktree", "add", "-q", "--detach", str(worktree), self.base)
+        gitfile = worktree / ".git"
+        text = gitfile.read_bytes()
+        gitfile.write_bytes(text.replace(b"/.git/worktrees/", b"/.git/worktrees//", 1))  # one byte longer, still valid
+        before, info = gate_workspace.fingerprint(worktree, self.base), gitfile.stat()
+        same_size = text.replace(b"/.git/worktrees/", b"/.git//worktrees/", 1)       # same length as the line above
+        self.assertEqual(info.st_size, len(same_size))
+        with gitfile.open("r+b") as handle, mmap.mmap(handle.fileno(), 0) as mapped:
+            mapped[:] = same_size
+            self.assertEqual((info.st_mtime_ns, info.st_ctime_ns, info.st_ino), (gitfile.stat().st_mtime_ns, gitfile.stat().st_ctime_ns, gitfile.stat().st_ino))
+            after = gate_workspace.fingerprint(worktree, self.base)
+        self.assertTrue(before["complete"])
+        self.assertTrue(after["complete"], "git still resolves the new spelling")
+        self.assertNotEqual(before["git_dir"], after["git_dir"])
+
+    def test_objects_are_not_hashed_but_the_digest_stays_bounded(self):
+        outside = sum(path.stat().st_size for path in (self.repo / ".git").rglob("*")
+                      if path.is_file() and not path.is_symlink() and "objects" not in path.relative_to(self.repo / ".git").parts)
+        inside = sum(path.stat().st_size for path in (self.repo / ".git" / "objects").rglob("*") if path.is_file())
+        self.assertGreater(inside, 0)
+        with mock.patch.object(gate_workspace, "MAX_HASH_BYTES", outside):
+            self.assertIsNotNone(gate_workspace.fingerprint(self.repo, self.base)["git_dir"], "objects/ must not count")
+        with mock.patch.object(gate_workspace, "MAX_HASH_BYTES", outside - 1):
+            self.assertIsNone(gate_workspace.fingerprint(self.repo, self.base)["git_dir"], "past the budget the digest is undecided")
 
     def test_an_unwalkable_git_directory_makes_the_fingerprint_incomplete(self):
         self.assertTrue(gate_workspace.scan(self.repo, self.base)["complete"])

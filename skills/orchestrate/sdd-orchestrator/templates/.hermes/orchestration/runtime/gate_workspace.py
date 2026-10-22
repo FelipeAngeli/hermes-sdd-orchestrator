@@ -15,8 +15,9 @@ A worker controls the repository's files and ``.git``, so git never compares con
 - the only git calls are ``rev-parse``, ``merge-base``, ``cat-file --batch`` and
   ``check-ignore``; git runs with no system or global config, no replace refs, grafts or
   lazy fetch, ``GIT_DIR``/``GIT_WORK_TREE`` pinned and ignore matching pinned;
-- the fingerprint adds the metadata of every ignored entry (``ignored``) and of the ``.git``
-  entry, the git directory and its common directory (``git_dir``).
+- the fingerprint adds the metadata of every ignored entry (``ignored``), and the metadata
+  and content of the ``.git`` entry, the git directory and its common directory outside
+  ``objects/`` (``git_dir``).
 
 Submodules cannot be scanned. Past ``MAX_ENTRIES`` walked entries or ``MAX_SCAN_BYTES``
 ``changed`` is None; ``MAX_FILES``, ``MAX_HASH_BYTES``, unreadable or special files, changed
@@ -317,14 +318,14 @@ def _hash(path: Path) -> str | None:
     return digest.hexdigest()
 
 
-def _ignored_digest(repo: Path, roots: list[str]) -> str | None:
-    """Name, type, size, mtime and ctime of every entry under ``roots``, relative to ``repo`` (ctime cannot be set back).
+def _ignored_digest(repo: Path, roots: list[str], hashed: Any = None) -> str | None:
+    """Name, type, size, mtime and ctime of every entry under ``roots``, relative to ``repo``.
 
-    A symlink adds the metadata of the file it points to, so changing that file is new evidence. A symlink to a
-    directory, or one that cannot be resolved, returns None: its contents are not walked, so the digest cannot
-    vouch for them and the fingerprint is incomplete.
+    A symlink adds the metadata of the file it points to; a symlink to a directory, or one that cannot be resolved,
+    returns None (its contents are not walked). Regular files for which ``hashed(relative)`` is true also add their
+    content hash, within ``MAX_HASH_BYTES`` in total: a write through a shared memory mapping moves no timestamp.
     """
-    digest, pending, seen = hashlib.sha256(), sorted(root.rstrip("/") for root in roots), 0
+    digest, pending, seen, budget = hashlib.sha256(), sorted(root.rstrip("/") for root in roots), 0, MAX_HASH_BYTES
     while pending:
         relative = pending.pop()
         try:
@@ -335,6 +336,12 @@ def _ignored_digest(repo: Path, roots: list[str]) -> str | None:
         if seen > MAX_ENTRIES:
             return None
         digest.update(os.fsencode(relative) + b"\0%o %d %d %d\0" % (info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns))
+        if hashed is not None and stat.S_ISREG(info.st_mode) and hashed(relative):
+            budget -= info.st_size
+            content = _hash(repo / relative) if budget >= 0 else None
+            if content is None or content in INCOMPLETE_MARKERS:
+                return None
+            digest.update(content.encode("ascii") + b"\0")
         if stat.S_ISLNK(info.st_mode):
             try:
                 target = (repo / relative).stat()
@@ -353,23 +360,30 @@ def _ignored_digest(repo: Path, roots: list[str]) -> str | None:
 
 
 def _git_dirs_digest(repo: Path) -> str | None:
-    """The ``.git`` entry, and the metadata of every entry in the git directory and its common directory.
+    """The ``.git`` entry and every entry in the git directory and its common directory, with file contents.
 
     Code under test can read files the worker keeps in ``.git``; the walk skips ``.git``, so without this a payload
-    there could change without new evidence. The gate's own git calls are read-only (``GIT_OPTIONAL_LOCKS=0``).
+    there could change without new evidence. Contents are hashed outside ``objects/`` (objects are re-hashed when
+    read, and are the bulk of a repository). The gate's own git calls are read-only (``GIT_OPTIONAL_LOCKS=0``).
     """
     listed = git(repo, "rev-parse", "--absolute-git-dir", "--git-common-dir")
     lines = listed.stdout.decode("utf-8", "surrogateescape").splitlines() if listed else []
     if len(lines) != 2:
         return None
-    # The ``.git`` entry itself (a gitfile's text, a symlink's link text): rewriting or recreating it moves its ctime.
+    # The ``.git`` entry itself: a gitfile's text or a symlink's link text, plus its metadata.
+    entry = repo / ".git"
     try:
-        info = (repo / ".git").lstat()
+        info = entry.lstat()
+        body = os.fsencode(os.readlink(entry)) if stat.S_ISLNK(info.st_mode) else entry.read_bytes()[:CHUNK + 1] if stat.S_ISREG(info.st_mode) else b""
     except OSError:
         return None
-    digests = [".git:%o %d %d %d %d" % (info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_ino)]
+    if len(body) > CHUNK:
+        return None
+    digests = [".git:%o %d %d %d %d:%s" % (info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_ino,
+                                            hashlib.sha256(body).hexdigest())]
+    outside_objects = lambda relative: not (relative == "./objects" or relative.startswith("./objects/"))
     for directory in sorted({Path(lines[0]).resolve(), (repo / lines[1]).resolve()}):
-        part = _ignored_digest(directory, ["."])
+        part = _ignored_digest(directory, ["."], outside_objects)
         if part is None:
             return None
         digests.append(f"{directory}:{part}")
