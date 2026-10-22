@@ -14,7 +14,7 @@ Structured observability for SDD runs, loops, agents, sub-agents, validations, J
 | TokenTracker | `obs_metrics.token_tracker` | Tokens per SDD stage and per actor (agents vs Jev), kept per method. |
 | CostEstimator | `obs_metrics.cost_estimator`, `obs_model.estimate_cost` | List-price USD from the versioned `policies/PRICES.json`; never a bill. |
 | LatencyTracker | `obs_metrics.latency_tracker` | Count, total, p50, p95 and max per stage, action, tool, model and evaluator. |
-| ProgressTracker | `obs_metrics.progress_tracker`, `human_wait`, `concurrency` | Loop and action statuses, first-attempt success, retries by cause, correction loops, recovery after interruption, time to completion, human wait, concurrency, policy blocks. |
+| ProgressTracker | `obs_metrics.progress_tracker`, `human_wait`, `concurrency` | Loop and action statuses, first-attempt success, retries by cause, correction loops, recovery after interruption, time to completion, human wait, concurrency, policy blocks. Human wait runs from the first unresolved halt to the human decision; `WAIT_CLOSERS` (`LOOP_EXECUTION_CANCELLED`, `LOOP_EXECUTION_COMPLETED`, `LOOP_EXECUTION_FAILED`) close it without one (`closed_without_decision`). |
 | JEVMetrics | `obs_metrics.jev_metrics` | Gross vs net context saving, evaluator tokens and latency, cache reuse, governance calls. |
 | AuditReporter | `obs_metrics.report`, `obs_cli.py report` | One JSON report with every indicator and its provenance. |
 
@@ -22,15 +22,16 @@ Structured observability for SDD runs, loops, agents, sub-agents, validations, J
 
 Every event (`obs_model.event`) has the identifiers `trace_id`, `run_id`, `loop_id`, `session_id`, `agent_id`, `parent_agent_id`, `task_id`, `stage` (`None` when the source has none), plus `event_type`, `timestamp` (epoch seconds), `source` and `attrs`. Any other identifier is refused (`OBS_ID_UNKNOWN`).
 
-`trace_id` is derived, not stored: a hash of the loop execution id, of the ticket (`task_id`) for journal, gate and Jev events, or of the session for Hermes events. Reading the same store twice gives the same ids.
+`trace_id` is derived, not stored, and is **per store family**: a hash of the loop execution id for loop events, of the ticket for journal, gate and Jev events, and of the session for supervisor events. Reading the same store twice gives the same ids. Events of one SDD run are joined across families through `task_id` (the ticket), not through `trace_id`. Context-engine runs read from `--context-state` carry no ticket, so they have no `trace_id` or `task_id`. `parent_agent_id` is the delegating session for supervisor `SUBAGENT` events; on `ACTION` events it is the retry's parent action id.
 
-Privacy: keys that carry free text (`FORBIDDEN_ATTRS`: prompt, goal, objective, summary, quote, output, message, hypothesis, description, stderr tails, paths, request, evidence and similar) are dropped at any depth; remaining strings go through `redaction.redact` and are cut to `MAX_TEXT` (160) characters. Failure codes and classes are kept; failure messages are not.
+Privacy: keys that carry free text (`FORBIDDEN_ATTRS`: prompt, goal, objective, summary, quote, output, message, hypothesis, description, stderr tails, paths, request, evidence and similar) are dropped at any depth (`MAX_DEPTH`), whatever their case. Every string that is kept, identifiers included, must survive `redaction.redact` unchanged and look like a code (`CODE_TEXT`: no spaces, at most `MAX_TEXT` = 160 characters); anything else becomes `null`, so free text cannot ride under an allowed key. A failure is reduced to its class and code. Numbers must be finite (`obs_model.number`); NaN, infinities, booleans and strings in numeric fields become `null`, and reports are written with `allow_nan=False`.
 
 ## Token and cost rules
 
 - Every token record has a `method` (`METHODS`): `MEASURED` (reported by a provider, the Claude CLI envelope or the Hermes log), `ESTIMATED` (bytes / `bytes_per_token`, or a handler that says so) or `SIMULATED` (scripted by the benchmark). Methods are summed separately and never added together.
 - A value a source did not report is `None` and counted in `unknown_fields`; it is never treated as zero.
-- Costs are `ESTIMATED` list prices: `input`, `output`, `cache_read` and `cache_write` per million tokens from `PRICES.json` (with its `version` and `sha256` in every report). A model without a price, or a record with only a total, is `UNPRICED` with a reason (`NO_PRICE`, `NO_TOKENS`, `TOKEN_SPLIT_UNKNOWN`), never zero. Provider-reported USD (`cost_usd` from the Claude CLI) is reported separately as `reported_by_provider_usd`; on a flat-rate plan it is zero.
+- Costs are `ESTIMATED` list prices: `input`, `output`, `cache_read` and `cache_write` per million tokens from `PRICES.json` (with its `version` and `sha256` in every report). A model without a price, or a record with only a total, is `UNPRICED` with a reason (`NO_PRICE`, `NO_TOKENS`, `TOKEN_SPLIT_UNKNOWN`), never zero. A record whose cache-read or cache-write count is unknown is priced without that component and counted in `priced_without`; the bucket is then marked `is_lower_bound` (the Hermes log never reports cache writes, so its cost is always a lower bound).
+- Evaluator usage that the provider did not report stays unknown: `calls_with_unknown_usage` counts those calls, and the net saving is then `null` instead of pretending the evaluator was free.
 - Jev has no public per-token price in the table, so Jev tokens are counted but stay unpriced. They are always reported apart from agent tokens (`by_actor.jev`).
 - `PRICES.json` lists base-tier prices taken from the models.dev cache; long-context tiers are not applied.
 
@@ -47,7 +48,9 @@ Privacy: keys that carry free text (`FORBIDDEN_ATTRS`: prompt, goal, objective, 
 
 A missing or unreadable source yields a `SOURCE_UNREADABLE` event and never hides the others. Each reader stops after `MAX_EVENTS_PER_SOURCE` (100 000) items; the supervisor log is read only up to `MAX_HSM_BYTES` (64 MiB).
 
-Two additive runtime changes feed the tracer: the [loop engine](loop-engine.md) records each attempt's own `tokens` and `tokens_method` (failed attempts included, while the `max_tokens` budget still counts successes only), and the [executor transport](contracts-and-schemas.md) keeps the Claude CLI envelope's measured usage in its diagnostics.
+Two additive runtime changes come with the engine. The [loop engine](loop-engine.md) records each attempt's own `tokens` and `tokens_method` (`MEASURED`, `SIMULATED` or `ESTIMATED`), failed attempts included, while the `max_tokens` budget still counts successes only; the tracer reads these. The [executor transport](contracts-and-schemas.md) adds the Claude CLI envelope's measured usage to the launcher's `run` output. That output is not persisted, so **the tracer does not read it yet**: a host that keeps launcher results can feed it in later.
+
+Hostile input: every reader runs under `obs_tracer.guarded`, so a document of the wrong shape, deep nesting, a non-numeric value or an I/O error becomes one `SOURCE_UNREADABLE` event (bad loop lines become `LOOP_EVENT_UNREADABLE`, bad supervisor lines are counted in one event). Store files over `MAX_FILE_BYTES` (64 MiB) are not read, event logs are streamed line by line, and symlinked ticket or run directories are not followed.
 
 ## Command line
 
@@ -72,13 +75,13 @@ Retention: the engine keeps nothing, so it adds no retention burden. The sources
 | `C` | Jev active: governance `ACTIVE`, context engine applying approved omissions. |
 | `D` | `C` plus raised loop limits (`max_transient_retries` 4, `max_correction_cycles` 5). |
 
-Executor work is scripted (per-stage tokens and durations on a fake clock, so `SIMULATED`); two workloads exist: `nominal` (one transient IMPLEMENT failure, one failed TEST verification that a correction fixes) and `stressed` (three transient failures, above the default retry limit). Context optimization runs on the IMPLEMENT and TEST prompts using the context-engine fixtures. Quality criteria are the same in every scenario: every stage completed, requirement markers preserved, governance reviews counted.
+Executor work is scripted (per-stage tokens and durations on a fake clock): the handler reports `SIMULATED` tokens, and with `--jev offline` the stand-in evaluators are labelled `SIMULATED` too (`simulated_calls`, never `live_calls`); two workloads exist: `nominal` (one transient IMPLEMENT failure, one failed TEST verification that a correction fixes) and `stressed` (three transient failures, above the default retry limit). Context optimization runs on the IMPLEMENT and TEST prompts using the context-engine fixtures. Quality criteria are the same in every scenario: every stage completed, requirement markers preserved, governance reviews counted.
 
 Options: `--jev offline` (default; deterministic stand-in, zero cost) or `--jev live` with `--max-live-calls` (required, > 0), `--project-setup` and `--cache`; calls beyond the cap are refused and counted, never retried. `--scenarios`, `--workload` (`nominal`, `stressed` or `all`), `--context-stages`, `--env-file`, `--output`. A live run prints a **JEV USADO** block on stderr. Measured results: [Observability baseline](../reports/observability-baseline.md).
 
 ## Limits, stated plainly
 
-- Executor tokens exist only where a source records them: the Hermes log (sessions run through Hermes), the Claude CLI envelope (kept in launch diagnostics) and handler-reported loop tokens. Codex runs record no token usage in the journal today, so their tokens are unknown, not zero.
+- Executor tokens exist only where a source records them: the Hermes log (sessions run through Hermes) and handler-reported loop tokens. The Claude CLI usage reaches the launcher output but is not stored, and Codex runs record no token usage, so their tokens are unknown, not zero.
 - The supervisor log is per machine and per Hermes home; sessions are correlated with SDD runs only by session id, not by ticket.
 - Cost is a list-price estimate. It is not what a subscription plan bills.
 - The benchmark proves the instrumentation and the accounting, not real-world gains: agent work is simulated. Only Jev tokens and latency in `--jev live` are measured.

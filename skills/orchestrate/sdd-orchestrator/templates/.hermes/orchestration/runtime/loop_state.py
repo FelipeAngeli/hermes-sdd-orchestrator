@@ -125,14 +125,15 @@ def record_attempt_tokens(attempt: dict[str, Any], tokens: Any, method: Any) -> 
     """Keep the attempt's own token count beside the execution total, for per-node observability.
 
     Recorded for failed attempts too, while ``usage.tokens`` (the ``max_tokens`` budget) still counts
-    successful attempts only. Invalid counts are recorded as unknown (``None``), never as zero; the
-    method follows ``merge_tokens`` (anything but ``MEASURED`` is ``ESTIMATED``).
+    successful attempts only. Invalid counts are recorded as unknown (``None``), never as zero. The
+    method is ``MEASURED`` or ``SIMULATED`` when the handler says so and ``ESTIMATED`` otherwise
+    (``merge_tokens`` keeps its own budget labels).
     """
     if not isinstance(tokens, int) or isinstance(tokens, bool) or tokens < 0:
         attempt["tokens"], attempt["tokens_method"] = None, "UNMEASURED"
         return
     attempt["tokens"] = tokens
-    attempt["tokens_method"] = "MEASURED" if method == "MEASURED" else "ESTIMATED"
+    attempt["tokens_method"] = method if method in ("MEASURED", "SIMULATED") else "ESTIMATED"
 
 
 def _decision_key(entry: dict[str, Any]) -> tuple[Any, Any, Any]:

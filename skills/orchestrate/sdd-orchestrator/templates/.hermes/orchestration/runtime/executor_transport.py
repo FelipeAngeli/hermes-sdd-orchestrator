@@ -11,6 +11,7 @@ with no JSON object at all stay invalid. The normalized object is what gets writ
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -149,7 +150,7 @@ def envelope_usage(envelope: dict[str, Any]) -> dict[str, Any] | None:
         "output_tokens": count(usage.get("output_tokens")),
         "cache_read_tokens": count(usage.get("cache_read_input_tokens")),
         "cache_write_tokens": count(usage.get("cache_creation_input_tokens")),
-        "cost_usd": cost if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost >= 0 else None,
+        "cost_usd": cost if isinstance(cost, (int, float)) and not isinstance(cost, bool) and math.isfinite(cost) and cost >= 0 else None,
         "duration_api_ms": count(envelope.get("duration_api_ms")),
         "num_turns": count(envelope.get("num_turns")),
     }

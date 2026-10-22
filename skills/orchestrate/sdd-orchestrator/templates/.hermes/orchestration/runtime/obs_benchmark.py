@@ -10,7 +10,7 @@ configuration changes:
 * ``B`` - Jev dry-run: governance decisions in ``SHADOW`` and the context engine in dry-run
   (nothing applied, Jev cost paid);
 * ``C`` - Jev active: governance in ``ACTIVE`` and the context engine applying approved omissions;
-* ``D`` - ``C`` plus a loop definition with a larger transient-retry budget and correction targets.
+* ``D`` - ``C`` plus raised loop limits (``max_transient_retries`` 4, ``max_correction_cycles`` 5).
 
 Executor work is SIMULATED (scripted tokens and durations through a fake clock); Jev work is
 either ``offline`` (deterministic stand-in, zero cost) or ``live`` (real connector calls, capped
@@ -180,8 +180,8 @@ def run_scenario(scenario: str, *, jev: str, budget: LiveBudget, env_file: Path,
             pending = failures.get(stage) or []
             if pending:
                 failure = pending.pop(0)
-                return {"status": "FAILED", "output": {}, "failure": failure, "tokens": prompt + output, "tokens_method": "ESTIMATED"}
-            return {"status": "SUCCEEDED", "output": {"stage": stage}, "tokens": prompt + output, "tokens_method": "ESTIMATED"}
+                return {"status": "FAILED", "output": {}, "failure": failure, "tokens": prompt + output, "tokens_method": "SIMULATED"}
+            return {"status": "SUCCEEDED", "output": {"stage": stage}, "tokens": prompt + output, "tokens_method": "SIMULATED"}
 
         engine = loop_engine.LoopEngine(store, handlers={"run-agent": handler, "gate": handler, **{n["id"]: handler for n in definition["nodes"]}},
                                         clock=clock.time, sleep=clock.sleep)
@@ -192,8 +192,10 @@ def run_scenario(scenario: str, *, jev: str, budget: LiveBudget, env_file: Path,
         receipts = _governance(scenario, governor)
         governance_wall = time.perf_counter() - wall
         events = obs_tracer.loop_store_events(store)
-        events += [obs_tracer.receipt_event(receipt, timestamp=clock.now) for receipt in receipts]
+        evaluator_method = "SIMULATED" if jev == "offline" else "MEASURED"  # the offline stand-in's zeros are not measurements
+        events += [obs_tracer.receipt_event(receipt, timestamp=clock.now, method=evaluator_method) for receipt in receipts]
         events += [obs_tracer.context_metrics_event(run["metrics"], run_id=key, timestamp=clock.now, stage=key.split(":")[0],
+                                                    method=evaluator_method,
                                                     task_id="BENCH-OBS") for key, run in context_runs.items()]
         report = obs_metrics.report(events, load_prices())
         preserved = all((run["metrics"].get("requirement_impact") or {}).get("preserved", True) for run in context_runs.values())
@@ -224,8 +226,10 @@ def compare(results: list[dict[str, Any]]) -> dict[str, Any]:
         progress, context = report["progress"], report["jev"]["context_engine"]
         rows[result["scenario"]] = {
             "loop_status": result["loop_status"], "quality": result["quality"],
-            "agent_tokens_simulated": sum(item.get("total_tokens", 0) for item in agents.values()),
-            "jev_tokens_measured": sum(item.get("total_tokens", 0) for item in jev.values() if item) if jev else 0,
+            "agent_tokens_simulated": (agents.get("SIMULATED") or {}).get("total_tokens", 0),
+            "jev_tokens_measured": (jev.get("MEASURED") or {}).get("total_tokens", 0),
+            "jev_calls_with_unknown_usage": (context["evaluator_tokens"]["calls_with_unknown_usage"]
+                                             + report["jev"]["governance"]["evaluator_tokens"]["calls_with_unknown_usage"]),
             "context_gross_saving_estimated": context["gross_saving_tokens"]["applied"],
             "context_net_saving_estimated": context["net_saving_tokens"]["applied"],
             "evaluator_latency_s": report["latency"].get("evaluator_added_latency_s"),
@@ -280,7 +284,7 @@ def main(argv: list[str] | None = None) -> int:
                          "context_saving": "ESTIMATED (bytes / bytes_per_token)", "elapsed": "SIMULATED clock"},
              "comparison": {name: compare(rows) for name, rows in results.items()},
              "reports": {name: {result["scenario"]: result["report"] for result in rows} for name, rows in results.items()}}
-    data = json.dumps(value, ensure_ascii=False, sort_keys=True, indent=1)
+    data = json.dumps(value, ensure_ascii=False, sort_keys=True, indent=1, allow_nan=False)
     if args.jev == "live":
         _announce(value)
     if args.output:

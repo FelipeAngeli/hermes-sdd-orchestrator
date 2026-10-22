@@ -8,6 +8,7 @@
     "correction_loops": 1,
     "evaluator_latency_s": 0,
     "first_attempt_success_rate": 0.714,
+    "jev_calls_with_unknown_usage": 0,
     "jev_tokens_measured": 0,
     "loop_status": "COMPLETED",
     "policy_blocks": {},
@@ -29,6 +30,7 @@
     "correction_loops": 1,
     "evaluator_latency_s": 0.026,
     "first_attempt_success_rate": 0.714,
+    "jev_calls_with_unknown_usage": 0,
     "jev_tokens_measured": 0,
     "loop_status": "COMPLETED",
     "policy_blocks": {},
@@ -50,6 +52,7 @@
     "correction_loops": 1,
     "evaluator_latency_s": 0.024,
     "first_attempt_success_rate": 0.714,
+    "jev_calls_with_unknown_usage": 0,
     "jev_tokens_measured": 0,
     "loop_status": "COMPLETED",
     "policy_blocks": {},
@@ -71,6 +74,7 @@
     "correction_loops": 1,
     "evaluator_latency_s": 0.024,
     "first_attempt_success_rate": 0.714,
+    "jev_calls_with_unknown_usage": 0,
     "jev_tokens_measured": 0,
     "loop_status": "COMPLETED",
     "policy_blocks": {},
@@ -94,6 +98,7 @@
     "correction_loops": 0,
     "evaluator_latency_s": 0,
     "first_attempt_success_rate": 0.8,
+    "jev_calls_with_unknown_usage": 0,
     "jev_tokens_measured": 0,
     "loop_status": "BLOCKED",
     "policy_blocks": {
@@ -114,8 +119,9 @@
     "context_gross_saving_estimated": 0,
     "context_net_saving_estimated": 0,
     "correction_loops": 0,
-    "evaluator_latency_s": 0.028,
+    "evaluator_latency_s": 0.017,
     "first_attempt_success_rate": 0.8,
+    "jev_calls_with_unknown_usage": 0,
     "jev_tokens_measured": 0,
     "loop_status": "BLOCKED",
     "policy_blocks": {
@@ -129,7 +135,7 @@
     "retries_by_cause": {
      "TRANSIENT:RATE_LIMITED": 3
     },
-    "simulated_elapsed_s": 2256.028
+    "simulated_elapsed_s": 2256.017
    },
    "C": {
     "agent_tokens_simulated": 206332,
@@ -138,6 +144,7 @@
     "correction_loops": 0,
     "evaluator_latency_s": 0.014,
     "first_attempt_success_rate": 0.8,
+    "jev_calls_with_unknown_usage": 0,
     "jev_tokens_measured": 0,
     "loop_status": "BLOCKED",
     "policy_blocks": {
@@ -160,6 +167,7 @@
     "correction_loops": 1,
     "evaluator_latency_s": 0.032,
     "first_attempt_success_rate": 0.714,
+    "jev_calls_with_unknown_usage": 0,
     "jev_tokens_measured": 0,
     "loop_status": "COMPLETED",
     "policy_blocks": {},
@@ -198,7 +206,9 @@
      "by_actor": {
       "agents": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 10
        },
@@ -208,7 +218,9 @@
      "by_stage": {
       "CLARIFY": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -216,7 +228,9 @@
       },
       "IMPLEMENT": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 3
        },
@@ -224,7 +238,9 @@
       },
       "PLAN": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -232,7 +248,9 @@
       },
       "REVIEW": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -240,7 +258,9 @@
       },
       "SPECIFY": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -248,7 +268,9 @@
       },
       "TASKS": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -256,20 +278,22 @@
       },
       "TEST": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 2
        },
        "unpriced_records": 2
       }
      },
-     "method": "ESTIMATED list price; never a bill",
+     "method": "ESTIMATED list price; never a bill. priced_without counts records priced without an unknown component.",
      "price_table_sha256": "335f3013e26dd9661301ede4c79d556353e19cff1b6951c78fdcc403e23d8abd",
-     "price_table_version": "2026-10-22",
-     "reported_by_provider_usd": {}
+     "price_table_version": "2026-10-22"
     },
     "events": 33,
     "human_wait": {
+     "closed_without_decision": 0,
      "max_s": null,
      "p50_s": null,
      "resolved": 0,
@@ -285,8 +309,9 @@
        "misses": 0
       },
       "evaluator_tokens": {
+       "calls_with_unknown_usage": 0,
        "input": 0,
-       "method": "MEASURED",
+       "method": null,
        "output": 0
       },
       "gross_saving_tokens": {
@@ -297,7 +322,7 @@
       "net_saving_tokens": {
        "applied": 0,
        "dry_run_estimate": 0,
-       "method": "ESTIMATED (estimated saving minus measured evaluator tokens)"
+       "method": "ESTIMATED saving minus all evaluator tokens (dry runs included); null when any evaluator call reported no usage"
       },
       "runs": 0
      },
@@ -305,13 +330,15 @@
       "cache_reuses": 0,
       "decided": 0,
       "evaluator_tokens": {
+       "calls_with_unknown_usage": 0,
        "input": 0,
-       "method": "MEASURED",
+       "method": null,
        "output": 0
       },
       "live_calls": 0,
       "note": "Governance decisions save no prompt tokens; their tokens are pure overhead.",
-      "review": 0
+      "review": 0,
+      "simulated_calls": 0
      }
     },
     "latency": {
@@ -401,7 +428,7 @@
     "tokens": {
      "by_actor": {
       "agents": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -415,7 +442,7 @@
      },
      "by_stage": {
       "CLARIFY": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -426,7 +453,7 @@
        }
       },
       "IMPLEMENT": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -437,7 +464,7 @@
        }
       },
       "PLAN": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -448,7 +475,7 @@
        }
       },
       "REVIEW": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -459,7 +486,7 @@
        }
       },
       "SPECIFY": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -470,7 +497,7 @@
        }
       },
       "TASKS": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -481,7 +508,7 @@
        }
       },
       "TEST": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -507,7 +534,9 @@
      "by_actor": {
       "agents": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 10
        },
@@ -515,7 +544,9 @@
       },
       "jev": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 4
        },
@@ -525,7 +556,9 @@
      "by_stage": {
       "CLARIFY": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -533,7 +566,9 @@
       },
       "IMPLEMENT": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 4
        },
@@ -541,7 +576,9 @@
       },
       "PLAN": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 2
        },
@@ -549,7 +586,9 @@
       },
       "REVIEW": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 2
        },
@@ -557,7 +596,9 @@
       },
       "SPECIFY": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -565,7 +606,9 @@
       },
       "TASKS": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -573,20 +616,22 @@
       },
       "TEST": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 3
        },
        "unpriced_records": 3
       }
      },
-     "method": "ESTIMATED list price; never a bill",
+     "method": "ESTIMATED list price; never a bill. priced_without counts records priced without an unknown component.",
      "price_table_sha256": "335f3013e26dd9661301ede4c79d556353e19cff1b6951c78fdcc403e23d8abd",
-     "price_table_version": "2026-10-22",
-     "reported_by_provider_usd": {}
+     "price_table_version": "2026-10-22"
     },
     "events": 40,
     "human_wait": {
+     "closed_without_decision": 0,
      "max_s": null,
      "p50_s": null,
      "resolved": 0,
@@ -602,8 +647,9 @@
        "misses": 16
       },
       "evaluator_tokens": {
+       "calls_with_unknown_usage": 0,
        "input": 0,
-       "method": "MEASURED",
+       "method": "SIMULATED",
        "output": 0
       },
       "gross_saving_tokens": {
@@ -614,7 +660,7 @@
       "net_saving_tokens": {
        "applied": 0,
        "dry_run_estimate": 4788,
-       "method": "ESTIMATED (estimated saving minus measured evaluator tokens)"
+       "method": "ESTIMATED saving minus all evaluator tokens (dry runs included); null when any evaluator call reported no usage"
       },
       "runs": 5
      },
@@ -622,13 +668,15 @@
       "cache_reuses": 0,
       "decided": 2,
       "evaluator_tokens": {
+       "calls_with_unknown_usage": 0,
        "input": 0,
-       "method": "MEASURED",
+       "method": "SIMULATED",
        "output": 0
       },
-      "live_calls": 2,
+      "live_calls": 0,
       "note": "Governance decisions save no prompt tokens; their tokens are pure overhead.",
-      "review": 0
+      "review": 0,
+      "simulated_calls": 2
      }
     },
     "latency": {
@@ -734,7 +782,7 @@
     "tokens": {
      "by_actor": {
       "agents": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -745,7 +793,7 @@
        }
       },
       "jev": {
-       "MEASURED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -758,7 +806,7 @@
      },
      "by_stage": {
       "CLARIFY": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -769,67 +817,40 @@
        }
       },
       "IMPLEMENT": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 3,
+        "records": 4,
         "total_tokens": 147000,
-        "unknown_fields": 12
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 14
        }
       },
       "PLAN": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 1,
+        "records": 2,
         "total_tokens": 21500,
-        "unknown_fields": 4
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 6
        }
       },
       "REVIEW": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 1,
+        "records": 2,
         "total_tokens": 28200,
-        "unknown_fields": 4
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 6
        }
       },
       "SPECIFY": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -840,7 +861,7 @@
        }
       },
       "TASKS": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -851,23 +872,14 @@
        }
       },
       "TEST": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 2,
+        "records": 3,
         "total_tokens": 47000,
-        "unknown_fields": 8
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 10
        }
       }
      },
@@ -886,7 +898,9 @@
      "by_actor": {
       "agents": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 10
        },
@@ -894,7 +908,9 @@
       },
       "jev": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 4
        },
@@ -904,7 +920,9 @@
      "by_stage": {
       "CLARIFY": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -912,7 +930,9 @@
       },
       "IMPLEMENT": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 4
        },
@@ -920,7 +940,9 @@
       },
       "PLAN": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 2
        },
@@ -928,7 +950,9 @@
       },
       "REVIEW": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 2
        },
@@ -936,7 +960,9 @@
       },
       "SPECIFY": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -944,7 +970,9 @@
       },
       "TASKS": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -952,20 +980,22 @@
       },
       "TEST": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 3
        },
        "unpriced_records": 3
       }
      },
-     "method": "ESTIMATED list price; never a bill",
+     "method": "ESTIMATED list price; never a bill. priced_without counts records priced without an unknown component.",
      "price_table_sha256": "335f3013e26dd9661301ede4c79d556353e19cff1b6951c78fdcc403e23d8abd",
-     "price_table_version": "2026-10-22",
-     "reported_by_provider_usd": {}
+     "price_table_version": "2026-10-22"
     },
     "events": 40,
     "human_wait": {
+     "closed_without_decision": 0,
      "max_s": null,
      "p50_s": null,
      "resolved": 0,
@@ -981,8 +1011,9 @@
        "misses": 16
       },
       "evaluator_tokens": {
+       "calls_with_unknown_usage": 0,
        "input": 0,
-       "method": "MEASURED",
+       "method": "SIMULATED",
        "output": 0
       },
       "gross_saving_tokens": {
@@ -993,7 +1024,7 @@
       "net_saving_tokens": {
        "applied": 4788,
        "dry_run_estimate": 4788,
-       "method": "ESTIMATED (estimated saving minus measured evaluator tokens)"
+       "method": "ESTIMATED saving minus all evaluator tokens (dry runs included); null when any evaluator call reported no usage"
       },
       "runs": 5
      },
@@ -1001,13 +1032,15 @@
       "cache_reuses": 0,
       "decided": 2,
       "evaluator_tokens": {
+       "calls_with_unknown_usage": 0,
        "input": 0,
-       "method": "MEASURED",
+       "method": "SIMULATED",
        "output": 0
       },
-      "live_calls": 2,
+      "live_calls": 0,
       "note": "Governance decisions save no prompt tokens; their tokens are pure overhead.",
-      "review": 0
+      "review": 0,
+      "simulated_calls": 2
      }
     },
     "latency": {
@@ -1113,7 +1146,7 @@
     "tokens": {
      "by_actor": {
       "agents": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -1124,7 +1157,7 @@
        }
       },
       "jev": {
-       "MEASURED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -1137,7 +1170,7 @@
      },
      "by_stage": {
       "CLARIFY": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -1148,67 +1181,40 @@
        }
       },
       "IMPLEMENT": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 3,
+        "records": 4,
         "total_tokens": 144132,
-        "unknown_fields": 12
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 14
        }
       },
       "PLAN": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 1,
+        "records": 2,
         "total_tokens": 21500,
-        "unknown_fields": 4
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 6
        }
       },
       "REVIEW": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 1,
+        "records": 2,
         "total_tokens": 28200,
-        "unknown_fields": 4
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 6
        }
       },
       "SPECIFY": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -1219,7 +1225,7 @@
        }
       },
       "TASKS": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -1230,23 +1236,14 @@
        }
       },
       "TEST": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 2,
+        "records": 3,
         "total_tokens": 45080,
-        "unknown_fields": 8
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 10
        }
       }
      },
@@ -1265,7 +1262,9 @@
      "by_actor": {
       "agents": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 10
        },
@@ -1273,7 +1272,9 @@
       },
       "jev": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 4
        },
@@ -1283,7 +1284,9 @@
      "by_stage": {
       "CLARIFY": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -1291,7 +1294,9 @@
       },
       "IMPLEMENT": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 4
        },
@@ -1299,7 +1304,9 @@
       },
       "PLAN": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 2
        },
@@ -1307,7 +1314,9 @@
       },
       "REVIEW": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 2
        },
@@ -1315,7 +1324,9 @@
       },
       "SPECIFY": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -1323,7 +1334,9 @@
       },
       "TASKS": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -1331,20 +1344,22 @@
       },
       "TEST": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 3
        },
        "unpriced_records": 3
       }
      },
-     "method": "ESTIMATED list price; never a bill",
+     "method": "ESTIMATED list price; never a bill. priced_without counts records priced without an unknown component.",
      "price_table_sha256": "335f3013e26dd9661301ede4c79d556353e19cff1b6951c78fdcc403e23d8abd",
-     "price_table_version": "2026-10-22",
-     "reported_by_provider_usd": {}
+     "price_table_version": "2026-10-22"
     },
     "events": 40,
     "human_wait": {
+     "closed_without_decision": 0,
      "max_s": null,
      "p50_s": null,
      "resolved": 0,
@@ -1360,8 +1375,9 @@
        "misses": 16
       },
       "evaluator_tokens": {
+       "calls_with_unknown_usage": 0,
        "input": 0,
-       "method": "MEASURED",
+       "method": "SIMULATED",
        "output": 0
       },
       "gross_saving_tokens": {
@@ -1372,7 +1388,7 @@
       "net_saving_tokens": {
        "applied": 4788,
        "dry_run_estimate": 4788,
-       "method": "ESTIMATED (estimated saving minus measured evaluator tokens)"
+       "method": "ESTIMATED saving minus all evaluator tokens (dry runs included); null when any evaluator call reported no usage"
       },
       "runs": 5
      },
@@ -1380,13 +1396,15 @@
       "cache_reuses": 0,
       "decided": 2,
       "evaluator_tokens": {
+       "calls_with_unknown_usage": 0,
        "input": 0,
-       "method": "MEASURED",
+       "method": "SIMULATED",
        "output": 0
       },
-      "live_calls": 2,
+      "live_calls": 0,
       "note": "Governance decisions save no prompt tokens; their tokens are pure overhead.",
-      "review": 0
+      "review": 0,
+      "simulated_calls": 2
      }
     },
     "latency": {
@@ -1492,7 +1510,7 @@
     "tokens": {
      "by_actor": {
       "agents": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -1503,7 +1521,7 @@
        }
       },
       "jev": {
-       "MEASURED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -1516,7 +1534,7 @@
      },
      "by_stage": {
       "CLARIFY": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -1527,67 +1545,40 @@
        }
       },
       "IMPLEMENT": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 3,
+        "records": 4,
         "total_tokens": 144132,
-        "unknown_fields": 12
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 14
        }
       },
       "PLAN": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 1,
+        "records": 2,
         "total_tokens": 21500,
-        "unknown_fields": 4
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 6
        }
       },
       "REVIEW": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 1,
+        "records": 2,
         "total_tokens": 28200,
-        "unknown_fields": 4
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 6
        }
       },
       "SPECIFY": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -1598,7 +1589,7 @@
        }
       },
       "TASKS": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -1609,23 +1600,14 @@
        }
       },
       "TEST": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 2,
+        "records": 3,
         "total_tokens": 45080,
-        "unknown_fields": 8
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 10
        }
       }
      },
@@ -1646,7 +1628,9 @@
      "by_actor": {
       "agents": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 7
        },
@@ -1656,7 +1640,9 @@
      "by_stage": {
       "CLARIFY": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -1664,7 +1650,9 @@
       },
       "IMPLEMENT": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 3
        },
@@ -1672,7 +1660,9 @@
       },
       "PLAN": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -1680,7 +1670,9 @@
       },
       "SPECIFY": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -1688,20 +1680,22 @@
       },
       "TASKS": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
        "unpriced_records": 1
       }
      },
-     "method": "ESTIMATED list price; never a bill",
+     "method": "ESTIMATED list price; never a bill. priced_without counts records priced without an unknown component.",
      "price_table_sha256": "335f3013e26dd9661301ede4c79d556353e19cff1b6951c78fdcc403e23d8abd",
-     "price_table_version": "2026-10-22",
-     "reported_by_provider_usd": {}
+     "price_table_version": "2026-10-22"
     },
     "events": 23,
     "human_wait": {
+     "closed_without_decision": 0,
      "max_s": null,
      "p50_s": null,
      "resolved": 0,
@@ -1717,8 +1711,9 @@
        "misses": 0
       },
       "evaluator_tokens": {
+       "calls_with_unknown_usage": 0,
        "input": 0,
-       "method": "MEASURED",
+       "method": null,
        "output": 0
       },
       "gross_saving_tokens": {
@@ -1729,7 +1724,7 @@
       "net_saving_tokens": {
        "applied": 0,
        "dry_run_estimate": 0,
-       "method": "ESTIMATED (estimated saving minus measured evaluator tokens)"
+       "method": "ESTIMATED saving minus all evaluator tokens (dry runs included); null when any evaluator call reported no usage"
       },
       "runs": 0
      },
@@ -1737,13 +1732,15 @@
       "cache_reuses": 0,
       "decided": 0,
       "evaluator_tokens": {
+       "calls_with_unknown_usage": 0,
        "input": 0,
-       "method": "MEASURED",
+       "method": null,
        "output": 0
       },
       "live_calls": 0,
       "note": "Governance decisions save no prompt tokens; their tokens are pure overhead.",
-      "review": 0
+      "review": 0,
+      "simulated_calls": 0
      }
     },
     "latency": {
@@ -1820,7 +1817,7 @@
     "tokens": {
      "by_actor": {
       "agents": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -1834,7 +1831,7 @@
      },
      "by_stage": {
       "CLARIFY": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -1845,7 +1842,7 @@
        }
       },
       "IMPLEMENT": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -1856,7 +1853,7 @@
        }
       },
       "PLAN": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -1867,7 +1864,7 @@
        }
       },
       "SPECIFY": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -1878,7 +1875,7 @@
        }
       },
       "TASKS": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -1896,15 +1893,17 @@
    "B": {
     "concurrency": {
      "average_parallel": 0.997,
-     "busy_s": 2250.028,
+     "busy_s": 2250.017,
      "max_parallel": 1,
-     "span_s": 2256.028
+     "span_s": 2256.017
     },
     "cost": {
      "by_actor": {
       "agents": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 7
        },
@@ -1912,7 +1911,9 @@
       },
       "jev": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 3
        },
@@ -1922,7 +1923,9 @@
      "by_stage": {
       "CLARIFY": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -1930,7 +1933,9 @@
       },
       "IMPLEMENT": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 4
        },
@@ -1938,7 +1943,9 @@
       },
       "PLAN": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 2
        },
@@ -1946,7 +1953,9 @@
       },
       "REVIEW": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -1954,7 +1963,9 @@
       },
       "SPECIFY": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -1962,20 +1973,22 @@
       },
       "TASKS": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
        "unpriced_records": 1
       }
      },
-     "method": "ESTIMATED list price; never a bill",
+     "method": "ESTIMATED list price; never a bill. priced_without counts records priced without an unknown component.",
      "price_table_sha256": "335f3013e26dd9661301ede4c79d556353e19cff1b6951c78fdcc403e23d8abd",
-     "price_table_version": "2026-10-22",
-     "reported_by_provider_usd": {}
+     "price_table_version": "2026-10-22"
     },
     "events": 28,
     "human_wait": {
+     "closed_without_decision": 0,
      "max_s": null,
      "p50_s": null,
      "resolved": 0,
@@ -1991,8 +2004,9 @@
        "misses": 8
       },
       "evaluator_tokens": {
+       "calls_with_unknown_usage": 0,
        "input": 0,
-       "method": "MEASURED",
+       "method": "SIMULATED",
        "output": 0
       },
       "gross_saving_tokens": {
@@ -2003,7 +2017,7 @@
       "net_saving_tokens": {
        "applied": 0,
        "dry_run_estimate": 2868,
-       "method": "ESTIMATED (estimated saving minus measured evaluator tokens)"
+       "method": "ESTIMATED saving minus all evaluator tokens (dry runs included); null when any evaluator call reported no usage"
       },
       "runs": 3
      },
@@ -2011,22 +2025,24 @@
       "cache_reuses": 0,
       "decided": 2,
       "evaluator_tokens": {
+       "calls_with_unknown_usage": 0,
        "input": 0,
-       "method": "MEASURED",
+       "method": "SIMULATED",
        "output": 0
       },
-      "live_calls": 2,
+      "live_calls": 0,
       "note": "Governance decisions save no prompt tokens; their tokens are pure overhead.",
-      "review": 0
+      "review": 0,
+      "simulated_calls": 2
      }
     },
     "latency": {
      "evaluator:context_engine": {
       "count": 3,
-      "max_s": 0.018,
-      "p50_s": 0.006,
-      "p95_s": 0.018,
-      "total_s": 0.028
+      "max_s": 0.008,
+      "p50_s": 0.005,
+      "p95_s": 0.008,
+      "total_s": 0.017
      },
      "evaluator:jev_decision": {
       "count": 2,
@@ -2035,7 +2051,7 @@
       "p95_s": 0.0,
       "total_s": 0.0
      },
-     "evaluator_added_latency_s": 0.028,
+     "evaluator_added_latency_s": 0.017,
      "stage:CLARIFY": {
       "count": 1,
       "max_s": 60.0,
@@ -2045,10 +2061,10 @@
      },
      "stage:IMPLEMENT": {
       "count": 3,
-      "max_s": 600.018,
-      "p50_s": 600.006,
-      "p95_s": 600.018,
-      "total_s": 1800.028
+      "max_s": 600.008,
+      "p50_s": 600.005,
+      "p95_s": 600.008,
+      "total_s": 1800.017
      },
      "stage:PLAN": {
       "count": 1,
@@ -2110,7 +2126,7 @@
     "tokens": {
      "by_actor": {
       "agents": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -2121,7 +2137,7 @@
        }
       },
       "jev": {
-       "MEASURED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -2134,7 +2150,7 @@
      },
      "by_stage": {
       "CLARIFY": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -2145,47 +2161,29 @@
        }
       },
       "IMPLEMENT": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 3,
+        "records": 4,
         "total_tokens": 147000,
-        "unknown_fields": 12
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 14
        }
       },
       "PLAN": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 1,
+        "records": 2,
         "total_tokens": 21500,
-        "unknown_fields": 4
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 6
        }
       },
       "REVIEW": {
-       "MEASURED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -2196,7 +2194,7 @@
        }
       },
       "SPECIFY": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -2207,7 +2205,7 @@
        }
       },
       "TASKS": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -2233,7 +2231,9 @@
      "by_actor": {
       "agents": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 7
        },
@@ -2241,7 +2241,9 @@
       },
       "jev": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 3
        },
@@ -2251,7 +2253,9 @@
      "by_stage": {
       "CLARIFY": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -2259,7 +2263,9 @@
       },
       "IMPLEMENT": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 4
        },
@@ -2267,7 +2273,9 @@
       },
       "PLAN": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 2
        },
@@ -2275,7 +2283,9 @@
       },
       "REVIEW": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -2283,7 +2293,9 @@
       },
       "SPECIFY": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -2291,20 +2303,22 @@
       },
       "TASKS": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
        "unpriced_records": 1
       }
      },
-     "method": "ESTIMATED list price; never a bill",
+     "method": "ESTIMATED list price; never a bill. priced_without counts records priced without an unknown component.",
      "price_table_sha256": "335f3013e26dd9661301ede4c79d556353e19cff1b6951c78fdcc403e23d8abd",
-     "price_table_version": "2026-10-22",
-     "reported_by_provider_usd": {}
+     "price_table_version": "2026-10-22"
     },
     "events": 28,
     "human_wait": {
+     "closed_without_decision": 0,
      "max_s": null,
      "p50_s": null,
      "resolved": 0,
@@ -2320,8 +2334,9 @@
        "misses": 8
       },
       "evaluator_tokens": {
+       "calls_with_unknown_usage": 0,
        "input": 0,
-       "method": "MEASURED",
+       "method": "SIMULATED",
        "output": 0
       },
       "gross_saving_tokens": {
@@ -2332,7 +2347,7 @@
       "net_saving_tokens": {
        "applied": 2868,
        "dry_run_estimate": 2868,
-       "method": "ESTIMATED (estimated saving minus measured evaluator tokens)"
+       "method": "ESTIMATED saving minus all evaluator tokens (dry runs included); null when any evaluator call reported no usage"
       },
       "runs": 3
      },
@@ -2340,13 +2355,15 @@
       "cache_reuses": 0,
       "decided": 2,
       "evaluator_tokens": {
+       "calls_with_unknown_usage": 0,
        "input": 0,
-       "method": "MEASURED",
+       "method": "SIMULATED",
        "output": 0
       },
-      "live_calls": 2,
+      "live_calls": 0,
       "note": "Governance decisions save no prompt tokens; their tokens are pure overhead.",
-      "review": 0
+      "review": 0,
+      "simulated_calls": 2
      }
     },
     "latency": {
@@ -2439,7 +2456,7 @@
     "tokens": {
      "by_actor": {
       "agents": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -2450,7 +2467,7 @@
        }
       },
       "jev": {
-       "MEASURED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -2463,7 +2480,7 @@
      },
      "by_stage": {
       "CLARIFY": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -2474,47 +2491,29 @@
        }
       },
       "IMPLEMENT": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 3,
+        "records": 4,
         "total_tokens": 144132,
-        "unknown_fields": 12
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 14
        }
       },
       "PLAN": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 1,
+        "records": 2,
         "total_tokens": 21500,
-        "unknown_fields": 4
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 6
        }
       },
       "REVIEW": {
-       "MEASURED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -2525,7 +2524,7 @@
        }
       },
       "SPECIFY": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -2536,7 +2535,7 @@
        }
       },
       "TASKS": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -2562,7 +2561,9 @@
      "by_actor": {
       "agents": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 12
        },
@@ -2570,7 +2571,9 @@
       },
       "jev": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 4
        },
@@ -2580,7 +2583,9 @@
      "by_stage": {
       "CLARIFY": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -2588,7 +2593,9 @@
       },
       "IMPLEMENT": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 6
        },
@@ -2596,7 +2603,9 @@
       },
       "PLAN": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 2
        },
@@ -2604,7 +2613,9 @@
       },
       "REVIEW": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 2
        },
@@ -2612,7 +2623,9 @@
       },
       "SPECIFY": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -2620,7 +2633,9 @@
       },
       "TASKS": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 1
        },
@@ -2628,20 +2643,22 @@
       },
       "TEST": {
        "estimated_usd": 0.0,
+       "is_lower_bound": true,
        "priced_records": 0,
+       "priced_without": {},
        "unpriced_reasons": {
         "NO_PRICE": 3
        },
        "unpriced_records": 3
       }
      },
-     "method": "ESTIMATED list price; never a bill",
+     "method": "ESTIMATED list price; never a bill. priced_without counts records priced without an unknown component.",
      "price_table_sha256": "335f3013e26dd9661301ede4c79d556353e19cff1b6951c78fdcc403e23d8abd",
-     "price_table_version": "2026-10-22",
-     "reported_by_provider_usd": {}
+     "price_table_version": "2026-10-22"
     },
     "events": 48,
     "human_wait": {
+     "closed_without_decision": 0,
      "max_s": null,
      "p50_s": null,
      "resolved": 0,
@@ -2657,8 +2674,9 @@
        "misses": 16
       },
       "evaluator_tokens": {
+       "calls_with_unknown_usage": 0,
        "input": 0,
-       "method": "MEASURED",
+       "method": "SIMULATED",
        "output": 0
       },
       "gross_saving_tokens": {
@@ -2669,7 +2687,7 @@
       "net_saving_tokens": {
        "applied": 6700,
        "dry_run_estimate": 6700,
-       "method": "ESTIMATED (estimated saving minus measured evaluator tokens)"
+       "method": "ESTIMATED saving minus all evaluator tokens (dry runs included); null when any evaluator call reported no usage"
       },
       "runs": 7
      },
@@ -2677,13 +2695,15 @@
       "cache_reuses": 0,
       "decided": 2,
       "evaluator_tokens": {
+       "calls_with_unknown_usage": 0,
        "input": 0,
-       "method": "MEASURED",
+       "method": "SIMULATED",
        "output": 0
       },
-      "live_calls": 2,
+      "live_calls": 0,
       "note": "Governance decisions save no prompt tokens; their tokens are pure overhead.",
-      "review": 0
+      "review": 0,
+      "simulated_calls": 2
      }
     },
     "latency": {
@@ -2789,7 +2809,7 @@
     "tokens": {
      "by_actor": {
       "agents": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -2800,7 +2820,7 @@
        }
       },
       "jev": {
-       "MEASURED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -2813,7 +2833,7 @@
      },
      "by_stage": {
       "CLARIFY": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -2824,67 +2844,40 @@
        }
       },
       "IMPLEMENT": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 5,
+        "records": 6,
         "total_tokens": 240220,
-        "unknown_fields": 20
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 22
        }
       },
       "PLAN": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 1,
+        "records": 2,
         "total_tokens": 21500,
-        "unknown_fields": 4
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 6
        }
       },
       "REVIEW": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 1,
+        "records": 2,
         "total_tokens": 28200,
-        "unknown_fields": 4
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 6
        }
       },
       "SPECIFY": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -2895,7 +2888,7 @@
        }
       },
       "TASKS": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
@@ -2906,23 +2899,14 @@
        }
       },
       "TEST": {
-       "ESTIMATED": {
+       "SIMULATED": {
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
         "input_tokens": 0,
         "output_tokens": 0,
-        "records": 2,
+        "records": 3,
         "total_tokens": 45080,
-        "unknown_fields": 8
-       },
-       "MEASURED": {
-        "cache_read_tokens": 0,
-        "cache_write_tokens": 0,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "records": 1,
-        "total_tokens": 0,
-        "unknown_fields": 2
+        "unknown_fields": 10
        }
       }
      },

@@ -29,7 +29,7 @@ if str(RUNTIME) not in sys.path:
 
 import obs_metrics  # noqa: E402
 import obs_tracer  # noqa: E402
-from obs_model import event, load_prices, tokens, trace_id  # noqa: E402
+from obs_model import event, load_prices, number, tokens, trace_id  # noqa: E402
 
 MAX_HSM_BYTES = 64 * 1024 * 1024
 
@@ -45,14 +45,40 @@ def _log_time(value: Any, fallback: Any) -> float | None:
             return datetime.datetime.strptime(value, "%Y-%m-%d %H:%M:%S,%f").timestamp()
         except ValueError:
             pass
-    return fallback if isinstance(fallback, (int, float)) and not isinstance(fallback, bool) else None
+    return number(fallback)
+
+
+def _hsm_line(item: dict[str, Any]) -> dict[str, Any] | None:
+    kind, sid = item.get("k"), item.get("sid") or item.get("session_id")
+    at = _log_time(item.get("ts"), item.get("t"))
+    if kind == "api_call":
+        inp, cached = _count(item.get("in")), _count(item.get("cache_read")) or 0
+        uncached = inp - cached if inp is not None and inp >= cached else inp
+        record = tokens("MEASURED", "hermes_log", input_tokens=uncached, output_tokens=_count(item.get("out")),
+                        cache_read_tokens=cached)
+        return event("MODEL_CALL", at, source="hsm", trace_id=trace_id("session", sid), session_id=sid, agent_id=sid,
+                     attrs={"model": item.get("model"), "provider": item.get("provider"),
+                            "duration_s": number(item.get("latency_s"), 0), "tokens": record})
+    if kind == "tool_call":
+        return event("TOOL_CALL", at, source="hsm", trace_id=trace_id("session", sid), session_id=sid, agent_id=sid,
+                     attrs={"tool": item.get("tool"), "result": item.get("res"), "duration_s": number(item.get("dur_s"), 0)})
+    if kind == "delegation":
+        origin = item.get("origin_session") or item.get("parent_session_id")
+        started, finished = number(item.get("dispatched_at")), number(item.get("completed_at"))
+        duration = round(finished - started, 3) if started is not None and finished is not None and finished >= started else None
+        return event("SUBAGENT", started, source="hsm", trace_id=trace_id("session", origin), session_id=origin,
+                     agent_id=item.get("delegation_id"), parent_agent_id=origin,
+                     attrs={"state": item.get("state"), "role": item.get("role"), "model": item.get("model"),
+                            "is_batch": item.get("is_batch"), "duration_s": duration})
+    return None
 
 
 def hsm_events(path: Path | str) -> list[dict[str, Any]]:
     """Integrate the local supervisor (hsm) event log: model calls, tool calls and delegations.
 
     Hermes logs report ``in`` including cached prompt tokens; the uncached part is ``in - cache_read``.
-    Prompts, goals and paths are never in that log (the supervisor drops them on collection).
+    A line that is not a JSON object, or that cannot be read, is skipped and counted in one
+    ``SOURCE_UNREADABLE`` event; one bad line never hides the rest.
     """
     location = Path(path)
     try:
@@ -61,34 +87,19 @@ def hsm_events(path: Path | str) -> list[dict[str, Any]]:
         lines = location.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeDecodeError) as error:
         return [event("SOURCE_UNREADABLE", None, source="hsm", attrs={"error": type(error).__name__})]
-    out = []
+    out, bad = [], 0
     for line in lines:
         try:
             item = json.loads(line)
-        except ValueError:
-            continue
-        kind, sid = item.get("k"), item.get("sid") or item.get("session_id")
-        at = _log_time(item.get("ts"), item.get("t"))
-        if kind == "api_call":
-            inp, cached = _count(item.get("in")), _count(item.get("cache_read")) or 0
-            uncached = inp - cached if inp is not None and inp >= cached else inp
-            record = tokens("MEASURED", "hermes_log", input_tokens=uncached, output_tokens=_count(item.get("out")),
-                            cache_read_tokens=cached)
-            out.append(event("MODEL_CALL", at, source="hsm", trace_id=trace_id("session", sid), session_id=sid, agent_id=sid,
-                             attrs={"model": item.get("model"), "provider": item.get("provider"), "duration_s": item.get("latency_s"),
-                                    "tokens": record}))
-        elif kind == "tool_call":
-            out.append(event("TOOL_CALL", at, source="hsm", trace_id=trace_id("session", sid), session_id=sid, agent_id=sid,
-                             attrs={"tool": item.get("tool"), "result": item.get("res"), "duration_s": item.get("dur_s")}))
-        elif kind == "delegation":
-            origin = item.get("origin_session") or item.get("parent_session_id")
-            started, finished = item.get("dispatched_at"), item.get("completed_at")
-            out.append(event("SUBAGENT", started, source="hsm", trace_id=trace_id("session", origin), session_id=origin,
-                             agent_id=item.get("delegation_id"), parent_agent_id=origin,
-                             attrs={"state": item.get("state"), "role": item.get("role"), "model": item.get("model"),
-                                    "is_batch": item.get("is_batch"),
-                                    "duration_s": round(finished - started, 3) if isinstance(started, (int, float))
-                                    and isinstance(finished, (int, float)) else None}))
+            built = _hsm_line(item) if isinstance(item, dict) else None
+        except (Exception, RecursionError):  # noqa: BLE001 - hostile line
+            item, built = None, None
+        if not isinstance(item, dict):
+            bad += 1
+        elif built is not None:
+            out.append(built)
+    if bad:
+        out.append(event("SOURCE_UNREADABLE", None, source="hsm", attrs={"error": "LINES_UNREADABLE", "lines": bad}))
     return out
 
 
@@ -128,7 +139,7 @@ def _report(args: argparse.Namespace) -> int:
                 "max_rss_kb": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // (1024 if sys.platform == "darwin" else 1),
                 "llm_calls": 0}
     value = obs_metrics.report(events, prices, overhead=overhead)
-    data = json.dumps(value, ensure_ascii=False, sort_keys=True, indent=1).encode("utf-8") + b"\n"
+    data = json.dumps(value, ensure_ascii=False, sort_keys=True, indent=1, allow_nan=False).encode("utf-8") + b"\n"
     if args.output:
         write_private(Path(args.output), data)
         print(json.dumps({"status": "WRITTEN", "output": str(args.output), "events": value["events"]}))
@@ -143,7 +154,7 @@ def _events(args: argparse.Namespace) -> int:
         if (args.trace and item["trace_id"] != args.trace) or (args.run and item["run_id"] != args.run) \
                 or (args.stage and item["stage"] != args.stage) or (args.type and item["event_type"] != args.type):
             continue
-        print(json.dumps(item, ensure_ascii=False, sort_keys=True))
+        print(json.dumps(item, ensure_ascii=False, sort_keys=True, allow_nan=False))
         shown += 1
         if args.limit and shown >= args.limit:
             break

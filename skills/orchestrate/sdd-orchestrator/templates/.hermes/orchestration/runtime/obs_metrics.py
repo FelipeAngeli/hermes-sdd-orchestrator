@@ -16,9 +16,16 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any
 
-from obs_model import add_tokens, estimate_cost, percentile
+from obs_model import add_tokens, estimate_cost, number, percentile
 
 STAGE_NONE = "NO_STAGE"
+#: Loop events that end a halt without a human decision (the wait is closed, not resolved).
+WAIT_CLOSERS = ("LOOP_EXECUTION_CANCELLED", "LOOP_EXECUTION_COMPLETED", "LOOP_EXECUTION_FAILED")
+
+
+def _n(value: Any) -> float:
+    """A finite non-negative number for arithmetic; anything else counts as 0 (callers track unknowns separately)."""
+    return number(value, 0) or 0
 
 
 def _tokens_of(item: dict[str, Any]) -> list[dict[str, Any]]:
@@ -38,51 +45,56 @@ def token_tracker(events: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def cost_estimator(events: list[dict[str, Any]], prices: dict[str, Any]) -> dict[str, Any]:
-    by_stage: dict[str, dict[str, Any]] = defaultdict(lambda: {"usd": 0.0, "priced": 0, "unpriced": 0, "reasons": Counter()})
-    by_actor: dict[str, dict[str, Any]] = defaultdict(lambda: {"usd": 0.0, "priced": 0, "unpriced": 0, "reasons": Counter()})
-    reported: dict[str, float] = defaultdict(float)
+    def bucket() -> dict[str, Any]:
+        return {"usd": 0.0, "priced": 0, "unpriced": 0, "reasons": Counter(), "partial": Counter()}
+
+    by_stage: dict[str, dict[str, Any]] = defaultdict(bucket)
+    by_actor: dict[str, dict[str, Any]] = defaultdict(bucket)
     for item in events:
         model = item["attrs"].get("model")
         for record in _tokens_of(item):
             actor = "jev" if item["agent_id"] == "jev" else "agents"
-            cost = estimate_cost(record, record.get("model") or (model if actor == "agents" else "jev"), prices)
-            for bucket in (by_stage[item["stage"] or STAGE_NONE], by_actor[actor]):
+            cost = estimate_cost(record, model if actor == "agents" else "jev", prices)
+            for target in (by_stage[item["stage"] or STAGE_NONE], by_actor[actor]):
                 if cost["usd"] is None:
-                    bucket["unpriced"] += 1
-                    bucket["reasons"][cost["reason"]] += 1
+                    target["unpriced"] += 1
+                    target["reasons"][cost["reason"]] += 1
                 else:
-                    bucket["priced"] += 1
-                    bucket["usd"] += cost["usd"]
-            if isinstance(record.get("cost_usd"), (int, float)):
-                reported[actor] += record["cost_usd"]
+                    target["priced"] += 1
+                    target["usd"] += cost["usd"]
+                    for component in cost["unknown_components"]:
+                        target["partial"][component] += 1
 
     def finish(table: dict[str, dict[str, Any]]) -> dict[str, Any]:
         return {key: {"estimated_usd": round(value["usd"], 6), "priced_records": value["priced"],
-                      "unpriced_records": value["unpriced"], "unpriced_reasons": dict(value["reasons"])} for key, value in table.items()}
+                      "unpriced_records": value["unpriced"], "unpriced_reasons": dict(value["reasons"]),
+                      "priced_without": dict(value["partial"]),
+                      "is_lower_bound": bool(value["partial"]) or value["unpriced"] > 0} for key, value in table.items()}
 
     return {"price_table_version": prices.get("version"), "price_table_sha256": prices.get("sha256"),
-            "method": "ESTIMATED list price; never a bill", "by_stage": finish(by_stage), "by_actor": finish(by_actor),
-            "reported_by_provider_usd": {key: round(value, 6) for key, value in reported.items()}}
+            "method": "ESTIMATED list price; never a bill. priced_without counts records priced without an unknown component.",
+            "by_stage": finish(by_stage), "by_actor": finish(by_actor)}
 
 
 def latency_tracker(events: list[dict[str, Any]]) -> dict[str, Any]:
     groups: dict[str, list[float]] = defaultdict(list)
     for item in events:
-        attrs = item["attrs"]
-        if item["event_type"] == "NODE_ATTEMPT" and attrs.get("duration_s") is not None:
-            groups[f"stage:{item['stage'] or STAGE_NONE}"].append(attrs["duration_s"])
-        elif item["event_type"] == "ACTION" and attrs.get("duration_s") is not None:
-            groups[f"action:{item['stage'] or STAGE_NONE}"].append(attrs["duration_s"])
-        elif item["event_type"] == "JEV_DECISION" and attrs.get("elapsed_ms") is not None and attrs.get("jev_calls"):
+        attrs, kind = item["attrs"], item["event_type"]
+        seconds = number(attrs.get("duration_s"), 0)
+        if kind == "NODE_ATTEMPT" and seconds is not None:
+            groups[f"stage:{item['stage'] or STAGE_NONE}"].append(seconds)
+        elif kind == "ACTION" and seconds is not None:
+            groups[f"action:{item['stage'] or STAGE_NONE}"].append(seconds)
+        elif kind == "JEV_DECISION" and number(attrs.get("elapsed_ms"), 0) is not None and attrs.get("jev_calls"):
             groups["evaluator:jev_decision"].append(attrs["elapsed_ms"] / 1000)
-        elif item["event_type"] == "CONTEXT_OPTIMIZATION" and attrs.get("latency_ms") is not None:
+        elif kind == "CONTEXT_OPTIMIZATION" and number(attrs.get("latency_ms"), 0) is not None:
             groups["evaluator:context_engine"].append(attrs["latency_ms"] / 1000)
-        elif item["event_type"] == "TOOL_CALL" and attrs.get("duration_s") is not None:
-            groups[f"tool:{attrs.get('tool')}"].append(attrs["duration_s"])
-        elif item["event_type"] == "MODEL_CALL" and attrs.get("duration_s") is not None:
-            groups[f"model:{attrs.get('model')}"].append(attrs["duration_s"])
+        elif kind == "TOOL_CALL" and seconds is not None:
+            groups[f"tool:{attrs.get('tool')}"].append(seconds)
+        elif kind == "MODEL_CALL" and seconds is not None:
+            groups[f"model:{attrs.get('model')}"].append(seconds)
     out: dict[str, Any] = {name: {"count": len(values), "total_s": round(sum(values), 3), "p50_s": percentile(values, 0.5),
-                  "p95_s": percentile(values, 0.95), "max_s": round(max(values), 3)} for name, values in groups.items()}
+                                  "p95_s": percentile(values, 0.95), "max_s": round(max(values), 3)} for name, values in groups.items()}
     evaluator = [value for name, values in groups.items() if name.startswith("evaluator:") for value in values]
     out["evaluator_added_latency_s"] = round(sum(evaluator), 3)
     return out
@@ -91,7 +103,7 @@ def latency_tracker(events: list[dict[str, Any]]) -> dict[str, Any]:
 def _intervals(events: list[dict[str, Any]]) -> list[tuple[float, float]]:
     spans = []
     for item in events:
-        duration, start = item["attrs"].get("duration_s"), item["timestamp"]
+        duration, start = number(item["attrs"].get("duration_s"), 0), item["timestamp"]
         if item["event_type"] in ("NODE_ATTEMPT", "ACTION", "SUBAGENT") and start is not None and duration is not None:
             spans.append((start, start + duration))
     return spans
@@ -113,22 +125,29 @@ def concurrency(events: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def human_wait(events: list[dict[str, Any]]) -> dict[str, Any]:
-    """Seconds between a loop halt and the human decision that resolved it, per execution."""
-    waits, open_waits = [], 0
+    """Seconds from a loop halt to the human decision that resolved it, per execution.
+
+    The earliest unresolved halt counts (a second halt does not restart the clock); a cancelled, completed
+    or failed execution closes the wait without a decision (``closed_without_decision``).
+    """
+    waits: list[float] = []
+    closed = 0
     halted: dict[str, float | None] = {}
     for item in events:
-        run = item["run_id"]
+        run, kind = item["run_id"], item["event_type"]
         if item["source"] != "loop_store" or run is None:
             continue
-        if item["event_type"] == "LOOP_EXECUTION_HALTED":
-            halted[run] = item["timestamp"]
-        elif run in halted and item["attrs"].get("decision") and item["event_type"].startswith("LOOP_"):
+        if kind == "LOOP_EXECUTION_HALTED":
+            halted.setdefault(run, item["timestamp"])
+        elif run in halted and item["attrs"].get("decision") and kind.startswith("LOOP_"):
             started = halted.pop(run)
             if started is not None and item["timestamp"] is not None:
                 waits.append(max(0.0, item["timestamp"] - started))
-    open_waits = len(halted)
+        elif run in halted and kind in WAIT_CLOSERS:
+            halted.pop(run)
+            closed += 1
     return {"resolved": len(waits), "total_s": round(sum(waits), 3), "p50_s": percentile(waits, 0.5),
-            "max_s": round(max(waits), 3) if waits else None, "still_waiting": open_waits}
+            "max_s": round(max(waits), 3) if waits else None, "still_waiting": len(halted), "closed_without_decision": closed}
 
 
 def progress_tracker(events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -160,13 +179,13 @@ def progress_tracker(events: list[dict[str, Any]]) -> dict[str, Any]:
     recovered = sum(1 for attempts in interrupted if attempts[-1].get("result") in ("SUCCEEDED", "RECONCILED"))
     statuses = Counter(summary.get("status") for summary in loops.values())
     durations = [summary["outcome_at"] - summary["created_at"] for summary in loops.values()
-                 if isinstance(summary.get("outcome_at"), (int, float)) and isinstance(summary.get("created_at"), (int, float))]
+                 if number(summary.get("outcome_at")) is not None and number(summary.get("created_at")) is not None]
     return {
         "loops": dict(statuses), "actions": dict(actions),
         "nodes": {"total": len(nodes), "first_attempt_success": first_ok,
                   "first_attempt_success_rate": round(first_ok / len(nodes), 3) if nodes else None},
         "retries_by_cause": dict(retries), "correction_loops": corrections,
-        "correction_cycles_recorded": sum(summary.get("correction_cycles") or 0 for summary in loops.values()),
+        "correction_cycles_recorded": sum(_n(summary.get("correction_cycles")) for summary in loops.values()),
         "recovery_after_interruption": {"interrupted_nodes": len(interrupted), "recovered": recovered,
                                         "rate": round(recovered / len(interrupted), 3) if interrupted else None},
         "time_to_completion_s": {"p50": percentile(durations, 0.5), "max": round(max(durations), 3) if durations else None},
@@ -174,47 +193,69 @@ def progress_tracker(events: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+class _Usage:
+    """Evaluator tokens summed per method; calls whose usage the provider did not report are counted, never zeroed."""
+
+    def __init__(self) -> None:
+        self.input = self.output = self.unknown = 0
+        self.methods: set[str] = set()
+
+    def add(self, record: Any) -> None:
+        if not isinstance(record, dict):
+            return
+        self.methods.add(record.get("method"))
+        if record.get("input_tokens") is None or record.get("output_tokens") is None:
+            self.unknown += 1
+        self.input += _n(record.get("input_tokens"))
+        self.output += _n(record.get("output_tokens"))
+
+    def view(self) -> dict[str, Any]:
+        method = "+".join(sorted(m for m in self.methods if m)) or None
+        return {"input": self.input, "output": self.output, "method": method, "calls_with_unknown_usage": self.unknown}
+
+
 def jev_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
-    gross_applied = gross_dry = evaluator_in = evaluator_out = 0
+    gross_applied = gross_dry = 0
     runs = applied_runs = cache_hits = cache_misses = 0
-    calls = cached = review = decided = 0
-    governance_in = governance_out = 0
+    calls = simulated = cached = review = decided = 0
+    context, governance = _Usage(), _Usage()
     for item in events:
         attrs = item["attrs"]
         if item["event_type"] == "CONTEXT_OPTIMIZATION":
             runs += 1
-            gross_dry += attrs.get("estimated_saving") or 0
-            if attrs.get("effective_saving"):
+            gross_dry += _n(attrs.get("estimated_saving"))
+            if _n(attrs.get("effective_saving")):
                 applied_runs += 1
-                gross_applied += attrs["effective_saving"]
-            usage = attrs.get("evaluator_tokens") or {}
-            evaluator_in += usage.get("input_tokens") or 0
-            evaluator_out += usage.get("output_tokens") or 0
-            cache_hits += attrs.get("cache_hits") or 0
-            cache_misses += attrs.get("cache_misses") or 0
+                gross_applied += _n(attrs.get("effective_saving"))
+            context.add(attrs.get("evaluator_tokens"))
+            cache_hits += _n(attrs.get("cache_hits"))
+            cache_misses += _n(attrs.get("cache_misses"))
         elif item["event_type"] == "JEV_DECISION":
-            if attrs.get("jev_calls"):
+            if attrs.get("jev_calls") and attrs.get("simulated"):
+                simulated += 1
+            elif attrs.get("jev_calls"):
                 calls += 1
             elif attrs.get("provenance") == "CACHE":
                 cached += 1
-            usage = attrs.get("tokens") or {}
-            governance_in += usage.get("input_tokens") or 0
-            governance_out += usage.get("output_tokens") or 0
-            review += 1 if attrs.get("disposition") == "REVIEW" or (attrs.get("review") or 0) > 0 else 0
-            decided += 1 if attrs.get("disposition") == "DECIDED" or (attrs.get("status") == "DECIDED") else 0
-    evaluator_total = evaluator_in + evaluator_out
+            governance.add(attrs.get("tokens"))
+            review += 1 if attrs.get("disposition") == "REVIEW" or _n(attrs.get("review")) > 0 else 0
+            decided += 1 if attrs.get("disposition") == "DECIDED" or attrs.get("status") == "DECIDED" else 0
+    cost = context.input + context.output
+    known = context.unknown == 0
     return {
         "context_engine": {
             "runs": runs, "applied_runs": applied_runs,
             "gross_saving_tokens": {"applied": gross_applied, "dry_run_estimate": gross_dry, "method": "ESTIMATED"},
-            "evaluator_tokens": {"input": evaluator_in, "output": evaluator_out, "method": "MEASURED"},
-            "net_saving_tokens": {"applied": gross_applied - evaluator_total, "dry_run_estimate": gross_dry - evaluator_total,
-                                  "method": "ESTIMATED (estimated saving minus measured evaluator tokens)"},
+            "evaluator_tokens": context.view(),
+            "net_saving_tokens": {"applied": gross_applied - cost if known else None,
+                                  "dry_run_estimate": gross_dry - cost if known else None,
+                                  "method": "ESTIMATED saving minus all evaluator tokens (dry runs included); null when any "
+                                            "evaluator call reported no usage"},
             "cache": {"hits": cache_hits, "misses": cache_misses,
                       "hit_ratio": round(cache_hits / (cache_hits + cache_misses), 3) if cache_hits + cache_misses else None},
         },
-        "governance": {"live_calls": calls, "cache_reuses": cached, "decided": decided, "review": review,
-                       "evaluator_tokens": {"input": governance_in, "output": governance_out, "method": "MEASURED"},
+        "governance": {"live_calls": calls, "simulated_calls": simulated, "cache_reuses": cached, "decided": decided, "review": review,
+                       "evaluator_tokens": governance.view(),
                        "note": "Governance decisions save no prompt tokens; their tokens are pure overhead."},
     }
 

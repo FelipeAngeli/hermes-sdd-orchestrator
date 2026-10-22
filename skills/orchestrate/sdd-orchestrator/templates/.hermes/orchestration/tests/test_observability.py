@@ -1,53 +1,27 @@
 """Tests for the read-only observability engine (obs_model, obs_tracer, obs_metrics, obs_cli, obs_benchmark)."""
 from __future__ import annotations
 
-import hashlib
 import io
 import json
 import os
 import stat
 import sys
-import tempfile
 import time
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from loop_engine_fixtures import FakeClock, Recorder, definition, failed, node, ok  # noqa: E402
+from loop_engine_fixtures import definition, failed, node, ok  # noqa: E402
 
 import gate_evidence  # noqa: E402
-import loop_engine  # noqa: E402
 import obs_benchmark  # noqa: E402
 import obs_cli  # noqa: E402
 import obs_metrics  # noqa: E402
 import obs_model  # noqa: E402
 import obs_tracer  # noqa: E402
 
-SECRET = "sk-ant-api03-" + "A" * 40
-
-
-def snapshot(root: Path) -> dict[str, str]:
-    return {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in sorted(root.rglob("*")) if path.is_file()}
-
-
-class LoopFixture(unittest.TestCase):
-    def setUp(self) -> None:
-        self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
-        self.store = self.root / "loops"
-        self.clock = FakeClock()
-        self.rec = Recorder()
-
-    def tearDown(self) -> None:
-        self.temp.cleanup()
-
-    def run_loop(self, spec, handlers):
-        engine = loop_engine.LoopEngine(self.store, handlers=handlers, clock=self.clock.time, sleep=self.clock.sleep)
-        identifier = engine.start(spec)["execution_id"]
-        engine.run(identifier)
-        return identifier
+from obs_fixtures import SECRET, LoopFixture, snapshot  # noqa: E402
 
 
 class TokenProvenanceTests(LoopFixture):
@@ -89,7 +63,14 @@ class CostTests(unittest.TestCase):
     def test_cost_is_an_estimate_with_the_price_version(self):
         record = obs_model.tokens("MEASURED", "t", input_tokens=1_000_000, output_tokens=100_000, cache_read_tokens=500_000)
         cost = obs_model.estimate_cost(record, "m", self.PRICES)
-        self.assertEqual({"usd": 3.1, "method": "ESTIMATED", "token_method": "MEASURED", "price_version": "t1"}, cost)
+        self.assertEqual({"usd": 3.1, "method": "ESTIMATED", "token_method": "MEASURED", "price_version": "t1",
+                          "unknown_components": ["cache_write_tokens"]}, cost)
+
+    def test_an_unknown_cache_component_makes_the_cost_a_lower_bound(self):
+        event = obs_model.event("MODEL_CALL", 1.0, source="t", attrs={"model": "m", "tokens": obs_model.tokens(
+            "MEASURED", "t", input_tokens=10, output_tokens=1, cache_read_tokens=5)})
+        agents = obs_metrics.cost_estimator([event], self.PRICES)["by_actor"]["agents"]
+        self.assertEqual(({"cache_write_tokens": 1}, True), (agents["priced_without"], agents["is_lower_bound"]))
 
     def test_unknown_model_or_split_stays_unpriced(self):
         self.assertEqual("NO_PRICE", obs_model.estimate_cost(obs_model.tokens("MEASURED", "t", input_tokens=1, output_tokens=1), "x", self.PRICES)["reason"])
@@ -121,7 +102,7 @@ class JevMetricsTests(unittest.TestCase):
         return obs_tracer.context_metrics_event(base, run_id="r", timestamp=1.0)
 
     def test_net_saving_subtracts_the_evaluator_tokens_from_the_gross_saving(self):
-        report = obs_metrics.jev_metrics([self.metrics_event(estimated_saving=400, effective_saving=400, input_tokens_after=600)])
+        report = obs_metrics.jev_metrics([self.metrics_event(estimated_saving=500, effective_saving=400, input_tokens_after=600)])
         context = report["context_engine"]
         self.assertEqual(400, context["gross_saving_tokens"]["applied"])
         self.assertEqual(50, context["net_saving_tokens"]["applied"])
@@ -132,6 +113,21 @@ class JevMetricsTests(unittest.TestCase):
         self.assertEqual(0, context["gross_saving_tokens"]["applied"])
         self.assertEqual(400, context["gross_saving_tokens"]["dry_run_estimate"])
         self.assertEqual(-350, context["net_saving_tokens"]["applied"])
+
+    def test_a_call_without_reported_usage_makes_net_saving_unknown(self):
+        report = obs_metrics.jev_metrics([obs_tracer.context_metrics_event(
+            {"estimated_saving": 1000, "effective_saving": 1000, "evaluator_calls": 3}, run_id="r", timestamp=1.0)])
+        context = report["context_engine"]
+        self.assertIsNone(context["net_saving_tokens"]["applied"])
+        self.assertEqual(1, context["evaluator_tokens"]["calls_with_unknown_usage"])
+        receipt = {"metrics": {"jev_calls": 1, "input_tokens": None, "output_tokens": None}, "outcome": {}, "recommendation": {}}
+        governance = obs_metrics.jev_metrics([obs_tracer.receipt_event(receipt)])["governance"]["evaluator_tokens"]
+        self.assertEqual(1, governance["calls_with_unknown_usage"])
+
+    def test_simulated_evaluator_calls_are_not_live_calls(self):
+        receipt = {"metrics": {"jev_calls": 1, "input_tokens": 0, "output_tokens": 0}, "outcome": {}, "recommendation": {}}
+        report = obs_metrics.jev_metrics([obs_tracer.receipt_event(receipt, method="SIMULATED")])["governance"]
+        self.assertEqual((0, 1, "SIMULATED"), (report["live_calls"], report["simulated_calls"], report["evaluator_tokens"]["method"]))
 
     def test_cached_governance_decisions_are_not_counted_as_calls(self):
         events = [obs_tracer.governor_report_event({"provenance": "CACHE", "summary": {"decided": 1, "review": 0}, "status": "DECIDED"}),
@@ -151,6 +147,23 @@ class SafetyTests(LoopFixture):
         dumped = json.dumps(obs_tracer.loop_events(self.store, identifier))
         self.assertNotIn(SECRET, dumped)
         self.assertNotIn("sk-ant-api03", dumped)
+
+    def test_nested_failure_free_text_and_odd_key_case_never_reach_an_event(self):
+        store = self.store / "x1"
+        store.mkdir(parents=True)
+        (store / "execution.json").write_text("{}")
+        (store / "definition.json").write_text("{}")
+        text = "cliente Maria CPF 123.456.789-00 pediu reembolso"
+        (store / "events.jsonl").write_text(json.dumps({"event": "NODE_FAILED", "reason": text, "failure": {
+            "class": "FUNCTIONAL", "code": "ASSERT", "Message": text, "details": text, "PROMPT": text}}) + "\n")
+        events = obs_tracer.loop_store_events(self.store)
+        dumped = json.dumps(events)
+        self.assertNotIn("Maria", dumped)
+        failed_event = next(item for item in events if item["event_type"] == "LOOP_NODE_FAILED")
+        self.assertEqual({"failure_class": "FUNCTIONAL", "failure_code": "ASSERT"},
+                         {key: value for key, value in failed_event["attrs"].items() if key.startswith("failure")})
+        item = obs_model.event("X", 1.0, source="t", attrs={"Prompt": "p", "MESSAGE": "m", "code": "C"})
+        self.assertEqual({"code": "C"}, item["attrs"])
 
     def test_redaction_applies_to_kept_strings(self):
         item = obs_model.event("X", 1.0, source="t", attrs={"failure_code": SECRET})
@@ -277,37 +290,16 @@ class CliTests(LoopFixture):
         self.assertEqual((2026, 10, 9), time.localtime(event["timestamp"])[:3])  # the call's own time, not collection time t=1.0
 
 
-class EnvelopeUsageTests(unittest.TestCase):
-    def setUp(self) -> None:
-        import executor_transport
-
-        self.transport = executor_transport
-
-    def test_claude_envelope_usage_is_measured_and_kept_beside_the_result(self):
-        envelope = {"type": "result", "subtype": "success", "is_error": False, "structured_output": {"ok": True},
-                    "total_cost_usd": 0.42, "duration_api_ms": 1800, "num_turns": 3,
-                    "usage": {"input_tokens": 1200, "output_tokens": 300, "cache_read_input_tokens": 9000,
-                              "cache_creation_input_tokens": 500}}
-        data, is_object, diagnostics = self.transport.extract_result("claude", json.dumps(envelope).encode(), Path("-"))
-        self.assertTrue(is_object)
-        self.assertEqual({"ok": True}, json.loads(data))
-        self.assertEqual({"method": "MEASURED", "input_tokens": 1200, "output_tokens": 300, "cache_read_tokens": 9000,
-                          "cache_write_tokens": 500, "cost_usd": 0.42, "duration_api_ms": 1800, "num_turns": 3},
-                         diagnostics["usage"])
-
-    def test_missing_counters_stay_unknown_and_no_usage_means_no_key(self):
-        usage = self.transport.envelope_usage({"usage": {"input_tokens": "many"}})
-        self.assertIsNone(usage["input_tokens"])
-        self.assertIsNone(usage["cost_usd"])
-        envelope = {"type": "result", "result": "{}", "is_error": False}
-        self.assertNotIn("usage", self.transport.extract_result("claude", json.dumps(envelope).encode(), Path("-"))[2])
-
-
 class BenchmarkTests(unittest.TestCase):
     def test_offline_scenarios_are_equivalent_and_label_their_methods(self):
         budget = obs_benchmark.LiveBudget(0)
-        rows = obs_benchmark.compare([obs_benchmark.run_scenario(name, jev="offline", budget=budget, env_file=Path("-"),
-                                                                 setup=Path("-"), cache=Path("-")) for name in "AC"])
+        results = [obs_benchmark.run_scenario(name, jev="offline", budget=budget, env_file=Path("-"), setup=Path("-"),
+                                              cache=Path("-")) for name in "AC"]
+        agents = results[1]["report"]["tokens"]["by_actor"]["agents"]
+        self.assertEqual(["SIMULATED"], list(agents))
+        self.assertEqual(0, results[1]["report"]["jev"]["governance"]["live_calls"])
+        self.assertNotIn("MEASURED", results[1]["report"]["tokens"]["by_actor"]["jev"])
+        rows = obs_benchmark.compare(results)
         self.assertTrue(rows["A"]["quality"]["all_stages_completed"])
         self.assertTrue(rows["C"]["quality"]["requirements_preserved"])
         self.assertEqual(rows["A"]["agent_tokens_simulated"] - rows["C"]["agent_tokens_simulated"],
