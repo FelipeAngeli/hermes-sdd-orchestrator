@@ -4,6 +4,13 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+
+- Validation gates, eighth review round of PR #62:
+  - **The `.git` entry itself** (MEDIUM): `git_dir` covered the directories git resolves to but not `repo/.git`, so rewriting a linked worktree's gitfile, or repointing a `.git` symlink, to another spelling of the same path (`/./`, `//`) changed what code under test could read while the decision was reused. The mode, size, mtime, ctime and inode of the `.git` entry are now part of `git_dir`; rewriting or recreating it moves its ctime.
+  - **Documentation:** a command that runs git itself (`status`, `add`, `commit`, `fetch`, `gc`), or activity in another worktree of the same repository, changes the git directory and disables reuse for that evaluation. The incompleteness lists now name the git-directory `MAX_ENTRIES` budget and the symlinks or unreadable entries inside it. The 15.16.6 entry said its mutation run first left 2 survivors; the log shows 1.
+  - **Tests:** three more in `test_gates_round6.py` (a rewritten gitfile, a same-size gitfile rewrite with its mtime restored, a repointed `.git` symlink); two of them fail against the 15.16.6 code. In `.hermes-dev/mut8.log` the first two reruns are marked void: the module had a syntax error, so the baseline failed and every mutant "died" for that reason. The valid run left 1 survivor (the ctime and inode fields), which the same-size test then killed.
+
 ## 15.16.6 - 2026-10-21
 
 ### Fixed
@@ -11,7 +18,7 @@ All notable changes to the orchestration are recorded here. Every change under `
 - Validation gates, seventh review round of PR #62:
   - **Payloads in `.git`** (HIGH): the walk skips `.git`, so code under test that read a file the worker kept there (directly, or through a `.pth` in an ignored `.venv`) reused a stale PASS after that file changed. The fingerprint now has `git_dir`: the name, type, size, mtime and ctime of every entry in the git directory and its common directory, bounded by `MAX_ENTRIES`. The gate's own git calls do not write there, so an untouched repository is still reused.
   - **Documentation:** the bytecode redirect covers a Python process that keeps the gate's environment, not `python -E`/`-I`, a child with an empty environment or a sourceless `.pyc`. Runners that write a cache on every run (pytest, mypy, ruff, Jest) disable reuse unless their cache is pointed outside the repository. Reuse assumes commands read only the repository. The 15.16.5 entry said 3 of the round-6 tests fail against 15.16.4; 5 do.
-  - **Tests:** four more in `test_gates_round6.py`: a payload in `.git`, an untouched `.git` still reused, a payload in a linked worktree's common git directory, and an unwalkable git directory. The first fails against the 15.16.5 code. A mutation run of 3 rules (`.hermes-dev/mut7.log`) first left 2 survivors (the incompleteness flag and the common directory); the last two tests were added for them and the rerun in the same log killed all 3.
+  - **Tests:** four more in `test_gates_round6.py`: a payload in `.git`, an untouched `.git` still reused, a payload in a linked worktree's common git directory, and an unwalkable git directory. The first fails against the 15.16.5 code. A mutation run of 3 rules (`.hermes-dev/mut7.log`) first left 1 survivor (the common directory); the linked-worktree test was added for it, the unwalkable-directory test makes the incompleteness flag a direct kill, and the rerun in the same log killed all 3.
 
 ## 15.16.5 - 2026-10-21
 

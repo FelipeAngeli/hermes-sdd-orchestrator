@@ -1,44 +1,26 @@
 """Workspace facts for the validation gates: which files changed, decided from file contents, not git's caches.
 
-A worker controls the repository's files and ``.git``, so the gates never ask git to
-compare content: git would apply the worker's attributes (``ident``, ``eol``, filter
-drivers), its stat cache (``core.checkStat``, ``core.trustctime``) and its index flags
-(``skip-worktree``, ``assume-unchanged``), each of which can hide an edit or run a
-program. Instead:
+A worker controls the repository's files and ``.git``, so git never compares content here
+(its attributes, filters, stat cache and index flags can hide an edit or run a program):
 
-- the reference tree is the controller's ``base`` (a full object id that is an ancestor
-  of HEAD) or, without a base, HEAD. Its commit and every tree under it are read with
-  ``git cat-file --batch`` and each object is re-hashed here, so a commit or tree object
-  the worker rewrote in ``.git/objects`` is refused instead of trusted;
-- every tracked path is compared on disk here: the git blob id of the file's raw bytes
-  (or of a symlink's target), its executable bit and its type; a missing path, or one
-  under a tracked directory that is no longer a real directory (for example a symlink),
-  is changed;
-- the working tree is walked here (the top-level ``.git`` skipped, nested repositories
-  walked like any directory); an untracked path counts unless a ``.gitignore`` that is
-  unchanged from the reference tree ignores it (``git check-ignore --no-index`` reports
-  which rule decided), so a worker-written or edited ignore rule, ``.git/info/exclude``
-  or ``core.excludesFile`` hides nothing; a directory ignored that way is not walked,
-  except that nothing under a tracked directory is hidden by a rule that ignores that
-  directory itself;
+- the reference tree is ``base`` (a full object id, ancestor of HEAD) or HEAD; its commit
+  and trees are read with ``git cat-file --batch`` and re-hashed here, so a rewritten
+  object in ``.git/objects`` is refused;
+- every tracked path is compared on disk: blob id of the raw bytes (or symlink target),
+  executable bit and type; a missing path, or one under a tracked directory that is no
+  longer a real directory, is changed;
+- the working tree is walked here (only the top-level ``.git`` skipped); an untracked path
+  counts unless a ``.gitignore`` unchanged from the reference tree ignores it, and a rule
+  that ignores a directory holding tracked files hides nothing under it;
 - the only git calls are ``rev-parse``, ``merge-base``, ``cat-file --batch`` and
-  ``check-ignore``, none of which reads the index or file contents, so filters,
-  attributes, hooks and fsmonitor are never involved; git runs with no system or global
-  config, no replace refs or grafts, no lazy fetch from a promisor remote
-  (``GIT_NO_LAZY_FETCH``, which would run the worker's ``core.sshCommand``),
-  ``GIT_DIR``/``GIT_WORK_TREE`` pinned to the repository, and the settings that change
-  ignore matching pinned (``FIXED_OVERRIDES``);
-- ignored paths are outside the change list but not outside the fingerprint: the name,
-  type, size, mtime and ctime of every ignored entry go into ``ignored`` (an ignored
-  symlink adds its target's metadata), and the same metadata of every entry in the git
-  directory and its common directory goes into ``git_dir``, so a payload planted in an
-  ignored path or in ``.git`` is new evidence and a stale PASS is not reused.
+  ``check-ignore``; git runs with no system or global config, no replace refs, grafts or
+  lazy fetch, ``GIT_DIR``/``GIT_WORK_TREE`` pinned and ignore matching pinned;
+- the fingerprint adds the metadata of every ignored entry (``ignored``) and of the ``.git``
+  entry, the git directory and its common directory (``git_dir``).
 
-Submodules (gitlinks) are not supported: their content is another repository, so a tree
-with one cannot be scanned. Exceeding ``MAX_ENTRIES`` walked entries or ``MAX_SCAN_BYTES``
-compared means the change list cannot be decided (``changed`` is None). ``MAX_FILES``
-changed paths, ``MAX_HASH_BYTES`` per fingerprinted file, unreadable or special files and
-changed symlinks (whose target content is not hashed) make the fingerprint incomplete;
+Submodules cannot be scanned. Past ``MAX_ENTRIES`` walked entries or ``MAX_SCAN_BYTES``
+``changed`` is None; ``MAX_FILES``, ``MAX_HASH_BYTES``, unreadable or special files, changed
+symlinks and an incomplete ``ignored`` or ``git_dir`` make the fingerprint incomplete, and
 the engine never reuses an incomplete decision.
 """
 from __future__ import annotations
@@ -371,7 +353,7 @@ def _ignored_digest(repo: Path, roots: list[str]) -> str | None:
 
 
 def _git_dirs_digest(repo: Path) -> str | None:
-    """Metadata of every entry in the git directory and its common directory (a linked worktree has both).
+    """The ``.git`` entry, and the metadata of every entry in the git directory and its common directory.
 
     Code under test can read files the worker keeps in ``.git``; the walk skips ``.git``, so without this a payload
     there could change without new evidence. The gate's own git calls are read-only (``GIT_OPTIONAL_LOCKS=0``).
@@ -380,7 +362,12 @@ def _git_dirs_digest(repo: Path) -> str | None:
     lines = listed.stdout.decode("utf-8", "surrogateescape").splitlines() if listed else []
     if len(lines) != 2:
         return None
-    digests = []
+    # The ``.git`` entry itself (a gitfile's text, a symlink's link text): rewriting or recreating it moves its ctime.
+    try:
+        info = (repo / ".git").lstat()
+    except OSError:
+        return None
+    digests = [".git:%o %d %d %d %d" % (info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_ino)]
     for directory in sorted({Path(lines[0]).resolve(), (repo / lines[1]).resolve()}):
         part = _ignored_digest(directory, ["."])
         if part is None:

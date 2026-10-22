@@ -143,6 +143,37 @@ class GitDirectoryTests(Base):
         self.assertTrue(before["complete"])
         self.assertNotEqual(before["git_dir"], after["git_dir"], "the shared .git is where a linked worktree's objects and info live")
 
+    def test_rewriting_a_linked_worktrees_gitfile_is_new_evidence(self):
+        worktree = self.root / "linked"
+        git(self.repo, "worktree", "add", "-q", "--detach", str(worktree), self.base)
+        gitfile = worktree / ".git"
+        before = gate_workspace.fingerprint(worktree, self.base)
+        text = gitfile.read_text(encoding="utf-8")
+        gitfile.write_text(text.replace("/.git/worktrees/", "/.git/./worktrees/"), encoding="utf-8")
+        self.assertEqual(before["head"], gate_workspace.fingerprint(worktree, self.base)["head"], "git still resolves it")
+        self.assertNotEqual(before["git_dir"], gate_workspace.fingerprint(worktree, self.base)["git_dir"])
+
+    def test_a_same_size_gitfile_rewrite_with_its_mtime_restored_is_new_evidence(self):
+        worktree = self.root / "linked"
+        git(self.repo, "worktree", "add", "-q", "--detach", str(worktree), self.base)
+        gitfile = worktree / ".git"
+        before, info = gate_workspace.fingerprint(worktree, self.base), gitfile.stat()
+        gitfile.write_bytes(gitfile.read_bytes())
+        os.utime(gitfile, ns=(info.st_atime_ns, info.st_mtime_ns))
+        self.assertEqual(info.st_size, gitfile.stat().st_size)
+        self.assertNotEqual(before["git_dir"], gate_workspace.fingerprint(worktree, self.base)["git_dir"], "only its ctime moved")
+
+    def test_repointing_a_git_symlink_is_new_evidence(self):
+        store = self.root / "gitstore"
+        os.replace(self.repo / ".git", store)
+        os.symlink(store, self.repo / ".git")
+        before = gate_workspace.fingerprint(self.repo, self.base)
+        os.unlink(self.repo / ".git")
+        os.symlink(str(store.parent) + "/./" + store.name, self.repo / ".git")
+        after = gate_workspace.fingerprint(self.repo, self.base)
+        self.assertTrue(before["complete"])
+        self.assertNotEqual(before["git_dir"], after["git_dir"])
+
     def test_an_unwalkable_git_directory_makes_the_fingerprint_incomplete(self):
         self.assertTrue(gate_workspace.scan(self.repo, self.base)["complete"])
         with mock.patch.object(gate_workspace, "_git_dirs_digest", return_value=None):
