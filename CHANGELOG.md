@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.16.8 - 2026-10-21
+
 ### Fixed
 
 - Validation gates, ninth review round of PR #62:
