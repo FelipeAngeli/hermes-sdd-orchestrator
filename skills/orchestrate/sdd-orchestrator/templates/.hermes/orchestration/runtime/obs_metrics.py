@@ -260,7 +260,7 @@ def jev_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
             "net_saving_tokens": {"applied": gross_applied - cost if known else None,
                                   "dry_run_estimate": gross_dry - cost if known else None,
                                   "method": "ESTIMATED saving minus all evaluator tokens (dry runs included); null when any "
-                                            "evaluator call reported no usage"},
+                                            "evaluator call reported no usage or when evaluator methods are mixed"},
             "cache": {"hits": cache_hits, "misses": cache_misses,
                       "hit_ratio": round(cache_hits / (cache_hits + cache_misses), 3) if cache_hits + cache_misses else None},
         },

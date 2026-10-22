@@ -7,7 +7,7 @@ Measured on 2026-10-22 with `obs_cli.py` and `obs_benchmark.py` from this change
 | Artifact | What it is |
 | --- | --- |
 | [data/observability-benchmark-offline.json](data/observability-benchmark-offline.json) | `obs_benchmark.py --jev offline` (all four scenarios, both workloads, deterministic stand-in for Jev). |
-| [data/observability-benchmark-live.json](data/observability-benchmark-live.json) | `obs_benchmark.py --jev live --max-live-calls 20 --scenarios ABC --workload nominal --context-stages TEST`: 20 real Jev calls, none refused. Recorded with the first 15.17.0 candidate, before the round-1 review fixes: its agent tokens are labelled `ESTIMATED` although they are simulated, and it has no `calls_with_unknown_usage` field. The Jev token and latency numbers it holds are unaffected (every call reported usage). |
+| [data/observability-benchmark-live.json](data/observability-benchmark-live.json) | `obs_benchmark.py --jev live --max-live-calls 20 --scenarios ABC --workload nominal --context-stages TEST`: 20 real Jev calls, none refused. Recorded with the first 15.17.0 candidate, before the round-1 review fixes: its agent tokens are labelled `ESTIMATED` although they are simulated, and it has no `calls_with_unknown_usage`, `by_method` or `evaluator_calls_without_usage` field. The Jev token and latency numbers it holds are unaffected (every call reported usage). |
 | Real-store report (not committed: it describes the owner's machine) | `obs_cli.py report` over the local supervisor log (1 510 events, 2026-10-09 to 2026-10-12), one action-journal history and seven Jev governance reports; 1 518 events. |
 
 ## Real stores: what the engine sees today

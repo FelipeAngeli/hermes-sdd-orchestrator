@@ -37,7 +37,11 @@ FORBIDDEN_ATTRS = frozenset({
 MAX_TEXT = 160
 #: Strings kept in events must look like codes or identifiers: no spaces, so free text (a prompt, a
 #: message, a personal note) cannot ride under an allowed key. Anything else becomes ``None``.
-CODE_TEXT = re.compile(r"[A-Za-z0-9_.:@/+=,#\[\]-]{1,%d}" % MAX_TEXT)
+CODE_TEXT = re.compile(r"[A-Za-z0-9_.:@/+=,#-]{1,%d}(?:\[[A-Za-z0-9]{1,8}\])?" % (MAX_TEXT - 10))
+#: ``password=``, ``user[token]:``, ``api_key=,`` ...: a secret-named key followed by an assignment is never kept,
+#: whatever follows it (``redaction.redact`` does not cover bracketed keys or punctuation-led values).
+SECRET_ASSIGNMENT = re.compile(r"(?i)(pass(word|wd)?|secret|token|api[_-]?key|credential|auth|senha|private[_-]?key)"
+                               r"[\]\[A-Za-z0-9_-]*[:=]")
 #: Numbers outside this magnitude are not believable counts, durations or epoch times; they become ``None``
 #: (Python's JSON parser accepts integers of any size, which overflow float arithmetic).
 MAX_MAGNITUDE = 1e15
@@ -69,7 +73,9 @@ def code(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
     cleaned = redact(value)
-    return cleaned if cleaned == value and CODE_TEXT.fullmatch(cleaned) else None
+    if cleaned != value or not CODE_TEXT.fullmatch(cleaned) or SECRET_ASSIGNMENT.search(cleaned):
+        return None
+    return cleaned
 
 
 def _clean(value: Any, depth: int = 0) -> Any:

@@ -105,7 +105,8 @@ class ReviewRoundTwoTests(LoopFixture):
         events = obs_tracer.collect(receipts=[receipt]) + obs_cli.hsm_events(log)
         json.dumps(obs_metrics.report(events, obs_model.load_prices()), allow_nan=False)
         self.assertIsNone(obs_model.number(10 ** 400))
-        self.assertEqual(5, obs_model.number(5))
+        self.assertIsNone(obs_model.number(10 ** 16))  # finite as a float, but not a believable count
+        self.assertEqual((5, 10 ** 15), (obs_model.number(5), obs_model.number(10 ** 15)))
 
     def test_dict_keys_must_be_code_shaped(self):
         token = "ghp_" + "a" * 36
@@ -129,12 +130,15 @@ class ReviewRoundTwoTests(LoopFixture):
                 self.id, self.text, self.is_code = ident, "plain passage " + ident, False
 
         answer = {"type": "noul", "noul": 0.0}
-        sender = lambda payload: {"status": "OK", "result": {"answers": {name: answer for name in context_judge.QUESTION_IDS}}}
+        answers = {name: answer for name in context_judge.QUESTION_IDS}
         config = {"evaluator": "typesafe", "max_concurrency": 1, "evaluator_timeout_seconds": 5}
-        report = context_judge.JevJudge(config, sender).judge([Segment("a"), Segment("b")], "task", "")
-        self.assertEqual((2, 0), (report.calls, report.usage_reported))
-        event = obs_tracer.context_metrics_event({"evaluator_calls": 2, "evaluator_calls_without_usage": 2, "estimated_saving": 10,
-                                                   "effective_saving": 10, "evaluator_input_tokens": 0}, run_id="r", timestamp=1.0)
+        for usage, reported in ((None, 0), ({"input_tokens": 7, "output_tokens": 1}, 2), ({"input_tokens": True, "output_tokens": 1}, 0)):
+            sender = lambda payload, usage=usage: {"status": "OK", "result": {"answers": answers, **({"usage": usage} if usage else {})}}
+            report = context_judge.JevJudge(config, sender).judge([Segment("a"), Segment("b")], "task", "")
+            self.assertEqual((2, reported), (report.calls, report.usage_reported))
+        event = obs_tracer.context_metrics_event({"evaluator_calls": 2, "evaluator_calls_without_usage": 1, "estimated_saving": 10,
+                                                   "effective_saving": 10, "evaluator_input_tokens": 7,
+                                                   "evaluator_output_tokens": 1}, run_id="r", timestamp=1.0)
         context = obs_metrics.jev_metrics([event])["context_engine"]
         self.assertIsNone(context["net_saving_tokens"]["applied"])
         self.assertEqual(1, context["evaluator_tokens"]["calls_with_unknown_usage"])
@@ -146,6 +150,35 @@ class ReviewRoundTwoTests(LoopFixture):
         usage = obs_metrics.jev_metrics([receipt("MEASURED", 10), receipt("SIMULATED", 5)])["governance"]["evaluator_tokens"]
         self.assertEqual((None, "MIXED"), (usage["input"], usage["method"]))
         self.assertEqual({"MEASURED": {"input": 10, "output": 1}, "SIMULATED": {"input": 5, "output": 1}}, usage["by_method"])
+        runs = [obs_tracer.context_metrics_event({"evaluator_calls": 1, "effective_saving": 100, "estimated_saving": 100,
+                                                  "evaluator_input_tokens": 10, "evaluator_output_tokens": 1}, run_id=f"r{m}",
+                                                 timestamp=1.0, method=m) for m in ("MEASURED", "SIMULATED")]
+        context = obs_metrics.jev_metrics(runs)["context_engine"]
+        self.assertEqual(0, context["evaluator_tokens"]["calls_with_unknown_usage"])
+        self.assertIsNone(context["net_saving_tokens"]["applied"])
+
+    def test_a_file_that_grows_past_the_limit_is_refused(self):
+        path = self.root / "grows.json"
+        path.write_text('{"a": 1}')
+        with mock.patch.object(obs_tracer, "MAX_FILE_BYTES", 4):  # the stat is not consulted: only the bytes read count
+            self.assertEqual("SOURCE_UNREADABLE", obs_tracer.collect(receipts=[path])[0]["event_type"])
+        store = self.store / "g1"
+        store.mkdir(parents=True)
+        (store / "definition.json").write_text("{}")
+        (store / "execution.json").write_text("{}")
+        (store / "events.jsonl").write_text('{"event": "A", "seq": 1}\n' * 3)
+        with mock.patch.object(obs_tracer, "_regular"), mock.patch.object(obs_tracer, "MAX_FILE_BYTES", 30):
+            names = [item["event_type"] for item in obs_tracer.loop_store_events(self.store)]
+        self.assertEqual(1, names.count("LOOP_A"))
+
+    def test_bracketed_secret_assignments_are_dropped(self):
+        value = "Zq8vN3kT1pR7wX2m"
+        for text in (f"user[password]={value}", f"[api_key]={value}", f"api_key=,{value}", f"password:]{value}", "a[b][c]"):
+            self.assertIsNone(obs_model.code(text), text)
+        self.assertEqual("claude-opus-4-6[1m]", obs_model.code("claude-opus-4-6[1m]"))
+        log = self.root / "h.jsonl"
+        log.write_text(json.dumps({"k": "tool_call", "t": 1, "tool": "terminal", "res": f"user[password]={value}"}) + "\n")
+        self.assertNotIn(value, json.dumps(obs_cli.hsm_events(log)))
 
 
 class EnvelopeUsageTests(unittest.TestCase):

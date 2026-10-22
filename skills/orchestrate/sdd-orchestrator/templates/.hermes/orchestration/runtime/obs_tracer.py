@@ -137,8 +137,11 @@ def _loop_events(directory: Path, execution_id: str) -> list[dict[str, Any]]:
     if raw_events.exists() or raw_events.is_symlink():
         _regular(raw_events)
         with raw_events.open("rb") as handle:
-            for index, line in enumerate(handle):
-                if index >= MAX_EVENTS_PER_SOURCE:
+            budget = MAX_FILE_BYTES  # bounded even when the file grows after _regular checked it
+            for index in range(MAX_EVENTS_PER_SOURCE):
+                line = handle.readline(budget + 1)
+                budget -= len(line)
+                if not line or budget < 0:
                     break
                 if line.strip():
                     out.append(_loop_line(line, index, nodes, ids))
