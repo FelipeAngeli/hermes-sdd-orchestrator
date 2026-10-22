@@ -41,7 +41,7 @@ Statuses (`STATUSES`): `DISABLED`, `SKIPPED_BELOW_TRIGGER`, `DRY_RUN`, `APPLIED`
 
 Every report has `metrics`:
 - tokens: `input_tokens_before`, `input_tokens_after`, both measured on the request as the engine serializes it for forwarding, so a saving is removed content and never a formatting difference;
-- evaluator: `evaluator_calls`, `evaluator_input_tokens`, `evaluator_output_tokens`;
+- evaluator: `evaluator_calls`, `evaluator_input_tokens`, `evaluator_output_tokens` (summed over the calls whose response reported both counts), `evaluator_calls_without_usage` (calls that reported no usage, so the token sums are incomplete);
 - savings: `estimated_saving` (would-be saving, also in dry-run), `estimated_net_saving` (minus evaluator input tokens), `effective_saving` (0 unless `APPLIED`), `net_saving`;
 - `latency_ms`, `cache_hits`, `cache_misses`, `cache_hit_ratio` (`evaluator_calls` counts only calls that started);
 - segments: `segments_total`, `segments_protected`, `segments_preserved`, `segments_omitted`, `segments_rejected` (approved by Jev but undone by an integrity failure);

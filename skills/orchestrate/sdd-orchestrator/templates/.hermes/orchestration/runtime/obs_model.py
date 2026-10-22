@@ -37,7 +37,10 @@ FORBIDDEN_ATTRS = frozenset({
 MAX_TEXT = 160
 #: Strings kept in events must look like codes or identifiers: no spaces, so free text (a prompt, a
 #: message, a personal note) cannot ride under an allowed key. Anything else becomes ``None``.
-CODE_TEXT = re.compile(r"[A-Za-z0-9_.:@/+=,#-]{1,%d}" % MAX_TEXT)
+CODE_TEXT = re.compile(r"[A-Za-z0-9_.:@/+=,#\[\]-]{1,%d}" % MAX_TEXT)
+#: Numbers outside this magnitude are not believable counts, durations or epoch times; they become ``None``
+#: (Python's JSON parser accepts integers of any size, which overflow float arithmetic).
+MAX_MAGNITUDE = 1e15
 MAX_DEPTH = 4
 DEFAULT_PRICES = RUNTIME.parent / "policies" / "PRICES.json"
 
@@ -52,7 +55,11 @@ def number(value: Any, minimum: float | None = None) -> int | float | None:
     """``value`` when it is a finite int/float (not bool) at or above ``minimum``; otherwise ``None``."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    if isinstance(value, float) and not math.isfinite(value):
+    try:
+        magnitude = abs(float(value))
+    except OverflowError:
+        return None
+    if not math.isfinite(magnitude) or magnitude > MAX_MAGNITUDE:
         return None
     return None if minimum is not None and value < minimum else value
 
@@ -76,7 +83,7 @@ def _clean(value: Any, depth: int = 0) -> Any:
         return number(value)
     if isinstance(value, dict):
         return {str(key): _clean(item, depth + 1) for key, item in value.items()
-                if isinstance(key, str) and key.lower() not in FORBIDDEN_ATTRS}
+                if code(key) == key and key.lower() not in FORBIDDEN_ATTRS}
     if isinstance(value, (list, tuple)):
         return [_clean(item, depth + 1) for item in list(value)[:64]]
     return None

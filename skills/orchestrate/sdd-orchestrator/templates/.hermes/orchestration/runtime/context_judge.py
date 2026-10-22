@@ -118,6 +118,8 @@ class JudgeReport:
         self.errors: dict[str, str] = {}
         self.usage = {"input_tokens": 0, "output_tokens": 0}
         self.calls = 0
+        #: Calls whose response reported both token counts; ``calls - usage_reported`` were billed but unreported.
+        self.usage_reported = 0
 
 
 def _probability(answer: Any) -> float | None:
@@ -209,6 +211,8 @@ class JevJudge:
             report.errors[identifier] = "EVALUATOR_RESPONSE_INVALID"
             return
         usage = result.get("usage") if isinstance(result.get("usage"), dict) else {}
+        if all(isinstance(usage.get(key), int) and not isinstance(usage.get(key), bool) and usage.get(key) >= 0 for key in report.usage):
+            report.usage_reported += 1
         for key in report.usage:
             value = usage.get(key)
             if isinstance(value, int) and not isinstance(value, bool) and value >= 0:

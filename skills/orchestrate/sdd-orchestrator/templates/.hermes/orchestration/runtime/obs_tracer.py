@@ -64,9 +64,19 @@ def _regular(path: Path) -> None:
         raise OSError(f"larger than {MAX_FILE_BYTES} bytes: {path.name}")
 
 
+def read_bounded(path: Path, limit: int) -> bytes:
+    """At most ``limit`` bytes of a regular file, read through one descriptor (a file that grows past it is refused)."""
+    if path.is_symlink() or not path.is_file():
+        raise OSError(f"not a regular file: {path.name}")
+    with path.open("rb") as handle:
+        data = handle.read(limit + 1)
+    if len(data) > limit:
+        raise OSError(f"larger than {limit} bytes: {path.name}")
+    return data
+
+
 def _read_json(path: Path) -> Any:
-    _regular(path)
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(read_bounded(path, MAX_FILE_BYTES).decode("utf-8"))
 
 
 def _unreadable(source: str, error: BaseException) -> dict[str, Any]:
@@ -112,7 +122,7 @@ def _loop_line(line: bytes, index: int, nodes: dict[str, Any], ids: dict[str, An
     attrs = {key: item.get(key) for key in ("seq", "reason", "decision", "limit", "attempt", "delay", "cycle", "by")
              if isinstance(item.get(key), (str, int, float)) and not isinstance(item.get(key), bool)}
     if failure:
-        attrs["failure_class"], attrs["failure_code"] = failure.get("class"), failure.get("code")
+        attrs["failure_class"], attrs["failure_code"] = obs_model.code(failure.get("class")), obs_model.code(failure.get("code"))
     name = obs_model.code(item.get("event")) or "UNKNOWN"
     return event(f"LOOP_{name}", _epoch(item.get("at")), source="loop_store", agent_id=node_id, stage=stage, attrs=attrs, **ids)
 
@@ -143,8 +153,8 @@ def _loop_events(directory: Path, execution_id: str) -> list[dict[str, Any]]:
             failure = _d(attempt.get("failure"))
             out.append(event("NODE_ATTEMPT", started, source="loop_store", agent_id=node_id, stage=params.get("stage"),
                              attrs={"attempt": attempt.get("attempt"), "generation": attempt.get("generation"),
-                                    "result": attempt.get("result"), "failure_class": failure.get("class"),
-                                    "failure_code": failure.get("code"), "human_authorized": attempt.get("human_authorized"),
+                                    "result": attempt.get("result"), "failure_class": obs_model.code(failure.get("class")),
+                                    "failure_code": obs_model.code(failure.get("code")), "human_authorized": attempt.get("human_authorized"),
                                     "duration_s": _span(started, finished), "executor": params.get("executor"),
                                     "model": params.get("model"), "kind": spec.get("kind"), "tokens": token_record}, **ids))
     usage, outcome = _d(execution.get("usage")), _d(execution.get("outcome"))
@@ -276,7 +286,11 @@ def context_metrics_event(metrics: Any, *, run_id: str | None, timestamp: float 
     keys = ("input_tokens_before", "input_tokens_after", "estimated_saving", "effective_saving", "evaluator_calls",
             "cache_hits", "cache_misses", "segments_total", "segments_omitted", "segments_protected", "latency_ms")
     attrs: dict[str, Any] = {key: metrics.get(key) for key in keys}
+    without = obs_model.number(metrics.get("evaluator_calls_without_usage"), 0)
+    if without:  # the engine summed only the calls that reported usage; the rest are unknown, not free
+        usage = {"input_tokens": None, "output_tokens": None}
     attrs["evaluator_tokens"] = _evaluator_tokens(metrics.get("evaluator_calls"), usage, method)
+    attrs["evaluator_calls_without_usage"] = without
     attrs["simulated"] = method == "SIMULATED"
     attrs["requirements_preserved"] = _d(metrics.get("requirement_impact")).get("preserved")
     return event("CONTEXT_OPTIMIZATION", timestamp, source="context_engine", trace_id=trace_id("ticket", task_id) if task_id else None,

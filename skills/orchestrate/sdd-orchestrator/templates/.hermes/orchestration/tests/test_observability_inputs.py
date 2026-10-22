@@ -94,6 +94,60 @@ class HostileStoreTests(LoopFixture):
             self.assert_isolated(governor_reports=[big])
 
 
+class ReviewRoundTwoTests(LoopFixture):
+    """Round-2 review: huge integers, dict keys, unreported context-engine usage, mixed methods."""
+
+    def test_huge_integers_never_crash_the_report(self):
+        receipt = self.root / "r.json"
+        receipt.write_text('{"metrics": {"jev_calls": 1, "elapsed_ms": 1' + "0" * 400 + '}, "outcome": {}, "recommendation": {}}')
+        log = self.root / "hsm.jsonl"
+        log.write_text('{"k": "delegation", "dispatched_at": 1, "completed_at": 1' + "0" * 400 + '}\n')
+        events = obs_tracer.collect(receipts=[receipt]) + obs_cli.hsm_events(log)
+        json.dumps(obs_metrics.report(events, obs_model.load_prices()), allow_nan=False)
+        self.assertIsNone(obs_model.number(10 ** 400))
+        self.assertEqual(5, obs_model.number(5))
+
+    def test_dict_keys_must_be_code_shaped(self):
+        token = "ghp_" + "a" * 36
+        item = obs_model.event("X", 1.0, source="t", attrs={"nested": {f"Maria Silva {token}": 1, "\ud800": 2, "ok_key": 3}})
+        self.assertEqual({"nested": {"ok_key": 3}}, item["attrs"])
+        store = self.store / "x1"
+        store.mkdir(parents=True)
+        (store / "definition.json").write_text("{}")
+        (store / "execution.json").write_text(json.dumps({"nodes": {"A": {"attempts": [
+            {"attempt": 1, "result": "FAILED", "failure": {"class": {f"senha {token}": 1}, "code": "C"}}]}}}))
+        events = obs_tracer.loop_store_events(self.store)
+        report = json.dumps(obs_metrics.report(events, obs_model.load_prices()), ensure_ascii=True)
+        self.assertNotIn(token, report)
+        self.assertIn("None:C", report)
+
+    def test_context_engine_calls_without_usage_are_unknown_not_free(self):
+        import context_judge
+
+        class Segment:
+            def __init__(self, ident):
+                self.id, self.text, self.is_code = ident, "plain passage " + ident, False
+
+        answer = {"type": "noul", "noul": 0.0}
+        sender = lambda payload: {"status": "OK", "result": {"answers": {name: answer for name in context_judge.QUESTION_IDS}}}
+        config = {"evaluator": "typesafe", "max_concurrency": 1, "evaluator_timeout_seconds": 5}
+        report = context_judge.JevJudge(config, sender).judge([Segment("a"), Segment("b")], "task", "")
+        self.assertEqual((2, 0), (report.calls, report.usage_reported))
+        event = obs_tracer.context_metrics_event({"evaluator_calls": 2, "evaluator_calls_without_usage": 2, "estimated_saving": 10,
+                                                   "effective_saving": 10, "evaluator_input_tokens": 0}, run_id="r", timestamp=1.0)
+        context = obs_metrics.jev_metrics([event])["context_engine"]
+        self.assertIsNone(context["net_saving_tokens"]["applied"])
+        self.assertEqual(1, context["evaluator_tokens"]["calls_with_unknown_usage"])
+
+    def test_mixed_methods_are_never_added_together(self):
+        def receipt(method, tokens):
+            return obs_tracer.receipt_event({"metrics": {"jev_calls": 1, "input_tokens": tokens, "output_tokens": 1},
+                                             "outcome": {}, "recommendation": {}}, method=method)
+        usage = obs_metrics.jev_metrics([receipt("MEASURED", 10), receipt("SIMULATED", 5)])["governance"]["evaluator_tokens"]
+        self.assertEqual((None, "MIXED"), (usage["input"], usage["method"]))
+        self.assertEqual({"MEASURED": {"input": 10, "output": 1}, "SIMULATED": {"input": 5, "output": 1}}, usage["by_method"])
+
+
 class EnvelopeUsageTests(unittest.TestCase):
     def setUp(self) -> None:
         import executor_transport

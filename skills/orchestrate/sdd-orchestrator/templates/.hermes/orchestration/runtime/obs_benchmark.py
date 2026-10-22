@@ -248,8 +248,9 @@ def _announce(value: dict[str, Any]) -> None:
         for report in reports.values():
             governance, context = report["jev"]["governance"], report["jev"]["context_engine"]
             decided, review = decided + governance["decided"], review + governance["review"]
-            tokens_in += governance["evaluator_tokens"]["input"] + context["evaluator_tokens"]["input"]
-            tokens_out += governance["evaluator_tokens"]["output"] + context["evaluator_tokens"]["output"]
+            for usage in (governance["evaluator_tokens"], context["evaluator_tokens"]):
+                measured = usage["by_method"].get("MEASURED") or {"input": 0, "output": 0}
+                tokens_in, tokens_out = tokens_in + measured["input"], tokens_out + measured["output"]
     for line in ("=== JEV USADO ===", "script: runtime/obs_benchmark.py --jev live",
                  f"chamadas: {value['live_calls_used']} (recusadas pelo limite: {value['live_calls_refused']})",
                  f"decididos vs revisar: {decided} vs {review}", f"tokens medidos: {tokens_in} entrada / {tokens_out} saída",

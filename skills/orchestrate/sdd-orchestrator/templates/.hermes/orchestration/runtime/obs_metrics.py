@@ -194,24 +194,34 @@ def progress_tracker(events: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 class _Usage:
-    """Evaluator tokens summed per method; calls whose usage the provider did not report are counted, never zeroed."""
+    """Evaluator tokens summed per method, never across methods; calls with unreported usage are counted, never zeroed."""
 
     def __init__(self) -> None:
-        self.input = self.output = self.unknown = 0
-        self.methods: set[str] = set()
+        self.unknown = 0
+        self.by_method: dict[str, list[float]] = {}
 
     def add(self, record: Any) -> None:
         if not isinstance(record, dict):
             return
-        self.methods.add(record.get("method"))
         if record.get("input_tokens") is None or record.get("output_tokens") is None:
             self.unknown += 1
-        self.input += _n(record.get("input_tokens"))
-        self.output += _n(record.get("output_tokens"))
+        totals = self.by_method.setdefault(str(record.get("method")), [0, 0])
+        totals[0] += _n(record.get("input_tokens"))
+        totals[1] += _n(record.get("output_tokens"))
+
+    @property
+    def total(self) -> float | None:
+        """Input plus output when one method is present; ``None`` when methods are mixed (they are never added)."""
+        if len(self.by_method) > 1:
+            return None
+        return sum(sum(values) for values in self.by_method.values())
 
     def view(self) -> dict[str, Any]:
-        method = "+".join(sorted(m for m in self.methods if m)) or None
-        return {"input": self.input, "output": self.output, "method": method, "calls_with_unknown_usage": self.unknown}
+        single = len(self.by_method) <= 1
+        (method, (inp, out)), = self.by_method.items() if len(self.by_method) == 1 else ((None, (0, 0)),)
+        return {"input": inp if single else None, "output": out if single else None, "method": method if single else "MIXED",
+                "by_method": {key: {"input": value[0], "output": value[1]} for key, value in self.by_method.items()},
+                "calls_with_unknown_usage": self.unknown}
 
 
 def jev_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -240,8 +250,8 @@ def jev_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
             governance.add(attrs.get("tokens"))
             review += 1 if attrs.get("disposition") == "REVIEW" or _n(attrs.get("review")) > 0 else 0
             decided += 1 if attrs.get("disposition") == "DECIDED" or attrs.get("status") == "DECIDED" else 0
-    cost = context.input + context.output
-    known = context.unknown == 0
+    cost = context.total
+    known = context.unknown == 0 and cost is not None
     return {
         "context_engine": {
             "runs": runs, "applied_runs": applied_runs,

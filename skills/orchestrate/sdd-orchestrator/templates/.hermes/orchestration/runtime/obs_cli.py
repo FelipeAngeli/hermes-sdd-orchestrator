@@ -82,9 +82,7 @@ def hsm_events(path: Path | str) -> list[dict[str, Any]]:
     """
     location = Path(path)
     try:
-        if location.is_symlink() or not location.is_file() or location.stat().st_size > MAX_HSM_BYTES:
-            raise OSError("not a bounded regular file")
-        lines = location.read_text(encoding="utf-8").splitlines()
+        lines = obs_tracer.read_bounded(location, MAX_HSM_BYTES).decode("utf-8").splitlines()
     except (OSError, UnicodeDecodeError) as error:
         return [event("SOURCE_UNREADABLE", None, source="hsm", attrs={"error": type(error).__name__})]
     out, bad = [], 0

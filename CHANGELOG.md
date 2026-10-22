@@ -18,7 +18,18 @@ All notable changes to the orchestration are recorded here. Every change under `
     - **Labels**: benchmark agent tokens were labelled `ESTIMATED` and the offline stand-in counted as live `MEASURED` calls. Both are now `SIMULATED`. An evaluator call that reported no usage counted as free; it is now counted in `calls_with_unknown_usage` and makes the net saving `null`. Cost priced without unknown cache tokens is marked `is_lower_bound`.
     - **Docs**: the claims that the Claude envelope usage "feeds the tracer" and that `reported_by_provider_usd` exists were wrong (nothing stores launcher output) and are removed. `observability.md` now states that `trace_id` is per store family, joined through `task_id`.
     - **Fixes**: `human_wait` keeps the first unresolved halt and closes cancelled runs. Reports are written with `allow_nan=False`, and the Claude envelope's `cost_usd` must be finite.
-  - Tests: 39 in `tests/test_observability.py` and `tests/test_observability_inputs.py` (shared fixtures in `tests/obs_fixtures.py`, split to stay under the file-size limit); the 11 added in review round 1 all fail against the first candidate. The mutation table grew to 28 rules (`.hermes-dev/mut-obs.log`). A first rerun was invalid, because six patterns no longer matched the new code. The valid rerun left 2 survivors (the failure projection and gross applied vs dry-run saving). Two tests were sharpened, and the last run killed all 28.
+  - Review round 2 of PR #63 (fixed before release):
+    - **Crash**: huge JSON integers (`1` followed by 400 zeros) crashed the whole report with `OverflowError` after the guarded readers had returned. `obs_model.number` now rejects any magnitude above `MAX_MAGNITUDE` (1e15).
+    - **Privacy**: dict keys skipped the code-shape check, so a secret placed in a key reached the report. Keys must now pass `code()`, and the failure class and code are reduced to code-shaped scalars where they are read. That also removes a lone surrogate that crashed `events`.
+    - **Labels**:
+      - Context-engine evaluator calls that reported no usage were still summed as measured zero. `context_judge` now counts the calls that reported usage, and `context_engine` records `evaluator_calls_without_usage` (an additive metric). The tracer turns those runs into unknown usage, so the net saving is `null`.
+      - Evaluator tokens are now summed per method (`by_method`); mixed methods give `null` totals and `MIXED`.
+    - **TOCTOU**: store files are read through one descriptor up to `MAX_FILE_BYTES`, so a file that grows after the check is refused (`obs_tracer.read_bounded`, also used for the supervisor log).
+    - **Docs**:
+      - `LOOP_SUMMARY` token labels are the budget's labels.
+      - The `CODE_TEXT` character set now also allows `[` and `]`, for model names such as `claude-opus-4-6[1m]`.
+      - Identifiers with spaces become `null`, and code-shaped personal data is an accepted residual.
+  - Tests: 43 in `tests/test_observability.py` and `tests/test_observability_inputs.py` (shared fixtures in `tests/obs_fixtures.py`, split to stay under the file-size limit); the 11 added in review round 1 all fail against the first candidate, and the 4 added in round 2 all fail against the second. The mutation table grew to 28 rules (`.hermes-dev/mut-obs.log`). A first rerun was invalid, because six patterns no longer matched the new code. The valid rerun left 2 survivors (the failure projection and gross applied vs dry-run saving). Two tests were sharpened, and that run killed all 28. Round 2 added 7 rules; one rerun was invalid (3 stale patterns), and the final run killed all 35.
 
 ## 15.16.9 - 2026-10-21
 
