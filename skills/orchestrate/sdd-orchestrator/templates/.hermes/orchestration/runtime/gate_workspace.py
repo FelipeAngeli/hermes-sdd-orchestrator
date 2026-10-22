@@ -126,6 +126,20 @@ def _tree(repo: Path, ref: str) -> dict[str, tuple[str, str]] | None:
     return entries
 
 
+def _blocks(path: Path, info: os.stat_result):
+    """The bytes of the regular file ``info`` described; OSError if it was swapped (FIFO, link, device) or grew."""
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as handle:
+        now = os.fstat(handle.fileno())
+        if not stat.S_ISREG(now.st_mode) or (now.st_dev, now.st_ino) != (info.st_dev, info.st_ino):
+            raise OSError("replaced while reading")
+        left = info.st_size + 1
+        while left > 0 and (block := handle.read(min(CHUNK, left))):
+            left -= len(block)
+            yield block
+    if left <= 0:
+        raise OSError("grew while reading")
+
+
 def _blob_id(path: Path, info: os.stat_result, algorithm: str) -> str:
     """The id git gives these exact bytes (no filter, attribute or line-ending conversion)."""
     digest = hashlib.new(algorithm)
@@ -134,9 +148,8 @@ def _blob_id(path: Path, info: os.stat_result, algorithm: str) -> str:
         digest.update(b"blob %d\0" % len(target) + target)
         return digest.hexdigest()
     digest.update(b"blob %d\0" % info.st_size)
-    with path.open("rb") as handle:
-        while block := handle.read(CHUNK):
-            digest.update(block)
+    for block in _blocks(path, info):
+        digest.update(block)
     return digest.hexdigest()
 
 
@@ -310,9 +323,8 @@ def _hash(path: Path) -> str | None:
         return "oversized"
     digest = hashlib.sha256()
     try:
-        with path.open("rb") as handle:
-            while block := handle.read(CHUNK):
-                digest.update(block)
+        for block in _blocks(path, info):
+            digest.update(block)
     except OSError:
         return "unreadable"
     return digest.hexdigest()
@@ -321,9 +333,8 @@ def _hash(path: Path) -> str | None:
 def _ignored_digest(repo: Path, roots: list[str], hashed: Any = None) -> str | None:
     """Name, type, size, mtime and ctime of every entry under ``roots``, relative to ``repo``.
 
-    A symlink adds the metadata of the file it points to; a symlink to a directory, or one that cannot be resolved,
-    returns None (its contents are not walked). Regular files for which ``hashed(relative)`` is true also add their
-    content hash, within ``MAX_HASH_BYTES`` in total: a write through a shared memory mapping moves no timestamp.
+    A symlink adds its target's metadata; one to a directory or to nothing returns None. Files where ``hashed`` is
+    true add their content hash (``MAX_HASH_BYTES`` in total): a write through a shared mapping moves no timestamp.
     """
     digest, pending, seen, budget = hashlib.sha256(), sorted(root.rstrip("/") for root in roots), 0, MAX_HASH_BYTES
     while pending:
@@ -363,8 +374,8 @@ def _git_dirs_digest(repo: Path) -> str | None:
     """The ``.git`` entry and every entry in the git directory and its common directory, with file contents.
 
     Code under test can read files the worker keeps in ``.git``; the walk skips ``.git``, so without this a payload
-    there could change without new evidence. Contents are hashed outside ``objects/`` (objects are re-hashed when
-    read, and are the bulk of a repository). The gate's own git calls are read-only (``GIT_OPTIONAL_LOCKS=0``).
+    there could change without new evidence. Contents are hashed outside ``objects/`` (the bulk of a repository;
+    files there keep metadata only). The gate's own git calls are read-only (``GIT_OPTIONAL_LOCKS=0``).
     """
     listed = git(repo, "rev-parse", "--absolute-git-dir", "--git-common-dir")
     lines = listed.stdout.decode("utf-8", "surrogateescape").splitlines() if listed else []
@@ -374,10 +385,10 @@ def _git_dirs_digest(repo: Path) -> str | None:
     entry = repo / ".git"
     try:
         info = entry.lstat()
-        body = os.fsencode(os.readlink(entry)) if stat.S_ISLNK(info.st_mode) else entry.read_bytes()[:CHUNK + 1] if stat.S_ISREG(info.st_mode) else b""
+        if stat.S_ISREG(info.st_mode) and info.st_size > CHUNK:
+            return None
+        body = os.fsencode(os.readlink(entry)) if stat.S_ISLNK(info.st_mode) else b"".join(_blocks(entry, info)) if stat.S_ISREG(info.st_mode) else b""
     except OSError:
-        return None
-    if len(body) > CHUNK:
         return None
     digests = [".git:%o %d %d %d %d:%s" % (info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_ino,
                                             hashlib.sha256(body).hexdigest())]

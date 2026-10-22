@@ -146,7 +146,8 @@ class HiddenEditTests(Base):
     def test_an_unreadable_or_special_file_makes_the_fingerprint_incomplete(self):
         locked = self.repo / "locked.txt"
         locked.write_text("x\n", encoding="utf-8")
-        with mock.patch.object(Path, "open", side_effect=PermissionError("denied")):
+        # The read goes through os.open (O_NOFOLLOW | O_NONBLOCK) since round 10; the contract is unchanged.
+        with mock.patch.object(gate_workspace.os, "open", side_effect=PermissionError("denied")):
             self.assertFalse(gate_workspace.fingerprint(self.repo)["complete"])
         os.mkfifo(self.repo / "pipe")
         self.assertEqual("special", gate_workspace._hash(self.repo / "pipe"))

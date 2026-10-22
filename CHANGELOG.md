@@ -4,6 +4,14 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+
+- Validation gates, tenth review round of PR #62:
+  - **CI on Linux** (HIGH): the 15.16.8 gitfile test asserted that a write through a shared mapping moves no mtime or ctime. That holds on APFS, but Linux updates mtime when the page is written, so the test failed on `ubuntu-latest`. The test now asserts only what the gate guarantees: git still resolves the gitfile, and `git_dir` changes.
+  - **Files swapped while read** (LOW): a file replaced between `lstat` and `open` by a FIFO, or by a symlink to `/dev/zero`, hung the gate (scan and fingerprint). Files are now opened with `O_NOFOLLOW | O_NONBLOCK`, then `fstat` must show the same regular file. Reads stop at the size `lstat` saw, and a file that grew is unreadable (fingerprint incomplete). The `.git` entry is read the same way, so a gitfile grown large is no longer read in full.
+  - **Documentation:** the 15.16.8 docs said objects are "re-hashed when read anyway". That is true only for the commit and tree objects the gate reads, not for other files under `.git/objects`. "Limits" now states that an unflushed write through a shared mapping under `.git/objects` or an ignored path is not detected, so reuse assumes no worker process is still running when the gate evaluates. It also states that more than 64 MiB of git-directory content outside `objects/` (Git LFS) disables reuse.
+  - **Tests:** four more in `test_gates_round6.py`: a file swapped for a FIFO, a file swapped for a symlink to a device, a file that grows in place, and a symlink to the same file. The first two fail against the 15.16.8 code, where they hang until the test's 5 s join. A mutation run of 4 rules (`.hermes-dev/mut10.log`) first left 2 survivors. The first growth test recreated the file, so the inode check caught it before the size check. It was rewritten to append in place, the symlink test was added for `O_NOFOLLOW`, and the rerun in the same log killed all 4. A round-3 test that mocked `Path.open` now mocks `os.open`, the new read point. Its contract is unchanged.
+
 ## 15.16.8 - 2026-10-21
 
 ### Fixed

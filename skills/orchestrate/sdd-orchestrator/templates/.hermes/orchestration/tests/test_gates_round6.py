@@ -10,6 +10,7 @@ import py_compile
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -199,7 +200,7 @@ class GitDirectoryTests(Base):
         self.assertEqual(info.st_size, len(same_size))
         with gitfile.open("r+b") as handle, mmap.mmap(handle.fileno(), 0) as mapped:
             mapped[:] = same_size
-            self.assertEqual((info.st_mtime_ns, info.st_ctime_ns, info.st_ino), (gitfile.stat().st_mtime_ns, gitfile.stat().st_ctime_ns, gitfile.stat().st_ino))
+            # On APFS the unflushed write moves no metadata, so only the content hash can see it; Linux moves mtime.
             after = gate_workspace.fingerprint(worktree, self.base)
         self.assertTrue(before["complete"])
         self.assertTrue(after["complete"], "git still resolves the new spelling")
@@ -221,6 +222,53 @@ class GitDirectoryTests(Base):
             found = gate_workspace.fingerprint(self.repo, self.base)
         self.assertIsNotNone(found["ignored"])
         self.assertFalse(found["complete"])
+
+
+class SwappedFileTests(Base):
+    """A file replaced between ``lstat`` and ``open`` must not hang the gate or be read as the old file."""
+
+    def swapped(self, replacement) -> str | None:
+        target = self.repo / ".git" / "info" / "x"
+        target.parent.mkdir(exist_ok=True)
+        target.write_bytes(b"data")
+        info = target.lstat()
+        target.unlink()
+        replacement(target)
+        result: list = []
+        with mock.patch.object(Path, "lstat", lambda path: info):
+            worker = threading.Thread(target=lambda: result.append(gate_workspace._hash(target)), daemon=True)
+            worker.start()
+            worker.join(5)
+        self.assertFalse(worker.is_alive(), "the gate hung reading a swapped file")
+        return result[0]
+
+    def test_a_file_swapped_for_a_fifo_is_unreadable(self):
+        self.assertEqual("unreadable", self.swapped(os.mkfifo))
+
+    def test_a_file_swapped_for_a_symlink_to_a_device_is_unreadable(self):
+        self.assertEqual("unreadable", self.swapped(lambda path: os.symlink("/dev/zero", path)))
+
+    def test_a_file_that_grows_while_read_is_unreadable(self):
+        target = self.repo / ".git" / "info" / "x"
+        target.parent.mkdir(exist_ok=True)
+        target.write_bytes(b"data")
+        info = target.lstat()
+        with target.open("ab") as handle:  # the same inode, appended to after lstat
+            handle.write(b", and more")
+        self.assertEqual(info.st_ino, target.lstat().st_ino)
+        with mock.patch.object(Path, "lstat", lambda path: info):
+            self.assertEqual("unreadable", gate_workspace._hash(target))
+
+    def test_a_symlink_to_the_same_file_is_not_followed(self):
+        real = self.root / "real"
+        real.write_bytes(b"data")
+        info = real.lstat()
+        link = self.repo / ".git" / "info" / "x"
+        link.parent.mkdir(exist_ok=True)
+        os.symlink(real, link)
+        with mock.patch.object(gate_workspace.os, "fstat", lambda descriptor: info):
+            with mock.patch.object(Path, "lstat", lambda path: info):
+                self.assertEqual("unreadable", gate_workspace._hash(link), "O_NOFOLLOW must refuse the link itself")
 
 
 class CommandCacheTests(Base):
