@@ -121,6 +121,20 @@ def merge_tokens(usage: dict[str, Any], tokens: Any, method: Any) -> None:
         usage["tokens_method"] = "MEASURED"
 
 
+def record_attempt_tokens(attempt: dict[str, Any], tokens: Any, method: Any) -> None:
+    """Keep the attempt's own token count beside the execution total, for per-node observability.
+
+    Recorded for failed attempts too, while ``usage.tokens`` (the ``max_tokens`` budget) still counts
+    successful attempts only. Invalid counts are recorded as unknown (``None``), never as zero; the
+    method follows ``merge_tokens`` (anything but ``MEASURED`` is ``ESTIMATED``).
+    """
+    if not isinstance(tokens, int) or isinstance(tokens, bool) or tokens < 0:
+        attempt["tokens"], attempt["tokens_method"] = None, "UNMEASURED"
+        return
+    attempt["tokens"] = tokens
+    attempt["tokens_method"] = "MEASURED" if method == "MEASURED" else "ESTIMATED"
+
+
 def _decision_key(entry: dict[str, Any]) -> tuple[Any, Any, Any]:
     return entry.get("decision"), entry.get("node"), entry.get("generation")
 

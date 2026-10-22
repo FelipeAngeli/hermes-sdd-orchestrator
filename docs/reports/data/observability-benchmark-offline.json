@@ -1,0 +1,3018 @@
+{
+ "comparison": {
+  "nominal": {
+   "A": {
+    "agent_tokens_simulated": 284400,
+    "context_gross_saving_estimated": 0,
+    "context_net_saving_estimated": 0,
+    "correction_loops": 1,
+    "evaluator_latency_s": 0,
+    "first_attempt_success_rate": 0.714,
+    "jev_tokens_measured": 0,
+    "loop_status": "COMPLETED",
+    "policy_blocks": {},
+    "quality": {
+     "all_stages_completed": true,
+     "governance_reviews": 0,
+     "requirements_preserved": true
+    },
+    "retries_by_cause": {
+     "FUNCTIONAL:ASSERTION": 1,
+     "TRANSIENT:RATE_LIMITED": 1
+    },
+    "simulated_elapsed_s": 2932.0
+   },
+   "B": {
+    "agent_tokens_simulated": 284400,
+    "context_gross_saving_estimated": 0,
+    "context_net_saving_estimated": 0,
+    "correction_loops": 1,
+    "evaluator_latency_s": 0.026,
+    "first_attempt_success_rate": 0.714,
+    "jev_tokens_measured": 0,
+    "loop_status": "COMPLETED",
+    "policy_blocks": {},
+    "quality": {
+     "all_stages_completed": true,
+     "governance_reviews": 0,
+     "requirements_preserved": true
+    },
+    "retries_by_cause": {
+     "FUNCTIONAL:ASSERTION": 1,
+     "TRANSIENT:RATE_LIMITED": 1
+    },
+    "simulated_elapsed_s": 2932.026
+   },
+   "C": {
+    "agent_tokens_simulated": 279612,
+    "context_gross_saving_estimated": 4788,
+    "context_net_saving_estimated": 4788,
+    "correction_loops": 1,
+    "evaluator_latency_s": 0.024,
+    "first_attempt_success_rate": 0.714,
+    "jev_tokens_measured": 0,
+    "loop_status": "COMPLETED",
+    "policy_blocks": {},
+    "quality": {
+     "all_stages_completed": true,
+     "governance_reviews": 0,
+     "requirements_preserved": true
+    },
+    "retries_by_cause": {
+     "FUNCTIONAL:ASSERTION": 1,
+     "TRANSIENT:RATE_LIMITED": 1
+    },
+    "simulated_elapsed_s": 2932.024
+   },
+   "D": {
+    "agent_tokens_simulated": 279612,
+    "context_gross_saving_estimated": 4788,
+    "context_net_saving_estimated": 4788,
+    "correction_loops": 1,
+    "evaluator_latency_s": 0.024,
+    "first_attempt_success_rate": 0.714,
+    "jev_tokens_measured": 0,
+    "loop_status": "COMPLETED",
+    "policy_blocks": {},
+    "quality": {
+     "all_stages_completed": true,
+     "governance_reviews": 0,
+     "requirements_preserved": true
+    },
+    "retries_by_cause": {
+     "FUNCTIONAL:ASSERTION": 1,
+     "TRANSIENT:RATE_LIMITED": 1
+    },
+    "simulated_elapsed_s": 2932.024
+   }
+  },
+  "stressed": {
+   "A": {
+    "agent_tokens_simulated": 209200,
+    "context_gross_saving_estimated": 0,
+    "context_net_saving_estimated": 0,
+    "correction_loops": 0,
+    "evaluator_latency_s": 0,
+    "first_attempt_success_rate": 0.8,
+    "jev_tokens_measured": 0,
+    "loop_status": "BLOCKED",
+    "policy_blocks": {
+     "loop:TRANSIENT_RETRIES_EXHAUSTED": 1
+    },
+    "quality": {
+     "all_stages_completed": false,
+     "governance_reviews": 0,
+     "requirements_preserved": true
+    },
+    "retries_by_cause": {
+     "TRANSIENT:RATE_LIMITED": 3
+    },
+    "simulated_elapsed_s": 2256.0
+   },
+   "B": {
+    "agent_tokens_simulated": 209200,
+    "context_gross_saving_estimated": 0,
+    "context_net_saving_estimated": 0,
+    "correction_loops": 0,
+    "evaluator_latency_s": 0.028,
+    "first_attempt_success_rate": 0.8,
+    "jev_tokens_measured": 0,
+    "loop_status": "BLOCKED",
+    "policy_blocks": {
+     "loop:TRANSIENT_RETRIES_EXHAUSTED": 1
+    },
+    "quality": {
+     "all_stages_completed": false,
+     "governance_reviews": 0,
+     "requirements_preserved": true
+    },
+    "retries_by_cause": {
+     "TRANSIENT:RATE_LIMITED": 3
+    },
+    "simulated_elapsed_s": 2256.028
+   },
+   "C": {
+    "agent_tokens_simulated": 206332,
+    "context_gross_saving_estimated": 2868,
+    "context_net_saving_estimated": 2868,
+    "correction_loops": 0,
+    "evaluator_latency_s": 0.014,
+    "first_attempt_success_rate": 0.8,
+    "jev_tokens_measured": 0,
+    "loop_status": "BLOCKED",
+    "policy_blocks": {
+     "loop:TRANSIENT_RETRIES_EXHAUSTED": 1
+    },
+    "quality": {
+     "all_stages_completed": false,
+     "governance_reviews": 0,
+     "requirements_preserved": true
+    },
+    "retries_by_cause": {
+     "TRANSIENT:RATE_LIMITED": 3
+    },
+    "simulated_elapsed_s": 2256.014
+   },
+   "D": {
+    "agent_tokens_simulated": 375700,
+    "context_gross_saving_estimated": 6700,
+    "context_net_saving_estimated": 6700,
+    "correction_loops": 1,
+    "evaluator_latency_s": 0.032,
+    "first_attempt_success_rate": 0.714,
+    "jev_tokens_measured": 0,
+    "loop_status": "COMPLETED",
+    "policy_blocks": {},
+    "quality": {
+     "all_stages_completed": true,
+     "governance_reviews": 0,
+     "requirements_preserved": true
+    },
+    "retries_by_cause": {
+     "FUNCTIONAL:ASSERTION": 1,
+     "TRANSIENT:RATE_LIMITED": 3
+    },
+    "simulated_elapsed_s": 4144.032
+   }
+  }
+ },
+ "jev": "offline",
+ "live_calls_refused": 0,
+ "live_calls_used": 0,
+ "methods": {
+  "agent_tokens": "SIMULATED (scripted workload)",
+  "context_saving": "ESTIMATED (bytes / bytes_per_token)",
+  "elapsed": "SIMULATED clock",
+  "jev_tokens": "offline stand-in (zero)"
+ },
+ "reports": {
+  "nominal": {
+   "A": {
+    "concurrency": {
+     "average_parallel": 0.999,
+     "busy_s": 2930.0,
+     "max_parallel": 1,
+     "span_s": 2932.0
+    },
+    "cost": {
+     "by_actor": {
+      "agents": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 10
+       },
+       "unpriced_records": 10
+      }
+     },
+     "by_stage": {
+      "CLARIFY": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "IMPLEMENT": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 3
+       },
+       "unpriced_records": 3
+      },
+      "PLAN": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "REVIEW": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "SPECIFY": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "TASKS": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "TEST": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 2
+       },
+       "unpriced_records": 2
+      }
+     },
+     "method": "ESTIMATED list price; never a bill",
+     "price_table_sha256": "335f3013e26dd9661301ede4c79d556353e19cff1b6951c78fdcc403e23d8abd",
+     "price_table_version": "2026-10-22",
+     "reported_by_provider_usd": {}
+    },
+    "events": 33,
+    "human_wait": {
+     "max_s": null,
+     "p50_s": null,
+     "resolved": 0,
+     "still_waiting": 0,
+     "total_s": 0
+    },
+    "jev": {
+     "context_engine": {
+      "applied_runs": 0,
+      "cache": {
+       "hit_ratio": null,
+       "hits": 0,
+       "misses": 0
+      },
+      "evaluator_tokens": {
+       "input": 0,
+       "method": "MEASURED",
+       "output": 0
+      },
+      "gross_saving_tokens": {
+       "applied": 0,
+       "dry_run_estimate": 0,
+       "method": "ESTIMATED"
+      },
+      "net_saving_tokens": {
+       "applied": 0,
+       "dry_run_estimate": 0,
+       "method": "ESTIMATED (estimated saving minus measured evaluator tokens)"
+      },
+      "runs": 0
+     },
+     "governance": {
+      "cache_reuses": 0,
+      "decided": 0,
+      "evaluator_tokens": {
+       "input": 0,
+       "method": "MEASURED",
+       "output": 0
+      },
+      "live_calls": 0,
+      "note": "Governance decisions save no prompt tokens; their tokens are pure overhead.",
+      "review": 0
+     }
+    },
+    "latency": {
+     "evaluator_added_latency_s": 0,
+     "stage:CLARIFY": {
+      "count": 1,
+      "max_s": 60.0,
+      "p50_s": 60.0,
+      "p95_s": 60.0,
+      "total_s": 60.0
+     },
+     "stage:IMPLEMENT": {
+      "count": 3,
+      "max_s": 600.0,
+      "p50_s": 600.0,
+      "p95_s": 600.0,
+      "total_s": 1800.0
+     },
+     "stage:PLAN": {
+      "count": 1,
+      "max_s": 180.0,
+      "p50_s": 180.0,
+      "p95_s": 180.0,
+      "total_s": 180.0
+     },
+     "stage:REVIEW": {
+      "count": 1,
+      "max_s": 200.0,
+      "p50_s": 200.0,
+      "p95_s": 200.0,
+      "total_s": 200.0
+     },
+     "stage:SPECIFY": {
+      "count": 1,
+      "max_s": 120.0,
+      "p50_s": 120.0,
+      "p95_s": 120.0,
+      "total_s": 120.0
+     },
+     "stage:TASKS": {
+      "count": 1,
+      "max_s": 90.0,
+      "p50_s": 90.0,
+      "p95_s": 90.0,
+      "total_s": 90.0
+     },
+     "stage:TEST": {
+      "count": 2,
+      "max_s": 240.0,
+      "p50_s": 240.0,
+      "p95_s": 240.0,
+      "total_s": 480.0
+     }
+    },
+    "overhead": {},
+    "progress": {
+     "actions": {},
+     "correction_cycles_recorded": 1,
+     "correction_loops": 1,
+     "loops": {
+      "COMPLETED": 1
+     },
+     "nodes": {
+      "first_attempt_success": 5,
+      "first_attempt_success_rate": 0.714,
+      "total": 7
+     },
+     "policy_blocks": {},
+     "recovery_after_interruption": {
+      "interrupted_nodes": 0,
+      "rate": null,
+      "recovered": 0
+     },
+     "retries_by_cause": {
+      "FUNCTIONAL:ASSERTION": 1,
+      "TRANSIENT:RATE_LIMITED": 1
+     },
+     "time_to_completion_s": {
+      "max": 2932.0,
+      "p50": 2932.0
+     }
+    },
+    "schema_version": 1,
+    "sources": {
+     "loop_store": 33
+    },
+    "tokens": {
+     "by_actor": {
+      "agents": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 10,
+        "total_tokens": 284400,
+        "unknown_fields": 40
+       }
+      },
+      "jev": {}
+     },
+     "by_stage": {
+      "CLARIFY": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 10200,
+        "unknown_fields": 4
+       }
+      },
+      "IMPLEMENT": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 3,
+        "total_tokens": 147000,
+        "unknown_fields": 12
+       }
+      },
+      "PLAN": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 21500,
+        "unknown_fields": 4
+       }
+      },
+      "REVIEW": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 28200,
+        "unknown_fields": 4
+       }
+      },
+      "SPECIFY": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 14500,
+        "unknown_fields": 4
+       }
+      },
+      "TASKS": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 16000,
+        "unknown_fields": 4
+       }
+      },
+      "TEST": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 2,
+        "total_tokens": 47000,
+        "unknown_fields": 8
+       }
+      }
+     },
+     "note": "Methods are never summed together; unknown_fields counts values the source did not report."
+    },
+    "unreadable_sources": {}
+   },
+   "B": {
+    "concurrency": {
+     "average_parallel": 0.999,
+     "busy_s": 2930.026,
+     "max_parallel": 1,
+     "span_s": 2932.026
+    },
+    "cost": {
+     "by_actor": {
+      "agents": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 10
+       },
+       "unpriced_records": 10
+      },
+      "jev": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 4
+       },
+       "unpriced_records": 4
+      }
+     },
+     "by_stage": {
+      "CLARIFY": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "IMPLEMENT": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 4
+       },
+       "unpriced_records": 4
+      },
+      "PLAN": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 2
+       },
+       "unpriced_records": 2
+      },
+      "REVIEW": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 2
+       },
+       "unpriced_records": 2
+      },
+      "SPECIFY": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "TASKS": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "TEST": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 3
+       },
+       "unpriced_records": 3
+      }
+     },
+     "method": "ESTIMATED list price; never a bill",
+     "price_table_sha256": "335f3013e26dd9661301ede4c79d556353e19cff1b6951c78fdcc403e23d8abd",
+     "price_table_version": "2026-10-22",
+     "reported_by_provider_usd": {}
+    },
+    "events": 40,
+    "human_wait": {
+     "max_s": null,
+     "p50_s": null,
+     "resolved": 0,
+     "still_waiting": 0,
+     "total_s": 0
+    },
+    "jev": {
+     "context_engine": {
+      "applied_runs": 0,
+      "cache": {
+       "hit_ratio": 0.6,
+       "hits": 24,
+       "misses": 16
+      },
+      "evaluator_tokens": {
+       "input": 0,
+       "method": "MEASURED",
+       "output": 0
+      },
+      "gross_saving_tokens": {
+       "applied": 0,
+       "dry_run_estimate": 4788,
+       "method": "ESTIMATED"
+      },
+      "net_saving_tokens": {
+       "applied": 0,
+       "dry_run_estimate": 4788,
+       "method": "ESTIMATED (estimated saving minus measured evaluator tokens)"
+      },
+      "runs": 5
+     },
+     "governance": {
+      "cache_reuses": 0,
+      "decided": 2,
+      "evaluator_tokens": {
+       "input": 0,
+       "method": "MEASURED",
+       "output": 0
+      },
+      "live_calls": 2,
+      "note": "Governance decisions save no prompt tokens; their tokens are pure overhead.",
+      "review": 0
+     }
+    },
+    "latency": {
+     "evaluator:context_engine": {
+      "count": 5,
+      "max_s": 0.008,
+      "p50_s": 0.004,
+      "p95_s": 0.008,
+      "total_s": 0.026
+     },
+     "evaluator:jev_decision": {
+      "count": 2,
+      "max_s": 0.0,
+      "p50_s": 0.0,
+      "p95_s": 0.0,
+      "total_s": 0.0
+     },
+     "evaluator_added_latency_s": 0.026,
+     "stage:CLARIFY": {
+      "count": 1,
+      "max_s": 60.0,
+      "p50_s": 60.0,
+      "p95_s": 60.0,
+      "total_s": 60.0
+     },
+     "stage:IMPLEMENT": {
+      "count": 3,
+      "max_s": 600.008,
+      "p50_s": 600.004,
+      "p95_s": 600.008,
+      "total_s": 1800.016
+     },
+     "stage:PLAN": {
+      "count": 1,
+      "max_s": 180.0,
+      "p50_s": 180.0,
+      "p95_s": 180.0,
+      "total_s": 180.0
+     },
+     "stage:REVIEW": {
+      "count": 1,
+      "max_s": 200.0,
+      "p50_s": 200.0,
+      "p95_s": 200.0,
+      "total_s": 200.0
+     },
+     "stage:SPECIFY": {
+      "count": 1,
+      "max_s": 120.0,
+      "p50_s": 120.0,
+      "p95_s": 120.0,
+      "total_s": 120.0
+     },
+     "stage:TASKS": {
+      "count": 1,
+      "max_s": 90.0,
+      "p50_s": 90.0,
+      "p95_s": 90.0,
+      "total_s": 90.0
+     },
+     "stage:TEST": {
+      "count": 2,
+      "max_s": 240.006,
+      "p50_s": 240.004,
+      "p95_s": 240.006,
+      "total_s": 480.01
+     }
+    },
+    "overhead": {},
+    "progress": {
+     "actions": {},
+     "correction_cycles_recorded": 1,
+     "correction_loops": 1,
+     "loops": {
+      "COMPLETED": 1
+     },
+     "nodes": {
+      "first_attempt_success": 5,
+      "first_attempt_success_rate": 0.714,
+      "total": 7
+     },
+     "policy_blocks": {},
+     "recovery_after_interruption": {
+      "interrupted_nodes": 0,
+      "rate": null,
+      "recovered": 0
+     },
+     "retries_by_cause": {
+      "FUNCTIONAL:ASSERTION": 1,
+      "TRANSIENT:RATE_LIMITED": 1
+     },
+     "time_to_completion_s": {
+      "max": 2932.026,
+      "p50": 2932.026
+     }
+    },
+    "schema_version": 1,
+    "sources": {
+     "context_engine": 5,
+     "jev_receipts": 2,
+     "loop_store": 33
+    },
+    "tokens": {
+     "by_actor": {
+      "agents": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 10,
+        "total_tokens": 284400,
+        "unknown_fields": 40
+       }
+      },
+      "jev": {
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 4,
+        "total_tokens": 0,
+        "unknown_fields": 8
+       }
+      }
+     },
+     "by_stage": {
+      "CLARIFY": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 10200,
+        "unknown_fields": 4
+       }
+      },
+      "IMPLEMENT": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 3,
+        "total_tokens": 147000,
+        "unknown_fields": 12
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      },
+      "PLAN": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 21500,
+        "unknown_fields": 4
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      },
+      "REVIEW": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 28200,
+        "unknown_fields": 4
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      },
+      "SPECIFY": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 14500,
+        "unknown_fields": 4
+       }
+      },
+      "TASKS": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 16000,
+        "unknown_fields": 4
+       }
+      },
+      "TEST": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 2,
+        "total_tokens": 47000,
+        "unknown_fields": 8
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      }
+     },
+     "note": "Methods are never summed together; unknown_fields counts values the source did not report."
+    },
+    "unreadable_sources": {}
+   },
+   "C": {
+    "concurrency": {
+     "average_parallel": 0.999,
+     "busy_s": 2930.024,
+     "max_parallel": 1,
+     "span_s": 2932.024
+    },
+    "cost": {
+     "by_actor": {
+      "agents": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 10
+       },
+       "unpriced_records": 10
+      },
+      "jev": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 4
+       },
+       "unpriced_records": 4
+      }
+     },
+     "by_stage": {
+      "CLARIFY": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "IMPLEMENT": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 4
+       },
+       "unpriced_records": 4
+      },
+      "PLAN": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 2
+       },
+       "unpriced_records": 2
+      },
+      "REVIEW": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 2
+       },
+       "unpriced_records": 2
+      },
+      "SPECIFY": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "TASKS": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "TEST": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 3
+       },
+       "unpriced_records": 3
+      }
+     },
+     "method": "ESTIMATED list price; never a bill",
+     "price_table_sha256": "335f3013e26dd9661301ede4c79d556353e19cff1b6951c78fdcc403e23d8abd",
+     "price_table_version": "2026-10-22",
+     "reported_by_provider_usd": {}
+    },
+    "events": 40,
+    "human_wait": {
+     "max_s": null,
+     "p50_s": null,
+     "resolved": 0,
+     "still_waiting": 0,
+     "total_s": 0
+    },
+    "jev": {
+     "context_engine": {
+      "applied_runs": 5,
+      "cache": {
+       "hit_ratio": 0.6,
+       "hits": 24,
+       "misses": 16
+      },
+      "evaluator_tokens": {
+       "input": 0,
+       "method": "MEASURED",
+       "output": 0
+      },
+      "gross_saving_tokens": {
+       "applied": 4788,
+       "dry_run_estimate": 4788,
+       "method": "ESTIMATED"
+      },
+      "net_saving_tokens": {
+       "applied": 4788,
+       "dry_run_estimate": 4788,
+       "method": "ESTIMATED (estimated saving minus measured evaluator tokens)"
+      },
+      "runs": 5
+     },
+     "governance": {
+      "cache_reuses": 0,
+      "decided": 2,
+      "evaluator_tokens": {
+       "input": 0,
+       "method": "MEASURED",
+       "output": 0
+      },
+      "live_calls": 2,
+      "note": "Governance decisions save no prompt tokens; their tokens are pure overhead.",
+      "review": 0
+     }
+    },
+    "latency": {
+     "evaluator:context_engine": {
+      "count": 5,
+      "max_s": 0.006,
+      "p50_s": 0.004,
+      "p95_s": 0.006,
+      "total_s": 0.024
+     },
+     "evaluator:jev_decision": {
+      "count": 2,
+      "max_s": 0.0,
+      "p50_s": 0.0,
+      "p95_s": 0.0,
+      "total_s": 0.0
+     },
+     "evaluator_added_latency_s": 0.024,
+     "stage:CLARIFY": {
+      "count": 1,
+      "max_s": 60.0,
+      "p50_s": 60.0,
+      "p95_s": 60.0,
+      "total_s": 60.0
+     },
+     "stage:IMPLEMENT": {
+      "count": 3,
+      "max_s": 600.006,
+      "p50_s": 600.004,
+      "p95_s": 600.006,
+      "total_s": 1800.014
+     },
+     "stage:PLAN": {
+      "count": 1,
+      "max_s": 180.0,
+      "p50_s": 180.0,
+      "p95_s": 180.0,
+      "total_s": 180.0
+     },
+     "stage:REVIEW": {
+      "count": 1,
+      "max_s": 200.0,
+      "p50_s": 200.0,
+      "p95_s": 200.0,
+      "total_s": 200.0
+     },
+     "stage:SPECIFY": {
+      "count": 1,
+      "max_s": 120.0,
+      "p50_s": 120.0,
+      "p95_s": 120.0,
+      "total_s": 120.0
+     },
+     "stage:TASKS": {
+      "count": 1,
+      "max_s": 90.0,
+      "p50_s": 90.0,
+      "p95_s": 90.0,
+      "total_s": 90.0
+     },
+     "stage:TEST": {
+      "count": 2,
+      "max_s": 240.006,
+      "p50_s": 240.004,
+      "p95_s": 240.006,
+      "total_s": 480.01
+     }
+    },
+    "overhead": {},
+    "progress": {
+     "actions": {},
+     "correction_cycles_recorded": 1,
+     "correction_loops": 1,
+     "loops": {
+      "COMPLETED": 1
+     },
+     "nodes": {
+      "first_attempt_success": 5,
+      "first_attempt_success_rate": 0.714,
+      "total": 7
+     },
+     "policy_blocks": {},
+     "recovery_after_interruption": {
+      "interrupted_nodes": 0,
+      "rate": null,
+      "recovered": 0
+     },
+     "retries_by_cause": {
+      "FUNCTIONAL:ASSERTION": 1,
+      "TRANSIENT:RATE_LIMITED": 1
+     },
+     "time_to_completion_s": {
+      "max": 2932.024,
+      "p50": 2932.024
+     }
+    },
+    "schema_version": 1,
+    "sources": {
+     "context_engine": 5,
+     "jev_receipts": 2,
+     "loop_store": 33
+    },
+    "tokens": {
+     "by_actor": {
+      "agents": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 10,
+        "total_tokens": 279612,
+        "unknown_fields": 40
+       }
+      },
+      "jev": {
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 4,
+        "total_tokens": 0,
+        "unknown_fields": 8
+       }
+      }
+     },
+     "by_stage": {
+      "CLARIFY": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 10200,
+        "unknown_fields": 4
+       }
+      },
+      "IMPLEMENT": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 3,
+        "total_tokens": 144132,
+        "unknown_fields": 12
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      },
+      "PLAN": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 21500,
+        "unknown_fields": 4
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      },
+      "REVIEW": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 28200,
+        "unknown_fields": 4
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      },
+      "SPECIFY": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 14500,
+        "unknown_fields": 4
+       }
+      },
+      "TASKS": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 16000,
+        "unknown_fields": 4
+       }
+      },
+      "TEST": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 2,
+        "total_tokens": 45080,
+        "unknown_fields": 8
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      }
+     },
+     "note": "Methods are never summed together; unknown_fields counts values the source did not report."
+    },
+    "unreadable_sources": {}
+   },
+   "D": {
+    "concurrency": {
+     "average_parallel": 0.999,
+     "busy_s": 2930.024,
+     "max_parallel": 1,
+     "span_s": 2932.024
+    },
+    "cost": {
+     "by_actor": {
+      "agents": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 10
+       },
+       "unpriced_records": 10
+      },
+      "jev": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 4
+       },
+       "unpriced_records": 4
+      }
+     },
+     "by_stage": {
+      "CLARIFY": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "IMPLEMENT": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 4
+       },
+       "unpriced_records": 4
+      },
+      "PLAN": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 2
+       },
+       "unpriced_records": 2
+      },
+      "REVIEW": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 2
+       },
+       "unpriced_records": 2
+      },
+      "SPECIFY": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "TASKS": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "TEST": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 3
+       },
+       "unpriced_records": 3
+      }
+     },
+     "method": "ESTIMATED list price; never a bill",
+     "price_table_sha256": "335f3013e26dd9661301ede4c79d556353e19cff1b6951c78fdcc403e23d8abd",
+     "price_table_version": "2026-10-22",
+     "reported_by_provider_usd": {}
+    },
+    "events": 40,
+    "human_wait": {
+     "max_s": null,
+     "p50_s": null,
+     "resolved": 0,
+     "still_waiting": 0,
+     "total_s": 0
+    },
+    "jev": {
+     "context_engine": {
+      "applied_runs": 5,
+      "cache": {
+       "hit_ratio": 0.6,
+       "hits": 24,
+       "misses": 16
+      },
+      "evaluator_tokens": {
+       "input": 0,
+       "method": "MEASURED",
+       "output": 0
+      },
+      "gross_saving_tokens": {
+       "applied": 4788,
+       "dry_run_estimate": 4788,
+       "method": "ESTIMATED"
+      },
+      "net_saving_tokens": {
+       "applied": 4788,
+       "dry_run_estimate": 4788,
+       "method": "ESTIMATED (estimated saving minus measured evaluator tokens)"
+      },
+      "runs": 5
+     },
+     "governance": {
+      "cache_reuses": 0,
+      "decided": 2,
+      "evaluator_tokens": {
+       "input": 0,
+       "method": "MEASURED",
+       "output": 0
+      },
+      "live_calls": 2,
+      "note": "Governance decisions save no prompt tokens; their tokens are pure overhead.",
+      "review": 0
+     }
+    },
+    "latency": {
+     "evaluator:context_engine": {
+      "count": 5,
+      "max_s": 0.006,
+      "p50_s": 0.004,
+      "p95_s": 0.006,
+      "total_s": 0.024
+     },
+     "evaluator:jev_decision": {
+      "count": 2,
+      "max_s": 0.0,
+      "p50_s": 0.0,
+      "p95_s": 0.0,
+      "total_s": 0.0
+     },
+     "evaluator_added_latency_s": 0.024,
+     "stage:CLARIFY": {
+      "count": 1,
+      "max_s": 60.0,
+      "p50_s": 60.0,
+      "p95_s": 60.0,
+      "total_s": 60.0
+     },
+     "stage:IMPLEMENT": {
+      "count": 3,
+      "max_s": 600.006,
+      "p50_s": 600.004,
+      "p95_s": 600.006,
+      "total_s": 1800.014
+     },
+     "stage:PLAN": {
+      "count": 1,
+      "max_s": 180.0,
+      "p50_s": 180.0,
+      "p95_s": 180.0,
+      "total_s": 180.0
+     },
+     "stage:REVIEW": {
+      "count": 1,
+      "max_s": 200.0,
+      "p50_s": 200.0,
+      "p95_s": 200.0,
+      "total_s": 200.0
+     },
+     "stage:SPECIFY": {
+      "count": 1,
+      "max_s": 120.0,
+      "p50_s": 120.0,
+      "p95_s": 120.0,
+      "total_s": 120.0
+     },
+     "stage:TASKS": {
+      "count": 1,
+      "max_s": 90.0,
+      "p50_s": 90.0,
+      "p95_s": 90.0,
+      "total_s": 90.0
+     },
+     "stage:TEST": {
+      "count": 2,
+      "max_s": 240.006,
+      "p50_s": 240.004,
+      "p95_s": 240.006,
+      "total_s": 480.01
+     }
+    },
+    "overhead": {},
+    "progress": {
+     "actions": {},
+     "correction_cycles_recorded": 1,
+     "correction_loops": 1,
+     "loops": {
+      "COMPLETED": 1
+     },
+     "nodes": {
+      "first_attempt_success": 5,
+      "first_attempt_success_rate": 0.714,
+      "total": 7
+     },
+     "policy_blocks": {},
+     "recovery_after_interruption": {
+      "interrupted_nodes": 0,
+      "rate": null,
+      "recovered": 0
+     },
+     "retries_by_cause": {
+      "FUNCTIONAL:ASSERTION": 1,
+      "TRANSIENT:RATE_LIMITED": 1
+     },
+     "time_to_completion_s": {
+      "max": 2932.024,
+      "p50": 2932.024
+     }
+    },
+    "schema_version": 1,
+    "sources": {
+     "context_engine": 5,
+     "jev_receipts": 2,
+     "loop_store": 33
+    },
+    "tokens": {
+     "by_actor": {
+      "agents": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 10,
+        "total_tokens": 279612,
+        "unknown_fields": 40
+       }
+      },
+      "jev": {
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 4,
+        "total_tokens": 0,
+        "unknown_fields": 8
+       }
+      }
+     },
+     "by_stage": {
+      "CLARIFY": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 10200,
+        "unknown_fields": 4
+       }
+      },
+      "IMPLEMENT": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 3,
+        "total_tokens": 144132,
+        "unknown_fields": 12
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      },
+      "PLAN": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 21500,
+        "unknown_fields": 4
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      },
+      "REVIEW": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 28200,
+        "unknown_fields": 4
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      },
+      "SPECIFY": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 14500,
+        "unknown_fields": 4
+       }
+      },
+      "TASKS": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 16000,
+        "unknown_fields": 4
+       }
+      },
+      "TEST": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 2,
+        "total_tokens": 45080,
+        "unknown_fields": 8
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      }
+     },
+     "note": "Methods are never summed together; unknown_fields counts values the source did not report."
+    },
+    "unreadable_sources": {}
+   }
+  },
+  "stressed": {
+   "A": {
+    "concurrency": {
+     "average_parallel": 0.997,
+     "busy_s": 2250.0,
+     "max_parallel": 1,
+     "span_s": 2256.0
+    },
+    "cost": {
+     "by_actor": {
+      "agents": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 7
+       },
+       "unpriced_records": 7
+      }
+     },
+     "by_stage": {
+      "CLARIFY": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "IMPLEMENT": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 3
+       },
+       "unpriced_records": 3
+      },
+      "PLAN": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "SPECIFY": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "TASKS": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      }
+     },
+     "method": "ESTIMATED list price; never a bill",
+     "price_table_sha256": "335f3013e26dd9661301ede4c79d556353e19cff1b6951c78fdcc403e23d8abd",
+     "price_table_version": "2026-10-22",
+     "reported_by_provider_usd": {}
+    },
+    "events": 23,
+    "human_wait": {
+     "max_s": null,
+     "p50_s": null,
+     "resolved": 0,
+     "still_waiting": 1,
+     "total_s": 0
+    },
+    "jev": {
+     "context_engine": {
+      "applied_runs": 0,
+      "cache": {
+       "hit_ratio": null,
+       "hits": 0,
+       "misses": 0
+      },
+      "evaluator_tokens": {
+       "input": 0,
+       "method": "MEASURED",
+       "output": 0
+      },
+      "gross_saving_tokens": {
+       "applied": 0,
+       "dry_run_estimate": 0,
+       "method": "ESTIMATED"
+      },
+      "net_saving_tokens": {
+       "applied": 0,
+       "dry_run_estimate": 0,
+       "method": "ESTIMATED (estimated saving minus measured evaluator tokens)"
+      },
+      "runs": 0
+     },
+     "governance": {
+      "cache_reuses": 0,
+      "decided": 0,
+      "evaluator_tokens": {
+       "input": 0,
+       "method": "MEASURED",
+       "output": 0
+      },
+      "live_calls": 0,
+      "note": "Governance decisions save no prompt tokens; their tokens are pure overhead.",
+      "review": 0
+     }
+    },
+    "latency": {
+     "evaluator_added_latency_s": 0,
+     "stage:CLARIFY": {
+      "count": 1,
+      "max_s": 60.0,
+      "p50_s": 60.0,
+      "p95_s": 60.0,
+      "total_s": 60.0
+     },
+     "stage:IMPLEMENT": {
+      "count": 3,
+      "max_s": 600.0,
+      "p50_s": 600.0,
+      "p95_s": 600.0,
+      "total_s": 1800.0
+     },
+     "stage:PLAN": {
+      "count": 1,
+      "max_s": 180.0,
+      "p50_s": 180.0,
+      "p95_s": 180.0,
+      "total_s": 180.0
+     },
+     "stage:SPECIFY": {
+      "count": 1,
+      "max_s": 120.0,
+      "p50_s": 120.0,
+      "p95_s": 120.0,
+      "total_s": 120.0
+     },
+     "stage:TASKS": {
+      "count": 1,
+      "max_s": 90.0,
+      "p50_s": 90.0,
+      "p95_s": 90.0,
+      "total_s": 90.0
+     }
+    },
+    "overhead": {},
+    "progress": {
+     "actions": {},
+     "correction_cycles_recorded": 0,
+     "correction_loops": 0,
+     "loops": {
+      "BLOCKED": 1
+     },
+     "nodes": {
+      "first_attempt_success": 4,
+      "first_attempt_success_rate": 0.8,
+      "total": 5
+     },
+     "policy_blocks": {
+      "loop:TRANSIENT_RETRIES_EXHAUSTED": 1
+     },
+     "recovery_after_interruption": {
+      "interrupted_nodes": 0,
+      "rate": null,
+      "recovered": 0
+     },
+     "retries_by_cause": {
+      "TRANSIENT:RATE_LIMITED": 3
+     },
+     "time_to_completion_s": {
+      "max": null,
+      "p50": null
+     }
+    },
+    "schema_version": 1,
+    "sources": {
+     "loop_store": 23
+    },
+    "tokens": {
+     "by_actor": {
+      "agents": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 7,
+        "total_tokens": 209200,
+        "unknown_fields": 28
+       }
+      },
+      "jev": {}
+     },
+     "by_stage": {
+      "CLARIFY": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 10200,
+        "unknown_fields": 4
+       }
+      },
+      "IMPLEMENT": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 3,
+        "total_tokens": 147000,
+        "unknown_fields": 12
+       }
+      },
+      "PLAN": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 21500,
+        "unknown_fields": 4
+       }
+      },
+      "SPECIFY": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 14500,
+        "unknown_fields": 4
+       }
+      },
+      "TASKS": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 16000,
+        "unknown_fields": 4
+       }
+      }
+     },
+     "note": "Methods are never summed together; unknown_fields counts values the source did not report."
+    },
+    "unreadable_sources": {}
+   },
+   "B": {
+    "concurrency": {
+     "average_parallel": 0.997,
+     "busy_s": 2250.028,
+     "max_parallel": 1,
+     "span_s": 2256.028
+    },
+    "cost": {
+     "by_actor": {
+      "agents": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 7
+       },
+       "unpriced_records": 7
+      },
+      "jev": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 3
+       },
+       "unpriced_records": 3
+      }
+     },
+     "by_stage": {
+      "CLARIFY": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "IMPLEMENT": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 4
+       },
+       "unpriced_records": 4
+      },
+      "PLAN": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 2
+       },
+       "unpriced_records": 2
+      },
+      "REVIEW": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "SPECIFY": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "TASKS": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      }
+     },
+     "method": "ESTIMATED list price; never a bill",
+     "price_table_sha256": "335f3013e26dd9661301ede4c79d556353e19cff1b6951c78fdcc403e23d8abd",
+     "price_table_version": "2026-10-22",
+     "reported_by_provider_usd": {}
+    },
+    "events": 28,
+    "human_wait": {
+     "max_s": null,
+     "p50_s": null,
+     "resolved": 0,
+     "still_waiting": 1,
+     "total_s": 0
+    },
+    "jev": {
+     "context_engine": {
+      "applied_runs": 0,
+      "cache": {
+       "hit_ratio": 0.667,
+       "hits": 16,
+       "misses": 8
+      },
+      "evaluator_tokens": {
+       "input": 0,
+       "method": "MEASURED",
+       "output": 0
+      },
+      "gross_saving_tokens": {
+       "applied": 0,
+       "dry_run_estimate": 2868,
+       "method": "ESTIMATED"
+      },
+      "net_saving_tokens": {
+       "applied": 0,
+       "dry_run_estimate": 2868,
+       "method": "ESTIMATED (estimated saving minus measured evaluator tokens)"
+      },
+      "runs": 3
+     },
+     "governance": {
+      "cache_reuses": 0,
+      "decided": 2,
+      "evaluator_tokens": {
+       "input": 0,
+       "method": "MEASURED",
+       "output": 0
+      },
+      "live_calls": 2,
+      "note": "Governance decisions save no prompt tokens; their tokens are pure overhead.",
+      "review": 0
+     }
+    },
+    "latency": {
+     "evaluator:context_engine": {
+      "count": 3,
+      "max_s": 0.018,
+      "p50_s": 0.006,
+      "p95_s": 0.018,
+      "total_s": 0.028
+     },
+     "evaluator:jev_decision": {
+      "count": 2,
+      "max_s": 0.0,
+      "p50_s": 0.0,
+      "p95_s": 0.0,
+      "total_s": 0.0
+     },
+     "evaluator_added_latency_s": 0.028,
+     "stage:CLARIFY": {
+      "count": 1,
+      "max_s": 60.0,
+      "p50_s": 60.0,
+      "p95_s": 60.0,
+      "total_s": 60.0
+     },
+     "stage:IMPLEMENT": {
+      "count": 3,
+      "max_s": 600.018,
+      "p50_s": 600.006,
+      "p95_s": 600.018,
+      "total_s": 1800.028
+     },
+     "stage:PLAN": {
+      "count": 1,
+      "max_s": 180.0,
+      "p50_s": 180.0,
+      "p95_s": 180.0,
+      "total_s": 180.0
+     },
+     "stage:SPECIFY": {
+      "count": 1,
+      "max_s": 120.0,
+      "p50_s": 120.0,
+      "p95_s": 120.0,
+      "total_s": 120.0
+     },
+     "stage:TASKS": {
+      "count": 1,
+      "max_s": 90.0,
+      "p50_s": 90.0,
+      "p95_s": 90.0,
+      "total_s": 90.0
+     }
+    },
+    "overhead": {},
+    "progress": {
+     "actions": {},
+     "correction_cycles_recorded": 0,
+     "correction_loops": 0,
+     "loops": {
+      "BLOCKED": 1
+     },
+     "nodes": {
+      "first_attempt_success": 4,
+      "first_attempt_success_rate": 0.8,
+      "total": 5
+     },
+     "policy_blocks": {
+      "loop:TRANSIENT_RETRIES_EXHAUSTED": 1
+     },
+     "recovery_after_interruption": {
+      "interrupted_nodes": 0,
+      "rate": null,
+      "recovered": 0
+     },
+     "retries_by_cause": {
+      "TRANSIENT:RATE_LIMITED": 3
+     },
+     "time_to_completion_s": {
+      "max": null,
+      "p50": null
+     }
+    },
+    "schema_version": 1,
+    "sources": {
+     "context_engine": 3,
+     "jev_receipts": 2,
+     "loop_store": 23
+    },
+    "tokens": {
+     "by_actor": {
+      "agents": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 7,
+        "total_tokens": 209200,
+        "unknown_fields": 28
+       }
+      },
+      "jev": {
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 3,
+        "total_tokens": 0,
+        "unknown_fields": 6
+       }
+      }
+     },
+     "by_stage": {
+      "CLARIFY": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 10200,
+        "unknown_fields": 4
+       }
+      },
+      "IMPLEMENT": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 3,
+        "total_tokens": 147000,
+        "unknown_fields": 12
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      },
+      "PLAN": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 21500,
+        "unknown_fields": 4
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      },
+      "REVIEW": {
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      },
+      "SPECIFY": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 14500,
+        "unknown_fields": 4
+       }
+      },
+      "TASKS": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 16000,
+        "unknown_fields": 4
+       }
+      }
+     },
+     "note": "Methods are never summed together; unknown_fields counts values the source did not report."
+    },
+    "unreadable_sources": {}
+   },
+   "C": {
+    "concurrency": {
+     "average_parallel": 0.997,
+     "busy_s": 2250.014,
+     "max_parallel": 1,
+     "span_s": 2256.014
+    },
+    "cost": {
+     "by_actor": {
+      "agents": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 7
+       },
+       "unpriced_records": 7
+      },
+      "jev": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 3
+       },
+       "unpriced_records": 3
+      }
+     },
+     "by_stage": {
+      "CLARIFY": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "IMPLEMENT": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 4
+       },
+       "unpriced_records": 4
+      },
+      "PLAN": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 2
+       },
+       "unpriced_records": 2
+      },
+      "REVIEW": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "SPECIFY": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "TASKS": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      }
+     },
+     "method": "ESTIMATED list price; never a bill",
+     "price_table_sha256": "335f3013e26dd9661301ede4c79d556353e19cff1b6951c78fdcc403e23d8abd",
+     "price_table_version": "2026-10-22",
+     "reported_by_provider_usd": {}
+    },
+    "events": 28,
+    "human_wait": {
+     "max_s": null,
+     "p50_s": null,
+     "resolved": 0,
+     "still_waiting": 1,
+     "total_s": 0
+    },
+    "jev": {
+     "context_engine": {
+      "applied_runs": 3,
+      "cache": {
+       "hit_ratio": 0.667,
+       "hits": 16,
+       "misses": 8
+      },
+      "evaluator_tokens": {
+       "input": 0,
+       "method": "MEASURED",
+       "output": 0
+      },
+      "gross_saving_tokens": {
+       "applied": 2868,
+       "dry_run_estimate": 2868,
+       "method": "ESTIMATED"
+      },
+      "net_saving_tokens": {
+       "applied": 2868,
+       "dry_run_estimate": 2868,
+       "method": "ESTIMATED (estimated saving minus measured evaluator tokens)"
+      },
+      "runs": 3
+     },
+     "governance": {
+      "cache_reuses": 0,
+      "decided": 2,
+      "evaluator_tokens": {
+       "input": 0,
+       "method": "MEASURED",
+       "output": 0
+      },
+      "live_calls": 2,
+      "note": "Governance decisions save no prompt tokens; their tokens are pure overhead.",
+      "review": 0
+     }
+    },
+    "latency": {
+     "evaluator:context_engine": {
+      "count": 3,
+      "max_s": 0.006,
+      "p50_s": 0.004,
+      "p95_s": 0.006,
+      "total_s": 0.014
+     },
+     "evaluator:jev_decision": {
+      "count": 2,
+      "max_s": 0.0,
+      "p50_s": 0.0,
+      "p95_s": 0.0,
+      "total_s": 0.0
+     },
+     "evaluator_added_latency_s": 0.014,
+     "stage:CLARIFY": {
+      "count": 1,
+      "max_s": 60.0,
+      "p50_s": 60.0,
+      "p95_s": 60.0,
+      "total_s": 60.0
+     },
+     "stage:IMPLEMENT": {
+      "count": 3,
+      "max_s": 600.006,
+      "p50_s": 600.004,
+      "p95_s": 600.006,
+      "total_s": 1800.014
+     },
+     "stage:PLAN": {
+      "count": 1,
+      "max_s": 180.0,
+      "p50_s": 180.0,
+      "p95_s": 180.0,
+      "total_s": 180.0
+     },
+     "stage:SPECIFY": {
+      "count": 1,
+      "max_s": 120.0,
+      "p50_s": 120.0,
+      "p95_s": 120.0,
+      "total_s": 120.0
+     },
+     "stage:TASKS": {
+      "count": 1,
+      "max_s": 90.0,
+      "p50_s": 90.0,
+      "p95_s": 90.0,
+      "total_s": 90.0
+     }
+    },
+    "overhead": {},
+    "progress": {
+     "actions": {},
+     "correction_cycles_recorded": 0,
+     "correction_loops": 0,
+     "loops": {
+      "BLOCKED": 1
+     },
+     "nodes": {
+      "first_attempt_success": 4,
+      "first_attempt_success_rate": 0.8,
+      "total": 5
+     },
+     "policy_blocks": {
+      "loop:TRANSIENT_RETRIES_EXHAUSTED": 1
+     },
+     "recovery_after_interruption": {
+      "interrupted_nodes": 0,
+      "rate": null,
+      "recovered": 0
+     },
+     "retries_by_cause": {
+      "TRANSIENT:RATE_LIMITED": 3
+     },
+     "time_to_completion_s": {
+      "max": null,
+      "p50": null
+     }
+    },
+    "schema_version": 1,
+    "sources": {
+     "context_engine": 3,
+     "jev_receipts": 2,
+     "loop_store": 23
+    },
+    "tokens": {
+     "by_actor": {
+      "agents": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 7,
+        "total_tokens": 206332,
+        "unknown_fields": 28
+       }
+      },
+      "jev": {
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 3,
+        "total_tokens": 0,
+        "unknown_fields": 6
+       }
+      }
+     },
+     "by_stage": {
+      "CLARIFY": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 10200,
+        "unknown_fields": 4
+       }
+      },
+      "IMPLEMENT": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 3,
+        "total_tokens": 144132,
+        "unknown_fields": 12
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      },
+      "PLAN": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 21500,
+        "unknown_fields": 4
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      },
+      "REVIEW": {
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      },
+      "SPECIFY": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 14500,
+        "unknown_fields": 4
+       }
+      },
+      "TASKS": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 16000,
+        "unknown_fields": 4
+       }
+      }
+     },
+     "note": "Methods are never summed together; unknown_fields counts values the source did not report."
+    },
+    "unreadable_sources": {}
+   },
+   "D": {
+    "concurrency": {
+     "average_parallel": 0.997,
+     "busy_s": 4130.032,
+     "max_parallel": 1,
+     "span_s": 4144.032
+    },
+    "cost": {
+     "by_actor": {
+      "agents": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 12
+       },
+       "unpriced_records": 12
+      },
+      "jev": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 4
+       },
+       "unpriced_records": 4
+      }
+     },
+     "by_stage": {
+      "CLARIFY": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "IMPLEMENT": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 6
+       },
+       "unpriced_records": 6
+      },
+      "PLAN": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 2
+       },
+       "unpriced_records": 2
+      },
+      "REVIEW": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 2
+       },
+       "unpriced_records": 2
+      },
+      "SPECIFY": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "TASKS": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 1
+       },
+       "unpriced_records": 1
+      },
+      "TEST": {
+       "estimated_usd": 0.0,
+       "priced_records": 0,
+       "unpriced_reasons": {
+        "NO_PRICE": 3
+       },
+       "unpriced_records": 3
+      }
+     },
+     "method": "ESTIMATED list price; never a bill",
+     "price_table_sha256": "335f3013e26dd9661301ede4c79d556353e19cff1b6951c78fdcc403e23d8abd",
+     "price_table_version": "2026-10-22",
+     "reported_by_provider_usd": {}
+    },
+    "events": 48,
+    "human_wait": {
+     "max_s": null,
+     "p50_s": null,
+     "resolved": 0,
+     "still_waiting": 0,
+     "total_s": 0
+    },
+    "jev": {
+     "context_engine": {
+      "applied_runs": 7,
+      "cache": {
+       "hit_ratio": 0.714,
+       "hits": 40,
+       "misses": 16
+      },
+      "evaluator_tokens": {
+       "input": 0,
+       "method": "MEASURED",
+       "output": 0
+      },
+      "gross_saving_tokens": {
+       "applied": 6700,
+       "dry_run_estimate": 6700,
+       "method": "ESTIMATED"
+      },
+      "net_saving_tokens": {
+       "applied": 6700,
+       "dry_run_estimate": 6700,
+       "method": "ESTIMATED (estimated saving minus measured evaluator tokens)"
+      },
+      "runs": 7
+     },
+     "governance": {
+      "cache_reuses": 0,
+      "decided": 2,
+      "evaluator_tokens": {
+       "input": 0,
+       "method": "MEASURED",
+       "output": 0
+      },
+      "live_calls": 2,
+      "note": "Governance decisions save no prompt tokens; their tokens are pure overhead.",
+      "review": 0
+     }
+    },
+    "latency": {
+     "evaluator:context_engine": {
+      "count": 7,
+      "max_s": 0.006,
+      "p50_s": 0.004,
+      "p95_s": 0.006,
+      "total_s": 0.032
+     },
+     "evaluator:jev_decision": {
+      "count": 2,
+      "max_s": 0.0,
+      "p50_s": 0.0,
+      "p95_s": 0.0,
+      "total_s": 0.0
+     },
+     "evaluator_added_latency_s": 0.032,
+     "stage:CLARIFY": {
+      "count": 1,
+      "max_s": 60.0,
+      "p50_s": 60.0,
+      "p95_s": 60.0,
+      "total_s": 60.0
+     },
+     "stage:IMPLEMENT": {
+      "count": 5,
+      "max_s": 600.006,
+      "p50_s": 600.004,
+      "p95_s": 600.006,
+      "total_s": 3000.022
+     },
+     "stage:PLAN": {
+      "count": 1,
+      "max_s": 180.0,
+      "p50_s": 180.0,
+      "p95_s": 180.0,
+      "total_s": 180.0
+     },
+     "stage:REVIEW": {
+      "count": 1,
+      "max_s": 200.0,
+      "p50_s": 200.0,
+      "p95_s": 200.0,
+      "total_s": 200.0
+     },
+     "stage:SPECIFY": {
+      "count": 1,
+      "max_s": 120.0,
+      "p50_s": 120.0,
+      "p95_s": 120.0,
+      "total_s": 120.0
+     },
+     "stage:TASKS": {
+      "count": 1,
+      "max_s": 90.0,
+      "p50_s": 90.0,
+      "p95_s": 90.0,
+      "total_s": 90.0
+     },
+     "stage:TEST": {
+      "count": 2,
+      "max_s": 240.006,
+      "p50_s": 240.004,
+      "p95_s": 240.006,
+      "total_s": 480.01
+     }
+    },
+    "overhead": {},
+    "progress": {
+     "actions": {},
+     "correction_cycles_recorded": 1,
+     "correction_loops": 1,
+     "loops": {
+      "COMPLETED": 1
+     },
+     "nodes": {
+      "first_attempt_success": 5,
+      "first_attempt_success_rate": 0.714,
+      "total": 7
+     },
+     "policy_blocks": {},
+     "recovery_after_interruption": {
+      "interrupted_nodes": 0,
+      "rate": null,
+      "recovered": 0
+     },
+     "retries_by_cause": {
+      "FUNCTIONAL:ASSERTION": 1,
+      "TRANSIENT:RATE_LIMITED": 3
+     },
+     "time_to_completion_s": {
+      "max": 4144.032,
+      "p50": 4144.032
+     }
+    },
+    "schema_version": 1,
+    "sources": {
+     "context_engine": 7,
+     "jev_receipts": 2,
+     "loop_store": 39
+    },
+    "tokens": {
+     "by_actor": {
+      "agents": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 12,
+        "total_tokens": 375700,
+        "unknown_fields": 48
+       }
+      },
+      "jev": {
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 4,
+        "total_tokens": 0,
+        "unknown_fields": 8
+       }
+      }
+     },
+     "by_stage": {
+      "CLARIFY": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 10200,
+        "unknown_fields": 4
+       }
+      },
+      "IMPLEMENT": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 5,
+        "total_tokens": 240220,
+        "unknown_fields": 20
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      },
+      "PLAN": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 21500,
+        "unknown_fields": 4
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      },
+      "REVIEW": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 28200,
+        "unknown_fields": 4
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      },
+      "SPECIFY": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 14500,
+        "unknown_fields": 4
+       }
+      },
+      "TASKS": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 16000,
+        "unknown_fields": 4
+       }
+      },
+      "TEST": {
+       "ESTIMATED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 2,
+        "total_tokens": 45080,
+        "unknown_fields": 8
+       },
+       "MEASURED": {
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "records": 1,
+        "total_tokens": 0,
+        "unknown_fields": 2
+       }
+      }
+     },
+     "note": "Methods are never summed together; unknown_fields counts values the source did not report."
+    },
+    "unreadable_sources": {}
+   }
+  }
+ },
+ "schema_version": 1,
+ "workloads": {
+  "nominal": {
+   "stage_work": {
+    "CLARIFY": [
+     9000,
+     1200,
+     60
+    ],
+    "IMPLEMENT": [
+     40000,
+     9000,
+     600
+    ],
+    "PLAN": [
+     18000,
+     3500,
+     180
+    ],
+    "REVIEW": [
+     26000,
+     2200,
+     200
+    ],
+    "SPECIFY": [
+     12000,
+     2500,
+     120
+    ],
+    "TASKS": [
+     14000,
+     2000,
+     90
+    ],
+    "TEST": [
+     22000,
+     1500,
+     240
+    ]
+   },
+   "transient_failures": 1
+  },
+  "stressed": {
+   "stage_work": {
+    "CLARIFY": [
+     9000,
+     1200,
+     60
+    ],
+    "IMPLEMENT": [
+     40000,
+     9000,
+     600
+    ],
+    "PLAN": [
+     18000,
+     3500,
+     180
+    ],
+    "REVIEW": [
+     26000,
+     2200,
+     200
+    ],
+    "SPECIFY": [
+     12000,
+     2500,
+     120
+    ],
+    "TASKS": [
+     14000,
+     2000,
+     90
+    ],
+    "TEST": [
+     22000,
+     1500,
+     240
+    ]
+   },
+   "transient_failures": 3
+  }
+ }
+}

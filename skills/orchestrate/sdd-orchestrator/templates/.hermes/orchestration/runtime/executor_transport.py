@@ -129,6 +129,32 @@ def normalize_codex_last_message(data: bytes) -> tuple[bytes | None, bool, dict[
     return _normalized(json.loads(single), "SINGLE_OBJECT")
 
 
+def envelope_usage(envelope: dict[str, Any]) -> dict[str, Any] | None:
+    """Provider-reported usage from a Claude ``--output-format json`` envelope (``MEASURED``), or None.
+
+    Only counters are kept; a field the CLI omits stays ``None`` (unknown), never zero.
+    ``cost_usd`` is the CLI's own figure, which is zero on a flat-rate plan.
+    """
+    usage = envelope.get("usage")
+    if not isinstance(usage, dict):
+        return None
+
+    def count(value: Any) -> int | None:
+        return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+    cost = envelope.get("total_cost_usd")
+    return {
+        "method": "MEASURED",
+        "input_tokens": count(usage.get("input_tokens")),
+        "output_tokens": count(usage.get("output_tokens")),
+        "cache_read_tokens": count(usage.get("cache_read_input_tokens")),
+        "cache_write_tokens": count(usage.get("cache_creation_input_tokens")),
+        "cost_usd": cost if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost >= 0 else None,
+        "duration_api_ms": count(envelope.get("duration_api_ms")),
+        "num_turns": count(envelope.get("num_turns")),
+    }
+
+
 def extract_result(executor: str, stdout: bytes, last_message: Path) -> tuple[bytes | None, bool, dict[str, Any]]:
     """Return (final bytes, is_json_object, diagnostics). Raw non-JSON output is kept as evidence.
 
@@ -146,6 +172,9 @@ def extract_result(executor: str, stdout: bytes, last_message: Path) -> tuple[by
         if not isinstance(envelope, dict):
             return stdout, False, {"envelope": "NOT_OBJECT"}
         diagnostics = {"envelope_subtype": envelope.get("subtype"), "envelope_is_error": envelope.get("is_error")}
+        usage = envelope_usage(envelope)
+        if usage is not None:
+            diagnostics["usage"] = usage
         structured = envelope.get("structured_output")
         if isinstance(structured, dict):
             return (json.dumps(structured, indent=2, ensure_ascii=False) + "\n").encode("utf-8"), True, diagnostics

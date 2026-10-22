@@ -4,6 +4,16 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+
+- **Observability engine** (opt-in, read-only; [docs/components/observability.md](docs/components/observability.md)): `runtime/obs_model.py`, `obs_tracer.py`, `obs_metrics.py`, `obs_cli.py` and `obs_benchmark.py`, plus the versioned list-price table `policies/PRICES.json`.
+  - ExecutionTracer derives correlated events (`trace_id`, `run_id`, `loop_id`, `session_id`, `agent_id`, `parent_agent_id`, `task_id`, `stage`, `event_type`, `timestamp`) on demand from the stores that already exist: loop store, action-journal history, the hash-verified gate decision log, Jev receipts and reports, context-engine run metrics and the local supervisor log. It persists nothing, so there is no second source of truth. Free-text keys (prompts, goals, quotes, messages, outputs, paths) are dropped and the remaining strings are redacted.
+  - The trackers report tokens per stage and per actor, with `MEASURED`, `ESTIMATED` and `SIMULATED` never summed together and unknown counts never treated as zero. Cost is a list-price estimate with the table's version and hash, and records it cannot price are `UNPRICED` with a reason. The trackers also cover latency percentiles, progress (first-attempt success, retries by cause, correction loops, recovery after interruption, time to completion, human wait, concurrency, policy blocks) and Jev gross vs net saving, with the evaluator's own tokens and latency counted.
+  - `obs_cli.py report|events|prices` prints JSON. `--output` writes 0600 atomically and never through a symlink.
+  - `obs_benchmark.py` runs the same SDD delivery under scenarios A (current), B (Jev dry run), C (Jev active) and D (C plus raised loop limits), offline or with live Jev calls capped by `--max-live-calls`. The measured baseline is in [docs/reports/observability-baseline.md](docs/reports/observability-baseline.md). In 20 live calls, Jev's context evaluation saved nothing on the TEST fixture and cost 6 378 tokens per run. No performance gain is claimed: agent work in the benchmark is simulated.
+  - Two additive runtime changes feed it. The loop engine records each attempt's own handler-reported `tokens`/`tokens_method` (`loop_state.record_attempt_tokens`), failed attempts included, while the `max_tokens` budget still counts successful attempts only. `executor_transport.extract_result` adds the Claude CLI envelope's `MEASURED` usage to the `run` output as `usage` (`envelope_usage`).
+  - Tests: 29 in `tests/test_observability.py`. A mutation run of 15 rules (`.hermes-dev/mut-obs.log`) first left one survivor (the free-text filter). Two tests were added, and the rerun in the same log killed all 15.
+
 ## 15.16.9 - 2026-10-21
 
 ### Fixed

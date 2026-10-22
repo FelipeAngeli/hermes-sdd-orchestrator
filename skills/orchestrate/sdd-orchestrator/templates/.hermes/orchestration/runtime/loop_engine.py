@@ -201,6 +201,8 @@ class LoopEngine:
         success = None
         if failure is None:
             success, failure = loop_policy.normalize_result(value)
+        if isinstance(value, dict):  # observability only: failed attempts keep their tokens too; the budget is unchanged
+            loop_state.record_attempt_tokens(record["attempts"][-1], value.get("tokens"), value.get("tokens_method"))
         self._settle(execution, spec, nodes, node, success, failure)
 
     def _invoke(self, handler: Handler, context: NodeContext, timeout: float) -> tuple[Any, dict[str, Any] | None]:
