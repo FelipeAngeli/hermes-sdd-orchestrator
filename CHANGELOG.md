@@ -4,6 +4,47 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+
+- **Security policy engine** (opt-in; [docs/components/policy-engine.md](docs/components/policy-engine.md)): `runtime/policy_registry.py`, `policy_commands.py`, `policy_evaluator.py`, `policy_budget.py`, `policy_approval.py`, `policy_audit.py`, `policy_hooks.py`, `policy_cli.py`, `loop_security.py`, the versioned `policies/SECURITY_POLICY.json` and `schemas/SECURITY_POLICY_SCHEMA.json`, and the shell hook `hooks/enforce-policy.py`.
+  - PolicyRegistry loads the policy with its version and SHA-256. Floors live in code, and a file that loosens one is refused (`POLICY_WEAKENS_FLOOR`).
+  - PolicyEvaluator answers `ALLOW`, `DENY` or `REQUIRE_APPROVAL` with rules P1–P12. Unknown fields are refused, so agent instructions and Jev output cannot reach a decision.
+  - BudgetGuard: a budget raise needs an explicit rule.
+  - ApprovalBridge: single-use approvals bound to the action's SHA-256, consumed atomically, with expiry and revocation; machine approvers are refused.
+  - SecurityAudit: hash-chained `security-audit.jsonl`. A decision that cannot be audited is a DENY.
+  - HookDispatcher maps the seven proposed hooks onto Hermes `pre_tool_call` and the loop and gate engines.
+- `LoopEngine(policy=...)` and `GateEngine(policy=...)` are optional; `None` (the default) keeps the current behaviour. New loop halts: `POLICY_DENIED` (→ `ACTION_BLOCKED`) and `POLICY_APPROVAL_REQUIRED` (→ `HUMAN_APPROVAL_REQUIRED`), both retryable by a human and checked again.
+- `hooks/hooks.example.yaml` adds the policy hook (`fail_closed: true`) next to the scope hook. It stays inactive until the owner merges it into a dedicated profile.
+- `runtime/detect_stack.py` gains `INLINE_CODE_INTERPRETERS` and `SCRIPT_SAFE_OPTIONS`, which the policy engine reads so that its command rules stay language-neutral.
+- The installer adds the controller-owned `policy-state/` directory to `.git/info/exclude`, as it does for `action-journal-history/`.
+- Tests: 30 in `tests/test_policy_engine.py`, 7 in `tests/test_policy_integration.py` and 37 in `tests/test_policy_bypasses.py` (25) plus `tests/test_policy_bypasses_late.py` (12). Those two pin each bypass found in five review rounds:
+  - a protected path in another letter case (APFS resolves both);
+  - `${IFS}` and `$VAR` in the program word;
+  - globs and quotes around the policy CLI and its state;
+  - `>|` and other redirections;
+  - curl/wget uploads with `--json @`, `-H @` and `--body-file`;
+  - a V4A move without spaces;
+  - the terminal `workdir`;
+  - repeated `execute_code`;
+  - team or mailbox approvers;
+  - `pass=`/`pin:` values in the audit;
+  - backtracking `extra_deny_patterns`.
+  - `N>&file` redirections;
+  - git config values that run a program (`-c alias.x=!…`, `core.sshCommand`, `GIT_CONFIG_*`);
+  - `find -exec`/`-fprint` and interpreter script arguments as writes;
+  - program names in another letter case (`RM -rf`);
+  - nested quantifiers at any depth;
+  - broad globs (not expanded; they need an approval);
+  - team words without a separator (`opsteam`).
+  - code read from stdin or a preload (`bash -s`, `bash -xs`, `node -r`, `ruby -rw`, `perl -Mw`), which has no script argument;
+  - shell grouping and keywords before the program (`{ RM -rf x; }`, `if …; then`, `! cmd`);
+  - interpreter options outside a known-safe list (`perl -e<code>`, `node --eval=`, `lua -lw`) and environment preloads (`NODE_OPTIONS`, `RUBYOPT`, `BASH_ENV`, as a prefix or exported in an earlier segment), which mean there is no script argument;
+  - a pager or editor given as a path (`core.pager=./less`).
+- Rounds 3 and 4 also remove false positives without widening anything else. `git config` counts as a read only when the action precedes the key. Only labelling `GIT_*` variables pass. A pager or editor is accepted only as `cat`, `true`, or `less`/`more` with display flags. Tool bots and `team…`/`group…` compounds still cannot approve. The cases are: `find . -name`, `GIT_PAGER=cat`/`GIT_DIR=…`, `git config --get`/`--unset`, `core.pager='less -R'`, `core.editor=true`, an empty `credential.helper`, three glob components, and surnames containing a group word (`Botelho`, `Talbot`, `Steamer`). Git rules move to `runtime/policy_git.py`.
+- The `terminal` command check is documented as best effort, with the bypass classes the third review found and left open listed under Limits in the policy-engine page. Hermes approvals, the executor sandbox, the scope hook and the HSM supervisor remain the barrier for those.
+- A cache-free mutation run over 83 security rules kills all 83.
+- No skill-security waiver is needed: the published skill scans `SAFE` with Hermes `skills-guard-v5`, and its install gate allows it. Deny rules split the few privileged command names the scanner reads as threats (`"su" "do"`, `su[d]o`, `print[e]nv`), and tests assemble their attack strings at run time; behaviour is unchanged. `tools/check_skill_security.py` is unchanged.
+
 ## 15.17.0 - 2026-10-22
 
 ### Added

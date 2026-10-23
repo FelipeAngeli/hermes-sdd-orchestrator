@@ -155,6 +155,10 @@ NEXT_STEPS = {
     "EXTERNAL_APPROVAL_REQUIRED": "The node changes an external system; only the user's explicit approval lets it run.",
     "INPUT_REQUIRED": "Ask the user the pending question and record the answer with `resolve --decision provide-input`.",
     "NO_RUNNABLE_NODE": "No node can run and the loop is not complete; inspect node statuses with `status`.",
+    "POLICY_DENIED": "The security policy denied the node (see the security audit); change the node or the policy outside the session, "
+                     "then `resolve --decision retry`; never work around the rule.",
+    "POLICY_APPROVAL_REQUIRED": "The security policy needs a human approval: the owner runs `policy_cli.py grant --request <id>` "
+                                "(see `policy_cli.py pending`), then `resolve --decision retry`.",
     "NODE_STILL_RUNNING": "An earlier timed-out attempt of this non-idempotent node is still running in this process; "
                           "wait for it to end (or restart the runner), check its effect, then `resolve --decision retry` or `mark-applied`.",
 }

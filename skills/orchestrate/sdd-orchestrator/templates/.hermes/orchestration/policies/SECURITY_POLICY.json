@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "policy_id": "sdd-security",
+  "version": "1.0.0",
+  "delegation": {
+    "max_depth": 2,
+    "max_children_per_parent": 3,
+    "max_concurrent_agents": 3
+  },
+  "approvals": {
+    "ttl_seconds": 300
+  },
+  "repetition": {
+    "window_seconds": 600,
+    "max_denied_repeats": 3
+  },
+  "budget_raise": {
+    "allowed_limits": [
+      "max_tokens",
+      "max_node_runs",
+      "max_wall_clock_seconds",
+      "max_correction_cycles"
+    ],
+    "max_factor": 2
+  },
+  "budgets": {
+    "max_attempts_per_node": 6
+  },
+  "gates": {
+    "min_mode": "OBSERVE"
+  },
+  "protected_paths": [
+    ".hermes/orchestration/policies/**",
+    ".hermes/orchestration/runtime/**",
+    ".hermes/orchestration/hooks/**",
+    ".hermes/orchestration/schemas/**",
+    "Hermes/orchestration/policies/**",
+    "Hermes/orchestration/runtime/**",
+    "Hermes/orchestration/hooks/**",
+    "Hermes/orchestration/schemas/**",
+    ".hermes/orchestration/policy-state/**",
+    "Hermes/orchestration/policy-state/**"
+  ],
+  "extra_deny_patterns": []
+}

@@ -92,6 +92,10 @@ Limits, stated plainly:
 - Gate commands run the worker's code as the gate's own user: they can write anything that user can, including the store. The store-outside-repository rule and the hash chain detect accidents and naive edits, not a same-user attacker that rebuilds the chain; run the gates from a separate user or sandbox before trusting them against an adversarial worker.
 - `context` is trusted: the gate cannot tell whether a caller passed controller state or worker output.
 
+## Security policy
+
+`GateEngine(..., policy=...)` (default `None`) asks an optional [security policy](policy-engine.md) before each evaluation (`before_gate_decision`, with the stage and the engine's mode). A refusal, for example a mode below the policy's `gates.min_mode`, raises `ValueError("GATE_POLICY_DENIED: ...")` and no decision is written.
+
 ## Rollback
 
 Nothing in the controller imports these modules. Revert the change to remove them; delete a store directory to discard its decisions and evidence.

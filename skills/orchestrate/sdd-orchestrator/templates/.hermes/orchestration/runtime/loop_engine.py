@@ -24,12 +24,14 @@ from typing import Any, Callable
 
 import loop_correction
 import loop_model
+import loop_security
 import loop_policy
 import loop_state
 from loop_store import LoopStore
 
 Handler = Callable[["NodeContext"], Any]
 BUDGET_HALTS = tuple(loop_state.BUDGET_REASONS)
+
 
 
 class NodeContext:
@@ -70,8 +72,10 @@ class NodeContext:
 
 class LoopEngine:
     def __init__(self, store: Path | str, *, handlers: dict[str, Handler], reconcilers: dict[str, Handler] | None = None,
-                 clock: Callable[[], float] = time.time, sleep: Callable[[float], None] = time.sleep) -> None:
+                 clock: Callable[[], float] = time.time, sleep: Callable[[float], None] = time.sleep,
+                 policy: loop_security.PolicyHook | None = None) -> None:
         self.store = LoopStore(store)
+        self.policy = policy  # None (the default) keeps the engine's behaviour exactly as without a policy
         self.handlers = dict(handlers)
         self.reconcilers = dict(reconcilers or {})
         self.clock, self.sleep = clock, sleep
@@ -178,7 +182,16 @@ class LoopEngine:
         if stale is not None and stale.is_alive() and not node["idempotent"]:
             self._halt(execution, spec, "NODE_STILL_RUNNING", node=name)
             return
+        if self._policy_halt(execution, spec, name, "before_agent_start", loop_security.agent_action(node, record)):
+            return
         self._attempt(execution, spec, nodes, node, handler)
+
+    def _policy_halt(self, execution: dict[str, Any], spec: dict[str, Any], name: str, hook: str, action: dict[str, Any]) -> bool:
+        """A DENY or an unapproved action (when a policy was given) halts the node for a human."""
+        reason, prompt = loop_security.halt_reason(self.policy, hook, action)
+        if reason is not None:
+            self._halt(execution, spec, reason, node=name, prompt=prompt)
+        return reason is not None
 
     def _attempt(self, execution: dict[str, Any], spec: dict[str, Any], nodes: dict[str, dict[str, Any]],
                  node: dict[str, Any], handler: Handler) -> None:
@@ -247,6 +260,7 @@ class LoopEngine:
             if node["on_failure"]:
                 loop_correction.on_verifier_pass(execution, name)
             self._commit(execution, "NODE_COMPLETED", {"node": name})
+            loop_security.record_completion(self.policy, name, success["output"])
             return
         failure = failure or {"class": "UNKNOWN", "code": "RESULT_INVALID", "message": "no result", "effect_applied": None}
         attempt["result"], attempt["failure"] = "FAILED", failure
@@ -257,6 +271,9 @@ class LoopEngine:
                        node: dict[str, Any], failure: dict[str, Any]) -> None:
         name, record = node["id"], execution["nodes"][node["id"]]
         decision = loop_policy.classify(node, record, failure, execution["limits"])
+        if decision["decision"] == loop_policy.RETRY and self._policy_halt(execution, spec, name, "before_loop_retry",
+                                                                           loop_security.retry_action(execution, name, record)):
+            return
         if decision["decision"] == loop_policy.RETRY:
             record[decision["counter"]] += 1
             record["status"] = "RETRYING"
