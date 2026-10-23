@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.18.0 - 2026-10-22
+
 ### Added
 
 - **Security policy engine** (opt-in; [docs/components/policy-engine.md](docs/components/policy-engine.md)): `runtime/policy_registry.py`, `policy_commands.py`, `policy_evaluator.py`, `policy_budget.py`, `policy_approval.py`, `policy_audit.py`, `policy_hooks.py`, `policy_cli.py`, `loop_security.py`, the versioned `policies/SECURITY_POLICY.json` and `schemas/SECURITY_POLICY_SCHEMA.json`, and the shell hook `hooks/enforce-policy.py`.
