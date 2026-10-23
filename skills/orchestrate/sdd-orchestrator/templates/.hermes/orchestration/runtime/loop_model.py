@@ -64,6 +64,8 @@ HERMES_STOP_REASON = {
     "INPUT_REQUIRED": "CLARIFICATION_REQUIRED",
     "NO_RUNNABLE_NODE": "BLOCKED",
     "NODE_STILL_RUNNING": "EXECUTOR_TIMEOUT",
+    "POLICY_DENIED": "ACTION_BLOCKED",
+    "POLICY_APPROVAL_REQUIRED": "HUMAN_APPROVAL_REQUIRED",
 }
 
 #: Experimental defaults (owner request) and the hard ceilings a definition or raise can never exceed.

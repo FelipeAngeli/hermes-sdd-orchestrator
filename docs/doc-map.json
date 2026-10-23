@@ -159,6 +159,20 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/obs_cli.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/obs_benchmark.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/PRICES.json"
+    ],
+    "docs/components/policy-engine.md": [
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/policy_registry.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/policy_commands.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/policy_git.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/policy_evaluator.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/policy_budget.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/policy_approval.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/policy_audit.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/policy_hooks.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/policy_cli.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/loop_security.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/SECURITY_POLICY.json",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/schemas/SECURITY_POLICY_SCHEMA.json"
     ]
   }
 }

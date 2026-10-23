@@ -83,7 +83,8 @@ def is_success(decision: dict[str, Any]) -> bool:
 class GateEngine:
     def __init__(self, store: Path | str, repo: Path | str, *, commands: dict[str, str | None],
                  reviewers: list[gate_reviewer.Reviewer] | None = None, mode: str = "OBSERVE",
-                 timeouts: dict[str, int] | None = None, registry: GateRegistry | None = None) -> None:
+                 timeouts: dict[str, int] | None = None, registry: GateRegistry | None = None,
+                 policy: Callable[[str, dict[str, Any]], dict[str, Any]] | None = None) -> None:
         if mode not in MODES:
             raise ValueError(f"GATE_MODE_INVALID: {mode!r}")
         self.store, self.repo = Path(store), Path(repo)
@@ -93,12 +94,17 @@ class GateEngine:
         self.commands, self.timeouts = dict(commands), dict(timeouts or {})
         self.reviewers = list(reviewers or [])
         self.mode = mode
+        self.policy = policy  # optional security policy; None keeps the behaviour unchanged
         self.registry = registry or GateRegistry()
         self.evidence = EvidenceCollector(self.store)
         self.log = DecisionLog(self.store)
 
     def evaluate(self, stage: str, task_id: str, artifact: Any, *, context: dict[str, Any] | None = None) -> dict[str, Any]:
         gate = self.registry.for_stage(stage)
+        if self.policy is not None:
+            verdict = self.policy("before_gate_decision", {"kind": "gate_decision", "stage": stage, "mode": self.mode})
+            if verdict.get("decision") != "ALLOW":
+                raise ValueError(f"GATE_POLICY_DENIED: {', '.join(verdict.get('reasons') or ['denied'])}")
         context = {key: copy.deepcopy(value) for key, value in (context or {}).items() if key in CONTEXT_KEYS}
         validator = DeterministicValidator(self.repo, self.evidence, commands=self.commands, timeouts=self.timeouts,
                                            base=context.get("base_commit"))

@@ -25,7 +25,7 @@ MACHINE_ACTORS = ("agent", "engine", "controller", "executor", "worker", "hermes
                   "approver", "claude", "codex", "opencode", "gpt", "openai", "anthropic", "llm", "ai", "jev", "assistant",
                   "copilot", "gemini", "deepseek", "script", "ci", "automation")
 RETRYABLE_REASONS = ("EFFECT_AMBIGUOUS", "TRANSIENT_RETRIES_EXHAUSTED", "TIMEOUT_RETRIES_EXHAUSTED", "UNKNOWN_FAILURE",
-                     "FUNCTIONAL_FAILURE", "HANDLER_MISSING", "NODE_STILL_RUNNING")
+                     "FUNCTIONAL_FAILURE", "HANDLER_MISSING", "NODE_STILL_RUNNING", "POLICY_DENIED", "POLICY_APPROVAL_REQUIRED")
 _TOKENS = re.compile(r"[a-z]+|[0-9]+")
 
 

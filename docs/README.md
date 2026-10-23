@@ -38,6 +38,7 @@ Each page owns a set of files (see [doc-map.json](doc-map.json)) and is the sing
 | [Agent manager](components/agent-manager.md) | Opt-in registry, delegation configuration and contract validation |
 | [Validation gates](components/validation-gates.md) | Opt-in, observation-mode gates per SDD stage: deterministic checks, independent reviewers, versioned evidence, auditable decisions |
 | [Loop engine](components/loop-engine.md) | Experimental, opt-in durable loop executor: definitions, checkpoints, retries, crash recovery, bounded TEST/REVIEW correction |
+| [Security policy engine](components/policy-engine.md) | Opt-in deterministic policy for tools, sub-agents, retries, budgets and gates; single-use human approvals; hash-chained security audit; permission matrix, compatibility and rollback |
 | [Observability engine](components/observability.md) | Read-only traces, tokens (measured vs estimated), list-price cost, latency, progress and Jev gross vs net saving over the existing stores; A/B/C/D benchmark |
 | [Store review guardians](components/store-review-guardians.md) | `appstore-review-guardian` and `google-play-review-guardian`: read-only pre-submission audits of iOS and Android apps |
 | [Testing](components/testing.md) | Both test suites and what each test file guarantees |
