@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.18.1 - 2026-10-25
+
 ### Fixed
 
 - IMPLEMENT no longer runs TDD slices in acceptance-check order. `delivery.slices.planned` was built from the order of acceptance checks, so a TASKS result that listed its checks string-sorted (`AC1, AC10, AC11, AC2…`) made the controller dispatch the last slice first — in a real delivery the worker was sent to the final documentation slice before any scaffold existed and correctly returned `WORKER_BLOCKED`, burning an executor call — and a slice with no check of its own was silently dropped while a check-only pseudo-slice (a planning checkpoint) became a slice to implement. `fold_plan_tasks` now takes `slice_order` from TASKS `tdd_slices`, and `validate_protocol` refuses a TASKS SUCCESS whose `tdd_slices` and check `slice_id` values differ, so the mismatch is corrected by the TASKS retry instead of surfacing mid-IMPLEMENT, where `reopen --to TASKS` cannot reach it (the manifest is valid). A TASKS result without `tdd_slices` keeps the previous behavior.
