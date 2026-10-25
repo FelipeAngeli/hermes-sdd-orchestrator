@@ -19,6 +19,26 @@ from pathlib import Path
 from typing import Any, Callable
 
 MAX_DEPTH = 2
+#: Interpreters that run code given inline (``-c``/``-e`` or a heredoc). The security
+#: policy engine (``policy_commands.py``) asks a human before such a command runs;
+#: the list lives here because ecosystem knowledge belongs only in this module.
+INLINE_CODE_INTERPRETERS = (
+    "python", "python2", "python3", "node", "deno", "bun", "ruby", "perl", "php", "lua", "osascript",
+    "bash", "sh", "zsh", "dash", "ksh", "fish", "pwsh", "powershell",
+)
+#: Per interpreter family: (name pattern, options known to change neither where the code comes from nor
+#: what is preloaded, options among those that take a value; "-m" there means "the next word is a module").
+#: The security policy engine reads the first argument as the script only after these options; any other
+#: option (-e, -c, -s, -r, -M, --eval=, --require, a glued value) may read code inline, from stdin or a preload.
+SCRIPT_SAFE_OPTIONS = (
+    (r"python[0-9.]*", frozenset({"-B", "-u", "-I", "-O", "-OO", "-q", "-v", "-b", "-bb", "-d", "-S", "-E", "-P", "-W", "-X"}),
+     frozenset({"-W", "-X", "-m"})),
+    (r"(ba|z|da|k|)sh", frozenset({"-x", "-e", "-u", "-v", "-n", "-o", "-ex", "-eu", "-eux", "-euo", "-xe"}), frozenset({"-o"})),
+    (r"node", frozenset({"--no-warnings", "--trace-warnings", "--enable-source-maps", "--inspect", "--trace-uncaught"}),
+     frozenset()),
+    (r"ruby", frozenset({"-w", "-v", "-W"}), frozenset()),
+    (r"perl", frozenset({"-w", "-W", "-T", "-t"}), frozenset()),
+)
 IGNORED_DIRS = frozenset({
     ".git", ".hg", ".svn", ".hermes", ".idea", ".vscode", "node_modules", ".venv", "venv", "env",
     "__pycache__", ".tox", ".nox", ".mypy_cache", ".pytest_cache", ".ruff_cache", "vendor",

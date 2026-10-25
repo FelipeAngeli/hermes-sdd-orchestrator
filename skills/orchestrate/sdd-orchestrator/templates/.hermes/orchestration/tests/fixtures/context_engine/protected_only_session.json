@@ -1,0 +1,183 @@
+{
+ "model": "synthetic",
+ "messages": [
+  {
+   "role": "user",
+   "content": "Apply the release checklist."
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool_use",
+     "id": "toolu_note_0",
+     "name": "read_note",
+     "input": {
+      "note": 0
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "tool_result",
+     "tool_use_id": "toolu_note_0",
+     "content": "Station 20 hourly log, day 5.\n06:00 wind 4 km/h from the north, humidity 71 percent, sky clear.\n09:00 wind 7 km/h, humidity 64 percent, light haze over the river.\n12:00 wind 11 km/h, humidity 52 percent, scattered cloud.\n15:00 wind 9 km/h, humidity 49 percent, cloud breaking up.\n18:00 wind 5 km/h, humidity 58 percent, calm evening.\nAC-1 the create endpoint returns 201 with the new id.\n"
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool_use",
+     "id": "toolu_note_1",
+     "name": "read_note",
+     "input": {
+      "note": 1
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "tool_result",
+     "tool_use_id": "toolu_note_1",
+     "content": "Station 21 hourly log, day 5.\n06:00 wind 4 km/h from the north, humidity 71 percent, sky clear.\n09:00 wind 7 km/h, humidity 64 percent, light haze over the river.\n12:00 wind 11 km/h, humidity 52 percent, scattered cloud.\n15:00 wind 9 km/h, humidity 49 percent, cloud breaking up.\n18:00 wind 5 km/h, humidity 58 percent, calm evening.\nAC-2 a duplicate plate returns 409.\n"
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool_use",
+     "id": "toolu_note_2",
+     "name": "read_note",
+     "input": {
+      "note": 2
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "tool_result",
+     "tool_use_id": "toolu_note_2",
+     "content": "Station 22 hourly log, day 5.\n06:00 wind 4 km/h from the north, humidity 71 percent, sky clear.\n09:00 wind 7 km/h, humidity 64 percent, light haze over the river.\n12:00 wind 11 km/h, humidity 52 percent, scattered cloud.\n15:00 wind 9 km/h, humidity 49 percent, cloud breaking up.\n18:00 wind 5 km/h, humidity 58 percent, calm evening.\nThe service MUST reject a missing driver id.\n"
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool_use",
+     "id": "toolu_note_3",
+     "name": "read_note",
+     "input": {
+      "note": 3
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "tool_result",
+     "tool_use_id": "toolu_note_3",
+     "content": "Station 23 hourly log, day 5.\n06:00 wind 4 km/h from the north, humidity 71 percent, sky clear.\n09:00 wind 7 km/h, humidity 64 percent, light haze over the river.\n12:00 wind 11 km/h, humidity 52 percent, scattered cloud.\n15:00 wind 9 km/h, humidity 49 percent, cloud breaking up.\n18:00 wind 5 km/h, humidity 58 percent, calm evening.\nADR-0007 decision: events are published through the outbox table.\n"
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool_use",
+     "id": "toolu_note_4",
+     "name": "read_note",
+     "input": {
+      "note": 4
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "tool_result",
+     "tool_use_id": "toolu_note_4",
+     "content": "Station 24 hourly log, day 5.\n06:00 wind 4 km/h from the north, humidity 71 percent, sky clear.\n09:00 wind 7 km/h, humidity 64 percent, light haze over the river.\n12:00 wind 11 km/h, humidity 52 percent, scattered cloud.\n15:00 wind 9 km/h, humidity 49 percent, cloud breaking up.\n18:00 wind 5 km/h, humidity 58 percent, calm evening.\nsecurity: the session token is never written to logs.\n"
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool_use",
+     "id": "toolu_note_5",
+     "name": "read_note",
+     "input": {
+      "note": 5
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "tool_result",
+     "tool_use_id": "toolu_note_5",
+     "content": "Station 25 hourly log, day 5.\n06:00 wind 4 km/h from the north, humidity 71 percent, sky clear.\n09:00 wind 7 km/h, humidity 64 percent, light haze over the river.\n12:00 wind 11 km/h, humidity 52 percent, scattered cloud.\n15:00 wind 9 km/h, humidity 49 percent, cloud breaking up.\n18:00 wind 5 km/h, humidity 58 percent, calm evening.\nRan 42 tests in 3.1s OK\n"
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool_use",
+     "id": "toolu_note_6",
+     "name": "read_note",
+     "input": {
+      "note": 6
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "tool_result",
+     "tool_use_id": "toolu_note_6",
+     "content": "Station 26 hourly log, day 5.\n06:00 wind 4 km/h from the north, humidity 71 percent, sky clear.\n09:00 wind 7 km/h, humidity 64 percent, light haze over the river.\n12:00 wind 11 km/h, humidity 52 percent, scattered cloud.\n15:00 wind 9 km/h, humidity 49 percent, cloud breaking up.\n18:00 wind 5 km/h, humidity 58 percent, calm evening.\nblocked: the fleet table migration is still pending.\n"
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "text",
+     "text": "All notes read."
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": "Continue."
+  }
+ ]
+}

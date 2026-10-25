@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SecurityPolicy",
+  "description": "Versioned security policy read by runtime/policy_registry.py. It can only tighten the floors fixed in code (policy_registry.FLOORS); a file that loosens one is refused.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "version",
+    "delegation",
+    "approvals",
+    "repetition",
+    "budget_raise",
+    "budgets",
+    "gates",
+    "protected_paths",
+    "extra_deny_patterns"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "policy_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "delegation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_depth",
+        "max_children_per_parent",
+        "max_concurrent_agents"
+      ],
+      "properties": {
+        "max_depth": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_children_per_parent": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_concurrent_agents": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "approvals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ttl_seconds"
+      ],
+      "properties": {
+        "ttl_seconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "repetition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "window_seconds",
+        "max_denied_repeats"
+      ],
+      "properties": {
+        "window_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_denied_repeats": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "budget_raise": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowed_limits",
+        "max_factor"
+      ],
+      "properties": {
+        "allowed_limits": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "max_tokens",
+              "max_node_runs",
+              "max_wall_clock_seconds",
+              "max_correction_cycles"
+            ]
+          }
+        },
+        "max_factor": {
+          "type": "number",
+          "exclusiveMinimum": 1
+        }
+      }
+    },
+    "protected_paths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      }
+    },
+    "extra_deny_patterns": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      }
+    },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_attempts_per_node"
+      ],
+      "properties": {
+        "max_attempts_per_node": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "min_mode"
+      ],
+      "properties": {
+        "min_mode": {
+          "enum": [
+            "OBSERVE",
+            "ENFORCE"
+          ]
+        }
+      }
+    }
+  }
+}

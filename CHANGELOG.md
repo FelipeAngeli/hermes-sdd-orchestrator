@@ -4,6 +4,282 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.18.1 - 2026-10-25
+
+### Fixed
+
+- IMPLEMENT no longer runs TDD slices in acceptance-check order. `delivery.slices.planned` was built from the order of acceptance checks, so a TASKS result that listed its checks string-sorted (`AC1, AC10, AC11, AC2…`) made the controller dispatch the last slice first — in a real delivery the worker was sent to the final documentation slice before any scaffold existed and correctly returned `WORKER_BLOCKED`, burning an executor call — and a slice with no check of its own was silently dropped while a check-only pseudo-slice (a planning checkpoint) became a slice to implement. `fold_plan_tasks` now takes `slice_order` from TASKS `tdd_slices`, and `validate_protocol` refuses a TASKS SUCCESS whose `tdd_slices` and check `slice_id` values differ, so the mismatch is corrected by the TASKS retry instead of surfacing mid-IMPLEMENT, where `reopen --to TASKS` cannot reach it (the manifest is valid). A TASKS result without `tdd_slices` keeps the previous behavior.
+
+## 15.18.0 - 2026-10-22
+
+### Added
+
+- **Security policy engine** (opt-in; [docs/components/policy-engine.md](docs/components/policy-engine.md)): `runtime/policy_registry.py`, `policy_commands.py`, `policy_evaluator.py`, `policy_budget.py`, `policy_approval.py`, `policy_audit.py`, `policy_hooks.py`, `policy_cli.py`, `loop_security.py`, the versioned `policies/SECURITY_POLICY.json` and `schemas/SECURITY_POLICY_SCHEMA.json`, and the shell hook `hooks/enforce-policy.py`.
+  - PolicyRegistry loads the policy with its version and SHA-256. Floors live in code, and a file that loosens one is refused (`POLICY_WEAKENS_FLOOR`).
+  - PolicyEvaluator answers `ALLOW`, `DENY` or `REQUIRE_APPROVAL` with rules P1–P12. Unknown fields are refused, so agent instructions and Jev output cannot reach a decision.
+  - BudgetGuard: a budget raise needs an explicit rule.
+  - ApprovalBridge: single-use approvals bound to the action's SHA-256, consumed atomically, with expiry and revocation; machine approvers are refused.
+  - SecurityAudit: hash-chained `security-audit.jsonl`. A decision that cannot be audited is a DENY.
+  - HookDispatcher maps the seven proposed hooks onto Hermes `pre_tool_call` and the loop and gate engines.
+- `LoopEngine(policy=...)` and `GateEngine(policy=...)` are optional; `None` (the default) keeps the current behaviour. New loop halts: `POLICY_DENIED` (→ `ACTION_BLOCKED`) and `POLICY_APPROVAL_REQUIRED` (→ `HUMAN_APPROVAL_REQUIRED`), both retryable by a human and checked again.
+- `hooks/hooks.example.yaml` adds the policy hook (`fail_closed: true`) next to the scope hook. It stays inactive until the owner merges it into a dedicated profile.
+- `runtime/detect_stack.py` gains `INLINE_CODE_INTERPRETERS` and `SCRIPT_SAFE_OPTIONS`, which the policy engine reads so that its command rules stay language-neutral.
+- The installer adds the controller-owned `policy-state/` directory to `.git/info/exclude`, as it does for `action-journal-history/`.
+- Tests: 30 in `tests/test_policy_engine.py`, 7 in `tests/test_policy_integration.py` and 37 in `tests/test_policy_bypasses.py` (25) plus `tests/test_policy_bypasses_late.py` (12). Those two pin each bypass found in five review rounds:
+  - a protected path in another letter case (APFS resolves both);
+  - `${IFS}` and `$VAR` in the program word;
+  - globs and quotes around the policy CLI and its state;
+  - `>|` and other redirections;
+  - curl/wget uploads with `--json @`, `-H @` and `--body-file`;
+  - a V4A move without spaces;
+  - the terminal `workdir`;
+  - repeated `execute_code`;
+  - team or mailbox approvers;
+  - `pass=`/`pin:` values in the audit;
+  - backtracking `extra_deny_patterns`.
+  - `N>&file` redirections;
+  - git config values that run a program (`-c alias.x=!…`, `core.sshCommand`, `GIT_CONFIG_*`);
+  - `find -exec`/`-fprint` and interpreter script arguments as writes;
+  - program names in another letter case (`RM -rf`);
+  - nested quantifiers at any depth;
+  - broad globs (not expanded; they need an approval);
+  - team words without a separator (`opsteam`).
+  - code read from stdin or a preload (`bash -s`, `bash -xs`, `node -r`, `ruby -rw`, `perl -Mw`), which has no script argument;
+  - shell grouping and keywords before the program (`{ RM -rf x; }`, `if …; then`, `! cmd`);
+  - interpreter options outside a known-safe list (`perl -e<code>`, `node --eval=`, `lua -lw`) and environment preloads (`NODE_OPTIONS`, `RUBYOPT`, `BASH_ENV`, as a prefix or exported in an earlier segment), which mean there is no script argument;
+  - a pager or editor given as a path (`core.pager=./less`).
+- Rounds 3 and 4 also remove false positives without widening anything else. `git config` counts as a read only when the action precedes the key. Only labelling `GIT_*` variables pass. A pager or editor is accepted only as `cat`, `true`, or `less`/`more` with display flags. Tool bots and `team…`/`group…` compounds still cannot approve. The cases are: `find . -name`, `GIT_PAGER=cat`/`GIT_DIR=…`, `git config --get`/`--unset`, `core.pager='less -R'`, `core.editor=true`, an empty `credential.helper`, three glob components, and surnames containing a group word (`Botelho`, `Talbot`, `Steamer`). Git rules move to `runtime/policy_git.py`.
+- The `terminal` command check is documented as best effort, with the bypass classes the third review found and left open listed under Limits in the policy-engine page. Hermes approvals, the executor sandbox, the scope hook and the HSM supervisor remain the barrier for those.
+- A cache-free mutation run over 83 security rules kills all 83.
+- No skill-security waiver is needed: the published skill scans `SAFE` with Hermes `skills-guard-v5`, and its install gate allows it. Deny rules split the few privileged command names the scanner reads as threats (`"su" "do"`, `su[d]o`, `print[e]nv`), and tests assemble their attack strings at run time; behaviour is unchanged. `tools/check_skill_security.py` is unchanged.
+
+## 15.17.0 - 2026-10-22
+
+### Added
+
+- **Observability engine** (opt-in, read-only; [docs/components/observability.md](docs/components/observability.md)): `runtime/obs_model.py`, `obs_tracer.py`, `obs_metrics.py`, `obs_cli.py` and `obs_benchmark.py`, plus the versioned list-price table `policies/PRICES.json`.
+  - ExecutionTracer derives correlated events (`trace_id`, `run_id`, `loop_id`, `session_id`, `agent_id`, `parent_agent_id`, `task_id`, `stage`, `event_type`, `timestamp`) on demand from the stores that already exist: loop store, action-journal history, the hash-verified gate decision log, Jev receipts and reports, context-engine run metrics and the local supervisor log. It persists nothing, so there is no second source of truth. Free-text keys (prompts, goals, quotes, messages, outputs, paths) are dropped and the remaining strings are redacted.
+  - The trackers report tokens per stage and per actor, with `MEASURED`, `ESTIMATED` and `SIMULATED` never summed together and unknown counts never treated as zero. Cost is a list-price estimate with the table's version and hash, and records it cannot price are `UNPRICED` with a reason. The trackers also cover latency percentiles, progress (first-attempt success, retries by cause, correction loops, recovery after interruption, time to completion, human wait, concurrency, policy blocks) and Jev gross vs net saving, with the evaluator's own tokens and latency counted.
+  - `obs_cli.py report|events|prices` prints JSON. `--output` writes 0600 atomically and never through a symlink.
+  - `obs_benchmark.py` runs the same SDD delivery under scenarios A (current), B (Jev dry run), C (Jev active) and D (C plus raised loop limits), offline or with live Jev calls capped by `--max-live-calls`. The measured baseline is in [docs/reports/observability-baseline.md](docs/reports/observability-baseline.md). In 20 live calls, Jev's context evaluation saved nothing on the TEST fixture and cost 6 378 tokens per run. No performance gain is claimed: agent work in the benchmark is simulated.
+  - Two additive runtime changes feed it. The loop engine records each attempt's own handler-reported `tokens`/`tokens_method` (`loop_state.record_attempt_tokens`), failed attempts included, while the `max_tokens` budget still counts successful attempts only. `executor_transport.extract_result` adds the Claude CLI envelope's `MEASURED` usage to the `run` output as `usage` (`envelope_usage`).
+  - Review round 1 of PR #63 (fixed before release):
+    - **Hostile stores**: a document of the wrong shape, deep nesting or a non-numeric value used to crash the whole report and hide every other source. Every reader now runs under `obs_tracer.guarded`, so such a file yields `SOURCE_UNREADABLE`. Numbers must be finite. Store files over 64 MiB are not read, event logs are streamed, and symlinked ticket directories are not followed.
+    - **Privacy**: a nested failure dict or a key spelled `Message`/`PROMPT` let free text through. Failures are now reduced to class and code, key matching ignores case, and every kept string must be code-shaped with no spaces.
+    - **Labels**: benchmark agent tokens were labelled `ESTIMATED` and the offline stand-in counted as live `MEASURED` calls. Both are now `SIMULATED`. An evaluator call that reported no usage counted as free; it is now counted in `calls_with_unknown_usage` and makes the net saving `null`. Cost priced without unknown cache tokens is marked `is_lower_bound`.
+    - **Docs**: the claims that the Claude envelope usage "feeds the tracer" and that `reported_by_provider_usd` exists were wrong (nothing stores launcher output) and are removed. `observability.md` now states that `trace_id` is per store family, joined through `task_id`.
+    - **Fixes**: `human_wait` keeps the first unresolved halt and closes cancelled runs. Reports are written with `allow_nan=False`, and the Claude envelope's `cost_usd` must be finite.
+  - Review round 2 of PR #63 (fixed before release):
+    - **Crash**: huge JSON integers (`1` followed by 400 zeros) crashed the whole report with `OverflowError` after the guarded readers had returned. `obs_model.number` now rejects any magnitude above `MAX_MAGNITUDE` (1e15).
+    - **Privacy**: dict keys skipped the code-shape check, so a secret placed in a key reached the report. Keys must now pass `code()`, and the failure class and code are reduced to code-shaped scalars where they are read. That also removes a lone surrogate that crashed `events`.
+    - **Labels**:
+      - Context-engine evaluator calls that reported no usage were still summed as measured zero. `context_judge` now counts the calls that reported usage, and `context_engine` records `evaluator_calls_without_usage` (an additive metric). The tracer turns those runs into unknown usage, so the net saving is `null`.
+      - Evaluator tokens are now summed per method (`by_method`); mixed methods give `null` totals and `MIXED`.
+    - **TOCTOU**: store files are read through one descriptor up to `MAX_FILE_BYTES`, so a file that grows after the check is refused (`obs_tracer.read_bounded`, also used for the supervisor log).
+    - **Docs**:
+      - `LOOP_SUMMARY` token labels are the budget's labels.
+      - The `CODE_TEXT` character set now also allows `[` and `]`, for model names such as `claude-opus-4-6[1m]`.
+      - Identifiers with spaces become `null`, and code-shaped personal data is an accepted residual.
+  - Review round 3 of PR #63 (fixed before release):
+    - **Regression from round 2**: allowing `[` and `]` anywhere in `CODE_TEXT` let bracketed-key secret assignments (`user[password]=…`, `[api_key]=…`) through `obs_cli events`. Brackets are now allowed only as one short trailing suffix (`claude-opus-4-6[1m]`). `SECRET_ASSIGNMENT` rejects any secret-named key followed by `=` or `:`, which also closes `api_key=,…`, an older gap that `redaction.redact` does not cover.
+    - **Bounded read**: loop `events.jsonl` is read line by line under the `MAX_FILE_BYTES` budget, so a file that grows after the check is cut off.
+    - **Tests**: sharpened so the 1e15 cap, `usage_reported`, the tracer's unknown-usage override and the mixed-method net are each proven on their own (4 of the 5 mutations the reviewer found surviving). Review round 4 showed that the bounded-read tests still passed with either guard disabled. They were replaced by `test_reads_are_bounded_by_the_bytes_actually_read` and `test_loop_events_respect_the_byte_budget`, which also assert that a cut line is never parsed.
+    - **Docs**: error, timeout and refused calls count as calls without usage. A run with any such call is reported fully unknown. Older `metrics.json` files are read as fully reported.
+  - Tests: 46 in `tests/test_observability.py` and `tests/test_observability_inputs.py` (shared fixtures in `tests/obs_fixtures.py`, split to stay under the file-size limit); the 11 added in review round 1 all fail against the first candidate, the 4 added in round 2 all fail against the second, and the 2 added in round 3 both fail against the third. The mutation table grew to 28 rules (`.hermes-dev/mut-obs.log`). A first rerun was invalid, because six patterns no longer matched the new code. The valid rerun left 2 survivors (the failure projection and gross applied vs dry-run saving). Two tests were sharpened, and that run killed all 28. Rounds 2 and 3 grew the table to 41 rules. Review round 4 then found that the harness reused bytecode caches: a mutant restored within the same second at the same size could run stale `.pyc`. The kill counts of runs 1–12 are therefore not reliable, and the log says so. With the bounded-read guards disabled the harness, run without caches, reported 4 survivors. The harness now deletes `__pycache__` and runs with `-B` and `PYTHONDONTWRITEBYTECODE=1`. Its run 13, on the rewritten tests, killed all 41.
+
+## 15.16.9 - 2026-10-21
+
+### Fixed
+
+- Validation gates, tenth review round of PR #62:
+  - **CI on Linux** (HIGH): the 15.16.8 gitfile test asserted that a write through a shared mapping moves no mtime or ctime. That holds on APFS, but Linux updates mtime when the page is written, so the test failed on `ubuntu-latest`. The test now asserts only what the gate guarantees: git still resolves the gitfile, and `git_dir` changes.
+  - **Files swapped while read** (LOW): a file replaced between `lstat` and `open` by a FIFO, or by a symlink to `/dev/zero`, hung the gate (scan and fingerprint). Files are now opened with `O_NOFOLLOW | O_NONBLOCK`, then `fstat` must show the same regular file. Reads stop at the size `lstat` saw, and a file that grew is unreadable (fingerprint incomplete). The `.git` entry is read the same way, so a gitfile grown large is no longer read in full.
+  - **Documentation:** the 15.16.8 docs said objects are "re-hashed when read anyway". That is true only for the commit and tree objects the gate reads, not for other files under `.git/objects`. "Limits" now states that an unflushed write through a shared mapping under `.git/objects` or an ignored path is not detected, so reuse assumes no worker process is still running when the gate evaluates. It also states that more than 64 MiB of git-directory content outside `objects/` (Git LFS) disables reuse.
+  - **Tests:** four more in `test_gates_round6.py`: a file swapped for a FIFO, a file swapped for a symlink to a device, a file that grows in place, and a symlink to the same file. All four fail against the 15.16.8 code; there the first two hang until the test's 5 s join. A mutation run of 4 rules (`.hermes-dev/mut10.log`) first left 2 survivors. The first growth test recreated the file, so the inode check caught it before the size check. It was rewritten to append in place, the symlink test was added for `O_NOFOLLOW`, and the rerun in the same log killed all 4. A round-3 test that mocked `Path.open` now mocks `os.open`, the new read point. Its contract is unchanged.
+
+## 15.16.8 - 2026-10-21
+
+### Fixed
+
+- Validation gates, ninth review round of PR #62:
+  - **Writes through a shared memory mapping** (MEDIUM): on APFS a write through a `MAP_SHARED` mapping that is not flushed moves no size, mtime, ctime or inode, so a worker process that outlived its evaluation could change a payload in `.git`, or the gitfile itself, while the metadata-only `git_dir` digest stayed equal and a stale PASS was reused. `git_dir` now hashes the content of every regular file in the git directory and its common directory outside `objects/` (objects are re-hashed when read and are the bulk of a repository), within `MAX_HASH_BYTES` in total, and the text of the `.git` entry. Past the budget the fingerprint is incomplete. The 15.16.7 entry said that rewriting the `.git` entry always moves its ctime; that is false for this case.
+  - **Release HEAD:** 15.16.7 had a changelog fix committed after its release commit, so `tools/release.py --tag` refused that head (`HEAD_NOT_RELEASE`). This release commit is again the last commit of the branch.
+  - **Tests:** three more in `test_gates_round6.py` (a mapped write into `.git`, a mapped same-size rewrite of the gitfile, the content budget and `objects/` exclusion). All three fail against the 15.16.7 code. A mutation run of 4 rules (`.hermes-dev/mut9.log`) first left 3 survivors: the gitfile test had broken the path (git then stopped resolving it), and the budget test did not exercise the exclusion. Both were fixed, and the rerun in the same log killed all 4.
+
+## 15.16.7 - 2026-10-21
+
+### Fixed
+
+- Validation gates, eighth review round of PR #62:
+  - **The `.git` entry itself** (MEDIUM): `git_dir` covered the directories git resolves to but not `repo/.git`, so rewriting a linked worktree's gitfile, or repointing a `.git` symlink, to another spelling of the same path (`/./`, `//`) changed what code under test could read while the decision was reused. The mode, size, mtime, ctime and inode of the `.git` entry are now part of `git_dir`; rewriting or recreating it moves its ctime.
+  - **Documentation:** a command that runs git itself (`status`, `add`, `commit`, `fetch`, `gc`), or activity in another worktree of the same repository, changes the git directory and disables reuse for that evaluation. The incompleteness lists now name the git-directory `MAX_ENTRIES` budget and the symlinks or unreadable entries inside it. The 15.16.6 entry said its mutation run first left 2 survivors; the log shows 1.
+  - **Tests:** three more in `test_gates_round6.py` (a rewritten gitfile, a same-size gitfile rewrite with its mtime restored, a repointed `.git` symlink); all three fail against the 15.16.6 code. In `.hermes-dev/mut8.log` the first two reruns are marked void: the module had a syntax error, so the baseline failed and every mutant "died" for that reason. The valid run left 1 survivor (the ctime and inode fields), which the same-size test then killed.
+
+## 15.16.6 - 2026-10-21
+
+### Fixed
+
+- Validation gates, seventh review round of PR #62:
+  - **Payloads in `.git`** (HIGH): the walk skips `.git`, so code under test that read a file the worker kept there (directly, or through a `.pth` in an ignored `.venv`) reused a stale PASS after that file changed. The fingerprint now has `git_dir`: the name, type, size, mtime and ctime of every entry in the git directory and its common directory, bounded by `MAX_ENTRIES`. The gate's own git calls do not write there, so an untouched repository is still reused.
+  - **Documentation:** the bytecode redirect covers a Python process that keeps the gate's environment, not `python -E`/`-I`, a child with an empty environment or a sourceless `.pyc`. Runners that write a cache on every run (pytest, mypy, ruff, Jest) disable reuse unless their cache is pointed outside the repository. Reuse assumes commands read only the repository. The 15.16.5 entry said 3 of the round-6 tests fail against 15.16.4; 5 do.
+  - **Tests:** four more in `test_gates_round6.py`: a payload in `.git`, an untouched `.git` still reused, a payload in a linked worktree's common git directory, and an unwalkable git directory. The first fails against the 15.16.5 code. A mutation run of 3 rules (`.hermes-dev/mut7.log`) first left 1 survivor (the common directory); the linked-worktree test was added for it, the unwalkable-directory test makes the incompleteness flag a direct kill, and the rerun in the same log killed all 3.
+
+## 15.16.5 - 2026-10-21
+
+### Fixed
+
+- Validation gates, sixth review round of PR #62:
+  - **`reuse_key` removed** (HIGH): it was the key computed from the workspace the gate's own commands left behind. A worker command could plant bytecode for a wrong same-size source as it exited, and the next evaluation then reused the PASS through `reuse_key` while a fresh run would fail. Release 15.16.4 said a planted cache could not be served a stale PASS; that was wrong for caches written during the gate's own commands. Decisions have no `reuse_key` and `GATE_DECISION_SCHEMA.json` no longer has the field. Records written by 15.16.4 had `reuse_key`, but that release was never merged.
+  - **Bytecode outside the repository:** gate commands run with `PYTHONPYCACHEPREFIX` set to a fresh, gate-owned directory and `PYTHONDONTWRITEBYTECODE=1`. Python neither loads a `.pyc` planted in the repository nor writes one there, so an unchanged workspace is still reused without `reuse_key`.
+  - **Ignored symlinks** (HIGH): a symlink under an ignored path added only its own metadata, so changing the file it pointed to (inside `.git` or outside the repository) reused a stale PASS. The fingerprint now adds the target's metadata. A symlink to a directory, or one that does not resolve, makes it incomplete.
+  - **Documented limits:** more than `MAX_ENTRIES` entries under ignored paths (a large `node_modules` or `.venv`) makes the fingerprint incomplete and disables reuse. A base rule that ignores files by pattern hides new files matching it. The "Limits" bullets now describe the current fingerprint and scan budget. The `gate_engine` docstring is updated.
+  - **Tests:** `test_gates_round6.py` (6 tests; 5 fail against the 15.16.4 code, the `MAX_ENTRIES` test pins an existing limit). Two round-5 tests were adapted: the gate no longer writes `__pycache__`, and decisions have no `reuse_key`. A mutation run of 7 rules (`.hermes-dev/mut6.log`) left 4 survivors: the ignored-symlink-to-directory, dangling-symlink and `MAX_ENTRIES` tests checked only `complete`, which the walk already cleared. They now assert that the scan is complete and only the ignored digest fails, and the rerun in the same log killed all 4. `.hermes-dev/mut5.log` now also holds the round-5 reruns: `ctime` killed; `obj-kind` and `reuse-only-ignored` report `NOMATCH` because that code was removed.
+
+## 15.16.4 - 2026-10-21
+
+### Fixed
+
+- Validation gates, fifth review round of PR #62. Each item below was reproduced by a reviewer with a proof of concept:
+  - **Object store** (CRITICAL): git does not re-hash a loose object when it reads one. A worker that copied a tree it built over the base tree's object in `.git/objects` made an edited file look unchanged, with or without `base_commit`. `scan` now reads the reference commit and every tree under it with `git cat-file --batch`, re-hashes each object and parses the trees itself (it no longer uses `ls-tree`). A mismatch makes the scope checks INCONCLUSIVE.
+  - **Scan budget** (HIGH): past `MAX_SCAN_BYTES` the scan returned the partial list it had and the scope checks PASSed on it (a sparse 4 GiB file hid an edit made after it). The change list is now undecided (`changed` is None) and the checks are INCONCLUSIVE.
+  - **Lazy fetch** (HIGH): with a promisor remote and a missing object, `rev-parse`, `merge-base` and `ls-tree` ran the repository's `core.sshCommand`. Git now runs with `GIT_NO_LAZY_FETCH=1`. The 15.16.3 text said no git call could run a worker program; that was wrong.
+  - **Symlinks** (HIGH): the fingerprint hashed a symlink's target string, so editing what it pointed to reused a stale PASS. A changed symlink now makes the fingerprint incomplete (marker `symlink`). A tracked directory replaced by a symlink is reported with every tracked path under it, instead of being followed.
+  - **Ignored paths** (MEDIUM): a rule that ignores a directory holding tracked files no longer hides new files there. Every ignored entry's name, type, size, mtime and ctime now goes into the fingerprint, so a planted cache (a `.pyc` whose header matches the restored source) is new evidence. Decisions gain an optional `reuse_key` in `GATE_DECISION_SCHEMA.json` (the same key computed after the gate's own commands wrote their caches), so an unchanged workspace is still reused.
+  - **Tests:** `test_gates_round5.py` (10 tests). 7 of them fail against the 15.16.3 code; the others check that the gate's own caches still allow reuse, that a same-size cache rewrite with its mtime restored does not (the ctime moves), and that a command with a side effect on a tracked file does not mark the state it created as reviewed. A mutation run of 13 rules (`.hermes-dev/mut5.log`) left 3 survivors: two got the tests just named, and the separate object-type comparison was removed as redundant (the id is re-hashed with the expected type, so any other type already mismatches).
+  - **Out of scope, kept:** `tools/token_baseline.json` lowers two entries (`stop_reasons.py` and `tests/test_sdd_orchestrator_skill.py`) after those files shrank. The baseline may only ratchet down, and no file in it grew.
+
+## 15.16.3 - 2026-10-21
+
+### Fixed
+
+- Validation gates, fourth review round of PR #62. `gate_workspace` no longer asks git to compare content: git applied worker-controlled settings along the way, and four of them hid an edit (one also ran a program):
+  - a filter driver named with `=` (`-c filter.a=b.clean=` cannot address it), which ran the worker's program and hid the edit;
+  - an `ident` or `eol` attribute in a worktree `.gitattributes` or `.git/info/attributes`, which erased any content inside a `$Id$` span;
+  - an embedded repository, listed as one directory whose files were never hashed, so a stale PASS was reused;
+  - `core.checkStat=minimal` with `core.trustctime=false` over a refreshed index, which hid a same-size, same-mtime edit. Release 15.16.1 removed these two overrides on the strength of a probe that ran against a racily clean index, where git always rehashes; that probe proved nothing, and the claim in its entry was wrong.
+
+  `scan` now lists the reference tree with `git ls-tree` and compares each tracked file's raw-bytes blob id, executable bit and type on disk itself, and walks the working tree itself. Untracked paths are matched with `git check-ignore --no-index` against `.gitignore` files unchanged from the reference tree. No git call reads the index or file contents, so filters, attributes, the stat cache, index flags, hooks and fsmonitor are no longer involved, and the git overrides that neutralised them are gone. Submodules are not supported: a tree with one makes the scope checks BLOCKED (a worktree `.gitmodules` `ignore = all` used to hide a dirty submodule). `hidden_by_index` was removed. New limits `MAX_ENTRIES` (200 000 walked entries) and `MAX_SCAN_BYTES` (4 GiB compared) make the fingerprint incomplete instead of slow.
+  - **Tests:** `test_gates_round4.py` covers each finding; six of its tests fail against the 15.16.2 code. A mutation run of 23 rules on the new code (`.hermes-dev/mut4.log`, outside the repository) left 9 survivors over two passes; each got a test (a negation rule re-including a file in a subdirectory, a tracked file replaced by a directory or FIFO, files inside a nested `.git`, a `check-ignore` failure, the entry and byte limits, `core.excludesFile` pointing at a trusted `.gitignore`, `core.worktree` pointing at a decoy, an unreadable new file), and re-running those mutations killed them. The installer test helper `installed_suite` checks the exit code again (it relied on `OK` appearing in stderr).
+
+## 15.16.2 - 2026-10-21
+
+### Fixed
+
+- Installer tests: the three tests that run the whole installed controller suite in one subprocess now run through one `installed_suite` helper with a 900 s bound instead of the 120 s bound for single commands. The suite took about 113 s on CI runners before the validation-gate tests were added and timed out after (`tests/test_sdd_orchestrator_skill.py`).
+- Validation gates: `gate_workspace` looks up the repository's filter names once per scan instead of before every git call.
+
+## 15.16.1 - 2026-10-21
+
+### Fixed
+
+- Validation gates, third review round of PR #62. A worker could no longer hide an edit or mask a false claim:
+  - **Base diff** (`gate_workspace`): with `context.base_commit`, changes are computed against a fresh temporary index built from the base tree, so commits since the base, the index's cached stat data and `skip-worktree`/`assume-unchanged` flags hide nothing. Without a base, those flags make the fingerprint incomplete, so a stale PASS is never reused. The base must be a full object id of an ancestor of HEAD; a ref name, a short id or an unrelated commit is BLOCKED.
+  - **Git environment:** `GIT_DIR`/`GIT_WORK_TREE` are pinned (a repository `core.worktree` can no longer redirect the scan), and replace refs and grafts are off. `core.fileMode` and `extensions.worktreeConfig` are overridden, and filters are found in every config scope, including `config.worktree`. The ineffective `-c core.worktree` and redundant `diff.external` overrides were removed.
+  - **Ignore rules:** an untracked file counts unless a `.gitignore` that exists unchanged in the base tree ignores it, so a worker-written or edited ignore rule hides nothing.
+  - **Fingerprint:** unreadable and special files make it incomplete instead of crashing the evaluation.
+  - **Claims:** a claim whose argv equals a configured gate command is re-run as that command, so a disallowed spelling cannot mask a false claim about it.
+  - **Reviewers:** glued executor names map to their vendor (`codexcli`, `claudecode`, `gpt4o`), and non-ASCII names have no family.
+  - **Tests:** `test_gates_round3.py` covers each finding and the rules the reviewers' third mutation run (67 rules, 12 survivors) found untested. A follow-up run of 24 rules left 6. Of those, 3 were covered by new tests and re-run as killed, `diff.external` was removed as redundant, one is an equivalent reordering, and `core.checkStat`/`core.trustctime` were removed because a same-size, same-mtime probe showed git reports the edit without them.
+
+## 15.16.0 - 2026-10-21
+
+### Added
+
+- Validation gates, second review round of PR #62:
+  - **New context key and criteria:** `context.base_commit` (changes measured with `git diff <base>` plus untracked files only `.gitignore` excludes). New criteria `EXPECTED_CHECKS_STATED` (TEST and REVIEW are BLOCKED unless the controller states the expected checks) and `FORMAT` (REVIEW re-runs a configured Format command). `GateRegistry` v3.
+
+### Fixed
+
+- Validation gates, second review round of PR #62. A worker could no longer hide changes or forge a PASS:
+  - **Git** (`gate_workspace`): `core.worktree`, `core.excludesFile`, `core.attributesFile`, `diff.external` and every repository `filter.<name>` program are overridden, with `GIT_ATTR_NOSYSTEM` and no stdin. `assume-unchanged` and `skip-worktree` flags fail the IMPLEMENT scope checks.
+  - **Reuse:** files are hashed in chunks with per-file and file-count limits. An incomplete fingerprint (git failed, too many files, a file too large) makes the decision `retryable`, so a workspace outside git is never served a stale PASS.
+  - **Reproduced claims:** claims equal to a configured gate run first, spellings are deduplicated by argv, and claims over the cap make `EVIDENCE_REPRODUCED` INCONCLUSIVE.
+  - **REVIEW:** any finding severity outside `NON_BLOCKING_SEVERITIES` (case and spaces ignored) blocks an approval.
+  - **Reviewers:** families map through a vendor table (`gpt-5-codex` and `codex` are both `openai`), and the reviewer context labels quoted worker text as untrusted.
+  - **Store:** an evidence store inside the repository is refused (`GATE_STORE_INSIDE_REPO`).
+  - **Redaction:** `redaction.redact` masks the distinctive GitHub, GitLab, webhook and Slack prefixes even when glued to a preceding word.
+  - **Tests:** `test_gates_hardening.py` covers the 12 rules the reviewers' mutation run found untested, plus the new rules. (Correction: a 29-mutation run left 4 survivors, which were then covered and re-run as killed; the reviewers' third run found 12 more, covered in the next release.) `docs/components/validation-gates.md` now states the same-user and `.git` limits plainly.
+
+## 15.15.2 - 2026-10-21
+
+### Fixed
+
+- Validation gates: read the allow-listed environment with `os.environ.get` (`gate_validator`, `gate_workspace`) and set the host-only test variable through `mock.patch.dict`, so the pinned Hermes skill security scan returns SAFE again (CI failed with CAUTION on `python_os_environ`). Behaviour is unchanged.
+
+## 15.15.1 - 2026-10-21
+
+### Fixed
+
+- Validation gates (PR #62 review). A worker could no longer forge a PASS:
+  - **Proof:** waivers count only when the controller recorded them (`context.waivers`); a waiver written in the artifact is BLOCKED. An expected acceptance check the artifact leaves out fails. REVIEW re-runs Focused tests and Analyze (`TESTS_PASS`, `STATIC_ANALYSIS`) instead of trusting the reported `gate_status`.
+  - **Decision log:** decision reuse and history verify the hash chain and the evidence references first, so a tampered log raises `DECISION_LOG_TAMPERED`.
+  - **Implementer:** the artifact's `executor.name` also counts as implementer. Families are normalised (`gate_reviewer.family`), and an unknown implementer blocks AGENT criteria.
+  - **Git:** git runs hardened in the new `runtime/gate_workspace.py` (minimal environment, no global or system config, `core.fsmonitor`/`hooksPath`/`untrackedCache` overridden, `--no-renames`, failures INCONCLUSIVE).
+  - **Retries:** timeouts, git failures and reviewer errors are `transient`, and their `retryable` decisions are evaluated again instead of reused.
+  - **Limits:** command output goes to temporary files and is redacted before it is cut; artifacts are capped at 2 MiB and re-run claims at 10.
+  - **Contract:** `GATE_DECISION_SCHEMA.json` adds `retryable`, the returned-only `reused` and the per-criterion `transient`.
+  - **Tests:** `test_gates_review.py` covers each regression. (Correction: that 26-mutation run left 3 survivors, killed after the tests were sharpened; the second review's 38-mutation run then found 12 more, covered in 15.16.0.) `docs/components/validation-gates.md` now documents the controller-owned context and these limits.
+
+## 15.15.0 - 2026-10-21
+
+### Added
+
+- Opt-in SDD validation gates in observation mode (`runtime/gate_*.py`, `schemas/GATE_DECISION_SCHEMA.json`), inspired by the CompozyOS gates and goal evaluators: a GateRegistry with one gate per stage (SPECIFY … REVIEW), a DeterministicValidator that checks artifacts against the real workspace and re-runs configured or allowlisted commands without a shell, an AgentReviewer that asks only reviewers independent of the implementer with minimal context and counts an uncited PASS, a reviewer error or disagreement as INCONCLUSIVE, a content-addressed, redacted, versioned EvidenceCollector, and structured GateDecisions (`gate_id`, `task_id`, `PASS|FAIL|BLOCKED|INCONCLUSIVE`, `evidence_refs`, `failed_criteria`, `suggested_actions`, `evaluator`, `timestamp`) in an append-only hash-chained log. Every PASS has evidence, identical evidence reuses the recorded decision without re-review, and a FAIL produces a bounded corrective task the loop engine can run (`gated_handler`). Nothing in the controller calls the gates; `OBSERVE` never blocks and `ENFORCE` is explicit. CLI: `evaluate`, `history`, `verify`, `registry`. See `docs/components/validation-gates.md`.
+
+## 15.14.5 - 2026-10-20
+
+### Fixed
+
+- Loop engine (PR #61 review, round 5): roll-forward recovery adopts `execution.pending.json` only when it is schema-valid, of the same execution and definition, exactly one step ahead with the trailing event's name and hash, and reloads once, so a forged trailing event is `EXECUTION_TAMPERED` instead of a `RecursionError` and never overwrites the good checkpoint; lone surrogates in handler output, failures and input requests are `RESULT_INVALID`.
+
+## 15.14.4 - 2026-10-20
+
+### Fixed
+
+- Loop engine (PR #61 review, round 4): every commit first writes the new state to `execution.pending.json`; after a crash a complete trailing event rolls forward to that state (hash-checked) instead of being dropped, so restoring the previous `execution.json` can no longer erase a recorded `reject` or completion, and only a torn line (including a split UTF-8 character) is trimmed; concurrent `start`s of one id return `EXECUTION_EXISTS`; non-JSON failures, token counts and input requests are `RESULT_INVALID`.
+
+## 15.14.3 - 2026-10-20
+
+### Fixed
+
+- Loop engine (PR #61 review, round 3): restoring an older `execution.json` can no longer roll back the event log, re-run completed nodes or undo a rejection (only one trailing uncommitted line may be trimmed, anything else is `EXECUTION_TAMPERED` before trimming); an immediate `cancel` verifies integrity first; `start` builds the execution in a staging directory renamed atomically; a non-JSON handler output is `RESULT_INVALID` and an unsavable state raises `STATE_NOT_SERIALIZABLE` without advancing the checkpoint.
+
+## 15.14.2 - 2026-10-20
+
+### Fixed
+
+- Loop engine (PR #61 review, round 2): every event carries `state_sha256` and `execution.json` must match the hash of its committed event, so editing that file alone (skipping a gate, resetting `usage`, rewriting a recorded raise) is `EXECUTION_TAMPERED`; decision events also log `value`, `by` and `quote`; a `raise-budget` value with whitespace is normalized instead of locking the execution; the docs state that approver names are attribution, not authentication, and that retries keep the same idempotency key.
+
+## 15.14.1 - 2026-10-20
+
+### Fixed
+
+- Loop engine (PR #61 review): lock-free reads (`status`, a deferred `cancel`) no longer truncate events a runner is committing; a verifier halted on a spent run budget resumes after `raise-budget` instead of sticking at `NO_RUNNABLE_NODE`; `cancel`/`resolve` on an unknown id create nothing; `raise-budget` must name the exhausted budget; SECURITY approvals come only from `policy.security_approvers` and any name with a program or AI-executor token is refused; `execution.json` edits not explained by the definition and the event log are `EXECUTION_TAMPERED`; the store is owner-private 0700 with files written 0600 and never through links; ids with a trailing newline are refused; every non-`wait` node needs a finite timeout (`TIMEOUT_REQUIRED`); a cancel during the last node keeps the run `COMPLETED`; handlers get copies of their inputs, the idempotency key is stable per node generation (`attempt_id` is per attempt), and a non-idempotent node is not restarted while its timed-out attempt still runs (`NODE_STILL_RUNNING`). `docs/components/loop-engine.md` now cites the upstream CompozyOS commit instead of a local path.
+
+## 15.14.0 - 2026-10-20
+
+### Added
+
+- Experimental, opt-in loop engine (`runtime/loop_engine.py` and its `loop_*` modules, `schemas/LOOP_DEFINITION_SCHEMA.json`, `schemas/LOOP_EXECUTION_SCHEMA.json`), inspired by the CompozyOS Goal/Verification/Stop/Outcome contracts. LoopDefinition, LoopExecution, LoopNode, LoopCheckpoint and LoopOutcome; node kinds `run-agent`, `run-tool`, `gate` and `wait` (`run-loop`, `fan-out`, `collect`, `branch` refused as planned); nine states mapped to journal and STATE statuses and to registered stop reasons. Dependency-ordered execution with cycle detection, transient versus functional failure, bounded retries with exponential backoff, no automatic re-run of a non-idempotent node whose effect is unknown, write-ahead checkpoints before every transition, crash recovery without repeating completed work, reconcilers, run/token/time budgets, cooperative cancellation, human-only decisions with literal quotes and never-automatic security approval. The SDD adapter turns a profile into a chain whose TEST/REVIEW failure re-runs only IMPLEMENT and its downstream through `correction_loop` (3 correction cycles, 2 transient retries). Nothing in the controller calls it; the CLI (`validate`, `sdd-definition`, `status`, `cancel`, `resolve`) never runs a node. See `docs/components/loop-engine.md`.
+
+## 15.13.0 - 2026-10-20
+
+### Added
+
+- Opt-in agent-manager PR 1: a deterministic read-only agent/playbook registry, strict disabled-by-default delegation configuration, and additive v1 delegation-contract validation with explicit session ids, permission-widening rejection and unmeasured token estimates. See `docs/components/agent-manager.md`.
+
+## 15.12.1 - 2026-10-20
+
+### Fixed
+
+- Context engine (untagged 15.12.0): OpenAI Responses items with a `role` and no `type` are read as messages, so their text reaches Jev as constraints and counts for requirement markers; a field with several text parts is read joined for screening and constraints but is no longer segmented; the judge refuses any span longer than `max_segment_chars` (`SEGMENT_TOO_LARGE`), so an over-long single line is never sent. `docs/components/context-engine.md` now quotes the marker with `--audit-dir` and states that passages are screened, not redacted.
+
+## 15.12.0 - 2026-10-20
+
+### Added
+
+- Experimental Jev context engine (`runtime/context_engine.py` and its `context_*` modules, `policies/CONTEXT_ENGINE.md`), inspired by compozy/yoshi: it asks Jev, through the existing TypeSafe connector, which completed tool results in a large Anthropic Messages, OpenAI Responses or SDD-prompt request can become an explicit omission marker. It is off and never called by the controller: the shipped policy is disabled and dry-run, a real rewrite needs `dry_run: false`, `apply_enabled: true` and `--apply`, and a real evaluator needs the exact automatic Jev consent record plus a READY preflight. Deterministic rules protect user instructions, acceptance criteria, requirements, decisions, security constraints, errors, validation evidence, blockers, opaque blocks and recent turns; any evaluator failure, integrity failure or lost requirement marker returns the original request. Originals are recoverable byte for byte from a private audit store outside the repository. CLI: `optimize`, `recover`, `compare`, `config`, `purge`. See `docs/components/context-engine.md` and `docs/reports/jev-context-engine-baseline.md`.
+
 ## 15.11.1 - 2026-10-20
 
 ### Fixed

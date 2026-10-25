@@ -11,6 +11,14 @@ hooks:
       command: 'python3 "<ABSOLUTE_PROJECT_ROOT>/.hermes/orchestration/hooks/enforce-slice-scope.py"'
       timeout: 10
       fail_closed: true
+    # Security policy engine (runtime/policy_*.py, policies/SECURITY_POLICY.json): denies
+    # destructive/credential/privileged commands, out-of-workspace writes, policy edits,
+    # bypass flags and oversized delegation; unverifiable commands wait for a human
+    # approval granted with `policy_cli.py grant`. Optional; remove to keep the old behaviour.
+    - matcher: "terminal|execute_code|write_file|patch|read_file|search_files|delegate_task"
+      command: 'python3 "<ABSOLUTE_PROJECT_ROOT>/.hermes/orchestration/hooks/enforce-policy.py"'
+      timeout: 10
+      fail_closed: true
   pre_verify:
     - command: 'python3 "<ABSOLUTE_PROJECT_ROOT>/.hermes/orchestration/hooks/require-verification.py"'
       timeout: 10

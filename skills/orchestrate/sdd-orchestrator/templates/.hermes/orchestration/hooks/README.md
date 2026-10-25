@@ -5,12 +5,13 @@ These scripts adapt Hermes shell-hook events to the SDD runtime. They are copied
 | File | Event | Matcher | Failure policy | Purpose |
 | --- | --- | --- | --- | --- |
 | `enforce-slice-scope.py` | `pre_tool_call` | `write_file|patch` | fail closed | Allows direct file-tool writes only under the current slice's `editable_paths` or inside the bound vault `project_container`; validates every V4A target and rewrites accepted paths to canonical absolute paths. |
+| `enforce-policy.py` | `pre_tool_call` | `terminal|execute_code|write_file|patch|read_file|search_files|delegate_task` | fail closed | Security policy engine: evaluates each call against `policies/SECURITY_POLICY.json` and blocks a DENY or an action that still needs a human approval; every decision goes to the hash-chained `policy-state/security-audit.jsonl`. See the policy engine page. |
 | `require-verification.py` | `pre_verify` | — | continue turn | Keeps a coding turn open until every in-scope acceptance check has `PASS` evidence. |
 | `record-subagent-stop.py` | `subagent_stop` | — | observe only | Writes one immutable event per leaf worker under `action-journal-history/subagent-events/`, linked to action ID and attempt, and records the same metadata in the project wiki; it stores a result digest, not summaries or tool history. |
 | `inject-state-summary.py` | `pre_llm_call` | — | context only | Injects ticket, stage, mode, and executor-call usage without copying the STATE body. Optional in the example. |
 | `record-turn.py` | `post_llm_call` | — | observe only | Appends the turn's user message and response to the project wiki (`raw/transcripts/sessions/`) when the session's `cwd` or `TERMINAL_CWD` is inside a worktree this controller serves; secrets are redacted first. |
 | `record-session-end.py` | `on_session_finalize` | — | observe only | Logs the end of a session that has a transcript in this wiki to `log.md`, once per session. |
-| `hooks.example.yaml` | configuration | — | — | Opt-in profile snippet for these six scripts. |
+| `hooks.example.yaml` | configuration | — | — | Opt-in profile snippet for these seven scripts. |
 | `README.md` | documentation | — | — | Installed operator reference and hook catalogue. |
 
 ## Controller inputs

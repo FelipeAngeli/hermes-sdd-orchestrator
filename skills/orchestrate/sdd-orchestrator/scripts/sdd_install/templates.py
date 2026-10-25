@@ -44,6 +44,7 @@ def managed_exclude_entries() -> tuple[str, ...]:
         JEV_CACHE_LOCK_PATH,
         TERMINAL_PROGRESS_LOCK_PATH,
         f"{CONFIG_ROOT}/action-journal-history/",
+        f"{CONFIG_ROOT}/policy-state/",
         INSTALL_MANIFEST_PATH,
         UPGRADE_LOCK_PATH,
         f"{UPGRADE_BACKUPS_PATH}/",

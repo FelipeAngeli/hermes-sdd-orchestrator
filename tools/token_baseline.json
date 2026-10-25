@@ -15,7 +15,7 @@
     "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/sdd.py": 165804,
     "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/semantic_governor.py": 49065,
     "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/stage_context.py": 36538,
-    "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/stop_reasons.py": 36443,
+    "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/stop_reasons.py": 36091,
     "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/terminal_progress.py": 37311,
     "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/typesafe_connector.py": 24066,
     "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/validate_protocol.py": 36995,
@@ -48,7 +48,7 @@
     "tests/test_controller_e2e.py": 24035,
     "tests/test_controller_sdd_guards.py": 59227,
     "tests/test_docs.py": 28857,
-    "tests/test_sdd_orchestrator_skill.py": 194401
+    "tests/test_sdd_orchestrator_skill.py": 194358
   },
   "schema_version": 1
 }

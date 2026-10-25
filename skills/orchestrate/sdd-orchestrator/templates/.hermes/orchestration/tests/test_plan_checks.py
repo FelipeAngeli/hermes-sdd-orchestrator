@@ -115,5 +115,85 @@ class FoldNormalizationTests(unittest.TestCase):
         self.assertEqual([{"from": "tasks/x/", "to": "tasks/x/**"}], data["delivery"]["editable_path_normalizations"])
 
 
+def tasks_result(slice_ids: list[str], check_slices: dict[str, str]) -> dict:
+    """A TASKS executor_result whose checks are listed in their own (string-sorted) order."""
+    return {
+        "schema_version": 3,
+        "stage": {"value": "TASKS", "status": "SUCCESS"},
+        "executor": {"name": "CODEX", "invocation_type": "EXTERNAL_CLI"},
+        "consulted_paths": [], "modified_paths": [], "created_paths": [], "validated_symbols": [],
+        "commands": [], "blockers": [],
+        "context_assessment": {"facts": [], "assumptions": [], "unresolved_questions": []},
+        "acceptance_checks": [
+            {"id": check, "criterion": "c", "verification_method": "m", "verifier": "AGENT",
+             "slice_id": slice_id, "status": "PLANNED", "evidence": None, "waiver": None}
+            for check, slice_id in check_slices.items()
+        ],
+        "stage_payload": {"summary": "s", "tasks": [], "impact_files": ["poc/"], "decisions": []},
+        "tdd_slices": [
+            {"id": slice_id, "objective": "o", "test_file": "t.py", "red_command": "r", "red_exit_code": 1,
+             "expected_failure": "e", "red_failure_kind": "EXPECTED_FUNCTIONAL", "minimal_implementation": "m",
+             "green_command": "r", "green_exit_code": 0, "green_result": "g"}
+            for slice_id in slice_ids
+        ],
+        "next_step": {"stage": "IMPLEMENT", "action": "continue"},
+    }
+
+
+class TasksSliceOrderTests(unittest.TestCase):
+    """IMPLEMENT runs slices in the order TASKS declared in `tdd_slices`, never in acceptance-check order."""
+
+    def test_fold_uses_tdd_slices_order_not_acceptance_order(self) -> None:
+        import acceptance_verifiers
+
+        # Checks sorted as strings (AC1, AC10, AC2...) put the last slice first.
+        result = tasks_result(["S01", "S02", "S03"], {"AC1": "S03", "AC10": "S03", "AC2": "S01", "AC3": "S02"})
+        delivery = {"acceptance": {item["id"]: {"slice_id": item["slice_id"]} for item in result["acceptance_checks"]}}
+        acceptance_verifiers.fold_plan_tasks(
+            delivery, stage="TASKS", profile="CODE", impact_files=[],
+            slice_order=[item["id"] for item in result["tdd_slices"]],
+            approve_slices=lambda planned: planned,
+        )
+        self.assertEqual(["S01", "S02", "S03"], delivery["slices"]["planned"])
+        self.assertEqual(["S01", "S02", "S03"], delivery["approved_slice_sha256s"])
+
+    def test_validation_refuses_a_tdd_slice_without_an_acceptance_check(self) -> None:
+        result = tasks_result(["S01", "S02"], {"AC1": "S01"})
+        errors = validate_protocol.validate_payload("TASKS", {"executor_result": result})
+        self.assertTrue(any("S02" in item["reason"] and "no acceptance check" in item["reason"] for item in errors), errors)
+
+    def test_validation_refuses_a_check_assigned_to_an_undeclared_slice(self) -> None:
+        result = tasks_result(["S01"], {"AC1": "S01", "AC11": "S00"})
+        errors = validate_protocol.validate_payload("TASKS", {"executor_result": result})
+        self.assertTrue(any("S00" in item["reason"] and "not declared in tdd_slices" in item["reason"] for item in errors), errors)
+
+    def test_validation_accepts_checks_that_cover_exactly_the_declared_slices(self) -> None:
+        result = tasks_result(["S01", "S02"], {"AC2": "S02", "AC1": "S01"})
+        self.assertEqual([], validate_protocol.validate_payload("TASKS", {"executor_result": result}))
+
+    def test_apply_result_folds_tasks_slices_in_declared_order(self) -> None:
+        # The APPPEEK-E3 shape: checks string-sorted, the last slice listed first.
+        result = {"executor_result": tasks_result(
+            ["S01", "S02", "S03"], {"AC1": "S03", "AC10": "S03", "AC2": "S01", "AC3": "S02"})}
+        data = {"delivery": {"profile": "CODE"}}
+        action = {"stage": "TASKS", "role": None, "id": "a", "final": "f"}
+        with mock.patch.object(sdd, "slice_hashes", side_effect=lambda ctx, data, planned: planned):
+            sdd.apply_result(ctx=object(), data=data, action=action, result=result, digest="d")
+        self.assertEqual(["S01", "S02", "S03"], data["delivery"]["slices"]["planned"])
+
+    def test_without_declared_tdd_slices_the_acceptance_order_is_kept(self) -> None:
+        import acceptance_verifiers
+
+        result = tasks_result([], {"AC-1": "S2", "AC-2": "S1"})
+        delivery = {"acceptance": {item["id"]: {"slice_id": item["slice_id"]} for item in result["acceptance_checks"]}}
+        acceptance_verifiers.fold_plan_tasks(
+            delivery, stage="TASKS", profile="CODE", impact_files=[],
+            slice_order=[item["id"] for item in result["tdd_slices"]],
+            approve_slices=lambda planned: planned,
+        )
+        self.assertEqual(["S2", "S1"], delivery["slices"]["planned"])
+        self.assertEqual([], validate_protocol.validate_payload("TASKS", {"executor_result": result}))
+
+
 if __name__ == "__main__":
     unittest.main()

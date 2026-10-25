@@ -116,8 +116,14 @@ def fold_plan_tasks(
     approve_slices: Callable[[list[str]], list[str]],
     gate_commands: Iterable[str] = (),
     doc_slice: str = "DOC",
+    slice_order: Iterable[str] = (),
 ) -> None:
-    """Bind PLAN/TASKS acceptance commands and replace slice state from impact files."""
+    """Bind PLAN/TASKS acceptance commands and replace slice state from impact files.
+
+    ``slice_order`` is the TASKS ``tdd_slices`` id order. IMPLEMENT runs slices in that
+    order; acceptance checks only map criteria to slices, and their list order (often
+    string-sorted: AC1, AC10, AC2...) must never decide which slice runs first.
+    """
     if stage in {"PLAN", "TASKS"}:
         check_commands, refused = bind_check_commands(delivery.get("acceptance") or {}, gate_commands=gate_commands)
         delivery["check_commands"] = check_commands
@@ -129,7 +135,9 @@ def fold_plan_tasks(
         import plan_checks
 
         editable_paths, normalizations = plan_checks.normalize_editable_paths(impact_files)
-        planned = list(dict.fromkeys(check["slice_id"] for check in delivery.get("acceptance", {}).values() if check.get("slice_id")))
+        assigned = list(dict.fromkeys(check["slice_id"] for check in delivery.get("acceptance", {}).values() if check.get("slice_id")))
+        declared = [item for item in dict.fromkeys(slice_order) if item in assigned] if stage == "TASKS" else []
+        planned = [*declared, *(item for item in assigned if item not in declared)]
         delivery["slices"] = {"planned": planned, "completed": [], "editable_paths": editable_paths}
         delivery["editable_path_normalizations"] = normalizations
         delivery["approved_slice_sha256s"] = approve_slices(planned)
