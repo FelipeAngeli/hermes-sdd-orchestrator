@@ -1188,7 +1188,7 @@ def cmd_govern(ctx: Ctx, _args: argparse.Namespace) -> dict[str, Any]:
             "DATA_FLOW_TRACER": "Investigate cross-boundary data flow before the primary stage route.",
         },
         "state": {
-            "summary": str((ctx.state.get("ticket") or {}).get("objective") or "Bounded SDD delivery"),
+            "summary": decision_orchestration.brief((ctx.state.get("ticket") or {}).get("objective")),
             "signals": {
                 "stage": ctx.stage,
                 "profile": ctx.profile,

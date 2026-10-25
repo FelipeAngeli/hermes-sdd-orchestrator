@@ -4,6 +4,10 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Fixed
+
+- A multi-line ticket objective no longer blocks PLAN and IMPLEMENT with `JEV_GOVERNANCE_REQUIRED` / `DECISION_REQUEST_INVALID`: `sdd.py govern` normalizes `state.summary` through the new `decision_orchestration.brief()` (whitespace runs collapsed to single spaces, non-printable characters dropped, truncated to the contract's 4,000 characters with `...`, `Bounded SDD delivery` for empty input) instead of passing the raw objective to a field that requires one printable line. Before, any objective typed in paragraphs made every `govern` call fail with no recoverable command, and the only exit was `sdd.py abandon` plus a restart.
+
 ## 15.11.1 - 2026-10-20
 
 ### Fixed

@@ -39,6 +39,22 @@ def _text(value: Any, limit: int) -> bool:
     return isinstance(value, str) and 0 < len(value) <= limit and value.isprintable()
 
 
+def brief(value: Any, limit: int = 4000) -> str:
+    """One printable line for ``state.summary``, which rejects control characters.
+
+    A controller summary comes from free text (a ticket objective), so it may carry
+    newlines, tabs or other control characters and exceed the contract's limit. Those
+    are not a caller error: collapse every run of whitespace into single spaces, drop
+    the remaining non-printable characters and truncate to ``limit`` instead of
+    failing the whole request with ``DECISION_REQUEST_INVALID``.
+    """
+    text = " ".join(str(value if value is not None else "").split())
+    text = "".join(character for character in text if character.isprintable())
+    if not text:
+        return "Bounded SDD delivery"
+    return text if len(text) <= limit else text[: max(1, limit - 3)].rstrip() + "..."
+
+
 def validate_request(request: Any) -> dict[str, Any]:
     required = {"schema_version", "decision_id", "ticket", "kind", "mode", "binding", "baseline", "candidates", "state"}
     if not isinstance(request, dict) or set(request) != required or request.get("schema_version") != 1:
