@@ -539,17 +539,9 @@ def _validate_executor_semantics(
             result["stage_payload"]["impact_files"], editable_pattern_is_safe,
         ))
     if stage["value"] == "TASKS" and stage["status"] == "SUCCESS":
-        if not checks:
-            errors.append(_error(
-                "$.executor_result.acceptance_checks",
-                "TASKS SUCCESS requires at least one acceptance check",
-            ))
-        for index, check in enumerate(checks):
-            if not _has_text(check["slice_id"]):
-                errors.append(_error(
-                    f"$.executor_result.acceptance_checks[{index}].slice_id",
-                    "TASKS SUCCESS requires every acceptance check to be assigned to a slice",
-                ))
+        import plan_checks
+
+        errors.extend(_error(path, reason) for path, reason in plan_checks.tasks_success_errors(slices, checks, _has_text))
     if stage["value"] in {"IMPLEMENT", "TEST"}:
         errors.extend(_validate_authoritative_acceptance(
             checks,

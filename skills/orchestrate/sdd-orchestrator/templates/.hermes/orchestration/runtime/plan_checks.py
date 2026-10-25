@@ -35,6 +35,39 @@ def impact_file_errors(entries: Iterable[str], pattern_is_safe) -> list[tuple[in
     ]
 
 
+def tasks_success_errors(slices: list[dict], checks: list[dict], has_text) -> list[tuple[str, str]]:
+    """Return ``(json path, reason)`` errors for a TASKS SUCCESS result's slice plan."""
+    errors: list[tuple[str, str]] = []
+    if not checks:
+        errors.append(("$.executor_result.acceptance_checks", "TASKS SUCCESS requires at least one acceptance check"))
+    errors.extend(
+        (f"$.executor_result.acceptance_checks[{index}].slice_id",
+         "TASKS SUCCESS requires every acceptance check to be assigned to a slice")
+        for index, check in enumerate(checks) if not has_text(check["slice_id"])
+    )
+    errors.extend(("$.executor_result.tdd_slices", reason) for reason in tasks_slice_coverage_errors(
+        (item["id"] for item in slices), (check["slice_id"] for check in checks if has_text(check["slice_id"]))))
+    return errors
+
+
+def tasks_slice_coverage_errors(slice_ids: Iterable[str], check_slice_ids: Iterable[str]) -> list[str]:
+    """Return the mismatches between TASKS ``tdd_slices`` and acceptance-check ``slice_id`` values.
+
+    IMPLEMENT runs exactly the declared slices, in declared order, and selects each one
+    through its acceptance checks: a declared slice without a check would never run, and
+    a check assigned to an undeclared slice would become a slice nobody planned. When no
+    ``tdd_slices`` are declared the checks alone define the slices, as before.
+    """
+    declared = list(dict.fromkeys(slice_ids))
+    if not declared:
+        return []
+    assigned = set(check_slice_ids)
+    return [
+        *(f"tdd_slices declares {item} but no acceptance check is assigned to it" for item in declared if item not in assigned),
+        *(f"acceptance checks use slice {item}, which is not declared in tdd_slices" for item in sorted(assigned - set(declared))),
+    ]
+
+
 def budget_below_plan(data: dict, profile: str) -> dict[str, int] | None:
     """Return the shortfall (``tdd_slices``, ``executor_calls``) for IMPLEMENT, or None when enough.
 

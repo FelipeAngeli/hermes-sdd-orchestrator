@@ -1531,14 +1531,9 @@ def apply_result(ctx: Ctx, data: dict[str, Any], action: dict[str, Any], result:
 
         gate_commands = frozenset(row.get("command") for row in gate_table().values() if row.get("command"))
         acceptance_verifiers.fold_plan_tasks(
-            delivery,
-            stage=stage,
-            profile=profile,
-            impact_files=payload["impact_files"],
-            approve_slices=lambda planned: slice_hashes(ctx, data, planned),
-            gate_commands=gate_commands,
-            doc_slice=DOC_SLICE,
-        )
+            delivery, stage=stage, profile=profile, impact_files=payload["impact_files"],
+            approve_slices=lambda planned: slice_hashes(ctx, data, planned), gate_commands=gate_commands,
+            doc_slice=DOC_SLICE, slice_order=[s["id"] for s in worker["tdd_slices"]])
     if stage == "IMPLEMENT":
         slice_id = current_slice(ctx)
         delivery["slices"]["completed"] = [*delivery["slices"].get("completed", []), slice_id]
