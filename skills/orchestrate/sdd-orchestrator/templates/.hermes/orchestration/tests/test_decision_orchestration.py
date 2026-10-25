@@ -215,6 +215,38 @@ class DecisionOrchestrationTests(unittest.TestCase):
         with self.assertRaisesRegex(module.DecisionError, "DECISION_STATE_SENSITIVE"):
             module.decide(value, lambda payload: self.fail("sensitive criteria reached Jev"))
 
+    def test_brief_turns_free_text_into_one_printable_summary_line(self) -> None:
+        module = load_module()
+        objective = "Etapa 2 do AppPeek.\n\nPRODUTO:\tweb para subir APK.\nENTREGAVEL: documento."
+
+        value = module.brief(objective)
+
+        self.assertEqual("Etapa 2 do AppPeek. PRODUTO: web para subir APK. ENTREGAVEL: documento.", value)
+        self.assertTrue(value.isprintable())
+        self.assertEqual("Bounded SDD delivery", module.brief(None))
+        self.assertEqual("Bounded SDD delivery", module.brief("   \n\t "))
+
+    def test_brief_truncates_to_the_contract_limit_so_a_long_objective_is_accepted(self) -> None:
+        module = load_module()
+        value = request("SHADOW")
+        value["state"]["summary"] = module.brief("linha um\n" + "palavra " * 2000)
+
+        self.assertEqual(4000, len(value["state"]["summary"]))
+        self.assertTrue(value["state"]["summary"].endswith("..."))
+        self.assertEqual(value, module.validate_request(value))
+
+    def test_a_multiline_objective_summary_reaches_jev_instead_of_being_refused(self) -> None:
+        module = load_module()
+        value = request("SHADOW")
+        value["state"]["summary"] = module.brief("Etapa 2.\nDECISION_DOC:\tsem codigo.")
+        seen: list[dict[str, Any]] = []
+
+        receipt = module.decide(value, lambda payload: seen.append(payload) or jev_report())
+
+        self.assertEqual(1, len(seen))
+        self.assertEqual("Etapa 2. DECISION_DOC: sem codigo.", seen[0]["state"]["evidence"]["summary"])
+        self.assertEqual("DECIDED", receipt["recommendation"]["disposition"])
+
     def test_invalid_mode_is_rejected_before_the_evaluator(self) -> None:
         module = load_module()
         value = request("TURBO")
