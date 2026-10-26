@@ -6,7 +6,12 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ### Added
 
+- `OPENCODE` joins the executor enums of `schemas/EXECUTOR_RESULT_SCHEMA.json` (`executor.name`) and `schemas/BOUNDED_RUN_PLAN_SCHEMA.json` (action `executor`); existing values stay valid.
 - `tests/test_executor_golden.py` pins the Claude and Codex dispatch argv, help-probe argv, required help flags and model-probe argv byte for byte, so adding an executor cannot change them.
+
+### Changed
+
+- **Per-executor dispatch.** `runtime/executor_dispatch.py` (new) holds every executor-specific step the launcher takes — the help-probe argv, the required help flags, the argv builder and its side files, and whether a stage writes — as tables keyed by executor name; `executor_transport.extract_result` looks its reader up in `EXTRACTORS`. The old `if claude … else codex` fallbacks are gone: an unknown executor is still `POLICY_INVALID` and never silently runs as Codex. Claude and Codex command lines are unchanged. `bounded_run_planner.py` takes the worker label from `executor_dispatch.plan_label` instead of a hard-coded `"CODEX"`; it still prints `CODEX` for every non-OpenCode stage, so existing plans keep validating.
 
 ## 15.18.0 - 2026-10-22
 

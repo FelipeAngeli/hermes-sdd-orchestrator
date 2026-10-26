@@ -25,7 +25,9 @@ from os import environ as process_environment
 from pathlib import Path
 from typing import Any
 
+import executor_dispatch as dispatch
 import executor_sandbox
+from executor_dispatch import CLAUDE_ISOLATION_ARGS, EXECUTORS, READ_ONLY_CLAUDE_TOOLS, REQUIRED_HELP_FLAGS, is_writing_worker  # noqa: F401
 from executor_sandbox import _inside
 from executor_transport import extract_result
 
@@ -40,7 +42,6 @@ DEFAULT_POLICY_PATH = ORCHESTRATION_ROOT / "policies" / "EXECUTORS.md"
 ACTION_JOURNAL_SCRIPT = RUNTIME_ROOT / "action_journal.py"
 VALIDATE_PROTOCOL_SCRIPT = RUNTIME_ROOT / "validate_protocol.py"
 
-EXECUTORS = ("claude", "codex")
 STAGES = ("SPECIFY", "CLARIFY", "PLAN", "TASKS", "IMPLEMENT", "TEST", "REVIEW")
 CODEX_SANDBOXES = ("read-only", "workspace-write")
 # Schema keywords removed from every transport schema: the Claude CLI rejects a
@@ -67,18 +68,6 @@ TERMINATE_GRACE_SECONDS = 5
 TAIL_CHARACTERS = 2000
 PROBE_TIMEOUT_SECONDS = 120
 MODEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,127}$")
-#: Every Claude call (dispatch and probe) loads only the user's own settings and no MCP server or skill.
-#: ``-p`` runs with cwd = the repository and skips the workspace-trust dialog, so without these flags
-#: the CLI would load ``.claude/settings.json``/``settings.local.json`` (hooks run as the user, outside
-#: every tool restriction), ``.mcp.json`` servers and ``.claude/skills`` — all files a writing worker
-#: can create. ``--bare`` is not used: it also stops OAuth/keychain auth (``ANTHROPIC_API_KEY`` only).
-CLAUDE_ISOLATION_ARGS = ("--setting-sources", "user", "--strict-mcp-config", "--disable-slash-commands")
-REQUIRED_HELP_FLAGS = {
-    "claude": ("--print", "--output-format", "--json-schema", "--no-session-persistence", "--model", "--tools", "--add-dir",
-               "--setting-sources", "--strict-mcp-config", "--disable-slash-commands"),
-    "codex": ("--output-schema", "--output-last-message", "--ephemeral", "--model", "--sandbox", "--cd", "--add-dir", "--config"),
-}
-
 DEFAULT_STAGE_POLICY: dict[str, dict[str, Any]] = {
     "SPECIFY": {"executor": "claude", "model": None, "timeout_seconds": 600, "max_turns": 40},
     "CLARIFY": {"executor": "claude", "model": None, "timeout_seconds": 600, "max_turns": 40},
@@ -90,13 +79,9 @@ DEFAULT_STAGE_POLICY: dict[str, dict[str, Any]] = {
 }
 STAGE_KEYS = {"executor", "model", "timeout_seconds", "max_turns", "tools", "permission_mode", "sandbox", "sandbox_network", "codex_home", "env_from", "prompt_profile"}
 DEFAULT_CLAUDE_TOOLS = "Read,Grep,Glob"
-#: Claude tools that cannot change a file; any other tool (or ``default``) makes the worker a writer.
-READ_ONLY_CLAUDE_TOOLS = frozenset({"Read", "Grep", "Glob", "LS", "NotebookRead"})
 WRITING_STAGES = {"IMPLEMENT", "TEST"}
 POLICY_KEYS = {"executors_version", "stages", "allow_bypass_permissions"}
 BYPASS_PERMISSION_MODE = "bypassPermissions"
-#: Codex treats ``--add-dir`` as an extra *writable* root; a writing Codex worker gets none at all.
-CODEX_NO_EXTRA_WRITABLE_ROOTS = "sandbox_workspace_write.writable_roots=[]"
 #: Environment the worker inherits: nothing else (no TYPESAFE_*, JEV_*, HERMES_* or foreign *_API_KEY/*_TOKEN).
 WORKER_ENV_NAMES = frozenset({
     "PATH", "HOME", "LANG", "TMPDIR", "TEMP", "TMP", "USER", "LOGNAME", "SHELL", "TERM", "TZ", "COLORTERM",
@@ -216,19 +201,9 @@ def stage_settings(policy: dict[str, Any], stage: str, *, executor: str | None, 
         settings.setdefault("tools", None)
         if settings["tools"] is None:
             settings["tools"] = DEFAULT_CLAUDE_TOOLS
-    elif settings.get("sandbox") is None:
+    elif settings["executor"] in dispatch.SANDBOXED_EXECUTORS and settings.get("sandbox") is None:
         settings["sandbox"] = "workspace-write" if stage in WRITING_STAGES else "read-only"
     return settings
-
-
-def is_writing_worker(settings: dict[str, Any]) -> bool:
-    """True when the worker can change files: a Codex workspace-write sandbox or Claude with any non-read tool."""
-    if settings["executor"] == "codex":
-        return settings.get("sandbox") == "workspace-write"
-    tools = (settings.get("tools") or "").strip()
-    if tools == "default":
-        return True
-    return any(tool.strip() and tool.strip() not in READ_ONLY_CLAUDE_TOOLS for tool in tools.split(","))
 
 
 def check_extra_dirs(stage: str, settings: dict[str, Any], repository: Path, add_dirs: list[str], read_dirs: list[str]) -> None:
@@ -387,8 +362,7 @@ def preflight(executor: str, model: str | None, probe: bool, stage: str | None =
     result: dict[str, Any] = {"executor": executor, "path": binary}
     try:
         version = _run_quiet([binary, "--version"], 30)
-        help_argv = [binary, "--help"] if executor == "claude" else [binary, "exec", "--help"]
-        help_text = _run_quiet(help_argv, 30)
+        help_text = _run_quiet(dispatch.help_argv(executor, binary), 30)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return {**result, "status": "BLOCKED", "reason": "EXECUTOR_UNAVAILABLE", "detail": str(exc),
                 "next_step": f"Make `{executor} --version` run quickly and successfully, then rerun preflight.", "next_command": None}
@@ -432,38 +406,14 @@ def preflight(executor: str, model: str | None, probe: bool, stage: str | None =
 
 # --------------------------------------------------------------------------- build
 
-def _side_paths(final: Path) -> tuple[Path, Path]:
-    return final.with_name(final.name + ".transport-schema.json"), final.with_name(final.name + ".last-message.tmp")
+_side_paths = dispatch.side_paths
 
 
 def build_argv(*, stage: str, settings: dict[str, Any], schema: dict[str, Any], repository: Path, final: Path, add_dirs: list[str], binary: str,
-               read_dirs: list[str] | None = None) -> list[str]:
-    schema_file, last_message = _side_paths(final)
-    if settings["executor"] == "claude":
-        add_dirs = [*add_dirs, *(read_dirs or [])]
-        argv = [binary, "-p", "--output-format", "json", "--json-schema", json.dumps(schema, separators=(",", ":"), ensure_ascii=False),
-                "--no-session-persistence", *CLAUDE_ISOLATION_ARGS, "--tools", settings["tools"]]
-        if settings.get("max_turns"):
-            argv += ["--max-turns", str(settings["max_turns"])]
-        if settings.get("model"):
-            argv += ["--model", settings["model"]]
-        if settings.get("permission_mode"):
-            argv += ["--permission-mode", settings["permission_mode"]]
-        for directory in add_dirs:
-            argv += ["--add-dir", directory]
-        return argv
-    argv = [binary, "exec", "--ephemeral", "--color", "never", "--cd", str(repository), "--sandbox", settings["sandbox"],
-            "--output-schema", str(schema_file), "--output-last-message", str(last_message)]
-    if settings.get("model"):
-        argv += ["--model", settings["model"]]
-    if is_writing_worker(settings):
-        argv += ["--config", CODEX_NO_EXTRA_WRITABLE_ROOTS]
-        if settings.get("sandbox_network"):
-            argv += ["--config", executor_sandbox.CODEX_NETWORK_ACCESS_CONFIG]
-    for directory in add_dirs:
-        argv += ["--add-dir", directory]
-    argv.append("-")
-    return argv
+               read_dirs: list[str] | None = None, worker_env: dict[str, str] | None = None) -> list[str]:
+    """The exact argv of one dispatch (``executor_dispatch.launch_plan``); nothing is written."""
+    return dispatch.launch_plan(settings=settings, schema=schema, repository=repository, final=final, add_dirs=add_dirs, binary=binary,
+                                read_dirs=read_dirs, worker_env=worker_env)["argv"]
 
 
 def _read_journal(journal: Path) -> dict[str, Any] | None:
@@ -508,10 +458,10 @@ def _plan(args: argparse.Namespace) -> dict[str, Any]:
                           "Fix codex_home in policies/EXECUTORS.md: it must be an absolute directory outside the repository and the controller directory.")
     worker_env = worker_environment(settings["executor"], settings)
     binary = shutil.which(settings["executor"]) or settings["executor"]
-    argv = build_argv(stage=args.stage, settings=settings, schema=schema, repository=repository, final=final, add_dirs=list(args.add_dir), binary=binary,
-                      read_dirs=list(args.read_dir))
-    return {"policy": policy, "settings": settings, "schema": schema, "journal": journal, "journal_value": journal_value,
-            "repository": repository, "final": final, "prompt": prompt, "argv": argv, "worker_env": worker_env}
+    launch = dispatch.launch_plan(settings=settings, schema=schema, repository=repository, final=final, add_dirs=list(args.add_dir), binary=binary,
+                                  read_dirs=list(args.read_dir), worker_env=worker_env)
+    return {"policy": policy, "settings": settings, "schema": schema, "journal": journal, "journal_value": journal_value, "launch": launch,
+            "repository": repository, "final": final, "prompt": prompt, "argv": launch["argv"], "worker_env": launch.get("env", worker_env)}
 
 
 def _archive_command(journal: Path) -> str:
@@ -723,7 +673,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
 def _dispatch(args: argparse.Namespace, plan: dict[str, Any], prompt_hash: str, guard: _SignalGuard) -> dict[str, Any]:
     journal: Path = plan["journal"]
-    settings = plan["settings"]
+    settings, launch = plan["settings"], plan["launch"]
     schema_file, last_message = _side_paths(plan["final"])
     started = ["record-process", "--started"]
     if _journal_supports("--prompt-sha256"):
@@ -743,13 +693,13 @@ def _dispatch(args: argparse.Namespace, plan: dict[str, Any], prompt_hash: str, 
     began = time.monotonic()
     try:
         guard.release()  # a signal that arrived while recording --started is raised here, inside the try
-        if settings["executor"] == "codex":
-            _atomic_write(schema_file, json.dumps(plan["schema"], indent=2, ensure_ascii=False).encode("utf-8"))
-            for stale in (last_message, plan["final"].with_name(plan["final"].name + ".raw-message.txt")):
-                if stale.exists():
-                    stale.unlink()
-        exit_code, stdout, stderr, timed_out = _spawn(plan["argv"], cwd=plan["repository"], prompt=plan["prompt"], timeout=settings["timeout_seconds"],
-                                                      env=plan["worker_env"])
+        for side in launch["side_files"]:
+            _atomic_write(side, json.dumps(plan["schema"], indent=2, ensure_ascii=False).encode("utf-8"))
+        for stale in launch.get("stale_files", ()):
+            if stale.exists():
+                stale.unlink()
+        exit_code, stdout, stderr, timed_out = _spawn(plan["argv"], cwd=launch.get("cwd", plan["repository"]), prompt=plan["prompt"],
+                                                      timeout=settings["timeout_seconds"], env=plan["worker_env"])
     except LauncherInterrupted as exc:  # _spawn already killed the executor process group
         exit_code, interrupted, launcher_error = LAUNCHER_ERROR_EXIT_CODE, exc.signum, str(exc)
     except FileNotFoundError as exc:
@@ -852,7 +802,8 @@ def main(argv: list[str] | None = None) -> int:
             schema_file, _ = _side_paths(plan["final"])
             result = {"status": "READY", "executor": plan["settings"]["executor"], "argv": plan["argv"], "cwd": str(plan["repository"]),
                       "stdin": str(plan["prompt"]), "timeout_seconds": plan["settings"]["timeout_seconds"], "policy_source": plan["policy"]["source"],
-                      "transport_schema_file": str(schema_file) if plan["settings"]["executor"] == "codex" else None,
+                      "transport_schema_file": str(schema_file) if schema_file in plan["launch"]["side_files"] else None,
+                      **plan["launch"].get("record", {}),
                       "next_step": "Dispatch only through `executor_launch.py run` with the same arguments.", "next_command": None}
         else:
             result = run(args)

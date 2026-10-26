@@ -39,7 +39,7 @@
           "required": ["name", "invocation_type"],
           "additionalProperties": false,
           "properties": {
-            "name": {"type": "string", "enum": ["CODEX", "CLAUDE"]},
+            "name": {"type": "string", "enum": ["CODEX", "CLAUDE", "OPENCODE"]},
             "invocation_type": {"type": "string", "const": "EXTERNAL_CLI"}
           }
         },

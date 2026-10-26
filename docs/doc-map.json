@@ -53,6 +53,7 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/executor_sandbox.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/executor_transport.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/executor_launch.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/executor_dispatch.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/EXECUTORS.md"
     ],
     "docs/components/gates-and-stack-detection.md": [
