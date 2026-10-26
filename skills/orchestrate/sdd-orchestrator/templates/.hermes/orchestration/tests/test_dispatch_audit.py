@@ -129,12 +129,12 @@ class WorkspaceAuditTests(unittest.TestCase):
         self.git("add", "src/feature.py")
         self.assertEqual(["src/feature.py"], dispatch_audit.changed_paths(before, dispatch_audit.snapshot(self.repo)))
 
-    def test_ignored_controller_files_never_count_as_a_worker_change(self) -> None:
-        before = dispatch_audit.snapshot(self.repo)
+    def test_the_controller_runtime_never_counts_as_a_worker_change(self) -> None:
+        before = dispatch_audit.snapshot(self.repo, [".hermes/orchestration"])
         controller = self.repo / ".hermes" / "orchestration"
         controller.mkdir(parents=True)
         (controller / "STATE.md").write_text("stage: IMPLEMENT\n", encoding="utf-8")
-        after = dispatch_audit.snapshot(self.repo)
+        after = dispatch_audit.snapshot(self.repo, [".hermes/orchestration"])
         self.assertEqual([], dispatch_audit.changed_paths(before, after))
         self.assertEqual([], dispatch_audit.audit(before=before, after=after, result=result(), editable_paths=["src/*"], path_matches=MATCH))
 
@@ -158,7 +158,8 @@ class WorkspaceAuditControllerTests(unittest.TestCase):
         subprocess.run(["git", "-C", str(self.repo), "commit", "-qm", "init"], check=True, capture_output=True)
         self.final = self.run_dir / "T-IMPLEMENT-01.result.json"
         self.action = {"id": "T-IMPLEMENT-01", "stage": "IMPLEMENT", "final": self.final}
-        self.ctx = mock.Mock(repo=self.repo, delivery={"slices": {"editable_paths": ["src/*"]}}, stage="IMPLEMENT")
+        self.ctx = mock.Mock(repo=self.repo, delivery={"slices": {"editable_paths": ["src/*"]}}, stage="IMPLEMENT",
+                             runtime_dir=base / "runtime", state_path=base / "STATE.md", journal_path=base / "j.json", history_dir=base / "h")
         self.ctx.run_dir.return_value = self.run_dir
 
     def write_before(self) -> None:
@@ -183,15 +184,15 @@ class WorkspaceAuditControllerTests(unittest.TestCase):
         self.assertEqual(["sneaky.py"], payload["undeclared"])
         self.assertIn("sneaky.py", payload["message"])
 
-    def test_on_passes_a_clean_dispatch_and_tolerates_a_missing_snapshot(self) -> None:
+    def test_on_passes_a_clean_dispatch_and_fails_closed_without_a_snapshot(self) -> None:
         self.write_before()
         (self.repo / "src" / "feature.py").write_text("x = 2\n", encoding="utf-8")
         self.final.write_text(json.dumps(result("src/feature.py")), encoding="utf-8")
-        with mock.patch.object(sdd, "workspace_audit_enabled", return_value=True):
+        with mock.patch.object(sdd, "workspace_audit_enabled", return_value=True), mock.patch.object(sdd, "stopped", lambda _ctx, payload: payload):
             self.assertIsNone(sdd.workspace_audit_stop(self.ctx, self.action))
             (self.run_dir / "T-IMPLEMENT-01.workspace-before.json").unlink()
-            (self.repo / "sneaky.py").write_text("x\n", encoding="utf-8")
-            self.assertIsNone(sdd.workspace_audit_stop(self.ctx, self.action))
+            payload = sdd.workspace_audit_stop(self.ctx, self.action)
+        self.assertEqual("AUDIT_UNVERIFIABLE", payload["findings"][0]["finding"])
 
     def test_a_read_only_stage_is_never_audited(self) -> None:
         with mock.patch.object(sdd, "executor_policy", return_value={"workspace_audit": "enforce"}):

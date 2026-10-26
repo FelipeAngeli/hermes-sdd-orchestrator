@@ -843,9 +843,6 @@ def recovery_step(ctx: Ctx) -> dict[str, Any] | None:
         size_check = ["check", "--context", str(action["manifest"]), "--prompt-file", str(action["prompt"]), "--json"]
         if action["role"]:
             size_check += ["--role", action["role"]]
-        if workspace_audit_enabled(action["stage"]):
-            atomic_write_text(workspace_audit_path(ctx, action["id"]),
-                              json.dumps(dispatch_audit.snapshot(ctx.repo), sort_keys=True, indent=1) + "\n")
         return step("DISPATCH", [command(RUNTIME / "stage_context.py", *size_check), command(RUNTIME / "executor_launch.py", *arguments)],
                     "Check the prompt against max_prompt_bytes, run the worker in the foreground (the launcher records start and finish in the journal), then `sdd.py next`.",
                     action_id=action["id"])
@@ -875,32 +872,53 @@ def recovery_step(ctx: Ctx) -> dict[str, Any] | None:
 
 
 def workspace_audit_path(ctx: Ctx, action_id: str) -> Path:
-    return ctx.run_dir() / f"{action_id}.workspace-before.json"
+    return dispatch_audit.baseline_path(ctx.run_dir(), action_id)
+
+
+def workspace_audit_exclusions(ctx: Ctx) -> list[str]:
+    """The controller's own files, only when they physically live in the repository."""
+    return dispatch_audit.exclusions(ctx.repo, [ORCHESTRATION, ctx.runtime_dir, ctx.state_path, ctx.journal_path, ctx.history_dir])
+
+
+def workspace_audit_prepare(ctx: Ctx, plan: dict[str, Any], data: dict[str, Any]) -> None:
+    """At ``prepare``: take (or carry, for a corrective retry) the baseline and record the mode in STATE."""
+    if not workspace_audit_enabled(plan["stage"]):
+        (data.get("delivery") or {}).pop("workspace_audit", None)
+        return
+    delivery = data.setdefault("delivery", {})
+    try:
+        delivery["workspace_audit"] = dispatch_audit.prepare_record(
+            repo=ctx.repo, run_dir=ctx.run_dir(), action_id=plan["action_id"], key=plan["key"], retry=bool(plan.get("parent")),
+            previous=delivery.get("workspace_audit"), exclude=workspace_audit_exclusions(ctx))
+    except dispatch_audit.AuditError as exc:
+        raise SddError(dispatch_audit.STOP_REASON, f"The workspace audit baseline could not be taken: {exc}", next_command=sdd("next"),
+                       findings=dispatch_audit.unverifiable(str(exc))) from exc
 
 
 def workspace_audit_stop(ctx: Ctx, action: dict[str, Any]) -> dict[str, Any] | None:
-    """Independent check of one writing dispatch; ``None`` when it is off, not due or clean.
+    """Independent check of one writing dispatch; ``None`` when it is off or clean.
 
-    Opt-in through ``workspace_audit`` in ``policies/EXECUTORS.md``. It compares the real
-    worktree against the snapshot taken before the dispatch and the paths the result
-    declares, for every executor. A missing snapshot (the audit was switched on after the
-    dispatch was prepared) is not a failure: there is nothing to compare.
+    Opt-in through ``workspace_audit`` in ``policies/EXECUTORS.md``; the mode recorded in
+    ``delivery.workspace_audit`` at ``prepare`` wins over a policy edited mid-dispatch. It
+    fails closed: a missing or corrupt baseline, an unreadable result or a failing ``git``
+    call is an ``AUDIT_UNVERIFIABLE`` finding, never a pass.
     """
-    if not workspace_audit_enabled(action["stage"]):
-        return None
-    before_path = workspace_audit_path(ctx, action["id"])
-    if not before_path.is_file() or not action["final"].is_file():
+    record = ctx.delivery.get("workspace_audit") or {}
+    recorded = record.get("action_id") == action["id"] and record.get("mode") == "enforce"
+    if not recorded and not workspace_audit_enabled(action["stage"]):
         return None
     import validate_protocol
 
     try:
-        before = json.loads(before_path.read_text(encoding="utf-8"))
+        before = dispatch_audit.load(workspace_audit_path(ctx, (record.get("baseline_action_id") if recorded else None) or action["id"]))
         result = json.loads(action["final"].read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    editable = sorted((ctx.delivery.get("slices") or {}).get("editable_paths") or []) if action["stage"] == "IMPLEMENT" else []
-    findings = dispatch_audit.audit(before=before, after=dispatch_audit.snapshot(ctx.repo), result=result,
-                                    editable_paths=editable, path_matches=validate_protocol.path_matches)
+        if not isinstance(result, dict):
+            raise ValueError("the result is not a JSON object")
+        editable = sorted((ctx.delivery.get("slices") or {}).get("editable_paths") or []) if action["stage"] == "IMPLEMENT" else []
+        findings = dispatch_audit.audit(before=before, after=dispatch_audit.snapshot(ctx.repo, workspace_audit_exclusions(ctx)),
+                                        result=result, editable_paths=editable, path_matches=validate_protocol.path_matches)
+    except (dispatch_audit.AuditError, OSError, ValueError) as exc:
+        findings = dispatch_audit.unverifiable(str(exc))
     if not findings:
         return None
     payload = stop(dispatch_audit.STOP_REASON, action_id=action["id"], findings=findings[:10],
@@ -1493,6 +1511,7 @@ def cmd_prepare(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     set_budget(data, "executor_calls", used=used + 1)
     set_budget(data, "corrective_retries", used=plan["attempt"] - 1)
     data.setdefault("resume", {})["next_action"] = plan["action_id"]
+    workspace_audit_prepare(ctx, plan, data)
     ctx.write_state(data, f"Prepared {plan['action_id']} ({plan['role'] or plan['stage']}, attempt {plan['attempt']}, prompt {len(prompt.encode('utf-8'))} bytes)")
     executor = executor_for(plan["stage"]).upper()
     schema = ORCHESTRATION / "schemas" / ("REVIEW_RESULT_SCHEMA.json" if plan["stage"] == "REVIEW" else "EXECUTOR_RESULT_SCHEMA.json")
