@@ -10,8 +10,9 @@ one IMPLEMENT slice has been dispatched through the real `opencode` CLI, passed 
 workspace audit and been accepted into STATE.
 
 It needs the real `codex` and `opencode` 1.18.34 plus the logged-in OpenCode account, so
-it is skipped when either is absent, when the version differs, or with
-`SDD_OPENCODE_LIVE=0`. Everything it creates is removed with the temporary directory.
+it is **opt-in**: it runs only with ``SDD_OPENCODE_LIVE=1`` (and is skipped when either binary
+is absent or the version differs). With that switch this module also turns on the paid cases
+of the shipped ``test_opencode_isolation.py`` and runs them here. Everything it creates is removed with the temporary directory.
 """
 from __future__ import annotations
 
@@ -35,7 +36,8 @@ sys.path.insert(0, str(RUNTIME))
 
 import opencode_executor  # noqa: E402
 
-MODEL = os.environ.get("SDD_OPENCODE_TEST_MODEL", "opencode-go/deepseek-v4.1-flash")
+MODEL = process_environment.get("SDD_OPENCODE_TEST_MODEL", "opencode-go/deepseek-v4.1-flash")
+PAYLOAD_TESTS = SKILL_ROOT / "templates" / ".hermes" / "orchestration" / "tests"
 MAX_STEPS = 60
 USER_WORDS = {"<user words>": "esta aprovado, pode seguir", "<why>": "PO approval given by the requester", "<failure>": "n/a"}
 #: Stages the fake executors answer; IMPLEMENT (and TEST) go to the real opencode CLI.
@@ -52,16 +54,50 @@ def _opencode_version() -> str | None:
         return None
 
 
-LIVE = (bool(shutil.which("codex")) and _opencode_version() == opencode_executor.PINNED_VERSION
-        and process_environment.get("SDD_OPENCODE_LIVE", "1") != "0"
+def live_requested(env: dict[str, str]) -> bool:
+    """Paid model calls are opt-in: only ``SDD_OPENCODE_LIVE=1`` turns them on."""
+    return env.get("SDD_OPENCODE_LIVE", "0") == "1"
+
+
+LIVE = (live_requested(dict(process_environment)) and bool(shutil.which("codex"))
+        and _opencode_version() == opencode_executor.PINNED_VERSION
         and opencode_executor.data_dir(dict(process_environment)).is_dir())
+
+if LIVE:
+    # The shipped isolation suite never reads the environment; this harness is its only live switch.
+    sys.path.insert(0, str(PAYLOAD_TESTS))
+    import test_opencode_isolation as _isolation  # noqa: E402
+
+    _isolation.SETTINGS.update(live=True, model=MODEL)
+    from test_opencode_isolation import OpencodeIsolationTests as LiveOpencodeIsolationTests  # noqa: E402,F401
 
 
 def run(argv: list[str], *, cwd: Path, env: dict[str, str], timeout: int = 900) -> subprocess.CompletedProcess[str]:
     return subprocess.run(argv, cwd=str(cwd), env=env, capture_output=True, text=True, timeout=timeout, check=False)
 
 
-@unittest.skipUnless(LIVE, "needs codex, opencode 1.18.34 and the logged-in OpenCode account (SDD_OPENCODE_LIVE=0 skips)")
+class LiveSwitchTests(unittest.TestCase):
+    """Paid model calls are opt-in, and the shipped skill's tests never read the process environment."""
+
+    def test_live_model_tests_run_only_when_explicitly_requested(self) -> None:
+        self.assertFalse(live_requested({}))
+        self.assertFalse(live_requested({"SDD_OPENCODE_LIVE": "0"}))
+        self.assertFalse(live_requested({"SDD_OPENCODE_LIVE": "yes"}))
+        self.assertTrue(live_requested({"SDD_OPENCODE_LIVE": "1"}))
+
+    def test_the_payload_isolation_suite_is_off_unless_this_harness_switches_it_on(self) -> None:
+        text = (PAYLOAD_TESTS / "test_opencode_isolation.py").read_text(encoding="utf-8")
+        self.assertIn('SETTINGS = {"live": False, "model": "opencode-go/deepseek-v4.1-flash"}', text)
+
+    def test_payload_opencode_tests_never_read_or_copy_the_process_environment(self) -> None:
+        # The Hermes skills scanner reads `os.environ` outside `.get(...)` as a HIGH exfiltration finding,
+        # and the live gate must not depend on the environment of whoever runs the shipped suite.
+        text = (PAYLOAD_TESTS / "test_opencode_isolation.py").read_text(encoding="utf-8")
+        self.assertNotIn("os.environ", text)
+        self.assertIsNone(re.search(r"\b(?:environ|getenv)\b", text))
+
+
+@unittest.skipUnless(LIVE, "opt-in paid model run: SDD_OPENCODE_LIVE=1 with codex, opencode 1.18.34 and the logged-in account")
 class OpencodeControllerEndToEndTests(unittest.TestCase):
     def setUp(self) -> None:
         temp = tempfile.TemporaryDirectory(prefix="sdd-oc-e2e-")
