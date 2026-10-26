@@ -174,10 +174,19 @@ class OpencodeControllerEndToEndTests(unittest.TestCase):
         self.assertEqual(MODEL, opencode_dispatches[0]["model"])
         self.assertRegex(opencode_dispatches[0]["config_sha256"] or "", "^[0-9a-f]{64}$")
         self.assertEqual("ARTIFACT_READY", opencode_dispatches[0]["status"], self.report)
-        self.assertTrue(accepted_implement, f"the IMPLEMENT slice was not accepted: {self.report}")
         state = Path(self.paths["state"]).read_text(encoding="utf-8")
-        self.assertIn("IMPLEMENT slice", state)
-        self.assertNotIn("WORKSPACE_AUDIT_FAILED", state)
+        # Two outcomes are correct, and which one happens depends on the live model: either the slice
+        # is accepted (the result declared every file it touched), or the enabled workspace audit
+        # blocks it because the worker really did change a file it did not declare. What must never
+        # happen is a result the audit rejected being folded into STATE anyway.
+        audited = [item for item in self.report["stops"] if item == "WORKSPACE_AUDIT_FAILED"]
+        self.assertTrue(accepted_implement or audited, f"neither accepted nor audited: {self.report}")
+        if audited:
+            self.assertTrue(self.report.get("audit_findings"), self.report)
+            self.assertNotIn("IMPLEMENT slice", state, "a result the audit rejected must not reach STATE")
+        else:
+            self.assertIn("IMPLEMENT slice", state)
+            self.assertNotIn("WORKSPACE_AUDIT_FAILED", state)
         self.assertTrue((self.repo / "src").is_dir())
 
 
