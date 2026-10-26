@@ -4,6 +4,10 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+### Added
+
+- `tests/test_executor_golden.py` pins the Claude and Codex dispatch argv, help-probe argv, required help flags and model-probe argv byte for byte, so adding an executor cannot change them.
+
 ## 15.18.0 - 2026-10-22
 
 ### Added
