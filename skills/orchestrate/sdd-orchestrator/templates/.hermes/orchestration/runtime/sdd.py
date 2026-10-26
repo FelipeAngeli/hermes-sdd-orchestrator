@@ -41,6 +41,7 @@ if str(RUNTIME) not in sys.path:
     sys.path.insert(0, str(RUNTIME))
 
 import action_journal as aj  # noqa: E402
+import dispatch_audit  # noqa: E402
 import state_format as sf  # noqa: E402
 import stop_reasons as sr  # noqa: E402
 
@@ -255,6 +256,20 @@ def approvers() -> dict[str, str]:
         if isinstance(value, dict) and isinstance(value.get("approvers"), dict):
             return {**default, **{str(key): str(item) for key, item in value["approvers"].items()}}
     return default
+
+
+def executor_policy() -> dict[str, Any]:
+    import executor_launch
+
+    return executor_launch.load_policy()
+
+
+def workspace_audit_enabled(stage: str) -> bool:
+    """True when the project opted into the post-dispatch workspace audit for this stage."""
+    try:
+        return dispatch_audit.enabled(executor_policy(), stage)
+    except Exception:  # an invalid policy is refused by the launcher itself
+        return False
 
 
 def executor_for(stage: str) -> str:
@@ -828,6 +843,9 @@ def recovery_step(ctx: Ctx) -> dict[str, Any] | None:
         size_check = ["check", "--context", str(action["manifest"]), "--prompt-file", str(action["prompt"]), "--json"]
         if action["role"]:
             size_check += ["--role", action["role"]]
+        if workspace_audit_enabled(action["stage"]):
+            atomic_write_text(workspace_audit_path(ctx, action["id"]),
+                              json.dumps(dispatch_audit.snapshot(ctx.repo), sort_keys=True, indent=1) + "\n")
         return step("DISPATCH", [command(RUNTIME / "stage_context.py", *size_check), command(RUNTIME / "executor_launch.py", *arguments)],
                     "Check the prompt against max_prompt_bytes, run the worker in the foreground (the launcher records start and finish in the journal), then `sdd.py next`.",
                     action_id=action["id"])
@@ -856,8 +874,46 @@ def recovery_step(ctx: Ctx) -> dict[str, Any] | None:
     return stopped(ctx, payload)
 
 
+def workspace_audit_path(ctx: Ctx, action_id: str) -> Path:
+    return ctx.run_dir() / f"{action_id}.workspace-before.json"
+
+
+def workspace_audit_stop(ctx: Ctx, action: dict[str, Any]) -> dict[str, Any] | None:
+    """Independent check of one writing dispatch; ``None`` when it is off, not due or clean.
+
+    Opt-in through ``workspace_audit`` in ``policies/EXECUTORS.md``. It compares the real
+    worktree against the snapshot taken before the dispatch and the paths the result
+    declares, for every executor. A missing snapshot (the audit was switched on after the
+    dispatch was prepared) is not a failure: there is nothing to compare.
+    """
+    if not workspace_audit_enabled(action["stage"]):
+        return None
+    before_path = workspace_audit_path(ctx, action["id"])
+    if not before_path.is_file() or not action["final"].is_file():
+        return None
+    import validate_protocol
+
+    try:
+        before = json.loads(before_path.read_text(encoding="utf-8"))
+        result = json.loads(action["final"].read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    editable = sorted((ctx.delivery.get("slices") or {}).get("editable_paths") or []) if action["stage"] == "IMPLEMENT" else []
+    findings = dispatch_audit.audit(before=before, after=dispatch_audit.snapshot(ctx.repo), result=result,
+                                    editable_paths=editable, path_matches=validate_protocol.path_matches)
+    if not findings:
+        return None
+    payload = stop(dispatch_audit.STOP_REASON, action_id=action["id"], findings=findings[:10],
+                   audited_stage=action["stage"], undeclared=[item["path"] for item in findings][:10])
+    payload["message"] = dispatch_audit.stop_message(action["stage"], findings)
+    return stopped(ctx, payload)
+
+
 def validation_step(ctx: Ctx) -> dict[str, Any]:
     action = journal_action(ctx)
+    audited = workspace_audit_stop(ctx, action)
+    if audited is not None:
+        return audited
     manifest = json.loads(action["manifest"].read_text(encoding="utf-8"))
     errors = validate_result(ctx, action["stage"], action["role"], manifest, action["final"])
     if errors:
@@ -1615,6 +1671,10 @@ def cmd_accept(ctx: Ctx, _args: argparse.Namespace) -> dict[str, Any]:
     if status not in {"ARTIFACT_READY", "VALIDATED", "STATE_COMMITTED"}:
         raise SddError("ACTION_RECOVERY_REQUIRED", f"accept applies to a recorded result, journal is {status}.", next_command=sdd("next"))
     action = journal_action(ctx)
+    if status == "ARTIFACT_READY":
+        audited = workspace_audit_stop(ctx, action)
+        if audited is not None:
+            raise SddError(dispatch_audit.STOP_REASON, audited["message"], findings=audited.get("findings"))
     if status == "STATE_COMMITTED":
         aj.release_action(ctx.journal_path)
         return {"status": "ACCEPTED", "action_id": action["id"], "next_step": "Roll over with the command `sdd.py next` prints.", "next_command": sdd("next")}
@@ -2478,144 +2538,7 @@ def record_wiki(ctx: Ctx, kind: str, title: str, body: str, *, stage: str | None
 # ----------------------------------------------------------------------------- readable output
 
 #: Display names for the FSM stages; the code stays visible next to each name.
-STAGE_LABELS = {
-    "IDLE": "Ocioso", "SPECIFY": "Especificar", "CLARIFY": "Esclarecer", "PLAN": "Planejar", "TASKS": "Tarefas",
-    "IMPLEMENT": "Implementar", "TEST": "Testar", "REVIEW": "Revisar", "DONE": "Concluído",
-}
-TEXT_FORMAT_COMMANDS = ("status", "next")
-DETAIL_LEVELS = ("compact", "normal", "verbose")
-
-
-def _printable(value: Any) -> str:
-    """One display line: terminal controls (C0, C1, bidi, line separators) become spaces."""
-    text = "" if value is None else str(value)
-    return "".join(character if character.isprintable() else " " for character in text)
-
-
-def _stage_label(stage: Any) -> str:
-    code = _printable(stage) or "?"
-    name = STAGE_LABELS.get(code)
-    return f"{name} ({code})" if name else code
-
-
-def _text_row(label: str, value: Any) -> str:
-    return f"│ {label:<12} {_printable(value)}".rstrip()
-
-
-def _stop_lines(code: str, next_command: Any) -> list[str]:
-    explanation = sr.explain(code)
-    lines = [
-        _text_row("O que houve", explanation["what"]),
-        _text_row("Por quê", explanation["why"]),
-        _text_row("O que fazer", explanation["action"]),
-    ]
-    if next_command:
-        lines.append(_text_row("Rode", next_command))
-    lines.append(_text_row("", f"(código técnico: {code})"))
-    return lines
-
-
-def render_text(command_name: str, result: dict[str, Any], *, detail: str = "normal") -> str:
-    """Human-readable view of a `status` or `next` result; the JSON stays the controller's contract."""
-    status = result.get("status")
-    if status not in {"OK", "STOP"} or (command_name == "status" and status != "OK"):
-        code = _printable(status) or "ERROR"
-        message = result.get("message") or code
-        if detail == "compact":
-            command_hint = f" → rode: {_printable(result['next_command'])}" if result.get("next_command") else ""
-            return f"✖ Erro: {_printable(message)}{command_hint}"
-        lines = ["╭─ Hermes SDD · erro", _text_row("Erro", message)]
-        if code in sr.STOP_REASONS:
-            lines.extend(_stop_lines(code, result.get("next_command")))
-        else:
-            if result.get("next_step"):
-                lines.append(_text_row("O que fazer", result["next_step"]))
-            if result.get("next_command"):
-                lines.append(_text_row("Rode", result["next_command"]))
-        lines.append("╰────────────────────────────")
-        return "\n".join(lines)
-    if command_name == "status":
-        return _render_status(result, detail)
-    return _render_next(result, detail)
-
-
-def _render_status(result: dict[str, Any], detail: str) -> str:
-    stage = _stage_label(result.get("stage"))
-    stop = result.get("stop") or None
-    # With no demand the controller reports the ticket as IDLE; show that as "no demand", not as a ticket.
-    idle = result.get("stage") == "IDLE" or result.get("ticket") in {None, "", "IDLE"}
-    ticket = "nenhuma demanda ativa" if idle else _printable(result.get("ticket"))
-    if detail == "compact":
-        if stop:
-            return f"■ {ticket} · {stage} · parado: {sr.explain(stop.get('stop_reason'))['what']}"
-        return f"▶ {ticket} · {stage} · próximo: {_printable(result.get('next_action'))}"
-    lines = [
-        "╭─ Hermes SDD · status",
-        _text_row("Ticket", ticket),
-        _text_row("Fase", stage + (f" · {_printable(result.get('stage_status'))}" if result.get("stage_status") else "")),
-    ]
-    if result.get("profile"):
-        lines.append(_text_row("Perfil", result["profile"]))
-    if result.get("mode"):
-        lines.append(_text_row("Modo", result["mode"]))
-    if stop:
-        lines.append(_text_row("Estado", "Parado" if stop.get("kind") != "PAUSED" else "Aguardando decisão"))
-        lines.append("│")
-        lines.extend(_stop_lines(_printable(stop.get("stop_reason")), None))
-    else:
-        lines.append(_text_row("Próximo", result.get("next_action")))
-    lines.append(_text_row("Rode", result.get("next_command")))
-    if stop:
-        lines.append(_text_row("", "(o `next` mostra o comando que resolve esta parada)"))
-    if detail == "verbose":
-        recovery = result.get("recovery") or {}
-        lines.extend(["│", _text_row("Recuperação", f"{_printable(recovery.get('decision'))} · journal {_printable(recovery.get('journal_status'))}")])
-        budgets = result.get("budgets_left") or {}
-        if budgets:
-            lines.append("│ Orçamentos restantes")
-            lines.extend(f"│   {_printable(name)}: {_printable(left)}" for name, left in sorted(budgets.items()))
-        paths = result.get("paths") or {}
-        if paths:
-            lines.append("│ Arquivos")
-            lines.extend(f"│   {_printable(name)}: {_printable(path)}" for name, path in sorted(paths.items()))
-        if result.get("storage"):
-            lines.append(_text_row("Storage", result["storage"]))
-    lines.append("╰────────────────────────────")
-    return "\n".join(lines)
-
-
-def _render_next(result: dict[str, Any], detail: str) -> str:
-    stage = _stage_label(result.get("stage"))
-    commands = [_printable(item) for item in result.get("commands") or []]
-    if result.get("status") == "STOP":
-        code = _printable(result.get("stop_reason")) or "BLOCKED"
-        word = "Aguardando você" if result.get("kind") == "PAUSED" else "Parado"
-        if detail == "compact":
-            return f"■ {word} em {stage}: {sr.explain(code)['what']}"
-        lines = ["╭─ Hermes SDD · próximo passo", _text_row("Estado", f"{word} em {stage}"), "│"]
-        lines.extend(_stop_lines(code, result.get("next_command")))
-        if detail == "verbose" and result.get("next_step"):
-            lines.append(_text_row("Detalhe", result["next_step"]))
-        lines.append("╰────────────────────────────")
-        return "\n".join(lines)
-    step_name = _printable(result.get("step")) or "?"
-    if detail == "compact":
-        plural = "comando" if len(commands) == 1 else "comandos"
-        return f"▶ {step_name} · {stage} · {len(commands)} {plural}"
-    lines = [
-        "╭─ Hermes SDD · próximo passo",
-        _text_row("Passo", f"{step_name} · {stage}"),
-        _text_row("O que fazer", result.get("next_step")),
-    ]
-    if commands:
-        lines.extend(["│", "│ Rode, nesta ordem:"])
-        lines.extend(f"│   {index}. {item}" for index, item in enumerate(commands, 1))
-    if result.get("end_turn") is False and result.get("next_command"):
-        lines.append(_text_row("Depois", result["next_command"]))
-    if detail == "verbose" and result.get("action_id"):
-        lines.append(_text_row("Ação", result["action_id"]))
-    lines.append("╰────────────────────────────")
-    return "\n".join(lines)
+from sdd_readable import DETAIL_LEVELS, STAGE_LABELS, render_text  # noqa: E402  (readable output lives in its own module)
 
 
 COMMANDS = {

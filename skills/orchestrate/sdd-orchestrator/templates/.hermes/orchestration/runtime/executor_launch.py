@@ -25,6 +25,7 @@ from os import environ as process_environment
 from pathlib import Path
 from typing import Any
 
+import dispatch_audit
 import executor_dispatch as dispatch
 import executor_sandbox
 import opencode_executor
@@ -83,7 +84,7 @@ DEFAULT_STAGE_POLICY: dict[str, dict[str, Any]] = {
 STAGE_KEYS = {"executor", "model", "timeout_seconds", "max_turns", "tools", "permission_mode", "sandbox", "sandbox_network", "codex_home", "env_from", "prompt_profile"}
 DEFAULT_CLAUDE_TOOLS = "Read,Grep,Glob"
 WRITING_STAGES = {"IMPLEMENT", "TEST"}
-POLICY_KEYS = {"executors_version", "stages", "allow_bypass_permissions"}
+POLICY_KEYS = {"executors_version", "stages", "allow_bypass_permissions", "workspace_audit"}
 BYPASS_PERMISSION_MODE = "bypassPermissions"
 #: Environment the worker inherits: nothing else (no TYPESAFE_*, JEV_*, HERMES_* or foreign *_API_KEY/*_TOKEN).
 WORKER_ENV_NAMES = frozenset({
@@ -130,7 +131,8 @@ def load_policy(path: Path | None = None) -> dict[str, Any]:
     fix = f"Fix the fenced json block in {policy_path} (see policies/EXECUTORS.md in the template)."
     stages = copy.deepcopy(DEFAULT_STAGE_POLICY)
     if not policy_path.is_file():
-        return {"source": "DEFAULTS", "path": str(policy_path), "stages": stages, "allow_bypass_permissions": False}
+        return {"source": "DEFAULTS", "path": str(policy_path), "stages": stages, "allow_bypass_permissions": False,
+                "workspace_audit": dispatch_audit.DEFAULT_MODE}
     block = _extract_json_block(policy_path.read_text(encoding="utf-8"))
     if block is None:
         raise LaunchError("POLICY_INVALID", "EXECUTORS.md has no fenced json block.", fix)
@@ -139,7 +141,10 @@ def load_policy(path: Path | None = None) -> dict[str, Any]:
     except json.JSONDecodeError as exc:
         raise LaunchError("POLICY_INVALID", f"EXECUTORS.md json block is not valid JSON: {exc}", fix) from exc
     if not isinstance(value, dict) or set(value) - POLICY_KEYS or value.get("executors_version") != 1:
-        raise LaunchError("POLICY_INVALID", "EXECUTORS.md must contain {executors_version: 1, stages: {...}} and optionally allow_bypass_permissions only.", fix)
+        raise LaunchError("POLICY_INVALID", "EXECUTORS.md must contain {executors_version: 1, stages: {...}} and optionally allow_bypass_permissions and workspace_audit only.", fix)
+    audit = value.get("workspace_audit", dispatch_audit.DEFAULT_MODE)
+    if audit not in dispatch_audit.MODES:
+        raise LaunchError("POLICY_INVALID", f"workspace_audit must be one of {dispatch_audit.MODES}.", fix)
     allow_bypass = value.get("allow_bypass_permissions", False)
     if not isinstance(allow_bypass, bool):
         raise LaunchError("POLICY_INVALID", "allow_bypass_permissions must be true or false.", fix)
@@ -159,7 +164,7 @@ def load_policy(path: Path | None = None) -> dict[str, Any]:
                               f"Remove permission_mode from {stage} in {policy_path}, or, as the project owner who accepts that risk, "
                               "add \"allow_bypass_permissions\": true next to executors_version.")
         stages[stage] = merged
-    return {"source": "FILE", "path": str(policy_path), "stages": stages, "allow_bypass_permissions": allow_bypass}
+    return {"source": "FILE", "path": str(policy_path), "stages": stages, "allow_bypass_permissions": allow_bypass, "workspace_audit": audit}
 
 
 def _validate_stage_entry(stage: str, entry: dict[str, Any], fix: str) -> None:

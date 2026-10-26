@@ -19,6 +19,7 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/bounded_run_driver.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/bounded_loop_driver.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/sdd.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/sdd_readable.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/controller_isolation.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/prompt_rules.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/acceptance_verifiers.py",
@@ -54,6 +55,7 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/executor_transport.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/executor_launch.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/executor_dispatch.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/dispatch_audit.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/opencode_executor.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/opencode_transport.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/EXECUTORS.md"

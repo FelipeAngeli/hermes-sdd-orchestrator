@@ -24,6 +24,24 @@ def apply(stop_reasons: dict, explanations: dict, human: str, next_command: str)
     )
 
 
+def apply_audit(stop_reasons: dict, explanations: dict, blocked: str, next_command: str) -> None:
+    """Add the opt-in workspace-audit row (off by default; see runtime/dispatch_audit.py)."""
+    stop_reasons["WORKSPACE_AUDIT_FAILED"] = (
+        blocked,
+        "The project enabled `workspace_audit: enforce` in policies/EXECUTORS.md and the independent check of this writing dispatch "
+        "found files that really changed in the worktree but are not declared by the result, or are declared outside the slice "
+        "editable_paths. The result is not folded into STATE. Show the listed paths to the user, decide with them whether to keep or "
+        "revert that work, then archive the action with `sdd.py abandon` (its words) or reopen the slice so the worker redoes it "
+        "inside scope. Nothing is reverted automatically.",
+        next_command,
+    )
+    explanations["WORKSPACE_AUDIT_FAILED"] = (
+        "Arquivos mudaram no repositório sem serem declarados pelo executor (ou fora do escopo da fatia).",
+        "A auditoria independente do repositório, que este projeto ativou, não confere com o resultado entregue.",
+        "Ver os arquivos listados, decidir com o usuário o que manter e então abandonar ou reabrir a fatia.",
+    )
+
+
 def apply_controller_policy(stop_reasons: dict, explanations: dict, HUMAN: str, BLOCKED: str, _CONFIRM_POLICY: str, _ABANDON: str) -> None:  # noqa: N803
     """Add the controller-policy pin and controller-isolation rows (both tables)."""
     stop_reasons.update({
