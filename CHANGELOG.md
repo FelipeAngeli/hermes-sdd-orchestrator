@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.19.0 - 2026-10-26
+
 ### Added
 
 - `OPENCODE` joins the executor enums of `schemas/EXECUTOR_RESULT_SCHEMA.json` (`executor.name`) and `schemas/BOUNDED_RUN_PLAN_SCHEMA.json` (action `executor`); existing values stay valid.
