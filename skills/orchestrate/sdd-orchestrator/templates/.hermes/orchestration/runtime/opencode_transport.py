@@ -25,6 +25,9 @@ OUTCOME_STATUS = {
     "TIMEOUT": "EXECUTOR_TIMEOUT", "CRASH": "EXECUTOR_FAILED", "ERROR_EVENT": "EXECUTOR_FAILED",
 }
 FINISH_REASON = "stop"
+#: The only events kept in the stored raw stream: a ``tool_use`` part carries what a tool read
+#: (``state.output``/``input``/``metadata``), which may be any file the worker could open.
+RAW_STREAM_EVENTS = ("step_start", "text", "step_finish", "error")
 
 
 def _count(value: Any) -> int | None:
@@ -45,6 +48,19 @@ def parse_events(stdout: bytes) -> tuple[list[dict[str, Any]] | None, str | None
             return None, f"line {number} is not an event object"
         events.append(event)
     return events, None
+
+
+def raw_stream(stdout: bytes) -> str:
+    """The stored evidence: only ``RAW_STREAM_EVENTS`` lines, verbatim; tool parts and non-JSON lines are dropped."""
+    kept: list[str] = []
+    for line in stdout.decode("utf-8", errors="replace").splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and event.get("type") in RAW_STREAM_EVENTS:
+            kept.append(line)
+    return "".join(item + "\n" for item in kept)
 
 
 def usage(events: list[dict[str, Any]]) -> dict[str, Any] | None:

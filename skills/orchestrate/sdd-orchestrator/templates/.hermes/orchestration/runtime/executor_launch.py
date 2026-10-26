@@ -740,7 +740,7 @@ def _dispatch(args: argparse.Namespace, plan: dict[str, Any], prompt_hash: str, 
     if settings["executor"] == "opencode":
         base.update(launch["record"], stderr_tail=redact(base["stderr_tail"]))
         if stdout:
-            _atomic_write(dispatch.raw_stream_path(plan["final"]), redact(stdout.decode("utf-8", errors="replace")).encode("utf-8"))
+            _atomic_write(dispatch.raw_stream_path(plan["final"]), redact(opencode_transport.raw_stream(stdout)).encode("utf-8"))
         outcome, opencode_data, diagnostics = opencode_transport.classify(stdout, exit_code, timed_out)
         base.update(diagnostics)
     try:

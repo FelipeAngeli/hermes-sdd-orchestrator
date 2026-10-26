@@ -8,7 +8,8 @@ around ``opencode run --format json --pure --auto``, with:
   ``opencode.json``/``.opencode/`` plugins, no external or Claude Code skills, no default
   plugins, no autoupdate/share/LSP download), plus an ``OPENCODE_PERMISSION`` that denies
   ``webfetch``, ``websearch``, ``codesearch``, ``task`` and every ``external_directory``
-  except the controller's ``--read-dir`` paths, which are never editable;
+  except the controller's ``--read-dir`` paths, which are never editable, and denies the
+  ``read``/``bash`` tools on OpenCode's credential store (``auth.json``, ``opencode.db*``);
 * per-dispatch ``XDG_CONFIG_HOME``/``XDG_CACHE_HOME``/``XDG_STATE_HOME``/``TMPDIR`` inside
   ``<data>/sdd-runtime/<dispatch>/``, where ``<data>`` is OpenCode's own data directory
   (``$XDG_DATA_HOME/opencode``, default ``~/.local/share/opencode``). That directory holds
@@ -32,6 +33,7 @@ from pathlib import Path
 from typing import Any
 
 import opencode_transport
+from redaction import redact
 
 PINNED_VERSION = "1.18.34"
 REQUIRED_HELP_FLAGS = ("--format", "--model", "--pure", "--dir", "--auto", "--file")
@@ -46,6 +48,13 @@ DROPPED_ENV = frozenset({"OPENCODE_API_KEY", "OPENCODE_CONSOLE_TOKEN", "OPENCODE
                          "OPENCODE_PERMISSION", "OPENCODE_SERVER_PASSWORD", "OPENCODE_SERVER_USERNAME"})
 _SECRET_SUFFIXES = ("_KEY", "_TOKEN", "_SECRET", "_PASSWORD")
 DENIED_TOOLS = ("webfetch", "websearch", "codesearch", "task")
+#: OpenCode's credential store (``<data>/auth.json``, ``<data>/opencode.db*``). Verified on 1.18.34:
+#: ``read`` rules match the path *relative to the project*, so an absolute pattern never matches and
+#: these globs end in the data directory's own name; ``external_directory: deny`` already refuses the
+#: ``read`` tool outside the project, and ``bash`` rules match the command text. The seatbelt still
+#: lets a process read the directory, so the stored stream drops tool output too.
+CREDENTIAL_READ_DENY = ("*opencode/auth.json", "*opencode/opencode.db*")
+CREDENTIAL_BASH_DENY = ("*auth.json*", "*opencode.db*")
 RUNTIME_FOLDER = "sdd-runtime"
 PROBE_PROMPT = "Reply with the single word OK."
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
@@ -74,7 +83,7 @@ def _variants(directory: str) -> list[str]:
 
 
 def permission(read_dirs: list[str], writing: bool) -> dict[str, Any]:
-    """OPENCODE_PERMISSION: explicit denies (never ``ask``); later keys win, so allows follow the ``*`` deny."""
+    """OPENCODE_PERMISSION: explicit denies (never ``ask``); later keys win, so allows follow the ``*`` deny/allow."""
     external: dict[str, str] = {"*": "deny"}
     edit: dict[str, str] = {"*": "allow" if writing else "deny"}
     if writing:
@@ -83,7 +92,9 @@ def permission(read_dirs: list[str], writing: bool) -> dict[str, Any]:
         for variant in _variants(directory):
             external[variant] = external[f"{variant}/*"] = "allow"
             edit[variant] = edit[f"{variant}/*"] = "deny"
-    return {**{tool: "deny" for tool in DENIED_TOOLS}, "external_directory": external, "edit": edit}
+    return {**{tool: "deny" for tool in DENIED_TOOLS}, "external_directory": external, "edit": edit,
+            "read": {"*": "allow", **{pattern: "deny" for pattern in CREDENTIAL_READ_DENY}},
+            "bash": {"*": "allow", **{pattern: "deny" for pattern in CREDENTIAL_BASH_DENY}}}
 
 
 def config_sha256(permission_value: dict[str, Any]) -> str:
@@ -181,6 +192,6 @@ def model_probe(*, binary: str, model: str | None, probe_timeout: int, tail_char
             return {"model_check": "TIMEOUT", "probe_exit_code": 124}
         outcome, _, _ = opencode_transport.classify(completed.stdout.encode("utf-8"), completed.returncode)
         return {"model_check": "ACCEPTED" if outcome in {"OK", "INVALID_OUTPUT"} else "REJECTED", "probe_exit_code": completed.returncode,
-                "probe_stderr_tail": completed.stderr[-tail_characters:]}
+                "probe_stderr_tail": redact(completed.stderr[-tail_characters:])}
     finally:
         cleanup(directory)
