@@ -14,7 +14,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-EXECUTORS = ("claude", "codex")
+import opencode_executor
+
+EXECUTORS = ("claude", "codex", "opencode")
 #: Every Claude call (dispatch and probe) loads only the user's own settings and no MCP server or skill.
 #: ``-p`` runs with cwd = the repository and skips the workspace-trust dialog, so without these flags
 #: the CLI would load ``.claude/settings.json``/``settings.local.json`` (hooks run as the user, outside
@@ -25,15 +27,16 @@ REQUIRED_HELP_FLAGS = {
     "claude": ("--print", "--output-format", "--json-schema", "--no-session-persistence", "--model", "--tools", "--add-dir",
                "--setting-sources", "--strict-mcp-config", "--disable-slash-commands"),
     "codex": ("--output-schema", "--output-last-message", "--ephemeral", "--model", "--sandbox", "--cd", "--add-dir", "--config"),
+    "opencode": opencode_executor.REQUIRED_HELP_FLAGS,
 }
-HELP_ARGS = {"claude": ("--help",), "codex": ("exec", "--help")}
+HELP_ARGS = {"claude": ("--help",), "codex": ("exec", "--help"), "opencode": ("run", "--help")}
 #: Codex treats ``--add-dir`` as an extra *writable* root; a writing Codex worker gets none at all.
 CODEX_NO_EXTRA_WRITABLE_ROOTS = "sandbox_workspace_write.writable_roots=[]"
 CODEX_NETWORK_ACCESS_CONFIG = "sandbox_workspace_write.network_access=true"
 #: Claude tools that cannot change a file; any other tool (or ``default``) makes the worker a writer.
 READ_ONLY_CLAUDE_TOOLS = frozenset({"Read", "Grep", "Glob", "LS", "NotebookRead"})
 #: Executors whose ``sandbox`` field (``read-only``/``workspace-write``) decides whether they write.
-SANDBOXED_EXECUTORS = frozenset({"codex"})
+SANDBOXED_EXECUTORS = frozenset({"codex", "opencode"})
 
 
 def help_argv(executor: str, binary: str) -> list[str]:
@@ -44,8 +47,12 @@ def side_paths(final: Path) -> tuple[Path, Path]:
     return final.with_name(final.name + ".transport-schema.json"), final.with_name(final.name + ".last-message.tmp")
 
 
+def raw_stream_path(final: Path) -> Path:
+    return final.with_name(final.name + ".raw-stream.jsonl")
+
+
 def is_writing_worker(settings: dict[str, Any]) -> bool:
-    """True for a Codex ``workspace-write`` sandbox or Claude with any non-read tool."""
+    """True for a ``workspace-write`` sandbox (Codex, OpenCode) or Claude with any non-read tool."""
     if settings["executor"] in SANDBOXED_EXECUTORS:
         return settings.get("sandbox") == "workspace-write"
     tools = (settings.get("tools") or "").strip()
@@ -88,12 +95,20 @@ def _codex(context: dict[str, Any]) -> dict[str, Any]:
     return {"argv": argv, "side_files": [schema_file], "stale_files": [last_message, context["final"].with_name(context["final"].name + ".raw-message.txt")]}
 
 
-BUILDERS = {"claude": _claude, "codex": _codex}
+def _opencode(context: dict[str, Any]) -> dict[str, Any]:
+    schema_file, _ = side_paths(context["final"])
+    built = opencode_executor.build(binary=context["binary"], settings=context["settings"], repository=context["repository"],
+                                    schema_file=schema_file, read_dirs=context["read_dirs"], writing=is_writing_worker(context["settings"]),
+                                    base_env=context["worker_env"] or {}, final=context["final"])
+    return {**built, "side_files": [schema_file], "stale_files": [raw_stream_path(context["final"])]}
+
+
+BUILDERS = {"claude": _claude, "codex": _codex, "opencode": _opencode}
 
 
 def launch_plan(*, settings: dict[str, Any], schema: dict[str, Any], repository: Path, final: Path, add_dirs: list[str], binary: str,
                 read_dirs: list[str] | None = None, worker_env: dict[str, str] | None = None) -> dict[str, Any]:
-    """argv plus the side files the executor needs; executor-specific extras (cwd, env, record) are optional keys."""
+    """argv plus, when the executor needs them, side files, cwd, env, a dispatch directory and a launch record."""
     context = {"settings": settings, "schema": schema, "repository": repository, "final": final, "add_dirs": list(add_dirs),
                "binary": binary, "read_dirs": list(read_dirs or []), "worker_env": worker_env}
     return BUILDERS[settings["executor"]](context)

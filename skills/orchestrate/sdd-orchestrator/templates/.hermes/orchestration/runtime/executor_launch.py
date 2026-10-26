@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Canonical Claude/Codex executor launcher; standard library only.
+"""Canonical Claude/Codex/OpenCode executor launcher; standard library only.
 
 The controller never hand-builds an executor command line. This module derives
 the transport schema, checks the CLI, builds the exact argv from
@@ -27,9 +27,12 @@ from typing import Any
 
 import executor_dispatch as dispatch
 import executor_sandbox
+import opencode_executor
+import opencode_transport
 from executor_dispatch import CLAUDE_ISOLATION_ARGS, EXECUTORS, READ_ONLY_CLAUDE_TOOLS, REQUIRED_HELP_FLAGS, is_writing_worker  # noqa: F401
 from executor_sandbox import _inside
 from executor_transport import extract_result
+from redaction import redact
 
 RUNTIME_ROOT = Path(__file__).resolve().parent
 ORCHESTRATION_ROOT = RUNTIME_ROOT.parent
@@ -60,7 +63,7 @@ LAUNCH_STATUSES = (
 PREFLIGHT_REASONS = ("EXECUTOR_UNAVAILABLE", "EXECUTOR_CLI_UNSUPPORTED", "MODEL_INVALID", "MODEL_REJECTED", "CODEX_HOME_INVALID", "EXECUTOR_ENV_MISSING")
 MODEL_CHECKS = ("NOT_PROBED", "ACCEPTED", "REJECTED", "TIMEOUT")
 POLICY_SOURCES = ("FILE", "DEFAULTS")
-DESCRIPTION = "Canonical Claude/Codex executor launcher for journaled SDD dispatch."
+DESCRIPTION = "Canonical Claude/Codex/OpenCode executor launcher for journaled SDD dispatch."
 TIMEOUT_EXIT_CODE = 124
 LAUNCHER_ERROR_EXIT_CODE = 125
 NOT_FOUND_EXIT_CODE = 127
@@ -91,6 +94,8 @@ WORKER_ENV_NAMES = frozenset({
 })
 WORKER_ENV_PREFIXES = ("LC_",)
 EXECUTOR_ENV_PREFIXES = {"claude": ("ANTHROPIC_", "CLAUDE_"), "codex": ("OPENAI_", "CODEX_")}
+#: OpenCode inherits OPENCODE_* minus credentials (``opencode_executor.filter_env``); Codex ``env_from`` may still name OPENCODE_*.
+WORKER_PREFIXES = {**EXECUTOR_ENV_PREFIXES, "opencode": ("OPENCODE_",)}
 
 
 class LaunchError(Exception):
@@ -181,6 +186,8 @@ def _validate_stage_entry(stage: str, entry: dict[str, Any], fix: str) -> None:
     sandbox = entry.get("sandbox")
     if sandbox is not None and sandbox not in CODEX_SANDBOXES:
         raise bad(f"sandbox must be null or one of {CODEX_SANDBOXES}.")
+    if entry["executor"] == "opencode" and opencode_executor.model_error(model):
+        raise bad(opencode_executor.model_error(model))
     extension_error = executor_sandbox.stage_extension_error(stage, entry, WRITING_STAGES, WORKER_ENV_NAMES, WORKER_ENV_PREFIXES, EXECUTOR_ENV_PREFIXES)
     if extension_error:
         raise bad(extension_error)
@@ -219,6 +226,9 @@ def check_extra_dirs(stage: str, settings: dict[str, Any], repository: Path, add
         path = Path(directory)
         if not path.is_absolute():
             raise LaunchError("ADD_DIR_WRITABLE_REFUSED", f"--add-dir {directory} must be an absolute path.", "Pass absolute directories only.")
+        if settings["executor"] == "opencode":
+            raise LaunchError("ADD_DIR_WRITABLE_REFUSED", "opencode takes no --add-dir: its only writable roots are the workspace and its own data directory.",
+                              "Drop --add-dir; pass directories the worker only reads with --read-dir.")
         if writing and (not _inside(path, repository) or _inside(path, CONTROLLER_HERMES_ROOT)):
             raise LaunchError("ADD_DIR_WRITABLE_REFUSED",
                               f"{stage} runs a writing worker ({settings['executor']}); --add-dir {directory} would be writable outside the repository.",
@@ -373,18 +383,25 @@ def preflight(executor: str, model: str | None, probe: bool, stage: str | None =
         return {**result, "status": "BLOCKED", "reason": "EXECUTOR_CLI_UNSUPPORTED",
                 "next_step": f"Upgrade the {executor} CLI: it must support {', '.join(REQUIRED_HELP_FLAGS[executor])}"
                              + (f" (missing: {', '.join(missing)})." if missing else "."), "next_command": None}
-    if model is not None and not MODEL_PATTERN.match(model):
+    model_error = opencode_executor.model_error(model) if executor == "opencode" else None
+    if (model is not None and not MODEL_PATTERN.match(model)) or model_error:
         return {**result, "status": "BLOCKED", "reason": "MODEL_INVALID",
-                "next_step": "Use a plain model name (letters, digits, . _ : / - [ ]) in policies/EXECUTORS.md.", "next_command": None}
+                "next_step": model_error or "Use a plain model name (letters, digits, . _ : / - [ ]) in policies/EXECUTORS.md.", "next_command": None}
     result["model"] = model
     result["model_check"] = "NOT_PROBED"
     worker_env, blocked = executor_sandbox.preflight_stage_env(executor, settings, result, worker_environment)
     if blocked is not None:
         return blocked
+    if executor == "opencode":
+        blocked = opencode_executor.preflight_extra(binary, result, worker_env, _run_quiet)
+        if blocked is not None:
+            return blocked
     if probe:
-        probe_result = executor_sandbox.model_probe(executor=executor, binary=binary, model=model, isolation_args=CLAUDE_ISOLATION_ARGS,
-                                                    probe_timeout=PROBE_TIMEOUT_SECONDS, tail_characters=TAIL_CHARACTERS,
-                                                    worker_env=worker_env, run_quiet=_run_quiet)
+        probe_result = (opencode_executor.model_probe(binary=binary, model=model, probe_timeout=PROBE_TIMEOUT_SECONDS, tail_characters=TAIL_CHARACTERS,
+                                                      worker_env=worker_env, run_quiet=_run_quiet) if executor == "opencode" else
+                        executor_sandbox.model_probe(executor=executor, binary=binary, model=model, isolation_args=CLAUDE_ISOLATION_ARGS,
+                                                     probe_timeout=PROBE_TIMEOUT_SECONDS, tail_characters=TAIL_CHARACTERS,
+                                                     worker_env=worker_env, run_quiet=_run_quiet))
         result.update(probe_result)
         if probe_result["model_check"] != "ACCEPTED":
             return {**result, "status": "BLOCKED", "reason": "MODEL_REJECTED",
@@ -536,7 +553,7 @@ def worker_environment(executor: str, settings: dict[str, Any] | None = None) ->
     With stage ``settings``, Codex workers also receive the per-stage ``codex_home`` override
     and the ``env_from`` allowlist; a missing ``env_from`` variable is ``EXECUTOR_ENV_MISSING``.
     """
-    prefixes = (*WORKER_ENV_PREFIXES, *EXECUTOR_ENV_PREFIXES[executor])
+    prefixes = (*WORKER_ENV_PREFIXES, *WORKER_PREFIXES[executor])
     env = {name: value for name, value in process_environment.items() if name in WORKER_ENV_NAMES or name.startswith(prefixes)}
     if settings:
         additions, missing = executor_sandbox.apply_codex_env(executor, settings, process_environment)
@@ -544,7 +561,7 @@ def worker_environment(executor: str, settings: dict[str, Any] | None = None) ->
             raise LaunchError("EXECUTOR_ENV_MISSING", f"env_from variable(s) not set in the controller environment: {', '.join(missing)}",
                               "Set the missing variable(s) in the controller environment, or drop them from env_from in policies/EXECUTORS.md.")
         env.update(additions)
-    return env
+    return opencode_executor.filter_env(env) if executor == "opencode" else env
 
 
 class LauncherInterrupted(BaseException):
@@ -698,6 +715,8 @@ def _dispatch(args: argparse.Namespace, plan: dict[str, Any], prompt_hash: str, 
         for stale in launch.get("stale_files", ()):
             if stale.exists():
                 stale.unlink()
+        if launch.get("dispatch_dir"):
+            opencode_executor.prepare(launch["dispatch_dir"])
         exit_code, stdout, stderr, timed_out = _spawn(plan["argv"], cwd=launch.get("cwd", plan["repository"]), prompt=plan["prompt"],
                                                       timeout=settings["timeout_seconds"], env=plan["worker_env"])
     except LauncherInterrupted as exc:  # _spawn already killed the executor process group
@@ -712,6 +731,13 @@ def _dispatch(args: argparse.Namespace, plan: dict[str, Any], prompt_hash: str, 
     duration = round(time.monotonic() - began, 3)
     base = {"executor": settings["executor"], "stage": args.stage, "exit_code": exit_code, "final": str(plan["final"]),
             "duration_seconds": duration, "stderr_tail": stderr.decode("utf-8", errors="replace")[-TAIL_CHARACTERS:]}
+    outcome = None
+    if settings["executor"] == "opencode":
+        base.update(launch["record"], stderr_tail=redact(base["stderr_tail"]))
+        if stdout:
+            _atomic_write(dispatch.raw_stream_path(plan["final"]), redact(stdout.decode("utf-8", errors="replace")).encode("utf-8"))
+        outcome, opencode_data, diagnostics = opencode_transport.classify(stdout, exit_code, timed_out)
+        base.update(diagnostics)
     try:
         if finish_code != 0:
             return {**base, "status": "JOURNAL_FINISH_FAILED", "next_step": f"record-process --finished failed ({finish_payload.get('status')}). Inspect the journal; do not redispatch.",
@@ -723,14 +749,17 @@ def _dispatch(args: argparse.Namespace, plan: dict[str, Any], prompt_hash: str, 
         if launcher_error is not None:
             return {**base, "status": "LAUNCHER_ERROR", "message": launcher_error, "next_step": "The process result is recorded. Archive the interrupted action, fix the launcher error, then prepare a retry with parent_action_id.",
                     "next_command": _archive_command(journal)}
-        if timed_out:
+        if timed_out or outcome == "TIMEOUT":
             return {**base, "status": "EXECUTOR_TIMEOUT", "next_step": "Archive the interrupted action, then prepare one retry with a new action_id, parent_action_id and reduced context (LOOP_POLICY.md); a repeated timeout blocks.",
                     "next_command": _archive_command(journal)}
-        if exit_code != 0:
+        if exit_code != 0 or outcome in {"CRASH", "ERROR_EVENT"}:
             return {**base, "status": "EXECUTOR_FAILED", "next_step": "The executor process failed. Archive the interrupted action; check stderr_tail and preflight before a retry.",
                     "next_command": _archive_command(journal)}
-        data, is_object, diagnostics = extract_result(settings["executor"], stdout, last_message)
-        base.update(diagnostics)
+        if outcome is not None:
+            data, is_object = opencode_data, outcome == "OK"
+        else:
+            data, is_object, diagnostics = extract_result(settings["executor"], stdout, last_message)
+            base.update(diagnostics)
         if data is None:
             return {**base, "status": "EXECUTOR_NO_OUTPUT", "next_step": "The executor exited 0 without a final message. Archive the interrupted action before any retry.",
                     "next_command": _archive_command(journal)}
@@ -753,6 +782,7 @@ def _dispatch(args: argparse.Namespace, plan: dict[str, Any], prompt_hash: str, 
                 side.unlink()
             except OSError:
                 pass
+        opencode_executor.cleanup(launch.get("dispatch_dir"))
 
 
 # --------------------------------------------------------------------------- CLI
@@ -770,7 +800,8 @@ def _add_launch_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--add-dir", action="append", default=[],
                         help="Extra directory passed as the CLI's --add-dir (writable for Codex and for Claude with write tools; a writing worker gets it only inside the repository); repeatable.")
     parser.add_argument("--read-dir", action="append", default=[],
-                        help="Directory the worker only reads (e.g. the Obsidian controller container): --add-dir for a read-only Claude worker, omitted for Codex; repeatable.")
+                        help="Directory the worker only reads (e.g. the Obsidian controller container): --add-dir for a read-only Claude worker, omitted for Codex, "
+                             "an external_directory allow (never edit) for OpenCode; repeatable.")
     parser.add_argument("--policy", help="EXECUTORS.md path; defaults to policies/EXECUTORS.md.")
 
 
