@@ -61,6 +61,35 @@ class GateEnvTests(unittest.TestCase):
         self.assertFalse(str(Path(seen["prefix"])).startswith(str(Path(repo).resolve())), "the prefix is outside the repository")
         self.assertFalse(Path(seen["prefix"]).exists(), "the prefix is removed after the gate run")
 
+    def test_the_gate_cache_variable_names_live_in_stack_detection(self) -> None:
+        self.assertEqual(("MYPY_CACHE_DIR", "RUFF_CACHE_DIR"), detect_stack.GATE_CACHE_DIR_ENVS)
+
+    def test_isolated_gives_each_gate_run_fresh_tool_caches_that_are_removed(self) -> None:
+        base = {"PATH": "/usr/bin", "MYPY_CACHE_DIR": "/repo/.mypy_cache", "RUFF_CACHE_DIR": "/repo/.ruff_cache"}
+        with gate_env.isolated(base) as first, gate_env.isolated(base) as second:
+            caches = [Path(first[name]) for name in detect_stack.GATE_CACHE_DIR_ENVS]
+            for name, cache in zip(detect_stack.GATE_CACHE_DIR_ENVS, caches):
+                with self.subTest(variable=name):
+                    self.assertTrue(cache.is_dir())
+                    self.assertEqual([], list(cache.iterdir()), "the cache starts empty")
+                    self.assertNotEqual(base[name], str(cache), "an inherited cache directory is replaced, never reused")
+                    self.assertNotEqual(first[name], second[name], "one cache per gate run")
+            self.assertEqual(len(set(caches) | {Path(first["PYTHONPYCACHEPREFIX"])}), 3, "each tool gets its own directory")
+        for cache in caches:
+            self.assertFalse(cache.exists(), "the cache is deleted after the gate run")
+        self.assertEqual("/repo/.mypy_cache", base["MYPY_CACHE_DIR"], "the caller's mapping is not modified")
+
+    def test_run_points_the_child_at_the_fresh_tool_caches(self) -> None:
+        probe = "import json, os; print(json.dumps({n: os.getenv(n) for n in ('MYPY_CACHE_DIR', 'RUFF_CACHE_DIR')}))"
+        with tempfile.TemporaryDirectory() as repo:
+            completed = gate_env.run([sys.executable, "-c", probe], cwd=Path(repo), timeout=60)
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        for name, value in json.loads(completed.stdout).items():
+            with self.subTest(variable=name):
+                self.assertTrue(value)
+                self.assertFalse(str(Path(value)).startswith(str(Path(repo).resolve())), "the cache is outside the repository")
+                self.assertFalse(Path(value).exists(), "the cache is removed after the gate run")
+
     def test_run_keeps_the_exit_code_output_and_timeout(self) -> None:
         with tempfile.TemporaryDirectory() as repo:
             completed = gate_env.run([sys.executable, "-c", "import sys; print('out'); sys.stderr.write('err'); sys.exit(3)"],
