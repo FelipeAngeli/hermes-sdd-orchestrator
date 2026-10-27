@@ -22,6 +22,11 @@ module allowed to hold them. A path is left out only when **all** of these hold:
   has a header that is timestamp-based (flags word 0, the ``\\r\\n`` magic tail) and records
   exactly the sibling source's mtime and size, modulo 2**32, as the interpreter checks it.
 
+The root trees include the type-checker and linter caches (``GATE_CACHE_TREES``): a worker
+that runs those tools rewrites them every time, and no gate reads them because
+``runtime/gate_env.py`` gives every gate run fresh ones. Which roots a comparison uses is
+decided by the baseline (``baseline_roots``).
+
 Hash-based bytecode (flags 1 or 3) always counts: checking it needs the interpreter's own
 source hash, which depends on the project's interpreter version. Known limit: a crafted
 timestamp-based file whose header copies its source's mtime and size is left out, and an
@@ -37,7 +42,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from detect_stack import (BYTECODE_CACHE_DIR, BYTECODE_NAME, BYTECODE_SOURCE_SUFFIX, TEST_RUN_ARTIFACT_CODE_SUFFIXES,
-                          TEST_RUN_ARTIFACT_FILES, TEST_RUN_ARTIFACT_PREFIXES, TEST_RUN_ARTIFACT_TREES)
+                          TEST_RUN_ARTIFACT_FILES, TEST_RUN_ARTIFACT_PREFIXES, TEST_RUN_ARTIFACT_TREES,
+                          TEST_RUNNER_ARTIFACT_TREES)
 
 #: The artifact tree roots, exposed so the caller can ask Git which of them its rules ignore.
 TREE_ROOTS = TEST_RUN_ARTIFACT_TREES
@@ -54,6 +60,32 @@ def roots(sources: dict[str, str]) -> tuple[str, ...]:
     otherwise make the subtree, and its own change, invisible to the audit.
     """
     return tuple(root for root in TREE_ROOTS if (sources.get(root) or "") and not sources[root].startswith(root + "/"))
+
+
+def _outside_trees(rules: dict[str, str] | None) -> dict[str, str]:
+    return {path: digest for path, digest in (rules or {}).items() if not path.startswith(tuple(root + "/" for root in TREE_ROOTS))}
+
+
+def baseline_roots(baseline: dict[str, Any] | None, current: Iterable[str], rules: dict[str, str]) -> tuple[str, ...]:
+    """The artifact tree roots a snapshot uses: the baseline's for every tree it evaluated.
+
+    ``current`` holds the roots the current rules ignore from outside the tree and ``rules`` the
+    current ``ignore_rules``. Without a baseline, or with one stored before ``artifact_roots``
+    existed (15.19.0), the current rules decide. Otherwise the baseline's ``artifact_roots`` decide
+    for every tree it evaluated (``artifact_trees``; a baseline without that field, stored by
+    15.19.1, evaluated ``TEST_RUNNER_ARTIFACT_TREES``). A tree added to the list since then is
+    decided by the current rules, and only when every ignore rule outside the artifact trees is
+    unchanged since the baseline, so the current answer is the one the baseline's rules gave; a
+    rule inside a tree never decides whether that tree is ignored. A changed rule leaves the new
+    trees out of the list and is itself reported (``IGNORE_RULES_CHANGED``).
+    """
+    current = tuple(current)
+    if baseline is None or "artifact_roots" not in baseline:
+        return current
+    evaluated = tuple(baseline.get("artifact_trees") or TEST_RUNNER_ARTIFACT_TREES)
+    same = _outside_trees(baseline.get("ignore_rules")) == _outside_trees(rules)
+    recorded = tuple(baseline["artifact_roots"])
+    return tuple(root for root in TREE_ROOTS if root in recorded or (root not in evaluated and same and root in current))
 
 
 def _bytecode_source(path: str) -> str | None:

@@ -62,6 +62,9 @@ class WorkspaceAuditPolicyTests(unittest.TestCase):
         described = stop_reasons.describe(dispatch_audit.STOP_REASON)
         self.assertEqual(("WORKSPACE_AUDIT_FAILED", "BLOCKED"), (described["stop_reason"], described["kind"]))
         self.assertIn("abandon", described["next_command"])
+        # A controller fix for the audit can be installed over the held action, which `next` then re-audits.
+        self.assertIn("install_project.py --upgrade", described["next_step"])
+        self.assertIn("re-audits", described["next_step"])
 
 
 class WorkspaceAuditTests(unittest.TestCase):

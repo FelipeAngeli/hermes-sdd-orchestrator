@@ -225,8 +225,8 @@ def snapshot(repo: Path, exclude: list[str] | tuple[str, ...] = (), git_dir: str
     tree covers, so a rule the dispatch wrote inside one cannot widen the list.
     ``test_artifacts`` lists the ignored test-run artifacts present now and, against
     ``baseline`` (the before-snapshot, when this is the after one), the paths that baseline
-    had git-ignored and that are now gone (``audit_scope``); the baseline's roots decide, and
-    a baseline without them falls back to the current rules. Every path stays in ``files``:
+    had git-ignored and that are now gone (``audit_scope``); the baseline's roots decide
+    (``audit_scope.baseline_roots``; ``artifact_trees`` records which trees it evaluated). Every path stays in ``files``:
     the filter runs at compare time.
     """
     repo = Path(repo)
@@ -236,11 +236,10 @@ def snapshot(repo: Path, exclude: list[str] | tuple[str, ...] = (), git_dir: str
     config = _git(repo, "config", "--list", "-z", "--show-origin", "--includes", git_dir=git_dir)
     status = {path: code for path, code in _status(repo, git_dir).items() if not _excluded(path, skip)}
     paths = sorted(status)
-    roots = _ignored_roots(repo, git_dir)
+    rules = _ignore_rules(repo, paths, git_dir)
+    roots = audit_scope.baseline_roots(baseline, _ignored_roots(repo, git_dir), rules)
     removed = [path for path in (baseline or {}).get("files") or {} if path not in status and not _excluded(path, skip)]
     recorded = (baseline or {}).get("status")
-    if baseline is not None and "artifact_roots" in baseline:
-        roots = tuple(baseline["artifact_roots"])  # the baseline's rules decide, not rules the dispatch may have added
     if recorded is not None:
         removed = [path for path in removed if recorded.get(path) == "!!"]
     elif removed:
@@ -256,9 +255,10 @@ def snapshot(repo: Path, exclude: list[str] | tuple[str, ...] = (), git_dir: str
         + _git(repo, *_DIFF, "--cached", git_dir=git_dir) + b"\0" + _git(repo, *_DIFF, git_dir=git_dir)
     return {"schema_version": SCHEMA_VERSION, "files": {path: _hash(repo / path) for path in paths}, "head": head,
             "refs_sha256": _sha(refs), "index_sha256": _sha(_git(repo, "ls-files", "-s", "-v", "-z", git_dir=git_dir)),
-            "diff_sha256": _sha(diff), "ignore_rules": _ignore_rules(repo, paths, git_dir), "git_dir": resolved,
+            "diff_sha256": _sha(diff), "ignore_rules": rules, "git_dir": resolved,
             "config_sha256": _sha(config), "hooks_sha256": _hooks(repo, git_dir), "excluded": list(skip),
-            "status": status, "artifact_roots": list(roots), "test_artifacts": artifacts}
+            "status": status, "artifact_roots": list(roots), "artifact_trees": list(audit_scope.TREE_ROOTS),
+            "test_artifacts": artifacts}
 
 
 def load(path: Path) -> dict[str, Any]:

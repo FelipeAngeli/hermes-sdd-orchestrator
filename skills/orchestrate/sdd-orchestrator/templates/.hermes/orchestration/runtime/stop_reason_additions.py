@@ -33,7 +33,10 @@ def apply_audit(stop_reasons: dict, explanations: dict, blocked: str, next_comma
         "editable_paths, a changed ignore rule, a moved HEAD/ref/index, or an audit that could not be verified (missing or corrupt "
         "baseline, unreadable result, failing git call), which fails closed. The result is not folded into STATE. Show the listed "
         "findings to the user, decide with them whether to keep or revert that work, then archive the action with `sdd.py abandon` "
-        "(its words) or reopen the slice so the worker redoes it inside scope. Nothing is reverted automatically.",
+        "(its words) or reopen the slice so the worker redoes it inside scope. Nothing is reverted automatically. When the "
+        "findings come from a controller defect fixed in a newer skill, `install_project.py --upgrade` (dry run, then --apply) "
+        "is allowed while this held action is open and changes neither STATE nor the journal; `sdd.py next` then re-audits the "
+        "same action with the new runtime.",
         next_command,
     )
     explanations["WORKSPACE_AUDIT_FAILED"] = (
