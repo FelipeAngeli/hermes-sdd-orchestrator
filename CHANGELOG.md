@@ -4,6 +4,10 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+<!-- Section heading (Fixed / Changed) pending the owner's decision: Jev returned REVIEW (confidence 0.39) for it. -->
+
+- **Workspace audit: test-run artifacts no longer stop every slice that runs the tests.** With `workspace_audit: enforce`, 15.19.0 hashed every git-ignored file, so the runner cache, coverage data and bytecode caches a test run always rewrites were `UNDECLARED_CHANGE` and stopped every IMPLEMENT/TEST slice (seen live). The new `runtime/audit_scope.py` leaves out only an explicit, narrow list, whose names live in `runtime/detect_stack.py` (`TEST_RUN_ARTIFACT_*`, `BYTECODE_*`), and only while the paths are untracked and git-ignored: `.pytest_cache/` at the root (except code suffixes `.py`, `.pyc`, `.pyo`, `.pth`, `.so`); `coverage.xml`, `.coverage` and `.coverage.*` at the root (same rule); `htmlcov/` at the root (same rule); and `__pycache__/<stem>.<tag>[-pytest-<version>][.opt-N].pyc` at any depth, but only when `<stem>.py` exists beside the `__pycache__/` directory and the file is a regular file whose timestamp-based header records exactly that source's mtime and size. The filter runs at compare time on both snapshots (`snapshot` gains `baseline=` and records `test_artifacts`; `SCHEMA_VERSION` stays 3), so an open action whose baseline was stored by 15.19.0 is re-audited correctly after an upgrade. Everything else still counts, including tracked or unignored files, undeclared sources and docs, a `.pyc` outside `__pycache__/`, other files in `__pycache__/`, orphan, unknown-name, hash-based or mismatched `.pyc` files, symlinks, `conftest.py` and ignore-rule changes. `.mypy_cache/` and `.ruff_cache/` are gate caches, not test output, and are not in the list. Residual risk, documented in `policies/EXECUTORS.md` and [contracts](docs/components/contracts-and-schemas.md#test-run-artifacts): a crafted `.pyc` whose header copies its source's mtime and size is not reported, and a Python that loads the repository's `__pycache__/` would run it. Tests: `tests/test_dispatch_audit_test_artifacts.py`.
+
 ## 15.19.0 - 2026-10-26
 
 ### Added

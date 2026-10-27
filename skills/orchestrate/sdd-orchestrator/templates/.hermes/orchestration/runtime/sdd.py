@@ -916,7 +916,7 @@ def workspace_audit_stop(ctx: Ctx, action: dict[str, Any]) -> dict[str, Any] | N
             raise ValueError("the result is not a JSON object")
         editable = sorted((ctx.delivery.get("slices") or {}).get("editable_paths") or []) if action["stage"] == "IMPLEMENT" else []
         findings = dispatch_audit.audit(before=before, after=dispatch_audit.snapshot(ctx.repo, workspace_audit_exclusions(ctx),
-                                                                                         git_dir=before.get("git_dir")),
+                                                                                         git_dir=before.get("git_dir"), baseline=before),
                                         result=result, editable_paths=editable, path_matches=validate_protocol.path_matches)
     except (dispatch_audit.AuditError, OSError, ValueError) as exc:
         findings = dispatch_audit.unverifiable(str(exc))

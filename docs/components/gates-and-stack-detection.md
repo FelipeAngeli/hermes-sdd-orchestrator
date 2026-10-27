@@ -39,7 +39,7 @@ Rules:
 
 Read-only and standard-library only. It walks the repository root and two levels below (for monorepos), skipping dependency and build directories (`node_modules`, `.venv`, `vendor`, `target`, `build`, `.dart_tool`, …).
 
-It also holds `INLINE_CODE_INTERPRETERS`, the interpreter names the [security policy engine](policy-engine.md) treats as running inline code (`-c`/`-e` or a heredoc, which needs a human approval) or as the target of a `curl`/`wget` pipe (denied). `SCRIPT_SAFE_OPTIONS` lists, per interpreter family, the options after which the engine still reads the first argument as the script. Both live here because ecosystem knowledge belongs only in this module.
+It also holds `INLINE_CODE_INTERPRETERS`, the interpreter names the [security policy engine](policy-engine.md) treats as running inline code (`-c`/`-e` or a heredoc, which needs a human approval) or as the target of a `curl`/`wget` pipe (denied). `SCRIPT_SAFE_OPTIONS` lists, per interpreter family, the options after which the engine still reads the first argument as the script. Both live here because ecosystem knowledge belongs only in this module. The same applies to `TEST_RUN_ARTIFACT_TREES`, `TEST_RUN_ARTIFACT_FILES`, `TEST_RUN_ARTIFACT_PREFIXES`, `TEST_RUN_ARTIFACT_CODE_SUFFIXES`, `BYTECODE_CACHE_DIR`, `BYTECODE_SOURCE_SUFFIX` and `BYTECODE_NAME`, the test-run artifacts the opt-in workspace audit leaves out ([Contracts](contracts-and-schemas.md#test-run-artifacts)).
 
 ```text
 python3 .hermes/orchestration/runtime/detect_stack.py --target <dir> [--json]

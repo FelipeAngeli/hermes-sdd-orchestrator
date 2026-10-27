@@ -25,7 +25,8 @@ recorded at ``prepare`` and overrides the settings that change what Git reports 
 
 Known limits (documented, not enforced): an embedded repository or submodule that already
 existed is not inspected inside; ``_hash`` digests at most about 8 MiB of a file plus its
-size; and every ignored file is hashed with no overall time budget.
+size; every ignored file is hashed with no overall time budget; and a crafted bytecode
+cache whose header copies its source's mtime and size is left out (see ``audit_scope``).
 
 A changed file that is not declared (``UNDECLARED_CHANGE``), a declared path outside the
 slice's ``editable_paths`` (``OUTSIDE_EDITABLE_PATHS``), any change to an ignore rule
@@ -36,7 +37,11 @@ folded into STATE. Every ``git`` call is checked: a non-zero exit or a timeout r
 
 The only paths left out are the controller's own files when they physically live in the
 repository (``exclusions``: its orchestration folder, runtime, STATE, journal and
-history); everything else, ignored or not, counts. The baseline is taken once at
+history) and an explicit, narrow list of git-ignored test-run artifacts (``audit_scope``:
+the test runner's root cache, root coverage data and bytecode caches that match their
+source), recorded as ``test_artifacts`` but filtered at compare time on both snapshots,
+so a baseline written before that list existed is handled too; everything else, ignored
+or not, counts. The baseline is taken once at
 ``prepare`` and carried across the corrective retries of the same action
 (``prepare_record``), so a change left by a failed attempt is still reported. The default
 (``off``, or an absent field) runs none of this. Standard library only; nothing here
@@ -51,6 +56,8 @@ import stat
 import subprocess
 from pathlib import Path
 from typing import Any
+
+import audit_scope
 
 MODES = ("off", "enforce")
 DEFAULT_MODE = "off"
@@ -120,17 +127,18 @@ def exclusions(repo: Path, paths: list[Path]) -> list[str]:
     return found
 
 
-def _status(repo: Path, git_dir: str) -> list[str]:
+def _status(repo: Path, git_dir: str) -> dict[str, str]:
+    """Every listed path with its two-letter status (``!!`` is untracked and ignored)."""
     raw = _git(repo, "status", "--porcelain", "-z", "--untracked-files=all", "--ignored", git_dir=git_dir).decode("utf-8", "replace")
-    files: list[str] = []
+    files: dict[str, str] = {}
     second = False
     for entry in (item for item in raw.split("\0") if item):
         if second:
-            files.append(entry)  # the second half of a rename/copy entry is a real path too
+            files[entry] = "R2"  # the second half of a rename/copy entry is a real path too
             second = False
             continue
         status, path = entry[:2], entry[3:]
-        files.append(path)
+        files[path] = status
         second = "R" in status or "C" in status
     return files
 
@@ -185,20 +193,27 @@ def _hooks(repo: Path, git_dir: str) -> str:
     return _sha(_tree(effective) + b"\0\0" + _tree(Path(git_dir) / "hooks"))
 
 
-def snapshot(repo: Path, exclude: list[str] | tuple[str, ...] = (), git_dir: str | None = None) -> dict[str, Any]:
+def snapshot(repo: Path, exclude: list[str] | tuple[str, ...] = (), git_dir: str | None = None,
+             baseline: dict[str, Any] | None = None) -> dict[str, Any]:
     """The repository's observable state; raises ``AuditError`` when any ``git`` call fails.
 
     Every ``git`` call is pinned to ``git_dir`` (the one recorded at ``prepare``; resolved now
     when absent) and to ``repo`` as the work tree, so neither a ``core.worktree`` in
     ``.git/config`` nor a ``.git`` replaced by a gitfile can redirect them. The directory Git
     resolves now is recorded as ``git_dir``, so a replaced ``.git`` is reported as well.
+    ``test_artifacts`` lists the ignored test-run artifacts present now and, against
+    ``baseline`` (the before-snapshot, when this is the after one), those removed since
+    (``audit_scope``); every path stays in ``files``, the filter runs at compare time.
     """
     repo = Path(repo)
     skip = tuple(exclude)
     resolved = str(Path(_git(repo, "rev-parse", "--absolute-git-dir").decode("utf-8", "replace").strip()).resolve())
     git_dir = git_dir or resolved
     config = _git(repo, "config", "--list", "-z", "--show-origin", "--includes", git_dir=git_dir)
-    paths = sorted({path for path in _status(repo, git_dir) if not _excluded(path, skip)})
+    status = {path: code for path, code in _status(repo, git_dir).items() if not _excluded(path, skip)}
+    paths = sorted(status)
+    removed = [path for path in (baseline or {}).get("files") or {} if path not in status and not _excluded(path, skip)]
+    artifacts = audit_scope.select(repo, (path for path in paths if status[path] == "!!"), removed)
     head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD", git_dir=git_dir, allowed=(0, 1)).decode("utf-8", "replace").strip() or "unborn"
     refs = _git(repo, "for-each-ref", "--format=%(refname) %(objectname)", git_dir=git_dir) + b"\0" \
         + _git(repo, "symbolic-ref", "-q", "HEAD", git_dir=git_dir, allowed=(0, 1))
@@ -207,7 +222,8 @@ def snapshot(repo: Path, exclude: list[str] | tuple[str, ...] = (), git_dir: str
     return {"schema_version": SCHEMA_VERSION, "files": {path: _hash(repo / path) for path in paths}, "head": head,
             "refs_sha256": _sha(refs), "index_sha256": _sha(_git(repo, "ls-files", "-s", "-v", "-z", git_dir=git_dir)),
             "diff_sha256": _sha(diff), "ignore_rules": _ignore_rules(repo, paths, git_dir), "git_dir": resolved,
-            "config_sha256": _sha(config), "hooks_sha256": _hooks(repo, git_dir), "excluded": list(skip)}
+            "config_sha256": _sha(config), "hooks_sha256": _hooks(repo, git_dir), "excluded": list(skip),
+            "test_artifacts": artifacts}
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -222,9 +238,9 @@ def load(path: Path) -> dict[str, Any]:
 
 
 def changed_paths(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
-    """Paths whose status or content differs between the two snapshots."""
-    old, new = before.get("files") or {}, after.get("files") or {}
-    return sorted({path for path in set(old) | set(new) if old.get(path) != new.get(path)})
+    """Paths whose status or content differs between the two snapshots, test-run artifacts left out."""
+    old, new, skip = before.get("files") or {}, after.get("files") or {}, audit_scope.skipped(before, after)
+    return sorted({path for path in set(old) | set(new) if old.get(path) != new.get(path) and path not in skip})
 
 
 def declared_paths(result: dict[str, Any]) -> set[str]:
@@ -243,8 +259,8 @@ def audit(*, before: dict[str, Any], after: dict[str, Any], result: dict[str, An
     findings = [_finding(label, "GIT_STATE_MOVED", f"the repository {label} changed during the dispatch"
                          " (a worker never commits, stages or edits the Git configuration or hooks)")
                 for key, label in GIT_STATE if before.get(key) != after.get(key)]
-    old_rules, new_rules = before.get("ignore_rules") or {}, after.get("ignore_rules") or {}
-    rules = sorted(path for path in set(old_rules) | set(new_rules) if old_rules.get(path) != new_rules.get(path))
+    old_rules, new_rules, skip = before.get("ignore_rules") or {}, after.get("ignore_rules") or {}, audit_scope.skipped(before, after)
+    rules = sorted(path for path in set(old_rules) | set(new_rules) if old_rules.get(path) != new_rules.get(path) and path not in skip)
     findings += [_finding(path, "IGNORE_RULES_CHANGED", "an ignore rule changed during the dispatch; it could hide files from Git")
                  for path in rules]
     changed = [path for path in changed_paths(before, after) if path not in rules]
