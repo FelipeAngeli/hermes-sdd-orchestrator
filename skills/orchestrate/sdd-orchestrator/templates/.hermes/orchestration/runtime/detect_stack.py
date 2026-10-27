@@ -39,6 +39,25 @@ SCRIPT_SAFE_OPTIONS = (
     (r"ruby", frozenset({"-w", "-v", "-W"}), frozenset()),
     (r"perl", frozenset({"-w", "-W", "-T", "-t"}), frozenset()),
 )
+#: Test-run artifacts the opt-in workspace audit (``runtime/audit_scope.py``) does not count, kept
+#: here because ecosystem knowledge belongs only in this module. Exact rules, nothing broader:
+#: a root directory's whole subtree, a root file name, or a root file-name prefix. Gate caches of
+#: linters and type checkers are deliberately absent: they are not test-run output.
+TEST_RUN_ARTIFACT_TREES = (".pytest_cache", "htmlcov")
+TEST_RUN_ARTIFACT_FILES = ("coverage.xml", ".coverage")
+TEST_RUN_ARTIFACT_PREFIXES = (".coverage.",)
+#: Files inside an artifact tree that still count, because an interpreter could load them as code.
+TEST_RUN_ARTIFACT_CODE_SUFFIXES = (".py", ".pyc", ".pyo", ".pth", ".so", ".pyw", ".pyd", ".pyz", ".dylib", ".egg-link")
+#: Bytecode caches (PEP 3147/488/552): ``<dir>/__pycache__/<stem>.<cache-tag>[-pytest-<version>][.opt-N].pyc``
+#: next to ``<dir>/<stem>.py``; the 16-byte header holds the magic, a flags word (0 = timestamp-based)
+#: and the source's mtime and size, both little-endian modulo 2**32.
+BYTECODE_CACHE_DIR = "__pycache__"
+BYTECODE_SOURCE_SUFFIX = ".py"
+#: Gate commands (``runtime/gate_env.py``) run with a fresh bytecode-cache prefix and bytecode writing off, so an
+#: interpreter neither loads a ``.pyc`` planted in the repository's caches nor writes one there.
+BYTECODE_PREFIX_ENV = "PYTHONPYCACHEPREFIX"
+BYTECODE_ISOLATION_ENV = {"PYTHONDONTWRITEBYTECODE": "1"}
+BYTECODE_NAME = r"(?P<stem>[^./]+)\.[a-z]+-?[0-9]+t?(?:-pytest-[0-9][0-9A-Za-z.+]*)?(?:\.opt-[12])?\.pyc"
 IGNORED_DIRS = frozenset({
     ".git", ".hg", ".svn", ".hermes", ".idea", ".vscode", "node_modules", ".venv", "venv", "env",
     "__pycache__", ".tox", ".nox", ".mypy_cache", ".pytest_cache", ".ruff_cache", "vendor",

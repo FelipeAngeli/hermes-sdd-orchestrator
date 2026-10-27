@@ -42,6 +42,7 @@ if str(RUNTIME) not in sys.path:
 
 import action_journal as aj  # noqa: E402
 import dispatch_audit  # noqa: E402
+import gate_env  # noqa: E402
 import state_format as sf  # noqa: E402
 import stop_reasons as sr  # noqa: E402
 
@@ -916,7 +917,7 @@ def workspace_audit_stop(ctx: Ctx, action: dict[str, Any]) -> dict[str, Any] | N
             raise ValueError("the result is not a JSON object")
         editable = sorted((ctx.delivery.get("slices") or {}).get("editable_paths") or []) if action["stage"] == "IMPLEMENT" else []
         findings = dispatch_audit.audit(before=before, after=dispatch_audit.snapshot(ctx.repo, workspace_audit_exclusions(ctx),
-                                                                                         git_dir=before.get("git_dir")),
+                                                                                         git_dir=before.get("git_dir"), baseline=before),
                                         result=result, editable_paths=editable, path_matches=validate_protocol.path_matches)
     except (dispatch_audit.AuditError, OSError, ValueError) as exc:
         findings = dispatch_audit.unverifiable(str(exc))
@@ -2527,7 +2528,7 @@ def cmd_gate(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     files = list((data.get("ownership") or {}).get("agent_owned") or [])
     argv = gate_argv(row["command"], files)
     try:
-        completed = subprocess.run(argv, cwd=str(ctx.repo), capture_output=True, text=True, timeout=row["timeout"], check=False)
+        completed = gate_env.run(argv, cwd=ctx.repo, timeout=row["timeout"])
         status, exit_code, tail = ("PASS" if completed.returncode == 0 else "FAIL"), completed.returncode, (completed.stdout + completed.stderr)[-MAX_OUTPUT_TAIL:]
     except subprocess.TimeoutExpired:
         status, exit_code, tail = "TIMEOUT", 124, ""

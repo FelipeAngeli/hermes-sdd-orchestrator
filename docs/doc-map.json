@@ -56,13 +56,15 @@
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/executor_launch.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/executor_dispatch.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/dispatch_audit.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/audit_scope.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/opencode_executor.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/opencode_transport.py",
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/EXECUTORS.md"
     ],
     "docs/components/gates-and-stack-detection.md": [
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/GATES.md",
-      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/detect_stack.py"
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/detect_stack.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/gate_env.py"
     ],
     "docs/components/stage-agents.md": [
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/agents/*"
