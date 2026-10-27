@@ -53,6 +53,10 @@ TEST_RUN_ARTIFACT_CODE_SUFFIXES = (".py", ".pyc", ".pyo", ".pth", ".so")
 #: and the source's mtime and size, both little-endian modulo 2**32.
 BYTECODE_CACHE_DIR = "__pycache__"
 BYTECODE_SOURCE_SUFFIX = ".py"
+#: Gate commands (``runtime/gate_env.py``) run with a fresh bytecode-cache prefix and bytecode writing off, so an
+#: interpreter neither loads a ``.pyc`` planted in the repository's caches nor writes one there.
+BYTECODE_PREFIX_ENV = "PYTHONPYCACHEPREFIX"
+BYTECODE_ISOLATION_ENV = {"PYTHONDONTWRITEBYTECODE": "1"}
 BYTECODE_NAME = r"(?P<stem>[^./]+)\.[a-z]+-?[0-9]+t?(?:-pytest-[0-9][0-9A-Za-z.+]*)?(?:\.opt-[12])?\.pyc"
 IGNORED_DIRS = frozenset({
     ".git", ".hg", ".svn", ".hermes", ".idea", ".vscode", "node_modules", ".venv", "venv", "env",

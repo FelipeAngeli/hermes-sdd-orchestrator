@@ -27,6 +27,7 @@ from typing import Any, Callable
 import jsonschema
 
 import acceptance_verifiers
+import gate_env
 import gate_workspace
 import redaction
 import validate_protocol
@@ -110,11 +111,9 @@ class DeterministicValidator:
             if not argv:
                 raise ValueError("empty command")
             env = {key: value for key in SAFE_ENV if (value := os.environ.get(key)) is not None}
-            # A fresh, gate-owned bytecode cache: Python then neither loads a ``.pyc`` planted in the repository's
-            # ``__pycache__`` nor writes one there, so the command cannot change the state it is evaluated on.
-            with tempfile.TemporaryDirectory(prefix="gate-pycache-") as pycache, tempfile.TemporaryFile() as out, \
-                    tempfile.TemporaryFile() as err:
-                env.update(PYTHONPYCACHEPREFIX=pycache, PYTHONDONTWRITEBYTECODE="1")
+            # A fresh, gate-owned bytecode cache (``gate_env``): the command neither loads bytecode planted in the
+            # repository's caches nor writes any there, so it cannot change the state it is evaluated on.
+            with gate_env.isolated(env) as env, tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
                 started = self.clock()
                 completed = subprocess.run(argv, cwd=self.repo, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
                                            timeout=limit, check=False, env=env)

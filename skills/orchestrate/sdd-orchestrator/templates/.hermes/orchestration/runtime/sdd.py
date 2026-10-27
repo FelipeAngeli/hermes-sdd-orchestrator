@@ -42,6 +42,7 @@ if str(RUNTIME) not in sys.path:
 
 import action_journal as aj  # noqa: E402
 import dispatch_audit  # noqa: E402
+import gate_env  # noqa: E402
 import state_format as sf  # noqa: E402
 import stop_reasons as sr  # noqa: E402
 
@@ -2527,7 +2528,7 @@ def cmd_gate(ctx: Ctx, args: argparse.Namespace) -> dict[str, Any]:
     files = list((data.get("ownership") or {}).get("agent_owned") or [])
     argv = gate_argv(row["command"], files)
     try:
-        completed = subprocess.run(argv, cwd=str(ctx.repo), capture_output=True, text=True, timeout=row["timeout"], check=False)
+        completed = gate_env.run(argv, cwd=ctx.repo, timeout=row["timeout"])
         status, exit_code, tail = ("PASS" if completed.returncode == 0 else "FAIL"), completed.returncode, (completed.stdout + completed.stderr)[-MAX_OUTPUT_TAIL:]
     except subprocess.TimeoutExpired:
         status, exit_code, tail = "TIMEOUT", 124, ""

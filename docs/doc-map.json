@@ -63,7 +63,8 @@
     ],
     "docs/components/gates-and-stack-detection.md": [
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/policies/GATES.md",
-      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/detect_stack.py"
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/detect_stack.py",
+      "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/runtime/gate_env.py"
     ],
     "docs/components/stage-agents.md": [
       "skills/orchestrate/sdd-orchestrator/templates/.hermes/orchestration/agents/*"

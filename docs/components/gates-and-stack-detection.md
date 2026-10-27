@@ -2,7 +2,7 @@
 
 [Docs index](../README.md) · Previous: [Skill and installer](skill-and-installer.md) · Related: [FSM and bounded loop](fsm-and-loop.md), [Contracts and schemas](contracts-and-schemas.md)
 
-**Files:** `policies/GATES.md`, `runtime/detect_stack.py`.
+**Files:** `policies/GATES.md`, `runtime/detect_stack.py`, `runtime/gate_env.py`.
 
 This is the **only** part of the orchestrator that depends on the project's language. Everything else names gates by role.
 
@@ -27,6 +27,7 @@ Rules:
 - A timeout is `TIMEOUT` and blocks advancement. Disabled CI is recorded as `DISABLED_BY_PROJECT_POLICY`, which is never a pass.
 - In a monorepo, add one row per member with its working directory. A slice uses only the rows of the members it changes.
 - Gates run on the host, with the user's privileges, the repository as working directory and no sandbox. A gate executes code the worker wrote: the test runner imports its test files and fixtures (a `conftest.py`, for example), a build or lint step loads its configuration. That code can reach anything the user can, including `GATES.md`, `EXECUTORS.md`, STATE and the journal in the Obsidian container; the container only keeps the *worker process* out. This is inherent to running tests and is not sandboxed: run gates only where you would run the repository's code, and in REVIEW read the diff of every test, fixture, build and tool-configuration file the worker changed before a gate runs it.
+- `sdd.py gate` runs each command through `runtime/gate_env.py`: the controller's environment plus `PYTHONPYCACHEPREFIX` set to a fresh temporary directory outside the repository, created for that one gate run and deleted afterwards, and `PYTHONDONTWRITEBYTECODE=1`. A Python the gate starts therefore neither loads bytecode from the repository's `__pycache__/` (a forged `.pyc` the [workspace audit](contracts-and-schemas.md#test-run-artifacts) leaves out is not run) nor writes any there. The variable names are `BYTECODE_PREFIX_ENV` and `BYTECODE_ISOLATION_ENV` in `runtime/detect_stack.py`; the opt-in [validation gates](validation-gates.md) use the same helper. A gate command that clears these variables itself (`python -I`, `env -i`) is not covered. Status, exit code, output tail and timeout handling are unchanged.
 
 ## Configuring a project
 
@@ -39,7 +40,7 @@ Rules:
 
 Read-only and standard-library only. It walks the repository root and two levels below (for monorepos), skipping dependency and build directories (`node_modules`, `.venv`, `vendor`, `target`, `build`, `.dart_tool`, …).
 
-It also holds `INLINE_CODE_INTERPRETERS`, the interpreter names the [security policy engine](policy-engine.md) treats as running inline code (`-c`/`-e` or a heredoc, which needs a human approval) or as the target of a `curl`/`wget` pipe (denied). `SCRIPT_SAFE_OPTIONS` lists, per interpreter family, the options after which the engine still reads the first argument as the script. Both live here because ecosystem knowledge belongs only in this module. The same applies to `TEST_RUN_ARTIFACT_TREES`, `TEST_RUN_ARTIFACT_FILES`, `TEST_RUN_ARTIFACT_PREFIXES`, `TEST_RUN_ARTIFACT_CODE_SUFFIXES`, `BYTECODE_CACHE_DIR`, `BYTECODE_SOURCE_SUFFIX` and `BYTECODE_NAME`, the test-run artifacts the opt-in workspace audit leaves out ([Contracts](contracts-and-schemas.md#test-run-artifacts)).
+It also holds `INLINE_CODE_INTERPRETERS`, the interpreter names the [security policy engine](policy-engine.md) treats as running inline code (`-c`/`-e` or a heredoc, which needs a human approval) or as the target of a `curl`/`wget` pipe (denied). `SCRIPT_SAFE_OPTIONS` lists, per interpreter family, the options after which the engine still reads the first argument as the script. Both live here because ecosystem knowledge belongs only in this module. The same applies to `BYTECODE_PREFIX_ENV` and `BYTECODE_ISOLATION_ENV`, the bytecode-cache variables `runtime/gate_env.py` sets for every gate command, and to `TEST_RUN_ARTIFACT_TREES`, `TEST_RUN_ARTIFACT_FILES`, `TEST_RUN_ARTIFACT_PREFIXES`, `TEST_RUN_ARTIFACT_CODE_SUFFIXES`, `BYTECODE_CACHE_DIR`, `BYTECODE_SOURCE_SUFFIX` and `BYTECODE_NAME`, the test-run artifacts the opt-in workspace audit leaves out ([Contracts](contracts-and-schemas.md#test-run-artifacts)).
 
 ```text
 python3 .hermes/orchestration/runtime/detect_stack.py --target <dir> [--json]
