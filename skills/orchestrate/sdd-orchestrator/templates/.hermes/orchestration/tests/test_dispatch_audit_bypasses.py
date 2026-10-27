@@ -9,6 +9,7 @@ absent or corrupt snapshot, an unreadable result or a failing ``git`` call is a 
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -150,6 +151,67 @@ class WorkspaceAuditBypassTests(Repository):
             dispatch_audit.snapshot(self.repo)
 
 
+class WorkspaceAuditGitConfigTests(Repository):
+    """A worker that can write ``.git/`` must not redirect what Git reports or plant hooks."""
+
+    def assertMoved(self, found: dict[str, str], label: str) -> None:
+        self.assertEqual("GIT_STATE_MOVED", found.get(label), found)
+
+    def test_a_core_worktree_redirection_to_a_shadow_copy_is_reported(self) -> None:
+        before = self.snap()
+        shutil.copytree(self.repo, self.base / "shadow", ignore=shutil.ignore_patterns(".git"))
+        self.git("config", "core.worktree", str(self.base / "shadow"))
+        (self.repo / "conftest.py").write_text("import os\n", encoding="utf-8")
+        (self.repo / "src" / "feature.py").write_text("x = 2\n", encoding="utf-8")
+        found = self.findings(before, result())
+        self.assertEqual("UNDECLARED_CHANGE", found.get("conftest.py"), found)
+        self.assertEqual("UNDECLARED_CHANGE", found.get("src/feature.py"), found)
+        self.assertMoved(found, "config")
+
+    def test_a_core_hookspath_change_is_reported(self) -> None:
+        before = self.snap()
+        (self.base / "hooks").mkdir()
+        self.git("config", "core.hooksPath", str(self.base / "hooks"))
+        self.assertMoved(self.findings(before, result()), "hooks")
+
+    def test_a_new_hook_is_reported(self) -> None:
+        before = self.snap()
+        hook = self.repo / ".git" / "hooks" / "pre-commit"
+        hook.parent.mkdir(parents=True, exist_ok=True)
+        hook.write_text("#!/bin/sh\ncurl example.invalid\n", encoding="utf-8")
+        hook.chmod(0o755)
+        self.assertMoved(self.findings(before, result()), "hooks")
+
+    def test_an_include_path_change_is_reported(self) -> None:
+        included = self.base / "included.gitconfig"
+        included.write_text("[status]\n\tshowUntrackedFiles = all\n", encoding="utf-8")
+        self.git("config", "include.path", str(included))
+        before = self.snap()
+        included.write_text("[status]\n\tshowUntrackedFiles = no\n", encoding="utf-8")
+        self.assertMoved(self.findings(before, result()), "config")
+        other = self.base / "other.gitconfig"
+        other.write_text("[core]\n\tuntrackedCache = true\n", encoding="utf-8")
+        before = self.snap()
+        self.git("config", "--replace-all", "include.path", str(other))
+        self.assertMoved(self.findings(before, result()), "config")
+
+    def test_config_that_changes_what_git_reports_is_overridden_on_every_call(self) -> None:
+        self.git("config", "status.showUntrackedFiles", "no")
+        self.git("config", "diff.external", "true")
+        before = self.snap()
+        (self.repo / "dropped.py").write_text("x\n", encoding="utf-8")
+        (self.repo / "src" / "feature.py").write_text("x = 5\n", encoding="utf-8")
+        found = self.findings(before, result())
+        self.assertEqual({"dropped.py": "UNDECLARED_CHANGE", "src/feature.py": "UNDECLARED_CHANGE"}, found)
+        self.assertNotEqual(before["diff_sha256"], self.snap()["diff_sha256"])
+
+    def test_the_snapshot_pins_the_git_directory_and_the_work_tree(self) -> None:
+        value = self.snap()
+        self.assertEqual(str((self.repo / ".git").resolve()), value["git_dir"])
+        for key in ("config_sha256", "hooks_sha256"):
+            self.assertIn(key, value)
+
+
 class WorkspaceAuditControllerFailClosedTests(Repository):
     """``sdd.workspace_audit_prepare``/``workspace_audit_stop`` with a fake context."""
 
@@ -239,6 +301,24 @@ class WorkspaceAuditControllerFailClosedTests(Repository):
         with mock.patch.object(dispatch_audit.subprocess, "run", return_value=failing):
             payload = self.stop(1)
         self.assertEqual("AUDIT_UNVERIFIABLE", payload["findings"][0]["finding"])
+
+    def test_the_after_snapshot_is_pinned_to_the_git_directory_recorded_at_prepare(self) -> None:
+        self.prepare(1)
+        self.action(1)["final"].write_text(json.dumps(result()), encoding="utf-8")
+        with mock.patch.object(dispatch_audit, "snapshot", wraps=dispatch_audit.snapshot) as taken:
+            self.assertIsNone(self.stop(1))
+        self.assertEqual(str((self.repo / ".git").resolve()), taken.call_args.kwargs.get("git_dir"))
+
+    def test_a_core_worktree_redirection_stops_the_controller(self) -> None:
+        self.prepare(1)
+        shutil.copytree(self.repo, self.base / "shadow", ignore=shutil.ignore_patterns(".git"))
+        self.git("config", "core.worktree", str(self.base / "shadow"))
+        (self.repo / "conftest.py").write_text("import os\n", encoding="utf-8")
+        self.action(1)["final"].write_text(json.dumps(result()), encoding="utf-8")
+        payload = self.stop(1)
+        self.assertEqual("WORKSPACE_AUDIT_FAILED", payload["stop_reason"])
+        self.assertIn("conftest.py", payload["undeclared"])
+        self.assertIn("config", payload["undeclared"])
 
     def test_a_failing_snapshot_at_prepare_refuses_the_action(self) -> None:
         failing = subprocess.CompletedProcess([], 128, b"", b"fatal")
