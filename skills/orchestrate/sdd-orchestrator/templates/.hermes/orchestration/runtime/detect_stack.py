@@ -41,9 +41,13 @@ SCRIPT_SAFE_OPTIONS = (
 )
 #: Test-run artifacts the opt-in workspace audit (``runtime/audit_scope.py``) does not count, kept
 #: here because ecosystem knowledge belongs only in this module. Exact rules, nothing broader:
-#: a root directory's whole subtree, a root file name, or a root file-name prefix. Gate caches of
-#: linters and type checkers are deliberately absent: they are not test-run output.
-TEST_RUN_ARTIFACT_TREES = (".pytest_cache", "htmlcov")
+#: a root directory's whole subtree, a root file name, or a root file-name prefix.
+#: Trees a baseline without ``artifact_trees`` (stored by 15.19.1) evaluated: the test runner's cache and HTML report.
+TEST_RUNNER_ARTIFACT_TREES = (".pytest_cache", "htmlcov")
+#: Type-checker and linter caches. Left out only because no gate reads them: ``runtime/gate_env.py`` gives every
+#: gate run fresh ones (``GATE_CACHE_DIR_ENVS``), so a cache a worker plants here cannot hide an error from a gate.
+GATE_CACHE_TREES = (".mypy_cache", ".ruff_cache")
+TEST_RUN_ARTIFACT_TREES = TEST_RUNNER_ARTIFACT_TREES + GATE_CACHE_TREES
 TEST_RUN_ARTIFACT_FILES = ("coverage.xml", ".coverage")
 TEST_RUN_ARTIFACT_PREFIXES = (".coverage.",)
 #: Files inside an artifact tree that still count, because an interpreter could load them as code.

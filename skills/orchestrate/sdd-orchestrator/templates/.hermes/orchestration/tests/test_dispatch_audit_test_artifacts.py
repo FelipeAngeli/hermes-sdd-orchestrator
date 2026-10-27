@@ -199,13 +199,13 @@ class TestArtifactTests(unittest.TestCase):
     def test_the_list_is_exactly_the_documented_one(self) -> None:
         import detect_stack
 
-        self.assertEqual((".pytest_cache", "htmlcov"), detect_stack.TEST_RUN_ARTIFACT_TREES)
+        self.assertEqual((".pytest_cache", "htmlcov", ".mypy_cache", ".ruff_cache"), detect_stack.TEST_RUN_ARTIFACT_TREES)
         self.assertEqual(("coverage.xml", ".coverage"), detect_stack.TEST_RUN_ARTIFACT_FILES)
         self.assertEqual((".coverage.",), detect_stack.TEST_RUN_ARTIFACT_PREFIXES)
         self.assertEqual("__pycache__", detect_stack.BYTECODE_CACHE_DIR)
-        for gate_cache in (".mypy_cache/x.json", ".ruff_cache/x", "node_modules/x.js", ".tox/x", "coverage/lcov.info"):
-            with self.subTest(path=gate_cache):
-                self.assertFalse(audit_scope.candidate(gate_cache))
+        for other in ("node_modules/x.js", ".tox/x", "coverage/lcov.info", "sub/.mypy_cache/x.json"):
+            with self.subTest(path=other):
+                self.assertFalse(audit_scope.candidate(other))
         for name in ("a.cpython-312.pyc", "a.cpython-313t.pyc", "a.pypy310.pyc", "a.cpython-314-pytest-9.1.1.pyc",
                      "a.cpython-312.opt-2.pyc"):
             with self.subTest(name=name):
