@@ -17,10 +17,12 @@ OBSOLETE_UNVERIFIED    in RETIRED_TEMPLATE_PATHS, no manifest, no accepted
                        baseline: kept, warned with the rerun command
 =====================  =========================================================
 
-Before planning, every runtime must be idle: each ACTION_JOURNAL.json IDLE or
-RELEASED, and each STATE.md (parsed with the template's ``state_format``, JSON
-or YAML payload) with ``loop.control.loop_active`` false and ``stage.status``
-not RUNNING; an unparseable STATE blocks too (UPGRADE_CONTROLLER_BUSY).
+Before planning, every runtime must be idle (``runtime_busy``): each
+ACTION_JOURNAL.json IDLE or RELEASED, and each STATE.md (parsed with the
+template's ``state_format``, JSON or YAML payload) with ``loop.control.loop_active``
+false and ``stage.status`` not RUNNING; an unparseable STATE blocks too
+(UPGRADE_CONTROLLER_BUSY). The one exception is an IMPLEMENT/TEST result held by
+the workspace audit, which the upgraded runtime then re-audits.
 
 Owner files (policies/GATES.md, policies/EXECUTORS.md, PROJECT_SETUP.md) are
 never read for comparison nor rewritten; an absent GATES.md/EXECUTORS.md is
@@ -50,7 +52,7 @@ from .constants import (
     UPGRADE_BACKUPS_PATH,
     UPGRADE_LOCK_PATH,
 )
-from .errors import InstallError, _load_unique_json
+from .errors import InstallError
 from . import layout_migration as lm
 from .fsops import (
     _acquire_lock,
@@ -65,11 +67,9 @@ from .fsops import (
 from .gitops import _target_snapshot, git
 from .manifest import manifest_body, manifest_bytes, parse_manifest, sha256, skill_version, template_payload, version_key
 from .mode import storage_mode
+from .runtime_busy import runtime_busy_reasons
 from .templates import _load_template_module
 from .upgrade_files import _remove_file, _replace_file
-
-BUSY_FREE_STATUSES = frozenset({"IDLE", "RELEASED"})
-
 
 # --- planning -------------------------------------------------------------------
 
@@ -127,57 +127,15 @@ def _runtime_directories(root: Path, storage: str, current: str) -> list[Path]:
     return directories
 
 
-def _state_busy_reasons(text: str) -> list[str]:
-    """Why a STATE.md blocks an upgrade, read in any dialect the controller writes.
-
-    The payload is parsed with the template's ``state_format`` (the parser
-    ``sdd.py`` itself uses), so the JSON payload ``sdd.py`` writes and the YAML
-    payload the installer seeds are judged alike. A payload that cannot be
-    parsed fails closed.
-    """
-    try:
-        data = _load_template_module("sdd_upgrade_state_format", "runtime/state_format.py").parse(text)
-    except Exception as error:  # noqa: BLE001 - any parse failure must block, never pass
-        return [f"STATE unreadable ({error})"]
-    if not isinstance(data, dict):
-        return ["STATE unreadable (payload is not a mapping)"]
-    reasons: list[str] = []
-    loop = data.get("loop")
-    loop = loop if isinstance(loop, dict) else {}
-    control = loop.get("control")
-    control = control if isinstance(control, dict) else {}
-    if control.get("loop_active") is True or loop.get("loop_active") is True:
-        reasons.append("loop_active true")
-    stage = data.get("stage")
-    stage = stage if isinstance(stage, dict) else {}
-    if stage.get("status") == "RUNNING":
-        reasons.append(f"stage RUNNING ({stage.get('current')})")
-    return reasons
+def _parse_state(text: str):
+    """Parse a STATE payload with the template's ``state_format``, the parser ``sdd.py`` itself uses."""
+    return _load_template_module("sdd_upgrade_state_format", "runtime/state_format.py").parse(text)
 
 
 def _require_idle(root: Path, storage: str, args=None, target: Path | None = None, current: str = lm.LOCAL) -> None:
-    """Every action journal idle or released, no bounded loop running and no stage RUNNING."""
-    busy: list[str] = []
-    for directory in _runtime_directories(root, storage, current):
-        journal = directory / "ACTION_JOURNAL.json"
-        if journal.is_file() and not journal.is_symlink():
-            try:
-                value = _load_unique_json(journal.read_text(encoding="utf-8"))
-                status = value["action"]["status"]  # type: ignore[index]
-            except (OSError, UnicodeError, ValueError, KeyError, TypeError):
-                status = "UNREADABLE"
-            if status not in BUSY_FREE_STATUSES:
-                busy.append(f"{journal}: action {status}")
-        state = directory / "STATE.md"
-        if state.is_symlink():
-            busy.append(f"{state}: STATE unreadable (symlink)")
-        elif state.is_file():
-            try:
-                text = state.read_text(encoding="utf-8")
-            except (OSError, UnicodeError) as error:
-                busy.append(f"{state}: STATE unreadable ({error})")
-            else:
-                busy.extend(f"{state}: {reason}" for reason in _state_busy_reasons(text))
+    """Every runtime idle (``runtime_busy``), or holding only an IMPLEMENT/TEST result held by the workspace audit."""
+    busy = [reason for directory in _runtime_directories(root, storage, current)
+            for reason in runtime_busy_reasons(directory, _parse_state)]
     if busy:
         raise InstallError(
             f"UPGRADE_CONTROLLER_BUSY: {'; '.join(busy)}",
