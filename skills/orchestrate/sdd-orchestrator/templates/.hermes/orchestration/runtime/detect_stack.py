@@ -47,7 +47,7 @@ TEST_RUN_ARTIFACT_TREES = (".pytest_cache", "htmlcov")
 TEST_RUN_ARTIFACT_FILES = ("coverage.xml", ".coverage")
 TEST_RUN_ARTIFACT_PREFIXES = (".coverage.",)
 #: Files inside an artifact tree that still count, because an interpreter could load them as code.
-TEST_RUN_ARTIFACT_CODE_SUFFIXES = (".py", ".pyc", ".pyo", ".pth", ".so")
+TEST_RUN_ARTIFACT_CODE_SUFFIXES = (".py", ".pyc", ".pyo", ".pth", ".so", ".pyw", ".pyd", ".pyz", ".dylib", ".egg-link")
 #: Bytecode caches (PEP 3147/488/552): ``<dir>/__pycache__/<stem>.<cache-tag>[-pytest-<version>][.opt-N].pyc``
 #: next to ``<dir>/<stem>.py``; the 16-byte header holds the magic, a flags word (0 = timestamp-based)
 #: and the source's mtime and size, both little-endian modulo 2**32.

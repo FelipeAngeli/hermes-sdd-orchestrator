@@ -92,11 +92,12 @@ _OVERRIDES = ("core.worktree=", "core.bare=false", "core.fsmonitor=false", "core
 _DIFF = ("diff", "--binary", "--no-ext-diff", "--no-textconv")
 
 
-def _git(repo: Path, *arguments: str, git_dir: str | None = None, allowed: tuple[int, ...] = (0,)) -> bytes:
+def _git(repo: Path, *arguments: str, git_dir: str | None = None, allowed: tuple[int, ...] = (0,),
+         stdin: bytes | None = None) -> bytes:
     pinned = ["--git-dir", git_dir, "--work-tree", str(repo)] if git_dir else []
     argv = ["git", "-C", str(repo), *pinned, *(item for value in _OVERRIDES for item in ("-c", value)), *arguments]
     try:
-        completed = subprocess.run(argv, capture_output=True, timeout=_TIMEOUT, check=False)
+        completed = subprocess.run(argv, capture_output=True, timeout=_TIMEOUT, check=False, input=stdin)
     except (OSError, subprocess.SubprocessError) as exc:
         raise AuditError(f"git {arguments[0]} could not run ({exc.__class__.__name__})") from exc
     if completed.returncode not in allowed:
@@ -141,6 +142,24 @@ def _status(repo: Path, git_dir: str) -> dict[str, str]:
         files[path] = status
         second = "R" in status or "C" in status
     return files
+
+
+def _check_ignore(repo: Path, paths: list[str], git_dir: str) -> set[str]:
+    """Which of ``paths`` the repository's current ignore rules cover (``--no-index``, so a tracked path counts too)."""
+    if not paths:
+        return set()
+    raw = _git(repo, "check-ignore", "-z", "--stdin", "--no-index", git_dir=git_dir, allowed=(0, 1),
+               stdin="\0".join(paths).encode("utf-8") + b"\0")
+    return {item for item in raw.decode("utf-8", "replace").split("\0") if item}
+
+
+def _ignored_roots(repo: Path, git_dir: str) -> tuple[str, ...]:
+    """The artifact tree roots the current rules ignore from outside the tree (``audit_scope.roots``)."""
+    targets = [root + "/" for root in audit_scope.TREE_ROOTS]
+    raw = _git(repo, "check-ignore", "-v", "-z", "--stdin", "--no-index", git_dir=git_dir, allowed=(0, 1),
+               stdin="\0".join(targets).encode("utf-8") + b"\0").decode("utf-8", "replace").split("\0")
+    sources = {path.rstrip("/"): raw[index - 3] for index, path in enumerate(raw) if index % 4 == 3}
+    return audit_scope.roots({root: sources.get(root, "") for root in audit_scope.TREE_ROOTS})
 
 
 def _hash(path: Path) -> str:
@@ -201,9 +220,14 @@ def snapshot(repo: Path, exclude: list[str] | tuple[str, ...] = (), git_dir: str
     when absent) and to ``repo`` as the work tree, so neither a ``core.worktree`` in
     ``.git/config`` nor a ``.git`` replaced by a gitfile can redirect them. The directory Git
     resolves now is recorded as ``git_dir``, so a replaced ``.git`` is reported as well.
+    ``status`` keeps each listed path's two-letter ``git status`` code (``!!`` is untracked and
+    ignored). ``artifact_roots`` holds the artifact tree roots an ignore rule **outside** the
+    tree covers, so a rule the dispatch wrote inside one cannot widen the list.
     ``test_artifacts`` lists the ignored test-run artifacts present now and, against
-    ``baseline`` (the before-snapshot, when this is the after one), those removed since
-    (``audit_scope``); every path stays in ``files``, the filter runs at compare time.
+    ``baseline`` (the before-snapshot, when this is the after one), the paths that baseline
+    had git-ignored and that are now gone (``audit_scope``); the baseline's roots decide, and
+    a baseline without them falls back to the current rules. Every path stays in ``files``:
+    the filter runs at compare time.
     """
     repo = Path(repo)
     skip = tuple(exclude)
@@ -212,8 +236,19 @@ def snapshot(repo: Path, exclude: list[str] | tuple[str, ...] = (), git_dir: str
     config = _git(repo, "config", "--list", "-z", "--show-origin", "--includes", git_dir=git_dir)
     status = {path: code for path, code in _status(repo, git_dir).items() if not _excluded(path, skip)}
     paths = sorted(status)
+    roots = _ignored_roots(repo, git_dir)
     removed = [path for path in (baseline or {}).get("files") or {} if path not in status and not _excluded(path, skip)]
-    artifacts = audit_scope.select(repo, (path for path in paths if status[path] == "!!"), removed)
+    recorded = (baseline or {}).get("status")
+    if baseline is not None and "artifact_roots" in baseline:
+        roots = tuple(baseline["artifact_roots"])  # the baseline's rules decide, not rules the dispatch may have added
+    if recorded is not None:
+        removed = [path for path in removed if recorded.get(path) == "!!"]
+    elif removed:
+        # A baseline older than this field (15.19.0) records no per-path status, so the only
+        # available rules are the current ones. The ignore rules themselves are compared
+        # separately (IGNORE_RULES_CHANGED), so a dispatch that added a rule is reported anyway.
+        removed = sorted(_check_ignore(repo, sorted(removed), git_dir))
+    artifacts = audit_scope.select(repo, (path for path in paths if status[path] == "!!"), removed, roots=roots)
     head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD", git_dir=git_dir, allowed=(0, 1)).decode("utf-8", "replace").strip() or "unborn"
     refs = _git(repo, "for-each-ref", "--format=%(refname) %(objectname)", git_dir=git_dir) + b"\0" \
         + _git(repo, "symbolic-ref", "-q", "HEAD", git_dir=git_dir, allowed=(0, 1))
@@ -223,7 +258,7 @@ def snapshot(repo: Path, exclude: list[str] | tuple[str, ...] = (), git_dir: str
             "refs_sha256": _sha(refs), "index_sha256": _sha(_git(repo, "ls-files", "-s", "-v", "-z", git_dir=git_dir)),
             "diff_sha256": _sha(diff), "ignore_rules": _ignore_rules(repo, paths, git_dir), "git_dir": resolved,
             "config_sha256": _sha(config), "hooks_sha256": _hooks(repo, git_dir), "excluded": list(skip),
-            "test_artifacts": artifacts}
+            "status": status, "artifact_roots": list(roots), "test_artifacts": artifacts}
 
 
 def load(path: Path) -> dict[str, Any]:

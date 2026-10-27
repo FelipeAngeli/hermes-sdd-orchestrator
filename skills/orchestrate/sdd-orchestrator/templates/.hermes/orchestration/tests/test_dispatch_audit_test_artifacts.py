@@ -211,6 +211,16 @@ class TestArtifactTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertTrue(audit_scope.candidate(f"pkg/__pycache__/{name}"))
 
+    def test_every_importable_suffix_still_counts_inside_an_artifact_tree(self) -> None:
+        import detect_stack
+
+        for suffix in (".py", ".pyc", ".pyo", ".pth", ".so", ".pyw", ".pyd", ".pyz", ".dylib", ".egg-link"):
+            with self.subTest(suffix=suffix):
+                self.assertIn(suffix, detect_stack.TEST_RUN_ARTIFACT_CODE_SUFFIXES)
+                for path in (f".pytest_cache/plugin{suffix}", f"htmlcov/x{suffix.upper()}", f".coverage.x{suffix}"):
+                    self.assertFalse(audit_scope.candidate(path), path)
+        self.assertTrue(audit_scope.candidate(".pytest_cache/v/cache/nodeids"))
+
     def test_an_ignore_rule_change_is_still_reported(self) -> None:
         before = dispatch_audit.snapshot(self.repo)
         self.write(".gitignore", IGNORE + "docs/\n")

@@ -10,8 +10,10 @@ themselves live in ``detect_stack.py`` (``TEST_RUN_ARTIFACT_*``, ``BYTECODE_*``)
 module allowed to hold them. A path is left out only when **all** of these hold:
 
 * it is untracked and git-ignored now (a tracked file, or an unignored one, always counts),
-  or it was listed in the baseline and is now gone from both ``git status`` and the disk;
-* it matches one exact rule: a path under a root artifact tree whose suffix is not code
+  or it was listed in the baseline, **was git-ignored there** and is now gone from both
+  ``git status`` and the disk;
+* it matches one exact rule: a path under a root artifact tree that the baseline rules ignored
+  from outside the tree (``roots``) and whose suffix is not code
   (``TEST_RUN_ARTIFACT_CODE_SUFFIXES``), a root artifact file name, or a root file name
   starting with an artifact prefix and not ending in a code suffix; or a bytecode file directly inside a bytecode-cache
   directory whose name follows the interpreter scheme (``BYTECODE_NAME``) and whose source
@@ -37,8 +39,21 @@ from typing import Any, Iterable
 from detect_stack import (BYTECODE_CACHE_DIR, BYTECODE_NAME, BYTECODE_SOURCE_SUFFIX, TEST_RUN_ARTIFACT_CODE_SUFFIXES,
                           TEST_RUN_ARTIFACT_FILES, TEST_RUN_ARTIFACT_PREFIXES, TEST_RUN_ARTIFACT_TREES)
 
+#: The artifact tree roots, exposed so the caller can ask Git which of them its rules ignore.
+TREE_ROOTS = TEST_RUN_ARTIFACT_TREES
 _BYTECODE = re.compile(BYTECODE_NAME)
 _HEADER = 16
+
+
+def roots(sources: dict[str, str]) -> tuple[str, ...]:
+    """The artifact tree roots an ignore rule **outside the tree** covers.
+
+    ``sources`` maps each root of ``TREE_ROOTS`` to the ignore file that matched it
+    (``git check-ignore -v``), or to an empty string when nothing did. A rule the worker
+    wrote inside the tree (``.pytest_cache/.gitignore`` holding ``*``) is rejected: it would
+    otherwise make the subtree, and its own change, invisible to the audit.
+    """
+    return tuple(root for root in TREE_ROOTS if (sources.get(root) or "") and not sources[root].startswith(root + "/"))
 
 
 def _bytecode_source(path: str) -> str | None:
@@ -50,11 +65,16 @@ def _bytecode_source(path: str) -> str | None:
     return "/".join([*parts[:-2], match.group("stem") + BYTECODE_SOURCE_SUFFIX])
 
 
-def candidate(path: str) -> bool:
-    """True when ``path`` matches one of the exact name rules (content and Git status are checked apart)."""
+def candidate(path: str, roots: Iterable[str] = TEST_RUN_ARTIFACT_TREES) -> bool:
+    """True when ``path`` matches one of the exact name rules (content and Git status are checked apart).
+
+    ``roots`` are the artifact tree roots that qualify: the caller passes the roots the
+    **baseline** rules ignored from outside the tree, so a ``.pytest_cache/.gitignore`` the
+    worker wrote (``*``) cannot make the subtree eligible (``dispatch_audit.artifact_roots``).
+    """
     parts = path.split("/")
     code = parts[-1].lower().endswith(TEST_RUN_ARTIFACT_CODE_SUFFIXES)
-    if len(parts) > 1 and parts[0] in TEST_RUN_ARTIFACT_TREES:
+    if len(parts) > 1 and parts[0] in tuple(roots):
         return not code
     if len(parts) == 1 and (path in TEST_RUN_ARTIFACT_FILES or path.startswith(TEST_RUN_ARTIFACT_PREFIXES)):
         return not code
@@ -85,15 +105,16 @@ def _bytecode_matches(repo: Path, path: str) -> bool:
     return flags == 0 and mtime == int(source.st_mtime) & 0xFFFFFFFF and size == source.st_size & 0xFFFFFFFF
 
 
-def eligible(repo: Path, path: str, *, present: bool) -> bool:
+def eligible(repo: Path, path: str, *, present: bool, roots: Iterable[str] = TEST_RUN_ARTIFACT_TREES) -> bool:
     """For an untracked, git-ignored ``path``: is it a test-run artifact the audit leaves out?
 
-    A removed artifact (``present`` false: listed in the baseline, gone from ``git status``)
-    needs the name rule and must really be absent from disk, so a tracked file reverted to
-    its committed content still counts; deleting a cache runs nothing. One that exists must
+    A removed artifact (``present`` false: the caller checked that the baseline listed it,
+    that the baseline had it git-ignored and that it is gone from ``git status``) needs the
+    name rule and must really be absent from disk, so a tracked file reverted to its
+    committed content still counts; deleting a cache runs nothing. One that exists must
     also be a regular file, and a bytecode file must match its sibling source.
     """
-    if not candidate(path):
+    if not candidate(path, roots):
         return False
     if not present:
         try:
@@ -108,10 +129,17 @@ def eligible(repo: Path, path: str, *, present: bool) -> bool:
     return _bytecode_source(path) is None or _bytecode_matches(Path(repo), path)
 
 
-def select(repo: Path, ignored: Iterable[str], removed: Iterable[str]) -> list[str]:
-    """The artifacts among the ignored paths present now and the ignored paths removed since the baseline."""
-    found = {path for path in ignored if eligible(repo, path, present=True)}
-    found |= {path for path in removed if eligible(repo, path, present=False)}
+def select(repo: Path, ignored: Iterable[str], removed: Iterable[str], *,
+           roots: Iterable[str] = TEST_RUN_ARTIFACT_TREES) -> list[str]:
+    """The artifacts among the paths git-ignored now and the paths the baseline had ignored and that are gone.
+
+    ``removed`` holds only the baseline paths the **baseline** had git-ignored
+    (``dispatch_audit``), so an untracked, unignored file with an artifact name that the
+    dispatch deleted is still reported.
+    """
+    roots = tuple(roots)
+    found = {path for path in ignored if eligible(repo, path, present=True, roots=roots)}
+    found |= {path for path in removed if eligible(repo, path, present=False, roots=roots)}
     return sorted(found)
 
 
