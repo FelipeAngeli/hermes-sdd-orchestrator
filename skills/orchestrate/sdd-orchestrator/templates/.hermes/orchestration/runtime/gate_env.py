@@ -19,10 +19,11 @@ Ecosystem names live only in ``detect_stack``. The child then neither loads a ca
 the repository nor writes one into it.
 
 Not covered: a gate command that clears these variables itself (an isolated-mode interpreter,
-for example), a cache directory set explicitly by the tool's own configuration (mypy
-``cache_dir``, ruff ``cache-dir``) or by ``--cache-dir`` on the command line, both of which the
-tools' documentation ranks above the variable, or any process outside the gate. Standard
-library only.
+for example), ``--cache-dir`` on the command line (both tools rank it above the variable), a
+ruff ``cache-dir`` in the project configuration (ruff's documentation ranks it above the
+variable; ruff 0.17.2 was observed to let the variable win, but other versions may follow the
+documentation; mypy's ``cache_dir`` config is overridden by the variable), or any process
+outside the gate. Standard library only.
 """
 from __future__ import annotations
 

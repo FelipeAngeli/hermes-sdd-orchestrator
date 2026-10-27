@@ -62,8 +62,8 @@ BYTECODE_SOURCE_SUFFIX = ".py"
 BYTECODE_PREFIX_ENV = "PYTHONPYCACHEPREFIX"
 BYTECODE_ISOLATION_ENV = {"PYTHONDONTWRITEBYTECODE": "1"}
 #: Gate commands also get a fresh cache directory per tool (mypy ``cache_dir``/``MYPY_CACHE_DIR``, ruff
-#: ``cache-dir``/``RUFF_CACHE_DIR``), so a gate never reads a cache planted in the repository. A project config or
-#: ``--cache-dir`` on the command line still wins over these variables (see ``runtime/gate_env.py``).
+#: ``cache-dir``/``RUFF_CACHE_DIR``), so a gate never reads a cache planted in the repository. ``--cache-dir`` on the
+#: command line still wins, and so may a ruff ``cache-dir`` in the project config (see ``runtime/gate_env.py``).
 GATE_CACHE_DIR_ENVS = ("MYPY_CACHE_DIR", "RUFF_CACHE_DIR")
 BYTECODE_NAME = r"(?P<stem>[^./]+)\.[a-z]+-?[0-9]+t?(?:-pytest-[0-9][0-9A-Za-z.+]*)?(?:\.opt-[12])?\.pyc"
 IGNORED_DIRS = frozenset({
