@@ -17,9 +17,9 @@ interpreter, for example) or any process outside the gate. Standard library only
 from __future__ import annotations
 
 import contextlib
-import os
 import subprocess
 import tempfile
+from os import environ as process_environment
 from pathlib import Path
 from typing import Iterator, Mapping, Sequence
 
@@ -29,7 +29,7 @@ from detect_stack import BYTECODE_ISOLATION_ENV, BYTECODE_PREFIX_ENV
 @contextlib.contextmanager
 def isolated(base: Mapping[str, str] | None = None) -> Iterator[dict[str, str]]:
     """A copy of ``base`` (default: this process's environment) for one gate run; the prefix is removed on exit."""
-    env = dict(os.environ if base is None else base)
+    env = dict(process_environment if base is None else base)
     with tempfile.TemporaryDirectory(prefix="gate-pycache-") as prefix:
         env.update(BYTECODE_ISOLATION_ENV)
         env[BYTECODE_PREFIX_ENV] = prefix

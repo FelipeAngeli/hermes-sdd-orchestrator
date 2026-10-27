@@ -9,11 +9,11 @@ writes one there. The variable names live in ``detect_stack.py``.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from os import environ as process_environment
 from pathlib import Path
 from unittest import mock
 
@@ -24,7 +24,7 @@ import detect_stack  # noqa: E402
 import gate_env  # noqa: E402
 
 PROBE = ("import json, os, sys; print(json.dumps({'prefix': sys.pycache_prefix, 'dont_write': sys.dont_write_bytecode,"
-         " 'inherited': os.environ.get('SDD_GATE_ENV_PROBE'), 'exists': os.path.isdir(sys.pycache_prefix or '')}))")
+         " 'inherited': os.getenv('SDD_GATE_ENV_PROBE'), 'exists': os.path.isdir(sys.pycache_prefix or '')}))")
 
 
 class GateEnvTests(unittest.TestCase):
@@ -47,11 +47,12 @@ class GateEnvTests(unittest.TestCase):
         self.assertEqual("/repo/shared-cache", base["PYTHONPYCACHEPREFIX"], "the caller's mapping is not modified")
 
     def test_run_inherits_the_environment_and_redirects_bytecode_in_the_child(self) -> None:
-        with tempfile.TemporaryDirectory() as repo, mock.patch.dict(os.environ, {"SDD_GATE_ENV_PROBE": "kept"}):
-            os.environ.pop("PYTHONPYCACHEPREFIX", None)
-            os.environ.pop("PYTHONDONTWRITEBYTECODE", None)
+        inherited = {key: value for key, value in process_environment.items()
+                     if key not in {"PYTHONPYCACHEPREFIX", "PYTHONDONTWRITEBYTECODE"}}
+        inherited["SDD_GATE_ENV_PROBE"] = "kept"
+        with tempfile.TemporaryDirectory() as repo, mock.patch.dict(process_environment, inherited, clear=True):
             completed = gate_env.run([sys.executable, "-c", PROBE], cwd=Path(repo), timeout=60)
-            self.assertNotIn("PYTHONPYCACHEPREFIX", os.environ, "the controller's own environment is not changed")
+            self.assertNotIn("PYTHONPYCACHEPREFIX", process_environment, "the controller's own environment is not changed")
         self.assertEqual(0, completed.returncode, completed.stderr)
         seen = json.loads(completed.stdout)
         self.assertEqual("kept", seen["inherited"])
