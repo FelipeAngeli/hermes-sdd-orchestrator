@@ -24,6 +24,25 @@ def apply(stop_reasons: dict, explanations: dict, human: str, next_command: str)
     )
 
 
+def apply_audit(stop_reasons: dict, explanations: dict, blocked: str, next_command: str) -> None:
+    """Add the opt-in workspace-audit row (off by default; see runtime/dispatch_audit.py)."""
+    stop_reasons["WORKSPACE_AUDIT_FAILED"] = (
+        blocked,
+        "The project enabled `workspace_audit: enforce` in policies/EXECUTORS.md and the independent check of this writing dispatch "
+        "does not match the result: files (ignored ones included) that changed but are not declared, declared outside the slice "
+        "editable_paths, a changed ignore rule, a moved HEAD/ref/index, or an audit that could not be verified (missing or corrupt "
+        "baseline, unreadable result, failing git call), which fails closed. The result is not folded into STATE. Show the listed "
+        "findings to the user, decide with them whether to keep or revert that work, then archive the action with `sdd.py abandon` "
+        "(its words) or reopen the slice so the worker redoes it inside scope. Nothing is reverted automatically.",
+        next_command,
+    )
+    explanations["WORKSPACE_AUDIT_FAILED"] = (
+        "O repositório mudou de um jeito que o resultado não declara (arquivos, regras de ignore ou o próprio Git), ou a auditoria não pôde ser verificada.",
+        "A auditoria independente do repositório, que este projeto ativou, não confere com o resultado entregue e falha fechada na dúvida.",
+        "Ver os arquivos listados, decidir com o usuário o que manter e então abandonar ou reabrir a fatia.",
+    )
+
+
 def apply_controller_policy(stop_reasons: dict, explanations: dict, HUMAN: str, BLOCKED: str, _CONFIRM_POLICY: str, _ABANDON: str) -> None:  # noqa: N803
     """Add the controller-policy pin and controller-isolation rows (both tables)."""
     stop_reasons.update({

@@ -156,37 +156,47 @@ def envelope_usage(envelope: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def extract_result(executor: str, stdout: bytes, last_message: Path) -> tuple[bytes | None, bool, dict[str, Any]]:
-    """Return (final bytes, is_json_object, diagnostics). Raw non-JSON output is kept as evidence.
-
-    The Claude path is unchanged: the structured_output of the ``--output-format json``
-    envelope, falling back to the textual ``result``. The Codex path goes through the
-    tolerant normalizer above.
-    """
+def _claude_result(stdout: bytes, _last_message: Path) -> tuple[bytes | None, bool, dict[str, Any]]:
+    """structured_output of the ``--output-format json`` envelope, falling back to the textual ``result``."""
     diagnostics: dict[str, Any] = {}
-    if executor == "claude":
-        text = stdout.decode("utf-8", errors="replace")
-        try:
-            envelope = json.loads(text)
-        except json.JSONDecodeError:
-            return (stdout if text.strip() else None), False, {"envelope": "NOT_JSON"}
-        if not isinstance(envelope, dict):
-            return stdout, False, {"envelope": "NOT_OBJECT"}
-        diagnostics = {"envelope_subtype": envelope.get("subtype"), "envelope_is_error": envelope.get("is_error")}
-        usage = envelope_usage(envelope)
-        if usage is not None:
-            diagnostics["usage"] = usage
-        structured = envelope.get("structured_output")
-        if isinstance(structured, dict):
-            return (json.dumps(structured, indent=2, ensure_ascii=False) + "\n").encode("utf-8"), True, diagnostics
-        result = envelope.get("result")
-        if not isinstance(result, str) or not result.strip():
-            return None, False, diagnostics
-        try:
-            is_object = isinstance(json.loads(result), dict)
-        except json.JSONDecodeError:
-            is_object = False
-        return result.encode("utf-8"), is_object, diagnostics
+    text = stdout.decode("utf-8", errors="replace")
+    try:
+        envelope = json.loads(text)
+    except json.JSONDecodeError:
+        return (stdout if text.strip() else None), False, {"envelope": "NOT_JSON"}
+    if not isinstance(envelope, dict):
+        return stdout, False, {"envelope": "NOT_OBJECT"}
+    diagnostics = {"envelope_subtype": envelope.get("subtype"), "envelope_is_error": envelope.get("is_error")}
+    usage = envelope_usage(envelope)
+    if usage is not None:
+        diagnostics["usage"] = usage
+    structured = envelope.get("structured_output")
+    if isinstance(structured, dict):
+        return (json.dumps(structured, indent=2, ensure_ascii=False) + "\n").encode("utf-8"), True, diagnostics
+    result = envelope.get("result")
+    if not isinstance(result, str) or not result.strip():
+        return None, False, diagnostics
+    try:
+        is_object = isinstance(json.loads(result), dict)
+    except json.JSONDecodeError:
+        is_object = False
+    return result.encode("utf-8"), is_object, diagnostics
+
+
+def _codex_result(_stdout: bytes, last_message: Path) -> tuple[bytes | None, bool, dict[str, Any]]:
+    """The ``--output-last-message`` file through the tolerant normalizer above."""
     if not last_message.is_file():
         return None, False, {"last_message": "MISSING"}
     return normalize_codex_last_message(last_message.read_bytes())
+
+
+#: Per-executor final-message readers. OpenCode's JSONL stream is read by ``opencode_transport.classify``.
+EXTRACTORS = {"claude": _claude_result, "codex": _codex_result}
+
+
+def extract_result(executor: str, stdout: bytes, last_message: Path) -> tuple[bytes | None, bool, dict[str, Any]]:
+    """Return (final bytes, is_json_object, diagnostics). Raw non-JSON output is kept as evidence.
+
+    The reader is looked up by executor name; an executor without one is a ``KeyError``, never a fallback.
+    """
+    return EXTRACTORS[executor](stdout, last_message)

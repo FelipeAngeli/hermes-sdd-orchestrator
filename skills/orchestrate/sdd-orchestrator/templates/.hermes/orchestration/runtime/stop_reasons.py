@@ -225,9 +225,9 @@ _additions = __import__("importlib.util").util.module_from_spec(_spec)
 _spec.loader.exec_module(_additions)
 _additions.apply(STOP_REASONS, EXPLANATIONS, HUMAN, _NEXT)
 _additions.apply_controller_policy(STOP_REASONS, EXPLANATIONS, HUMAN, BLOCKED, _CONFIRM_POLICY, _ABANDON)
+_additions.apply_audit(STOP_REASONS, EXPLANATIONS, BLOCKED, _ABANDON)
 
-#: Codes a runtime emits through a computed value rather than a literal (journal
-#: error codes surfaced by ``recover`` when the STATE commit cannot be hashed).
+#: Codes emitted through a computed value, not a literal (journal errors from `recover`).
 DYNAMIC_STOP_REASONS = frozenset({"STATE_PATH_REQUIRED", "STATE_PATH_UNSAFE", "STATE_COMMIT_FILE_MISSING"})
 
 

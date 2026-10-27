@@ -5,7 +5,9 @@
 covers well-known token prefixes, private-key blocks, JWS/JWE tokens,
 credentials in URLs, authorization and cookie headers, connection strings,
 password flags of common CLIs, ``key = value`` assignments whose key names a
-secret, and plain-language "password is X". Every pattern runs in linear time;
+secret, token-shaped values of the bare JSON keys ``key``/``refresh``/``access``
+(OpenCode's ``auth.json``, also JSON-escaped inside a JSONL line), and
+plain-language "password is X". Every pattern runs in linear time;
 callers should still bound the input (``wiki_journal.record`` truncates first).
 Stdlib only.
 """
@@ -73,6 +75,19 @@ _SECRET_ASSIGNMENT = re.compile(
     (?P<value>\\"(?:[^"\\\n]|\\[^"]){0,1024}\\"|"(?:[^"\\\n]|\\.){0,1024}"|'[^'\n]{0,1024}'|[^\s,;}\]\)]{1,1024})
     """
 )
+
+# OpenCode ``auth.json`` (and similar stores) name credentials with bare JSON keys: ``"key"`` for an
+# API key, ``"refresh"``/``"access"`` for OAuth tokens. Only a quoted, token-shaped value (16+ chars
+# of a token alphabet, at least one digit, no spaces or slashes) is masked, so ``{"key": "src/a.py"}``
+# and ``{"access": "read"}`` survive. ``\\?"`` also matches the JSON-escaped form inside a JSONL line.
+_BARE_CREDENTIAL = re.compile(r'(?P<q>\\?")(?:key|refresh|access)(?P=q)[ \t]{0,16}:[ \t]{0,16}(?P=q)(?P<value>[A-Za-z0-9_+=~.-]{16,4096})(?P=q)')
+
+
+def _redact_bare_credential(match: re.Match[str]) -> str:
+    value = match.group("value")
+    if not any(character.isdigit() for character in value):
+        return match.group(0)
+    return match.group(0).replace(value, "[REDACTED]")
 
 
 def _redact_assignment(match: re.Match[str]) -> str:
@@ -182,4 +197,5 @@ def redact(text: str) -> str:
         text = pattern.sub("[REDACTED]", text)
     for pattern, replacement in _SECRET_SUBSTITUTIONS:
         text = pattern.sub(replacement, text)
+    text = _BARE_CREDENTIAL.sub(_redact_bare_credential, text)
     return _SECRET_ASSIGNMENT.sub(_redact_assignment, text)

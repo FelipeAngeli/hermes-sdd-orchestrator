@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from executor_dispatch import plan_label
+
 try:
     import jsonschema
 except ImportError as exc:  # pragma: no cover - environment preflight
@@ -78,10 +80,8 @@ RECOVERY_DECISIONS = (
     "ALREADY_COMMITTED", "WAIT_OR_MANUAL_REVIEW", "ARCHIVE_INTERRUPTED_REQUIRED", "BLOCKED", "RELEASED",
 )
 RECONCILE_DECISIONS = {"RECONCILE_ARTIFACT", "STATE_COMMIT_REQUIRED", "ARCHIVE_INTERRUPTED_REQUIRED"}
-#: Budget reset events: a counter ``used_current_action`` restarts when the journal
-#: rolls over to a new action; ``used_current_stage`` (and the per-action counter)
-#: restart on a stage transition. Run/demand counters never reset; raising a
-#: limit needs `sdd.py budget --raise` with the user's quote.
+#: Budget reset events: ``used_current_action`` restarts on journal rollover, ``used_current_stage``
+#: (and the per-action counter) on a stage transition; run counters never reset (raise: `sdd.py budget`).
 BUDGET_RESET_EVENTS = {
     "ROLLOVER": ("corrective_retries",),
     "STAGE_TRANSITION": ("corrective_retries", "investigation_expansions"),
@@ -264,7 +264,7 @@ def classify_action(action: str) -> dict[str, Any]:
     if action in AUTO_SAFE:
         classification, executor = "AUTO_SAFE", "HOST"
     elif action in AUTO_WITH_BUDGET:
-        classification, executor = "AUTO_WITH_BUDGET", "HOST" if action == "CI" else "CODEX"
+        classification, executor = "AUTO_WITH_BUDGET", "HOST" if action == "CI" else plan_label(action)
     elif action in HUMAN_REQUIRED:
         classification, executor = "HUMAN_REQUIRED", "NONE"
     else:
