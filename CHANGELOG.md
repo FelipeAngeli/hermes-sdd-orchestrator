@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.19.2 - 2026-10-27
+
 ### Fixed
 
 - **Gates: `mypy` and `ruff` never read a cache planted in the repository.** `sdd.py gate` (and the opt-in `gate_validator`) ran every command with the controller's environment, so `mypy`/`ruff` read and wrote the repository's `.mypy_cache/`/`.ruff_cache/`. Both skip a file whose cached mtime and size match, so a writing worker could build that cache from a clean file and then write an error with the same size and mtime: the gate passed (reproduced with mypy 2.4.0 and ruff 0.17.2). `runtime/gate_env.py` now also sets `MYPY_CACHE_DIR` and `RUFF_CACHE_DIR` (names in `runtime/detect_stack.py`, `GATE_CACHE_DIR_ENVS`) to fresh, empty directories inside the per-run temporary directory, deleted afterwards and replacing any inherited value; gate commands are not changed. Precedence, from the tools' documentation: mypy's environment variable overrides `[tool.mypy] cache_dir` but `--cache-dir` overrides the variable; ruff's documentation ranks its `cache-dir` setting and `--cache-dir` above the variable (observed with ruff 0.17.2: `--cache-dir` wins, but the variable wins over a `cache-dir` in `pyproject.toml` or `ruff.toml`; the controller assumes the documented ranking). Residual risk, documented in [Gates](docs/components/gates-and-stack-detection.md#gate-order-gatesmd): a GATES.md row with `--cache-dir`, or a ruff `cache-dir` in the project configuration, still points the tool at a directory a worker can write. Tests: `tests/test_gate_env.py`, `tests/test_controller_gate_tool_caches.py` (new, real tools).
