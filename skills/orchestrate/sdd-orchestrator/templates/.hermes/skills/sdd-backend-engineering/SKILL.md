@@ -1,7 +1,7 @@
 ---
 name: sdd-backend-engineering
 description: Guide backend service design and implementation safely.
-version: 0.2.0
+version: 0.3.0
 author: Felipe Angeli (FelipeAngeli), Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -18,6 +18,8 @@ Project-local playbook for planning and implementing backend behavior. Project r
 ## When to Use
 
 Use when a slice changes an API handler, service/use case, authorization path, configuration or secret, resource limit, integration, queue consumer/producer, background job, cache, transaction boundary or operational failure behavior.
+
+Also use to audit or harden an existing backend (`references/fundamentals-audit.md`).
 
 Do not use for frontend-only work, pure schema migrations with no application behavior (`sdd-database-design-migrations`), specification authoring (`sdd-api-contracts`), container files (`sdd-docker-containers`), or a review that already belongs to a controller-selected sub-agent.
 
@@ -37,6 +39,12 @@ Do not use for frontend-only work, pure schema migrations with no application be
 | Resource authorization, configuration, secrets, limits, concurrency | `references/security-config-and-limits.md` |
 | Caching and invalidation, queues, external services | `references/caching-and-integrations.md` |
 | Logs, metrics, traces, debugging evidence, test-layer choice | `references/observability-and-testing.md` |
+| Read-only audit of the five fundamentals and hardening order | `references/fundamentals-audit.md` |
+| Integration suite for critical flows, anti-production guard | `references/integration-test-suite.md` |
+| Client-side rules, exposed keys, row-level security, IDOR | `references/never-trust-the-client.md` |
+| Read-decide-write races: constraint, conditional update, lock | `references/race-conditions.md` |
+| Webhook signatures, processed events, outgoing idempotency keys | `references/webhook-idempotency.md` |
+| Untangling presentation, rules and data under tests | `references/separation-of-concerns.md` |
 
 ## Procedure
 
