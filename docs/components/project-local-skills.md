@@ -18,6 +18,12 @@ Project rules, code, accepted decisions and authoritative contracts override eve
 | `templates/.hermes/skills/sdd-backend-engineering/references/observability-and-testing.md` | Secret-safe observability, reproducible debugging evidence and criteria for choosing unit, component, integration or end-to-end tests. |
 | `templates/.hermes/skills/sdd-backend-engineering/references/security-config-and-limits.md` | Resource- and tenant-level authorization, input validation, configuration and secrets, sensitive data, timeouts, concurrency bounds, backpressure and rate limits. |
 | `templates/.hermes/skills/sdd-backend-engineering/references/caching-and-integrations.md` | Cache keys, staleness and invalidation, queue delivery/ordering/dead-letter handling, and external-service adapters, timeouts and sandbox tests. |
+| `templates/.hermes/skills/sdd-backend-engineering/references/fundamentals-audit.md` | Read-only audit of five backend fundamentals (integration tests, never trust the client, race conditions, idempotency, separation of concerns) with a risk report, and the order in which to harden them, one fundamental per slice with the plan approved before code; branch, commit and pull-request operations stay with the project owner. |
+| `templates/.hermes/skills/sdd-backend-engineering/references/integration-test-suite.md` | Integration suite for critical flows through real routes and a local database of the production engine: test sentences approved first, five behavior categories, anti-production guard, no weakened tests; a test-framework install runs only inside an IMPLEMENT slice that owns the manifest. |
+| `templates/.hermes/skills/sdd-backend-engineering/references/never-trust-the-client.md` | Audit-then-fix of client-only rules and client-sent amounts or owners, exposed keys and public bundle prefixes with rotation, row-level-security policies and IDOR. |
+| `templates/.hermes/skills/sdd-backend-engineering/references/race-conditions.md` | Read-decide-write flows fixed in the project's database (unique constraint, atomic conditional update, row lock) and proven with simultaneous-request tests; no Redis, queue or in-memory mutex. |
+| `templates/.hermes/skills/sdd-backend-engineering/references/webhook-idempotency.md` | Webhook signature over the raw body, processed-events table with a unique key, success for repeats, out-of-order events, outgoing idempotency keys reused on retry and side effects outside the transaction. |
+| `templates/.hermes/skills/sdd-backend-engineering/references/separation-of-concerns.md` | Behavior-preserving refactor into presentation, business rules and data, after tests exist, in small approved steps with bugs noted rather than fixed; each green step is a commit point for the project owner, never a worker commit. |
 | `templates/.hermes/skills/sdd-architecture-decisions/SKILL.md` | Produces evidence-based architectural options, decisions, impact and ADRs. |
 | `templates/.hermes/skills/sdd-architecture-decisions/references/decision-workflow.md` | Decision record, alternatives, trade-offs, migration and reopening evidence. |
 | `templates/.hermes/skills/sdd-architecture-decisions/references/boundaries-and-dependencies.md` | Module/layer ownership, public surfaces and dependency direction. |
@@ -98,6 +104,7 @@ The slice contract separately lists the skill name and slice IDs that require it
 | Migration rollout/data/recovery judgment; relational or NoSQL model guidance | `sdd-database-design-migrations` (`references/rollout-safety-audit.md` and the reference for the detected model). |
 | OpenAPI description authoring, validation and breaking changes | `sdd-api-contracts` (`references/openapi.md`). |
 | Dockerfile, image build and Compose for local run and tests | `sdd-docker-containers`. |
+| Auditing or hardening an existing backend: integration suite, client trust, races, webhook idempotency, separation of concerns | `sdd-backend-engineering` (`references/fundamentals-audit.md`, then the reference for each fundamental). |
 | Whether tests can fail; focused validation | `sdd-tdd`. |
 | Release verdict, regressions, documentation truth | `sdd-release-readiness`. |
 | Bounded code evidence, data-flow trace or impact map | `data-flow-tracer` sub-agent. |
@@ -116,6 +123,7 @@ Playbooks are never dispatched and never act as approvers. Product-owner and tec
 ## Verification
 
 - Packaging tests require exactly these ten skill directories, valid portable frontmatter, required sections and at least three references each.
+- `tests/test_backend_fundamentals_playbooks.py` requires the six backend fundamentals references to name their required concepts and to be routed from `sdd-backend-engineering`.
 - Coverage tests require the backend, database, OpenAPI and container references to name their required concerns, and require PLAN, IMPLEMENT and the dispatch routing table to name `sdd-docker-containers`.
 - Documentation tests require this catalogue to match every installed project-skill file in both directions.
 - Stage-context tests cover missing, extra, duplicate, unsafe, unknown-slice and byte/frontmatter-mismatched playbooks/references and prove loaded guidance changes the approved slice hash.

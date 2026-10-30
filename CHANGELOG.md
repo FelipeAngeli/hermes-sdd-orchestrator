@@ -4,6 +4,18 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.20.1 - 2026-10-30
+
+### Fixed
+
+- **Backend fundamentals references: stage workers never commit, branch or install outside an owning slice.** Review round 1 of the 15.20.0 references. `references/separation-of-concerns.md` said "Green → small commit" and `references/fundamentals-audit.md` put each fundamental "on its own branch", contradicting every stage brief ("Never commit, push, open a PR…") and the `workspace_audit: enforce` stop on a commit or moved ref; branch, commit and pull-request operations now belong to the project owner, and each green refactor step is a commit point for the owner. `references/integration-test-suite.md` now runs a test-framework install only inside an IMPLEMENT slice that owns the manifest and lockfile, as `sdd-tech-lead` `references/dependencies.md` requires.
+
+## 15.20.0 - 2026-10-30
+
+### Added
+
+- **Backend playbook: five engineering fundamentals for every project.** `sdd-backend-engineering` (0.2.0 → 0.3.0) gains six progressive-loading references, routed from its `SKILL.md`, adapted from the owner's engineering skills: `references/fundamentals-audit.md` (read-only audit of the five fundamentals with a risk report, and the hardening order, one fundamental per branch with the plan approved before code), `references/integration-test-suite.md` (critical flows through real routes and a local database of the production engine, approved test sentences, anti-production guard), `references/never-trust-the-client.md` (client-only rules, exposed keys and public bundle prefixes with rotation, row-level security, IDOR), `references/race-conditions.md` (unique constraint, atomic conditional update or row lock, simultaneous-request tests), `references/webhook-idempotency.md` (signature over the raw body, processed-events table, outgoing idempotency keys) and `references/separation-of-concerns.md` (behavior-preserving refactor into presentation, rules and data). The installer already copies every project-skill file, so new installs and upgrades receive them. Catalogue and routing in [Project-local engineering skills](docs/components/project-local-skills.md); coverage assertions in the new `tests/test_backend_fundamentals_playbooks.py`.
+
 ## 15.19.2 - 2026-10-27
 
 ### Fixed
