@@ -4,6 +4,8 @@ All notable changes to the orchestration are recorded here. Every change under `
 
 ## Unreleased
 
+## 15.20.1 - 2026-10-30
+
 ### Fixed
 
 - **Backend fundamentals references: stage workers never commit, branch or install outside an owning slice.** Review round 1 of the 15.20.0 references. `references/separation-of-concerns.md` said "Green → small commit" and `references/fundamentals-audit.md` put each fundamental "on its own branch", contradicting every stage brief ("Never commit, push, open a PR…") and the `workspace_audit: enforce` stop on a commit or moved ref; branch, commit and pull-request operations now belong to the project owner, and each green refactor step is a commit point for the owner. `references/integration-test-suite.md` now runs a test-framework install only inside an IMPLEMENT slice that owns the manifest and lockfile, as `sdd-tech-lead` `references/dependencies.md` requires.
