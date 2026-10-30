@@ -15,7 +15,7 @@ Tests that call the real routes against a real, local database and check the out
 
 ## Procedure
 
-1. **Detect the stack.** Language, framework, ORM, database and the existing test framework. Without one, propose the stack's standard and get approval before installing it.
+1. **Detect the stack.** Language, framework, ORM, database and the existing test framework. Without one, propose the stack's standard and get approval; the install runs only inside an IMPLEMENT slice that owns the manifest and lockfile (`sdd-tech-lead`, `references/dependencies.md`).
 2. **List critical flows.** Sign-up, login, checkout/payment, webhooks, scheduling, stock, and every route that moves money or touches another user's data. Present the list.
 3. **Write the sentences first.** One test name per expected behavior, covering five categories:
    - happy path;

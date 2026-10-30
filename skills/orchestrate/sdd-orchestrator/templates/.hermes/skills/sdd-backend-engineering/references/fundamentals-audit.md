@@ -35,7 +35,7 @@ Change the default order only for a critical risk found by the audit, such as an
 
 1. Run the audit above; report any exposed secret immediately so the owner can rotate it.
 2. Confirm with the requester which fundamentals apply and in which order; some may not (no webhooks: idempotency covers only outgoing charges, or is skipped).
-3. One fundamental per slice or change, on its own branch under the project's branch rules. Present the report or plan and wait for approval before changing code; run the full suite at the end and continue only when green.
+3. One fundamental per slice or change; branch, commit and pull-request operations belong to the project owner under the project's branch rules, never to a stage worker. Present the report or plan and wait for approval before changing code; run the full suite at the end and continue only when green.
 4. Record progress where the project keeps it (the SDD ticket, or a hardening log the project names): fundamental, date, branch, what changed, open items.
 5. Close with completed fundamentals, open items that depend on the owner (keys to rotate, bugs noted) and the command that runs the tests.
 

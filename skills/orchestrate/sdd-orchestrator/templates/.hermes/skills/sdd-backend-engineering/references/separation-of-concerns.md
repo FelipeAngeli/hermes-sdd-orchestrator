@@ -18,7 +18,7 @@ Follow the folder convention the stack already uses; without one, propose someth
 2. **Map.** For each large or mixed file, classify each function or block as presentation, rule or data, as a table: file → block → right drawer. Also flag cross dependencies, duplicated code and global state.
 3. **Propose the folder structure** following the project's existing pattern, with no new frameworks or libraries.
 4. **Plan small steps.** One step moves one piece while keeping public names and a working application (for example: "move the total calculation from `checkout.tsx` to `domain/order.ts`"). Order from safest to riskiest. Get approval of the plan before the first step.
-5. **Execute step by step.** After each step run the tests and the lint/type-check/build gates. Green → small commit and next step. Red → fix the code (never the test) or undo the step.
+5. **Execute step by step.** After each step run the tests and the lint/type-check/build gates. Green → the next step; each green step is a commit point for the project owner, because a stage worker never commits or switches branches (see the stage brief boundaries). Red → fix the code (never the test) or undo the step.
 6. **Note bugs, do not fix them.** A bug found during the refactor goes to a list or issue and is fixed later in a separate change. A refactor does not change behavior.
 7. **Final report:** what moved, the new structure, the bugs noted.
 
@@ -29,7 +29,7 @@ Follow the folder convention the stack already uses; without one, propose someth
 - Creating layers, interfaces and abstractions nobody asked for; three drawers are enough.
 - Renaming routes, public props, exported functions or database columns.
 - Editing tests to fit the refactor: a broken test means behavior changed.
-- Doing the whole refactor in one commit.
+- Doing the whole refactor in one step, leaving the owner no green intermediate point to commit.
 
 ## Verification
 
